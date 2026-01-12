@@ -429,7 +429,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			targetCh = 0;		// left edge of line
 		} else {
 			const oneLineDown = editor.getLine(cursor.line + 1);
-			const isDelimiterLineBelow = /^\s*\|?[:\s-]+\|[:\s- |]*$/.test(oneLineDown);
+			const isDelimiterLineBelow = /^\s*\|?[:\s]*?-+[:\s-]*\|[:\s-|]*$/.test(oneLineDown);
+
 
 			if (isDelimiterLineBelow) {
 				targetLine += 2;	// (*1)->(*2)
