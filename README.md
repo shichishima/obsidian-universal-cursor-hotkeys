@@ -3,24 +3,24 @@ Hotkey command set for cursor navigation. It also supports moving between Markdo
 
 
 ## Why this plugin?
-In the standard Obsidian environment (especially on macOS), the Ctrl-PNBF/AE shortcuts often fail to work as expected within Markdown tables while in Live Preview mode.
+In the standard Obsidian environment (especially on macOS), the Ctrl+P/N/B/F and Ctrl+A/E shortcuts often fail to work as expected within Markdown tables while in Live Preview mode.
 This plugin provides hotkey commands for that purpose, enabling movement between table cells just as you would with physical cursor keys.
 The commands ensure a consistent navigation experience across your entire note, supporting fluid movement in both plain text paragraphs and table cells.
 
 Windows users can also use this plugin to enable Emacs-style cursor movement.
-(Note: You must manually assign the commands in the hotkey settings; please resolve any conflicts with existing system shortcuts, such as Ctrl-A for "Select All," as needed).
+(Note: You must manually assign the commands in the hotkey settings; please resolve any conflicts with existing system shortcuts, such as Ctrl+A for "Select All," as needed).
 
 
 ## Key Features
 - **Seamless Table Navigation:** Move between table cells and jump in/out of tables using the same keys as text editing.
 - **Cross-Platform Compatibility:** Enable macOS-style (Emacs) navigation for Windows users.
-- **Essential Movement Commands:** Includes support for Up (Ctrl-P), Down (Ctrl-N), Left (Ctrl-B), Right (Ctrl-F), Home (Ctrl-A), and End (Ctrl-E).
-- **Smart Home Position:** The Home command (Ctrl-A) is optimized for Markdown, intelligently moving the cursor to the start of the content by accounting for heading characters (`# `), list markers, and footnote indicators (`[^1]: `).
+- **Essential Movement Commands:** Includes support for Up (Ctrl+P), Down (Ctrl+N), Left (Ctrl+B), Right (Ctrl+F), Home (Ctrl+A), and End (Ctrl+E).
+- **Smart Home Position:** The Home command (Ctrl+A) is optimized for Markdown, intelligently moving the cursor to the start of the content by accounting for heading characters (`# `), list markers, and footnote indicators (`[^1]: `).
 
 
 ## How to Setup
 - **Enable the Plugin:** After installation, enable "Universal Cursor Hotkeys" in your community plugins list.
-- **Assign Hotkeys:** Go to the plugin settings and click the "+" button to register and assign your preferred keys (e.g., Ctrl-P, Ctrl-N) to each command.
+- **Assign Hotkeys:** Go to the plugin settings and click the hotkey button to register and assign your preferred keys (e.g., Ctrl+P, Ctrl+N) to each command.
 
 ### Note:
 - No hotkeys are assigned by default. You must manually set them to enable the navigation.
@@ -88,5 +88,5 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 - **No Key Repeat Support**: Each command executes only upon the initial key press.
   - **On macOS**: When a key is held down, subsequent movements are handled by the OS. Consequently, specialized table navigation (like cell-to-cell jumps) will not apply during repetition.
   - **On Windows**: Key repeat is not supported for these commands; they will only execute once per press.
-- **Shortcut Conflicts (Windows)**: On Windows, these commands may conflict with system defaults (e.g., Ctrl-A for Select All). Users must manually resolve these conflicts in the settings.
+- **Shortcut Conflicts (Windows)**: On Windows, these commands may conflict with system defaults (e.g., Ctrl+A for Select All). Users must manually resolve these conflicts in the settings.
 
