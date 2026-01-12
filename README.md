@@ -15,25 +15,28 @@ Windows users can also use this plugin to enable Emacs-style cursor movement.
 - **Seamless Table Navigation:** Move between table cells and jump in/out of tables using the same keys as text editing.
 - **Cross-Platform Compatibility:** Enable macOS-style (Emacs) navigation for Windows users.
 - **Essential Movement Commands:** Includes support for Up (Ctrl-P), Down (Ctrl-N), Left (Ctrl-B), Right (Ctrl-F), Home (Ctrl-A), and End (Ctrl-E).
-- **Smart Home Position:** The Home command (Ctrl-A) is optimized for Markdown, intelligently moving the cursor to the start of the content by accounting for heading characters (#), list markers, and footnote indicators ([^1]).
+- **Smart Home Position:** The Home command (Ctrl-A) is optimized for Markdown, intelligently moving the cursor to the start of the content by accounting for heading characters (`# `), list markers, and footnote indicators (`[^1]: `).
 
 
 ## How to Setup
 - **Enable the Plugin:** After installation, enable "Universal Cursor Hotkeys" in your community plugins list.
 - **Assign Hotkeys:** Go to the plugin settings and click the "+" button to register and assign your preferred keys (e.g., Ctrl-P, Ctrl-N) to each command.
-  Note: No hotkeys are assigned by default. You must manually set them to enable the navigation.
+
+Note:
+- No hotkeys are assigned by default. You must manually set them to enable the navigation.
+- **Windows Users**: Assigning Ctrl+A or Ctrl+F will overwrite standard OS shortcuts like "Select All" or "Find".
 
 ## Recommended Hotkey Map
 For more information on how each command behaves, please refer to the Command Details section below.
 
-| Command Name | Recommended Hotkey | Function Summary |
+| Command Name | Recommended<br>Hotkey | Function Summary |
 | ------------ | ------------------ | ---------------- |
-| Cursor UP    | Ctrl + P           | Smart vertical movement (Cell/Row/Exit). |
-| Cursor DOWN  | Ctrl + N           | Smart vertical movement (Cell/Row/Exit). |
-| Cursor LEFT  | Ctrl + B           | Move left or to the previous cell. |
-| Cursor RIGHT | Ctrl + F           | Move right or to the next cell. |
-| Cursor HOME  | Ctrl + A           | Smart jump to content start (skips markers). |
-| Cursor END   | Ctrl + E           | Move to the end of the logical line. |
+| Universal Cursor Hotkeys: UP    | Ctrl + P           | Smart UP: Text/Cell movement and Table entry (from bottom) & exit (from top). |
+| Universal Cursor Hotkeys: DOWN  | Ctrl + N           | Smart DOWN: Text/Cell movement and Table entry (from top) & exit (from bottom). |
+| Universal Cursor Hotkeys: LEFT  | Ctrl + B           | Smart LEFT: Move by character or jump to the previous cell. |
+| Universal Cursor Hotkeys: RIGHT | Ctrl + F           | Smart RIGHT: Move by character or jump to the next cell. |
+| Universal Cursor Hotkeys: HOME  | Ctrl + A           | Smart HOME: Jump to content start (skips markers) or previous cell. |
+| Universal Cursor Hotkeys: END   | Ctrl + E           | Smart END: Jump to the end of the logical line or next cell. |
 
 ## Command Details
 Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
@@ -65,10 +68,10 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 
 ### Cursor HOME
 - **Within text**: Jumps to the start of the actual content by skipping Markdown markers:
-  - **Lists & Quotes**: Skips indentation (leading whitespace), unordered list markers (-, *), checkboxes (- [ ]), ordered lists (1. or 1)), and blockquotes (>).
-  - **Headings & Footnotes**: Skips heading markers (#) and footnote indicators ([^1]:). Unlike the standard HOME key, which moves directly to the absolute beginning of the line, this command stops first at the beginning of the text content.
+  - **Lists & Quotes**: Skips indentation (leading whitespace), unordered list markers (`- `, `* `), checkboxes (`- [ ] `), ordered lists (`1. ` or `1) `), and blockquotes (`>`).
+  - **Headings & Footnotes**: Skips heading markers (`# `) and footnote indicators (`[^1]: `). Unlike the standard HOME key, which moves directly to the absolute beginning of the line, this command stops first at the beginning of the text content.
   - **At the start of content**: If the cursor is already at the beginning of the text content, it moves to the absolute beginning of the logical line.
-- **Within a table cell (*)**: Jumps to the beginning of the text in the same cell. Note: Unlike the "Within text" behavior, this does not skip Markdown markers; it also does not move to the start of the visual line.
+- **Within a table cell (*)**: Jumps to the beginning of the text in the same cell. Note: Unlike the "Within text" behavior, this does not skip Markdown markers, as markers such as list items (`- `) or checkboxes (`- [ ] `) are not rendered as functional elements within tables in Live Preview. It also does not move to the start of the visual line.
 - **At the beginning of a cell (*)**: Jumps to the end of the text in the cell to the left.
 - **In the leftmost cell (*)**: Stops at the beginning of the text. It will not move to the row above.
 
