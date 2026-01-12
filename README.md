@@ -22,7 +22,7 @@ Windows users can also use this plugin to enable Emacs-style cursor movement.
 - **Enable the Plugin:** After installation, enable "Universal Cursor Hotkeys" in your community plugins list.
 - **Assign Hotkeys:** Go to the plugin settings and click the "+" button to register and assign your preferred keys (e.g., Ctrl-P, Ctrl-N) to each command.
 
-Note:
+### Note:
 - No hotkeys are assigned by default. You must manually set them to enable the navigation.
 - **Windows Users**: Assigning Ctrl+A or Ctrl+F will overwrite standard OS shortcuts like "Select All" or "Find".
 
