@@ -30,13 +30,13 @@ Windows users can also use this plugin to enable Emacs-style cursor movement.
 For more information on how each command behaves, please refer to the Command Details section below.
 
 | Command Name | Recommended<br>Hotkey | Function Summary |
-| ------------ | ------------------ | ---------------- |
-| Universal Cursor Hotkeys: UP    | Ctrl + P           | Smart UP: Text/Cell movement and Table entry (from bottom) & exit (from top). |
-| Universal Cursor Hotkeys: DOWN  | Ctrl + N           | Smart DOWN: Text/Cell movement and Table entry (from top) & exit (from bottom). |
-| Universal Cursor Hotkeys: LEFT  | Ctrl + B           | Smart LEFT: Move by character or jump to the previous cell. |
-| Universal Cursor Hotkeys: RIGHT | Ctrl + F           | Smart RIGHT: Move by character or jump to the next cell. |
-| Universal Cursor Hotkeys: HOME  | Ctrl + A           | Smart HOME: Jump to content start (skips markers) or previous cell. |
-| Universal Cursor Hotkeys: END   | Ctrl + E           | Smart END: Jump to the end of the logical line or next cell. |
+| :--------: | :----------------: | ---------------- |
+| UP    | Ctrl + P           | Smart UP: Text/Cell movement and Table entry (from bottom) & exit (from top). |
+| DOWN  | Ctrl + N           | Smart DOWN: Text/Cell movement and Table entry (from top) & exit (from bottom). |
+| LEFT  | Ctrl + B           | Smart LEFT: Move by character or jump to the previous cell. |
+| RIGHT | Ctrl + F           | Smart RIGHT: Move by character or jump to the next cell. |
+| HOME  | Ctrl + A           | Smart HOME: Jump to content start (skips markers) or previous cell. |
+| END   | Ctrl + E           | Smart END: Jump to the end of the logical line or next cell. |
 
 ## Command Details
 Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
@@ -85,7 +85,7 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 ## Limitations
 - **No Word-Level Navigation**: Movement by word (e.g., Option/Ctrl + Left/Right) is currently not supported.
 - **No Visual Line Navigation for HOME/END**: Cursor HOME and Cursor END move directly to the beginning or end of the actual logical line (the entire paragraph), rather than the visually wrapped line.
-- **Key Repeat Behavior**: Each command executes only upon the initial key press.
+- **No Key Repeat Support**: Each command executes only upon the initial key press.
   - **On macOS**: When a key is held down, subsequent movements are handled by the OS. Consequently, specialized table navigation (like cell-to-cell jumps) will not apply during repetition.
   - **On Windows**: Key repeat is not supported for these commands; they will only execute once per press.
 - **Shortcut Conflicts (Windows)**: On Windows, these commands may conflict with system defaults (e.g., Ctrl-A for Select All). Users must manually resolve these conflicts in the settings.
