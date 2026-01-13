@@ -68,7 +68,7 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 
 ### Cursor HOME
 - **Within text**: Jumps to the start of the actual content by skipping Markdown markers:
-  - **Lists & Quotes**: Skips indentation (leading whitespace), unordered list markers (`- `, `* `), checkboxes (`- [ ] `), ordered lists (`1. ` or `1) `), and blockquotes (`>`).
+  - **Lists & Quotes**: Skips indentation (leading whitespace), unordered list markers (`- `, `* `, `+ `), checkboxes (`- [ ] `), ordered lists (`1. ` or `1) `), and blockquotes (`>`).
   - **Headings & Footnotes**: Skips heading markers (`# `) and footnote indicators (`[^1]: `). Unlike the standard HOME key, which moves directly to the absolute beginning of the line, this command stops first at the beginning of the text content.
   - **At the start of content**: If the cursor is already at the beginning of the text content, it moves to the absolute beginning of the logical line.
 - **Within a table cell (*)**: Jumps to the beginning of the text in the same cell. Note: Unlike the "Within text" behavior, this does not skip Markdown markers, as markers such as list items (`- `) or checkboxes (`- [ ] `) are not rendered as functional elements within tables in Live Preview. It also does not move to the start of the visual line.
