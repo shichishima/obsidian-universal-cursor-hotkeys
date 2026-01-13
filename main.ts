@@ -2,6 +2,13 @@ import { Editor, Plugin, MarkdownView } from 'obsidian';
 import { syntaxTree } from '@codemirror/language';
 import { EditorView } from "@codemirror/view";
 
+// Extend the Obsidian Editor interface to include the internal CodeMirror 6 instance (EditorView)
+declare module "obsidian" {
+    interface Editor {
+        cm: EditorView;
+    }
+}
+
 export default class universalCursorHotkeysPlugin extends Plugin {
 
 	CELL_SEPARATOR_REGEX = /(?<!\\)\|/g;
@@ -81,8 +88,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 
 	isPositionInTable(editor: Editor, line?: number, ch?: number): boolean {
-		// @ts-expect-error: Property 'cm' does not exist on type 'Editor' in the current Obsidian API
-		const cm = (editor as any).cm as EditorView;
+		const cm = editor.cm;
 		if (!cm) return false;
 
 		const posObj = (line !== undefined && ch !== undefined)
@@ -358,8 +364,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}
 		if (targetCh != -1) {
 			// Use cm directly to avoid interference with the table editor
-			// @ts-expect-error: Property 'cm' does not exist on type 'Editor' in the current Obsidian API
-			const cm = (editor as any).cm as EditorView;
+			const cm = editor.cm;
 			const pos = editor.posToOffset({ line: targetLine, ch: targetCh });
 			cm.dispatch({
 			        selection: { anchor: pos, head: pos }
@@ -455,8 +460,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}
 		if (targetCh != -1) {
 			// Use cm directly to avoid interference with the table editor
-			// @ts-expect-error: Property 'cm' does not exist on type 'Editor' in the current Obsidian API
-			const cm = (editor as any).cm as EditorView;
+			const cm = editor.cm;
 			const pos = editor.posToOffset({ line: targetLine, ch: targetCh });
 			cm.dispatch({
 			        selection: { anchor: pos, head: pos }
