@@ -171,7 +171,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (result === null) {
 			// Ordered lists
 			// 1. or 1)
-			result = line.match(/^\s*\d+[\.\)]\s/);
+			result = line.match(/^\s*\d+[.)]\s/);
 		}
 		if (result === null) {
 			// Quotes
