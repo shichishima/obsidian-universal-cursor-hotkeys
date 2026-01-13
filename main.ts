@@ -5,7 +5,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	CELL_SEPARATOR_REGEX = /(?<!\\)\|/g;
 
-	async onload() {
+	onload() {
 
 		this.addCommand({
 			id: 'cursor-home',
