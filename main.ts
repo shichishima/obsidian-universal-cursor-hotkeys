@@ -360,7 +360,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const matches = [...lineText.matchAll(this.CELL_SEPARATOR_REGEX)];
 
 		if (cellIndex >= 0 && cellIndex < matches.length) {
-			const pipeIndex = matches[cellIndex].index!;
+			const pipeIndex = matches[cellIndex].index;
 			const afterPipe = lineText.substring(pipeIndex + 1);
 			const firstNonSpaceMatch = afterPipe.search(/\S/);
 
