@@ -159,9 +159,20 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 
 	getBeginningOfLinePosition(line: string, ch: number): number {
+
+		// Headings in an unordered list
+		//    - ###
+		// First to the beginning of the heading,
+		// then to the beginning of the list,
+		// and a third time to the beginning of the line
+		let result = line.match(/^(\s*[-+*]\s)?#+\s/);
+		if (result !== null && result[0].length < ch) {
+			return result[0].length;
+		}
+
 		// Headings
 		// # or ## or... ###### (heading 1 to 6)
-		let result = line.match(/^#{1,6}\s/);
+		result = line.match(/^#{1,6}\s/);
 
 		if (result === null) {
 			// Footnotes
