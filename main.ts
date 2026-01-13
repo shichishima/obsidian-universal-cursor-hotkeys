@@ -1,5 +1,6 @@
 import { Editor, Plugin, MarkdownView } from 'obsidian';
 import { syntaxTree } from '@codemirror/language';
+import { EditorView } from "@codemirror/view";
 
 export default class universalCursorHotkeysPlugin extends Plugin {
 
@@ -80,7 +81,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 
 	isPositionInTable(editor: Editor, line?: number, ch?: number): boolean {
-		const cm = (editor as any).cm;
+		const cm = (editor as any).cm as EditorView;
 		if (!cm) return false;
 
 		const posObj = (line !== undefined && ch !== undefined)
@@ -345,7 +346,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}
 		if (targetCh != -1) {
 			// Use cm directly to avoid interference with the table editor
-			const cm = (editor as any).cm;
+			const cm = (editor as any).cm as EditorView;
 			const pos = editor.posToOffset({ line: targetLine, ch: targetCh });
 			cm.dispatch({
 			        selection: { anchor: pos, head: pos }
@@ -441,7 +442,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}
 		if (targetCh != -1) {
 			// Use cm directly to avoid interference with the table editor
-			const cm = (editor as any).cm;
+			const cm = (editor as any).cm as EditorView;
 			const pos = editor.posToOffset({ line: targetLine, ch: targetCh });
 			cm.dispatch({
 			        selection: { anchor: pos, head: pos }
