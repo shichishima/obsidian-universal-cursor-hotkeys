@@ -81,6 +81,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 
 	isPositionInTable(editor: Editor, line?: number, ch?: number): boolean {
+		// @ts-expect-error: Property 'cm' does not exist on type 'Editor' in the current Obsidian API
 		const cm = (editor as any).cm as EditorView;
 		if (!cm) return false;
 
@@ -357,6 +358,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}
 		if (targetCh != -1) {
 			// Use cm directly to avoid interference with the table editor
+			// @ts-expect-error: Property 'cm' does not exist on type 'Editor' in the current Obsidian API
 			const cm = (editor as any).cm as EditorView;
 			const pos = editor.posToOffset({ line: targetLine, ch: targetCh });
 			cm.dispatch({
@@ -453,6 +455,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}
 		if (targetCh != -1) {
 			// Use cm directly to avoid interference with the table editor
+			// @ts-expect-error: Property 'cm' does not exist on type 'Editor' in the current Obsidian API
 			const cm = (editor as any).cm as EditorView;
 			const pos = editor.posToOffset({ line: targetLine, ch: targetCh });
 			cm.dispatch({
