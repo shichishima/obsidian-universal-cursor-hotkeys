@@ -18,6 +18,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		this.addCommand({
 			id: 'cursor-home',
 			name: 'HOME',
+			repeatable: true,
 			editorCallback: (editor: Editor, _: MarkdownView) => {
 				this.moveCursorHome(editor)
 			}
@@ -26,6 +27,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		this.addCommand({
 			id: 'cursor-end',
 			name: 'END',
+			repeatable: true,
 			editorCallback: (editor: Editor, _: MarkdownView) => {
 				this.moveCursorEnd(editor)
 			}
@@ -34,6 +36,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		this.addCommand({
 			id: 'cursor-up',
 			name: 'UP',
+			repeatable: true,
 			editorCallback: (editor: Editor, _: MarkdownView) => {
 				this.moveCursorUp(editor)
 			}
@@ -42,6 +45,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		this.addCommand({
 			id: 'cursor-down',
 			name: 'DOWN',
+			repeatable: true,
 			editorCallback: (editor: Editor, _: MarkdownView) => {
 				this.moveCursorDown(editor)
 			}
@@ -50,6 +54,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		this.addCommand({
 			id: 'cursor-left',
 			name: 'LEFT',
+			repeatable: true,
 			editorCallback: (editor: Editor, _: MarkdownView) => {
 				this.moveCursorLeft(editor)
 			}
@@ -58,6 +63,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		this.addCommand({
 			id: 'cursor-right',
 			name: 'RIGHT',
+			repeatable: true,
 			editorCallback: (editor: Editor, _: MarkdownView) => {
 				this.moveCursorRight(editor)
 			}

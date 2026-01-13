@@ -85,8 +85,5 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 ## Limitations
 - **No Word-Level Navigation**: Movement by word (e.g., Option/Ctrl + Left/Right) is currently not supported.
 - **No Visual Line Navigation for HOME/END**: Cursor HOME and Cursor END move directly to the beginning or end of the actual logical line (the entire paragraph), rather than the visually wrapped line.
-- **No Key Repeat Support**: Each command executes only upon the initial key press.
-  - **On macOS**: When a key is held down, subsequent movements are handled by the OS. Consequently, specialized table navigation (like cell-to-cell jumps) will not apply during repetition.
-  - **On Windows**: Key repeat is not supported for these commands; they will only execute once per press.
 - **Shortcut Conflicts (Windows)**: On Windows, these commands may conflict with system defaults (e.g., Ctrl+A for Select All). Users must manually resolve these conflicts in the settings.
 
