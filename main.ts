@@ -79,7 +79,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	moveCursorHome(editor: Editor) {
 		const cursor = editor.getCursor();
 		let position = cursor.ch;
-		if (position == 0) return;
+		if (position === 0) return;
 
 		const line = editor.getLine(cursor.line);
 		if (this.isLivePreviewMode() && this.isPositionInTable(editor)) {
