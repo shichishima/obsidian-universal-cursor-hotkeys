@@ -409,12 +409,25 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (this.isLivePreviewMode()) {
 			if (this.isPositionInTable(editor)) {
 				// LivePreviewMode & In the table
-
-				// Move to the BEGINNING of the same cell one row blow
 				const line = editor.getLine(cursor.line);
 				const ch = cursor.ch;
 				const cellIndex = this.getCellIndex(line, ch);
-				this.setCursorToNextRow(editor, cellIndex);
+
+				editor.exec('goDown');
+
+				// If goDown stayed on the same logical line and reached cell end,
+				// proceed to the next row (handles single-line cells and last visual line of wrapped cells)
+				const cursorAfter = editor.getCursor();
+				if (cursorAfter.line === cursor.line) {
+					const nextPipeIndex = line.indexOf('|', cursorAfter.ch);
+					const endOfCellContent = nextPipeIndex !== -1
+						? line.slice(0, nextPipeIndex).trimEnd().length
+						: line.trimEnd().length;
+
+					if (cursorAfter.ch >= endOfCellContent) {
+						this.setCursorToNextRow(editor, cellIndex);
+					}
+				}
 				return;
 			} else {
 				// Out of table
