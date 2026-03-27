@@ -82,7 +82,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (position == 0) return;
 
 		const line = editor.getLine(cursor.line);
-		if (this.isLivePreviewMode(MarkdownView) && this.isPositionInTable(editor)) {
+		if (this.isLivePreviewMode() && this.isPositionInTable(editor)) {
 			// LivePreviewMode & In the table
 			({ pos: position } = this.getBeginningOfCellPosition(line, position));
 		} else {
@@ -225,7 +225,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 		if (position === line.length) return;
 
-		if (this.isLivePreviewMode(MarkdownView) && this.isPositionInTable(editor)) {
+		if (this.isLivePreviewMode() && this.isPositionInTable(editor)) {
 			// LivePreviewMode & In the table
 			({ pos: position } = this.getEndOfCellPosition(line, position));
 		} else {
@@ -284,7 +284,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 
-		if (this.isLivePreviewMode(MarkdownView)) {
+		if (this.isLivePreviewMode()) {
 			if (this.isPositionInTable(editor)) {
 				// LivePreviewMode & In the table
 				const line = editor.getLine(cursor.line);
@@ -405,7 +405,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 
-		if (this.isLivePreviewMode(MarkdownView)) {
+		if (this.isLivePreviewMode()) {
 			if (this.isPositionInTable(editor)) {
 				// LivePreviewMode & In the table
 
@@ -479,7 +479,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	moveCursorLeft(editor: Editor) {
 		const cursor = editor.getCursor();
 
-		if (this.isLivePreviewMode(MarkdownView) && this.isPositionInTable(editor)) {
+		if (this.isLivePreviewMode() && this.isPositionInTable(editor)) {
 			// LivePreviewMode & In the table
 
 			// Check whether left edge of cell text
@@ -502,7 +502,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	moveCursorRight(editor: Editor) {
 		const cursor = editor.getCursor();
 
-		if (this.isLivePreviewMode(MarkdownView) && this.isPositionInTable(editor)) {
+		if (this.isLivePreviewMode() && this.isPositionInTable(editor)) {
 			// LivePreviewMode & In the table
 
 			// Check whether left edge of cell text
