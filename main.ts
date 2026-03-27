@@ -296,17 +296,17 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				// Locate the first non-space character in the current cell
 				const startOffset = line.slice(lastPipeIndex + 1).search(/\S|$/);
 				const startOfCellContent = lastPipeIndex + 1 + startOffset;
+				const cellIndex = this.getCellIndex(line, ch);
 
-				if (ch !== startOfCellContent) {
-					// In cell goUP
-					editor.exec('goUp');
-					return;
-				} else {
-					// At the beginning of the text in a cell, move to the beginning of the same cell one row above
-					const cellIndex = this.getCellIndex(line, ch);
+				editor.exec('goUp');
+
+				// If goUp stayed on the same logical line and reached cell start,
+				// proceed to the previous row (handles single-line cells and first visual line of wrapped cells)
+				const cursorAfter = editor.getCursor();
+				if (cursorAfter.line === cursor.line && cursorAfter.ch <= startOfCellContent) {
 					this.setCursorToPrevRow(editor, cellIndex);
-					return;
 				}
+				return;
 			} else {
 				// Out of table
 
