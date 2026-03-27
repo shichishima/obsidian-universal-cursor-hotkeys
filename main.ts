@@ -116,7 +116,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 
-	isLivePreviewMode() {
+	isLivePreviewMode(): boolean {
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 
 		if (view) {
@@ -134,6 +134,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				}
 			}
 		}
+		return false;
 	}
 
 
