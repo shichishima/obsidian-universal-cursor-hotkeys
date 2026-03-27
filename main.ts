@@ -148,7 +148,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	//
 	getBeginningOfCellPosition(line: string, ch: number): { pos: number, isOnLeftEdge: boolean } {
 		const lastPipeIndex = line.lastIndexOf('|', ch - 1);
-		if (lastPipeIndex === -1) return 0;
+		if (lastPipeIndex === -1) return { pos: 0, isOnLeftEdge: true };
 
 		// Locate the first non-space character in the current cell
 		const startOffset = line.slice(lastPipeIndex + 1).search(/\S|$/);
