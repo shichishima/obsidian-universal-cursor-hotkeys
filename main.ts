@@ -79,10 +79,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	moveCursorHome(editor: Editor) {
 		const cursor = editor.getCursor();
 		let position = cursor.ch;
-		if (position == 0) return;
+		if (position === 0) return;
 
 		const line = editor.getLine(cursor.line);
-		if (this.isLivePreviewMode(MarkdownView) && this.isPositionInTable(editor)) {
+		if (this.isLivePreviewMode() && this.isPositionInTable(editor)) {
 			// LivePreviewMode & In the table
 			({ pos: position } = this.getBeginningOfCellPosition(line, position));
 		} else {
@@ -116,7 +116,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 
-	isLivePreviewMode() {
+	isLivePreviewMode(): boolean {
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 
 		if (view) {
@@ -134,6 +134,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				}
 			}
 		}
+		return false;
 	}
 
 
@@ -148,7 +149,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	//
 	getBeginningOfCellPosition(line: string, ch: number): { pos: number, isOnLeftEdge: boolean } {
 		const lastPipeIndex = line.lastIndexOf('|', ch - 1);
-		if (lastPipeIndex === -1) return 0;
+		if (lastPipeIndex === -1) return { pos: 0, isOnLeftEdge: true };
 
 		// Locate the first non-space character in the current cell
 		const startOffset = line.slice(lastPipeIndex + 1).search(/\S|$/);
@@ -225,7 +226,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 		if (position === line.length) return;
 
-		if (this.isLivePreviewMode(MarkdownView) && this.isPositionInTable(editor)) {
+		if (this.isLivePreviewMode() && this.isPositionInTable(editor)) {
 			// LivePreviewMode & In the table
 			({ pos: position } = this.getEndOfCellPosition(line, position));
 		} else {
@@ -284,7 +285,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 
-		if (this.isLivePreviewMode(MarkdownView)) {
+		if (this.isLivePreviewMode()) {
 			if (this.isPositionInTable(editor)) {
 				// LivePreviewMode & In the table
 				const line = editor.getLine(cursor.line);
@@ -405,7 +406,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 
-		if (this.isLivePreviewMode(MarkdownView)) {
+		if (this.isLivePreviewMode()) {
 			if (this.isPositionInTable(editor)) {
 				// LivePreviewMode & In the table
 
@@ -479,7 +480,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	moveCursorLeft(editor: Editor) {
 		const cursor = editor.getCursor();
 
-		if (this.isLivePreviewMode(MarkdownView) && this.isPositionInTable(editor)) {
+		if (this.isLivePreviewMode() && this.isPositionInTable(editor)) {
 			// LivePreviewMode & In the table
 
 			// Check whether left edge of cell text
@@ -502,7 +503,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	moveCursorRight(editor: Editor) {
 		const cursor = editor.getCursor();
 
-		if (this.isLivePreviewMode(MarkdownView) && this.isPositionInTable(editor)) {
+		if (this.isLivePreviewMode() && this.isPositionInTable(editor)) {
 			// LivePreviewMode & In the table
 
 			// Check whether left edge of cell text
