@@ -9,6 +9,7 @@ declare module "obsidian" {
     }
 }
 
+
 export default class universalCursorHotkeysPlugin extends Plugin {
 
 	CELL_SEPARATOR_REGEX = /(?<!\\)\|/g;
@@ -300,11 +301,39 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 				editor.exec('goUp');
 
-				// If goUp stayed on the same logical line and reached cell start,
-				// proceed to the previous row (handles single-line cells and first visual line of wrapped cells)
+				// If goUp stayed on the same logical line, and the cursor was already
+				// at cell start before goUp, proceed to the previous row.
+				// (If cursor was on a lower visual line, goUp correctly moved to the
+				// visual line above within the same cell — no further action needed.)
 				const cursorAfter = editor.getCursor();
-				if (cursorAfter.line === cursor.line && cursorAfter.ch <= startOfCellContent) {
-					this.setCursorToPrevRow(editor, cellIndex);
+				if (cursorAfter.line === cursor.line) {
+					if (cursor.ch <= startOfCellContent || cursorAfter.ch === startOfCellContent) {
+						// goUp stayed at/snapped to cell start -> go to previous row
+						this.setCursorToPrevRow(editor, cellIndex);
+						setTimeout(() => {
+							this.moveToBottomVisualLineOfCell(editor);
+						}, 0);
+					}
+					// else: goUp moved within cell to visual line above - done
+				} else {
+					// goUp moved to a different logical line (previous table row or outside table)
+					if (this.isPositionInTable(editor)) {
+						// Re-place cursor at cell start so moveToBottomVisualLineOfCell can
+						// navigate down properly (same pattern as setCursorToPrevRow + moveToBottom)
+						const targetLine = cursorAfter.line;
+						const targetCh = this.getChByCellIndex(editor, targetLine, cellIndex);
+						if (targetCh !== -1) {
+							const cm = editor.cm;
+							const pos = editor.posToOffset({ line: targetLine, ch: targetCh });
+							cm.dispatch({ selection: { anchor: pos, head: pos } });
+							cm.focus();
+						}
+					}
+					setTimeout(() => {
+						if (this.isPositionInTable(editor)) {
+							this.moveToBottomVisualLineOfCell(editor);
+						}
+					}, 0);
 				}
 				return;
 			} else {
@@ -321,6 +350,68 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 		editor.exec('goUp');
 		return;
+	}
+
+
+	// Move to the bottom visual line of the current table cell.
+	//
+	// Strategy:
+	//   1. goRight: works around a Live Preview issue where goDown from the leftmost
+	//      cell position (placed by cm.dispatch) exits the table immediately.
+	//   2. goDown loop: navigates visual lines until no further movement or line change.
+	//      lastPos ends up at the bottom visual line or at cell end (non-wrapped).
+	//   3. Determine landing position:
+	//      - lastPos within cell content: on bottom visual line → stay at lastPos.
+	//      - lastPos at/past cell content end: non-wrapped cell → restore to cell start.
+	moveToBottomVisualLineOfCell(editor: Editor) {
+		const startLine = editor.getCursor().line;
+		const originalPos = editor.getCursor();
+		const line = editor.getLine(startLine);
+
+		// Determine trimmed cell content end to detect non-wrapped single-line cells
+		const closingPipeIndex = line.indexOf('|', originalPos.ch);
+		const cellEnd = closingPipeIndex !== -1 ? closingPipeIndex : line.length;
+		const endOfCellContent = line.slice(0, cellEnd).trimEnd().length;
+
+		// goDown from the leftmost cell position exits Live Preview tables immediately.
+		// Move one character right to enter the cell widget properly.
+		editor.exec('goRight');
+		if (editor.getCursor().line !== startLine) {
+			editor.setCursor(originalPos);
+			return;
+		}
+
+		let lastPos = editor.getCursor();
+		let navigated = false;
+
+		while (true) {
+			editor.exec('goDown');
+			const newPos = editor.getCursor();
+
+			if (newPos.line !== startLine || newPos.ch === lastPos.ch) {
+				// Exited cell row, or no further movement possible
+				break;
+			}
+
+			if (newPos.ch >= endOfCellContent) {
+				// Reached trailing space area — stop without updating lastPos
+				// lastPos is already on the bottom visual line
+				break;
+			}
+
+			navigated = true;
+			lastPos = { line: newPos.line, ch: newPos.ch };
+		}
+
+		if (!navigated) {
+			// No navigation occurred — non-wrapped cell, restore to cell start
+			editor.setCursor(originalPos);
+			return;
+		}
+
+		// lastPos is on the bottom visual line. goLeft compensates for the initial goRight offset.
+		editor.setCursor(lastPos);
+		editor.exec('goLeft');
 	}
 
 
