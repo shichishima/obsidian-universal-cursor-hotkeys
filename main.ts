@@ -364,7 +364,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 						editor.setCursor({ line: targetLine, ch: targetCh });
 					}
 					setTimeout(() => {
-						const posInTimeout = editor.getCursor();
 						if (this.isPositionInTable(editor)) {
 							this.moveToBottomVisualLineOfCell(editor);
 						}
@@ -648,11 +647,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (this.isLivePreviewMode() && this.isPositionInTable(editor)) {
 			// LivePreviewMode & In the table
 
-			// Check whether left edge of cell text
+			// Check whether right edge of cell text
 			const { pos: startOfCellContent, isOnLeftEdge } = this.getBeginningOfCellPosition(editor.getLine(cursor.line), cursor.ch);
 
 			if (isOnLeftEdge) {
-				// Move to the left cell
+				// Move to the right cell
 				editor.setCursor({ line: cursor.line, ch: startOfCellContent });
 			} else {
 				editor.exec('goLeft');
@@ -671,11 +670,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (this.isLivePreviewMode() && this.isPositionInTable(editor)) {
 			// LivePreviewMode & In the table
 
-			// Check whether left edge of cell text
+			// Check whether right edge of cell text
 			const { pos: endOfCellContent, isOnRightEdge } = this.getEndOfCellPosition(editor.getLine(cursor.line), cursor.ch);
 
 			if (isOnRightEdge) {
-				// Move to the left cell
+				// Move to the right cell
 				editor.setCursor({ line: cursor.line, ch: endOfCellContent });
 			} else {
 				editor.exec('goRight');
