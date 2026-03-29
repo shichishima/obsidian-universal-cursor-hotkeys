@@ -43,7 +43,7 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 
 ### Cursor UP
 - **Within text**: Moves up to the previous visual line, equivalent to physical cursor keys.
-- **From below table (*)**: If the cursor is on the line immediately below a table, it enters the table and moves to the beginning of the bottom-left cell.
+- **From below table (*)**: If the cursor is on the line immediately below a table, it enters the table and moves to the **left edge of the bottom visual line** of the bottom-left cell.
 - **Within a table cell (*):**
   - **First visual line**: Moves to the **left edge of the bottom visual line** of the cell directly above (same column). For non-wrapped cells, this is the cell start.
   - **Not on first visual line**: Moves to the visual line above within the same cell, equivalent to physical cursor keys.

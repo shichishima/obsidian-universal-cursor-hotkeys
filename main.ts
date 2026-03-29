@@ -10,6 +10,8 @@ declare module "obsidian" {
 }
 
 
+const DEBUG_BUILD = 'D9';
+
 export default class universalCursorHotkeysPlugin extends Plugin {
 
 	CELL_SEPARATOR_REGEX = /(?<!\\)\|/g;
@@ -110,7 +112,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			if (node.name.includes('Table') || node.name.includes('table')) {
 				return true;
 			}
-			node = node.parent;
+			node = node.parent!;
 		}
 
 		return false;
@@ -299,6 +301,12 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				const startOfCellContent = lastPipeIndex + 1 + startOffset;
 				const cellIndex = this.getCellIndex(line, ch);
 
+				// Enter the widget so that goUp/goDown navigate visual lines within it.
+				// Without this, a cursor placed by cm.dispatch (e.g. from moveToBottomVisualLineOfCell)
+				// is not registered inside the widget, causing goDown tests to misbehave.
+				editor.exec('goRight');
+				editor.exec('goLeft');
+
 				editor.exec('goUp');
 
 				// If goUp stayed on the same logical line, and the cursor was already
@@ -307,12 +315,37 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				// visual line above within the same cell — no further action needed.)
 				const cursorAfter = editor.getCursor();
 				if (cursorAfter.line === cursor.line) {
-					if (cursor.ch <= startOfCellContent || cursorAfter.ch === startOfCellContent) {
-						// goUp stayed at/snapped to cell start -> go to previous row
+					if (cursor.ch <= startOfCellContent) {
+						// Was at cell start -> go to previous row
 						this.setCursorToPrevRow(editor, cellIndex);
 						setTimeout(() => {
 							this.moveToBottomVisualLineOfCell(editor);
 						}, 0);
+					} else if (cursorAfter.ch === startOfCellContent) {
+						// goUp snapped cursor to cell start.
+						// Two cases:
+						//   (a) Was at VL1 middle -> goUp snapped to VL1 start -> go to prev row
+						//   (b) Was at VL2+ left edge -> goUp moved to VL1 start -> stay at VL1
+						// Distinguish by testing goDown: if goDown returns to original position,
+						// we were at VL2 (case b); otherwise we were at VL1 (case a).
+						console.log(`[debug ${DEBUG_BUILD}] #14: cursor.ch=${cursor.ch} startOfCellContent=${startOfCellContent}`);
+						editor.exec('goDown');
+						const backTest = editor.getCursor();
+						console.log(`[debug ${DEBUG_BUILD}] #14: backTest=${JSON.stringify(backTest)} cursor.line=${cursor.line} cursor.ch=${cursor.ch}`);
+						if (backTest.line === cursor.line && backTest.ch === cursor.ch) {
+							// Case (b): was at VL2 left edge -> goDown went back to cursor.ch
+							// We are now back at original position; goUp again to reach VL1 start
+							console.log(`[debug ${DEBUG_BUILD}] #14: case(b) goUp to VL1`);
+							editor.exec('goUp');
+						} else {
+							// Case (a): was at VL1 middle -> go to previous row
+							console.log(`[debug ${DEBUG_BUILD}] #14: case(a) prev row`);
+							editor.exec('goUp'); // restore to cell start first
+							this.setCursorToPrevRow(editor, cellIndex);
+							setTimeout(() => {
+								this.moveToBottomVisualLineOfCell(editor);
+							}, 0);
+						}
 					}
 					// else: goUp moved within cell to visual line above - done
 				} else {
@@ -340,9 +373,21 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				// Out of table
 
 				if (this.isPositionInTable(editor, cursor.line - 1, 1)) {
-					// Line directly below the table, move the cursor to -1 row instead of goUP.
-					const targetCh = this.getChByCellIndex(editor, cursor.line - 1, 0);
-					editor.setCursor({ line: cursor.line - 1, ch: targetCh });
+					// Line directly below the table: enter the bottom-left cell and
+					// land at the bottom visual line's left edge.
+					const targetLine = cursor.line - 1;
+					const targetCh = this.getChByCellIndex(editor, targetLine, 0);
+					console.log(`[debug ${DEBUG_BUILD}] from-below-table: targetLine=${targetLine} targetCh=${targetCh}`);
+					if (targetCh !== -1) {
+						editor.setCursor({ line: targetLine, ch: targetCh });
+					}
+					setTimeout(() => {
+						const posInTimeout = editor.getCursor();
+						console.log(`[debug ${DEBUG_BUILD}] from-below-table setTimeout: cursor=${JSON.stringify(posInTimeout)} inTable=${this.isPositionInTable(editor)}`);
+						if (this.isPositionInTable(editor)) {
+							this.moveToBottomVisualLineOfCell(editor);
+						}
+					}, 0);
 					return;
 				}
 			}
@@ -367,51 +412,105 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const startLine = editor.getCursor().line;
 		const originalPos = editor.getCursor();
 		const line = editor.getLine(startLine);
+		console.log(`[debug ${DEBUG_BUILD}] moveToBottom start: pos=${JSON.stringify(originalPos)}`);
 
-		// Determine trimmed cell content end to detect non-wrapped single-line cells
-		const closingPipeIndex = line.indexOf('|', originalPos.ch);
+		// Determine cell content end: trailing-space visual lines in CM6 are unstable
+		// cursor positions that get normalized away. Use endOfCellContent to stop the
+		// loop before entering the trailing-space area.
+		const closingPipeRegex = /(?<!\\)\|/g;
+		closingPipeRegex.lastIndex = originalPos.ch;
+		const pipeMatch = closingPipeRegex.exec(line);
+		const closingPipeIndex = pipeMatch ? pipeMatch.index : -1;
 		const cellEnd = closingPipeIndex !== -1 ? closingPipeIndex : line.length;
 		const endOfCellContent = line.slice(0, cellEnd).trimEnd().length;
+		console.log(`[debug ${DEBUG_BUILD}] moveToBottom: endOfCellContent=${endOfCellContent}`);
 
 		// goDown from the leftmost cell position exits Live Preview tables immediately.
-		// Move one character right to enter the cell widget properly.
+		// Move one character right to enter the cell widget properly, then return to
+		// visual column 0 via goLeft so the goDown loop starts at the left edge.
 		editor.exec('goRight');
-		if (editor.getCursor().line !== startLine) {
+		const afterGoRight = editor.getCursor();
+		console.log(`[debug ${DEBUG_BUILD}] moveToBottom after goRight: pos=${JSON.stringify(afterGoRight)}`);
+		if (afterGoRight.line !== startLine) {
 			editor.setCursor(originalPos);
 			return;
 		}
+		editor.exec('goLeft'); // return to visual column 0
+		console.log(`[debug ${DEBUG_BUILD}] moveToBottom after goLeft: pos=${JSON.stringify(editor.getCursor())}`);
 
 		let lastPos = editor.getCursor();
 		let navigated = false;
+		let iteration = 0;
+		let breakReason: 'endOfCell' | 'noMove' | 'exitedLine' = 'noMove';
 
 		while (true) {
 			editor.exec('goDown');
 			const newPos = editor.getCursor();
+			console.log(`[debug ${DEBUG_BUILD}] moveToBottom iter ${iteration}: newPos=${JSON.stringify(newPos)}`);
 
-			if (newPos.line !== startLine || newPos.ch === lastPos.ch) {
-				// Exited cell row, or no further movement possible
+			if (newPos.line !== startLine) {
+				breakReason = 'exitedLine';
 				break;
 			}
-
+			if (newPos.ch === lastPos.ch) {
+				breakReason = 'noMove';
+				break;
+			}
 			if (newPos.ch >= endOfCellContent) {
-				// Reached trailing space area — stop without updating lastPos
-				// lastPos is already on the bottom visual line
+				// Entering trailing-space area — lastPos is already the bottom content VL.
+				// Do NOT update lastPos here; break and dispatch lastPos after normalization.
+				breakReason = 'endOfCell';
 				break;
 			}
 
 			navigated = true;
 			lastPos = { line: newPos.line, ch: newPos.ch };
+			iteration++;
 		}
 
+		console.log(`[debug ${DEBUG_BUILD}] moveToBottom break: reason=${breakReason} navigated=${navigated} lastPos=${JSON.stringify(lastPos)}`);
+
 		if (!navigated) {
-			// No navigation occurred — non-wrapped cell, restore to cell start
-			editor.setCursor(originalPos);
+			// Non-wrapped cell
+			if (breakReason === 'exitedLine') {
+				editor.exec('goUp');
+			} else if (breakReason === 'endOfCell') {
+				// goDown moved to trailing-space or another cell without passing through any
+				// content VLs. Restore to originalPos after CM6 normalization.
+				const targetPos = { line: originalPos.line, ch: originalPos.ch };
+				setTimeout(() => {
+					const cm = editor.cm;
+					const offset = editor.posToOffset(targetPos);
+					cm.dispatch({ selection: { anchor: offset, head: offset } });
+					cm.focus();
+					console.log(`[debug ${DEBUG_BUILD}] moveToBottom non-wrapped endOfCell restore: cursor=${JSON.stringify(editor.getCursor())}`);
+				}, 0);
+			}
+			// noMove: cursor already at originalPos (valid position)
+			console.log(`[debug ${DEBUG_BUILD}] moveToBottom: non-wrapped, pos=${JSON.stringify(editor.getCursor())}`);
 			return;
 		}
 
-		// lastPos is on the bottom visual line. goLeft compensates for the initial goRight offset.
-		editor.setCursor(lastPos);
-		editor.exec('goLeft');
+		if (breakReason === 'endOfCell') {
+			// Cursor is in the trailing-space area (e.g. ch=183), which CM6 normalizes
+			// away in the next event loop tick. lastPos (e.g. ch=162) is the true bottom
+			// content VL. Schedule a cm.dispatch after normalization completes.
+			const targetPos = { line: lastPos.line, ch: lastPos.ch };
+			setTimeout(() => {
+				const cm = editor.cm;
+				const offset = editor.posToOffset(targetPos);
+				cm.dispatch({ selection: { anchor: offset, head: offset } });
+				cm.focus();
+				console.log(`[debug ${DEBUG_BUILD}] moveToBottom post-norm dispatch: cursor=${JSON.stringify(editor.getCursor())}`);
+			}, 0);
+		} else if (breakReason === 'exitedLine') {
+			// Cursor exited the row — go back to the bottom VL of the cell.
+			editor.exec('goUp');
+			console.log(`[debug ${DEBUG_BUILD}] moveToBottom after goUp: pos=${JSON.stringify(editor.getCursor())}`);
+		}
+		// noMove: cursor is already at lastPos (a valid content position, no normalization needed).
+
+		console.log(`[debug ${DEBUG_BUILD}] moveToBottom final SYNC: pos=${JSON.stringify(editor.getCursor())}`);
 	}
 
 
@@ -477,11 +576,20 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const matches = [...lineText.matchAll(this.CELL_SEPARATOR_REGEX)];
 
 		if (cellIndex >= 0 && cellIndex < matches.length) {
-			const pipeIndex = matches[cellIndex].index;
-			const afterPipe = lineText.substring(pipeIndex + 1);
-			const firstNonSpaceMatch = afterPipe.search(/\S/);
+			const pipeIndex = matches[cellIndex].index!;
+			// Limit search to within this cell (up to the next pipe), so that empty cells
+			// don't land on the closing | and then jump into the next cell.
+			const closingPipeMatch = matches[cellIndex + 1];
+			const searchEnd = closingPipeMatch ? closingPipeMatch.index! : lineText.length;
+			const cellContent = lineText.substring(pipeIndex + 1, searchEnd);
+			const firstNonSpaceMatch = cellContent.search(/\S/);
 
-			return pipeIndex + 1 + (firstNonSpaceMatch !== -1 ? firstNonSpaceMatch : 0);
+			if (firstNonSpaceMatch !== -1) {
+				return pipeIndex + 1 + firstNonSpaceMatch;
+			} else {
+				// Empty or whitespace-only cell: place cursor right after opening pipe
+				return pipeIndex + 1;
+			}
 		}
 
 		return -1;
