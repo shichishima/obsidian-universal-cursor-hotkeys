@@ -129,23 +129,12 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	isLivePreviewMode(): boolean {
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (!view) return false;
 
-		if (view) {
-			const mode = view.getMode(); // "preview" or "source"
+		const mode = view.getMode(); // "preview" or "source"
+		if (mode !== "source") return false;
 
-			if (mode === 'preview') {
-				return false;
-			} else if (mode === "source") {
-				const state = view.getState();
-
-				if (state.source) {
-					return false;
-				} else {
-					return true;
-				}
-			}
-		}
-		return false;
+		return !view.getState().source;
 	}
 
 
