@@ -10,7 +10,6 @@ declare module "obsidian" {
 }
 
 
-const DEBUG_BUILD = 'D9';
 
 export default class universalCursorHotkeysPlugin extends Plugin {
 
@@ -123,7 +122,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 
 		if (view) {
-			const mode = view.getMode(); // "preview" または "source"
+			const mode = view.getMode(); // "preview" or "source"
 
 			if (mode === 'preview') {
 				return false;
@@ -328,18 +327,14 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 						//   (b) Was at VL2+ left edge -> goUp moved to VL1 start -> stay at VL1
 						// Distinguish by testing goDown: if goDown returns to original position,
 						// we were at VL2 (case b); otherwise we were at VL1 (case a).
-						console.log(`[debug ${DEBUG_BUILD}] #14: cursor.ch=${cursor.ch} startOfCellContent=${startOfCellContent}`);
 						editor.exec('goDown');
 						const backTest = editor.getCursor();
-						console.log(`[debug ${DEBUG_BUILD}] #14: backTest=${JSON.stringify(backTest)} cursor.line=${cursor.line} cursor.ch=${cursor.ch}`);
 						if (backTest.line === cursor.line && backTest.ch === cursor.ch) {
 							// Case (b): was at VL2 left edge -> goDown went back to cursor.ch
 							// We are now back at original position; goUp again to reach VL1 start
-							console.log(`[debug ${DEBUG_BUILD}] #14: case(b) goUp to VL1`);
 							editor.exec('goUp');
 						} else {
 							// Case (a): was at VL1 middle -> go to previous row
-							console.log(`[debug ${DEBUG_BUILD}] #14: case(a) prev row`);
 							editor.exec('goUp'); // restore to cell start first
 							this.setCursorToPrevRow(editor, cellIndex);
 							setTimeout(() => {
@@ -377,13 +372,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 					// land at the bottom visual line's left edge.
 					const targetLine = cursor.line - 1;
 					const targetCh = this.getChByCellIndex(editor, targetLine, 0);
-					console.log(`[debug ${DEBUG_BUILD}] from-below-table: targetLine=${targetLine} targetCh=${targetCh}`);
 					if (targetCh !== -1) {
 						editor.setCursor({ line: targetLine, ch: targetCh });
 					}
 					setTimeout(() => {
 						const posInTimeout = editor.getCursor();
-						console.log(`[debug ${DEBUG_BUILD}] from-below-table setTimeout: cursor=${JSON.stringify(posInTimeout)} inTable=${this.isPositionInTable(editor)}`);
 						if (this.isPositionInTable(editor)) {
 							this.moveToBottomVisualLineOfCell(editor);
 						}
@@ -412,7 +405,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const startLine = editor.getCursor().line;
 		const originalPos = editor.getCursor();
 		const line = editor.getLine(startLine);
-		console.log(`[debug ${DEBUG_BUILD}] moveToBottom start: pos=${JSON.stringify(originalPos)}`);
 
 		// Determine cell content end: trailing-space visual lines in CM6 are unstable
 		// cursor positions that get normalized away. Use endOfCellContent to stop the
@@ -423,20 +415,16 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const closingPipeIndex = pipeMatch ? pipeMatch.index : -1;
 		const cellEnd = closingPipeIndex !== -1 ? closingPipeIndex : line.length;
 		const endOfCellContent = line.slice(0, cellEnd).trimEnd().length;
-		console.log(`[debug ${DEBUG_BUILD}] moveToBottom: endOfCellContent=${endOfCellContent}`);
 
 		// goDown from the leftmost cell position exits Live Preview tables immediately.
 		// Move one character right to enter the cell widget properly, then return to
 		// visual column 0 via goLeft so the goDown loop starts at the left edge.
 		editor.exec('goRight');
-		const afterGoRight = editor.getCursor();
-		console.log(`[debug ${DEBUG_BUILD}] moveToBottom after goRight: pos=${JSON.stringify(afterGoRight)}`);
-		if (afterGoRight.line !== startLine) {
+		if (editor.getCursor().line !== startLine) {
 			editor.setCursor(originalPos);
 			return;
 		}
 		editor.exec('goLeft'); // return to visual column 0
-		console.log(`[debug ${DEBUG_BUILD}] moveToBottom after goLeft: pos=${JSON.stringify(editor.getCursor())}`);
 
 		let lastPos = editor.getCursor();
 		let navigated = false;
@@ -446,7 +434,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		while (true) {
 			editor.exec('goDown');
 			const newPos = editor.getCursor();
-			console.log(`[debug ${DEBUG_BUILD}] moveToBottom iter ${iteration}: newPos=${JSON.stringify(newPos)}`);
 
 			if (newPos.line !== startLine) {
 				breakReason = 'exitedLine';
@@ -468,7 +455,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			iteration++;
 		}
 
-		console.log(`[debug ${DEBUG_BUILD}] moveToBottom break: reason=${breakReason} navigated=${navigated} lastPos=${JSON.stringify(lastPos)}`);
 
 		if (!navigated) {
 			// Non-wrapped cell
@@ -483,11 +469,9 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 					const offset = editor.posToOffset(targetPos);
 					cm.dispatch({ selection: { anchor: offset, head: offset } });
 					cm.focus();
-					console.log(`[debug ${DEBUG_BUILD}] moveToBottom non-wrapped endOfCell restore: cursor=${JSON.stringify(editor.getCursor())}`);
 				}, 0);
 			}
 			// noMove: cursor already at originalPos (valid position)
-			console.log(`[debug ${DEBUG_BUILD}] moveToBottom: non-wrapped, pos=${JSON.stringify(editor.getCursor())}`);
 			return;
 		}
 
@@ -501,16 +485,13 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				const offset = editor.posToOffset(targetPos);
 				cm.dispatch({ selection: { anchor: offset, head: offset } });
 				cm.focus();
-				console.log(`[debug ${DEBUG_BUILD}] moveToBottom post-norm dispatch: cursor=${JSON.stringify(editor.getCursor())}`);
 			}, 0);
 		} else if (breakReason === 'exitedLine') {
 			// Cursor exited the row — go back to the bottom VL of the cell.
 			editor.exec('goUp');
-			console.log(`[debug ${DEBUG_BUILD}] moveToBottom after goUp: pos=${JSON.stringify(editor.getCursor())}`);
 		}
 		// noMove: cursor is already at lastPos (a valid content position, no normalization needed).
 
-		console.log(`[debug ${DEBUG_BUILD}] moveToBottom final SYNC: pos=${JSON.stringify(editor.getCursor())}`);
 	}
 
 
