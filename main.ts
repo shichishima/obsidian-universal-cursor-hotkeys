@@ -10,7 +10,6 @@ declare module "obsidian" {
 }
 
 
-
 const CELL_SEPARATOR_REGEX = /(?<!\\)\|/g;
 
 export default class universalCursorHotkeysPlugin extends Plugin {
@@ -260,7 +259,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// If no more pipes are found, move to the very end of the line.
 		if (nextPipeIndex === -1) {
 			const length = line.length;
-			if (ch == length) {
+			if (ch === length) {
 				return { pos: line.length, isOnRightEdge: true};	// (a->A)
 			} else {
 				return { pos: line.length, isOnRightEdge: false};	// (b->A)
@@ -291,8 +290,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const cursor = editor.getCursor();
 
 		// Top of file
-		if (cursor.line == 0) {
-			// If it is the first line of the file, goUP is OK even if it is in a table.
+		if (cursor.line === 0) {
+			// If it is the first line of the file, goUp is OK even if it is in a table.
 			editor.exec('goUp');
 			return;
 		}
@@ -523,7 +522,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			}
 			targetCh = this.getChByCellIndex(editor, targetLine, cellIndex);
 		}
-		if (targetCh != -1) {
+		if (targetCh !== -1) {
 			this.setCursorViaCm(editor, targetLine, targetCh);
 		}
 	}
@@ -558,7 +557,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const cursor = editor.getCursor();
 
 		// Bottom of file
-		if (cursor.line == editor.lineCount() - 1) {
+		if (cursor.line === editor.lineCount() - 1) {
 			editor.exec('goDown');
 			return;
 		}
@@ -627,7 +626,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			const oneLineDown = editor.getLine(cursor.line + 1);
 			const isDelimiterLineBelow = /^\s*\|?[:\s]*?-+[:\s-]*\|[:\s-|]*$/.test(oneLineDown);
 
-
 			if (isDelimiterLineBelow) {
 				targetLine += 2;	// (*1)->(*2)
 			} else {
@@ -635,7 +633,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			}
 			targetCh = this.getChByCellIndex(editor, targetLine, cellIndex);
 		}
-		if (targetCh != -1) {
+		if (targetCh !== -1) {
 			this.setCursorViaCm(editor, targetLine, targetCh);
 		}
 	}
