@@ -331,26 +331,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 							this.moveToBottomVisualLineOfCell(editor);
 						}, 0);
 					} else if (cursorAfter.ch === startOfCellContent) {
-						// goUp snapped cursor to cell start.
-						// Two cases:
-						//   (a) Was at VL1 middle -> goUp snapped to VL1 start -> go to prev row
-						//   (b) Was at VL2+ left edge -> goUp moved to VL1 start -> stay at VL1
-						// Distinguish by testing goDown: if goDown returns to original position,
-						// we were at VL2 (case b); otherwise we were at VL1 (case a).
-						editor.exec('goDown');
-						const backTest = editor.getCursor();
-						if (backTest.line === cursor.line && backTest.ch === cursor.ch) {
-							// Case (b): was at VL2 left edge -> goDown went back to cursor.ch
-							// We are now back at original position; goUp again to reach VL1 start
-							editor.exec('goUp');
-						} else {
-							// Case (a): was at VL1 middle -> go to previous row
-							editor.exec('goUp'); // restore to cell start first
-							this.setCursorToPrevRow(editor, cellIndex);
-							setTimeout(() => {
-								this.moveToBottomVisualLineOfCell(editor);
-							}, 0);
-						}
+						this.handleCellStartSnap(editor, cursor.line, cursor.ch, cellIndex);
 					}
 					// else: goUp moved within cell to visual line above - done
 				} else {
@@ -398,6 +379,27 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 
+	// Called when goUp snapped the cursor to startOfCellContent. Two cases:
+	//   (a) Was on VL1 middle    -> goUp snapped to VL1 start -> go to previous row
+	//   (b) Was on VL2+ left edge -> goUp moved to VL1 start  -> stay at VL1
+	// A goDown probe from VL1 start distinguishes them: if it returns to originalCh
+	// we were at VL2 (b); otherwise we were on VL1 (a).
+	handleCellStartSnap(editor: Editor, originalLine: number, originalCh: number, cellIndex: number) {
+		editor.exec('goDown');
+		const backTest = editor.getCursor();
+		if (backTest.line === originalLine && backTest.ch === originalCh) {
+			// Case (b): was at VL2 left edge — goDown returned to originalCh.
+			// Now back at original position; goUp to reach VL1 start.
+			editor.exec('goUp');
+		} else {
+			// Case (a): was on VL1 middle — go to previous row.
+			editor.exec('goUp'); // restore cursor to cell start first
+			this.setCursorToPrevRow(editor, cellIndex);
+			setTimeout(() => { this.moveToBottomVisualLineOfCell(editor); }, 0);
+		}
+	}
+
+
 	// Move to the bottom visual line of the current table cell.
 	//
 	// Strategy:
@@ -406,8 +408,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	//   2. goDown loop: navigates visual lines until no further movement or line change.
 	//      lastPos ends up at the bottom visual line or at cell end (non-wrapped).
 	//   3. Determine landing position:
-	//      - lastPos within cell content: on bottom visual line → stay at lastPos.
-	//      - lastPos at/past cell content end: non-wrapped cell → restore to cell start.
+	//      - lastPos within cell content: on bottom visual line -> stay at lastPos.
+	//      - lastPos at/past cell content end: non-wrapped cell -> restore to cell start.
 	moveToBottomVisualLineOfCell(editor: Editor) {
 		const startLine = editor.getCursor().line;
 		const originalPos = editor.getCursor();
