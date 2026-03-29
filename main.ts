@@ -434,8 +434,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		editor.exec('goLeft'); // return to visual column 0
 
 		let lastPos = editor.getCursor();
-		let navigated = false;
-		let iteration = 0;
 		let breakReason: 'endOfCell' | 'noMove' | 'exitedLine' = 'noMove';
 
 		while (true) {
@@ -457,37 +455,24 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				break;
 			}
 
-			navigated = true;
 			lastPos = { line: newPos.line, ch: newPos.ch };
-			iteration++;
 		}
 
-
-		if (!navigated) {
-			// Non-wrapped cell
-			if (breakReason === 'exitedLine') {
-				editor.exec('goUp');
-			} else if (breakReason === 'endOfCell') {
-				// goDown moved to trailing-space or another cell without passing through any
-				// content VLs. Restore to originalPos after CM6 normalization.
-				const targetPos = { line: originalPos.line, ch: originalPos.ch };
-				setTimeout(() => { this.setCursorViaCm(editor, targetPos.line, targetPos.ch); }, 0);
-			}
-			// noMove: cursor already at originalPos (valid position)
+		// endOfCell: lastPos holds the target — the true bottom content VL for wrapped
+		// cells, or originalPos for non-wrapped cells (lastPos is initialised to
+		// originalPos and only advances when goDown finds a new content VL).
+		// Dispatch after the current tick so CM6 can normalise the trailing-space
+		// position before we place the final cursor.
+		if (breakReason === 'endOfCell') {
+			setTimeout(() => { this.setCursorViaCm(editor, lastPos.line, lastPos.ch); }, 0);
 			return;
 		}
 
-		if (breakReason === 'endOfCell') {
-			// Cursor is in the trailing-space area (e.g. ch=183), which CM6 normalizes
-			// away in the next event loop tick. lastPos (e.g. ch=162) is the true bottom
-			// content VL. Schedule a cm.dispatch after normalization completes.
-			const targetPos = { line: lastPos.line, ch: lastPos.ch };
-			setTimeout(() => { this.setCursorViaCm(editor, targetPos.line, targetPos.ch); }, 0);
-		} else if (breakReason === 'exitedLine') {
-			// Cursor exited the row — go back to the bottom VL of the cell.
+		if (breakReason === 'exitedLine') {
+			// Cursor exited the cell row — go back up to land at the bottom VL.
 			editor.exec('goUp');
 		}
-		// noMove: cursor is already at lastPos (a valid content position, no normalization needed).
+		// noMove: cursor is already at lastPos (a valid content position)
 
 	}
 
