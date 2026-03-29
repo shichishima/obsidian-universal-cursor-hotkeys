@@ -118,6 +118,16 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 
+	// Use cm.dispatch directly to avoid triggering Obsidian's table editor
+	// interference that occurs when moving the cursor within a Live Preview table.
+	setCursorViaCm(editor: Editor, line: number, ch: number) {
+		const cm = editor.cm;
+		const pos = editor.posToOffset({ line, ch });
+		cm.dispatch({ selection: { anchor: pos, head: pos } });
+		cm.focus();
+	}
+
+
 	isLivePreviewMode(): boolean {
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 
@@ -351,10 +361,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 						const targetLine = cursorAfter.line;
 						const targetCh = this.getChByCellIndex(editor, targetLine, cellIndex);
 						if (targetCh !== -1) {
-							const cm = editor.cm;
-							const pos = editor.posToOffset({ line: targetLine, ch: targetCh });
-							cm.dispatch({ selection: { anchor: pos, head: pos } });
-							cm.focus();
+							this.setCursorViaCm(editor, targetLine, targetCh);
 						}
 					}
 					setTimeout(() => {
@@ -464,12 +471,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				// goDown moved to trailing-space or another cell without passing through any
 				// content VLs. Restore to originalPos after CM6 normalization.
 				const targetPos = { line: originalPos.line, ch: originalPos.ch };
-				setTimeout(() => {
-					const cm = editor.cm;
-					const offset = editor.posToOffset(targetPos);
-					cm.dispatch({ selection: { anchor: offset, head: offset } });
-					cm.focus();
-				}, 0);
+				setTimeout(() => { this.setCursorViaCm(editor, targetPos.line, targetPos.ch); }, 0);
 			}
 			// noMove: cursor already at originalPos (valid position)
 			return;
@@ -480,12 +482,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			// away in the next event loop tick. lastPos (e.g. ch=162) is the true bottom
 			// content VL. Schedule a cm.dispatch after normalization completes.
 			const targetPos = { line: lastPos.line, ch: lastPos.ch };
-			setTimeout(() => {
-				const cm = editor.cm;
-				const offset = editor.posToOffset(targetPos);
-				cm.dispatch({ selection: { anchor: offset, head: offset } });
-				cm.focus();
-			}, 0);
+			setTimeout(() => { this.setCursorViaCm(editor, targetPos.line, targetPos.ch); }, 0);
 		} else if (breakReason === 'exitedLine') {
 			// Cursor exited the row — go back to the bottom VL of the cell.
 			editor.exec('goUp');
@@ -541,13 +538,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			targetCh = this.getChByCellIndex(editor, targetLine, cellIndex);
 		}
 		if (targetCh != -1) {
-			// Use cm directly to avoid interference with the table editor
-			const cm = editor.cm;
-			const pos = editor.posToOffset({ line: targetLine, ch: targetCh });
-			cm.dispatch({
-			        selection: { anchor: pos, head: pos }
-			});
-			cm.focus();
+			this.setCursorViaCm(editor, targetLine, targetCh);
 		}
 	}
 
@@ -659,13 +650,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			targetCh = this.getChByCellIndex(editor, targetLine, cellIndex);
 		}
 		if (targetCh != -1) {
-			// Use cm directly to avoid interference with the table editor
-			const cm = editor.cm;
-			const pos = editor.posToOffset({ line: targetLine, ch: targetCh });
-			cm.dispatch({
-			        selection: { anchor: pos, head: pos }
-			});
-			cm.focus();
+			this.setCursorViaCm(editor, targetLine, targetCh);
 		}
 	}
 
