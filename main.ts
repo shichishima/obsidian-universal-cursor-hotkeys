@@ -11,9 +11,9 @@ declare module "obsidian" {
 
 
 
-export default class universalCursorHotkeysPlugin extends Plugin {
+const CELL_SEPARATOR_REGEX = /(?<!\\)\|/g;
 
-	CELL_SEPARATOR_REGEX = /(?<!\\)\|/g;
+export default class universalCursorHotkeysPlugin extends Plugin {
 
 	onload() {
 
@@ -481,7 +481,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	getCellIndex(line: string, ch: number): number {
 		const textBeforeCursor = line.substring(0, ch);
-		const matches = textBeforeCursor.match(this.CELL_SEPARATOR_REGEX);
+		const matches = textBeforeCursor.match(CELL_SEPARATOR_REGEX);
 
 		if (!matches) return 0;
 
@@ -532,7 +532,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	getChByCellIndex(editor: Editor, line: number, cellIndex: number): number {
 		const lineText = editor.getLine(line);
-		const matches = [...lineText.matchAll(this.CELL_SEPARATOR_REGEX)];
+		const matches = [...lineText.matchAll(CELL_SEPARATOR_REGEX)];
 
 		if (cellIndex >= 0 && cellIndex < matches.length) {
 			const pipeIndex = matches[cellIndex].index!;
