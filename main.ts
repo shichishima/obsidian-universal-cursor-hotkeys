@@ -316,10 +316,32 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 						// Was at cell start -> go to previous row
 						this.setCursorToPrevRow(editor, cellIndex);
 						setTimeout(() => {
-							this.moveToBottomVisualLineOfCell(editor);
+							if (this.isPositionInTable(editor)) {
+								this.moveToBottomVisualLineOfCell(editor);
+							}
 						}, 0);
 					} else if (cursorAfter.ch === startOfCellContent) {
-						this.handleCellStartSnap(editor, cursor.line, cursor.ch, cellIndex);
+						// goDown from VL1 start in a non-wrapped cell lands at VL1 end (= originalCh),
+						// which causes the goDown probe in handleCellStartSnap to give a false case-b.
+						// Detect this directly: if cursor was at end of cell content, it's VL1 end
+						// of a non-wrapped cell → go to previous row without probing.
+						const closingPipeRegex = /(?<!\\)\|/g;
+						closingPipeRegex.lastIndex = cursor.ch;
+						const pipeMatch = closingPipeRegex.exec(line);
+						const endOfCellContent = pipeMatch
+							? line.slice(0, pipeMatch.index).trimEnd().length
+							: line.trimEnd().length;
+						if (cursor.ch >= endOfCellContent) {
+							// VL1 end of non-wrapped cell → go to previous row
+							this.setCursorToPrevRow(editor, cellIndex);
+							setTimeout(() => {
+								if (this.isPositionInTable(editor)) {
+									this.moveToBottomVisualLineOfCell(editor);
+								}
+							}, 0);
+						} else {
+							this.handleCellStartSnap(editor, cursor.line, cursor.ch, cellIndex);
+						}
 					}
 					// else: goUp moved within cell to visual line above - done
 				} else {
@@ -344,8 +366,15 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				// Out of table
 
 				if (this.isPositionInTable(editor, cursor.line - 1, 1)) {
-					// Line directly below the table: enter the bottom-left cell and
-					// land at the bottom visual line's left edge.
+					// Line directly below the table.
+					// Only enter the table if on VL1; if on VL2+, a regular goUp suffices.
+					editor.exec('goUp');
+					const afterUp = editor.getCursor();
+					if (afterUp.line === cursor.line) {
+						// VL2+: goUp moved within visual lines, result already applied.
+						return;
+					}
+					// VL1: goUp moved to the table's last row; reposition to bottom-left cell.
 					const targetLine = cursor.line - 1;
 					const targetCh = this.getChByCellIndex(editor, targetLine, 0);
 					if (targetCh !== -1) {
@@ -366,23 +395,29 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 
-	// Called when goUp snapped the cursor to startOfCellContent. Two cases:
-	//   (a) Was on VL1 middle    -> goUp snapped to VL1 start -> go to previous row
-	//   (b) Was on VL2+ left edge -> goUp moved to VL1 start  -> stay at VL1
-	// A goDown probe from VL1 start distinguishes them: if it returns to originalCh
-	// we were at VL2 (b); otherwise we were on VL1 (a).
+	// Called when goUp snapped the cursor to startOfCellContent, and cursor.ch < endOfCellContent.
+	// Two cases:
+	//   (a) VL1 middle of any cell: goDown from VL1 start lands at VL1 end (ch ≠ originalCh)
+	//       → go to previous row
+	//   (b) VL2+ left edge of a wrapped cell: goDown from VL1 start returns to originalCh
+	//       → stay at VL1 start
+	// (VL1 end of non-wrapped cell is handled before this call via endOfCellContent check.)
 	handleCellStartSnap(editor: Editor, originalLine: number, originalCh: number, cellIndex: number) {
 		editor.exec('goDown');
 		const backTest = editor.getCursor();
 		if (backTest.line === originalLine && backTest.ch === originalCh) {
-			// Case (b): was at VL2 left edge — goDown returned to originalCh.
-			// Now back at original position; goUp to reach VL1 start.
+			// Case (b): was at VL2+ left edge — goDown returned to originalCh.
+			// goUp to reach VL1 start.
 			editor.exec('goUp');
 		} else {
-			// Case (a): was on VL1 middle — go to previous row.
+			// Case (a): non-wrapped cell or VL1 middle — go to previous row.
 			editor.exec('goUp'); // restore cursor to cell start first
 			this.setCursorToPrevRow(editor, cellIndex);
-			setTimeout(() => { this.moveToBottomVisualLineOfCell(editor); }, 0);
+			setTimeout(() => {
+				if (this.isPositionInTable(editor)) {
+					this.moveToBottomVisualLineOfCell(editor);
+				}
+			}, 0);
 		}
 	}
 
