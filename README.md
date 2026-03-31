@@ -43,16 +43,19 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 
 ### Cursor UP
 - **Within text**: Moves up to the previous visual line, equivalent to physical cursor keys.
-- **From below table (*)**: If the cursor is on the line immediately below a table, it enters the table and moves to the beginning of the bottom-left cell.
-- **Within a table cell (First line) (*)**: If at the first visual line of a cell, it moves to the beginning of the current cell.
-- **To row above (*)**: If already at the beginning of a cell, it moves to the beginning of the cell in the row directly above.
-- **Exit table upward (*)**: If at the beginning of a header cell (top row), it exits the table to the line above.
+- **From below table (*)**: If the cursor is on the line immediately below a table, it enters the table and moves to the **left edge of the bottom visual line** of the bottom-left cell.
+- **Within a table cell (*):**
+  - **First visual line**: Moves to the **left edge of the bottom visual line** of the cell directly above (same column). For non-wrapped cells, this is the cell start.
+  - **Not on first visual line**: Moves to the visual line above within the same cell, equivalent to physical cursor keys.
+- **Exit table upward (*)**: If in the top row of a table, exits the table to the line above.
 
 ### Cursor DOWN
 - **Within text**: Moves down to the next visual line, equivalent to physical cursor keys.
 - **From above table (*)**: If the cursor is on the line immediately above a table, it enters the table and moves to the beginning of the top-left cell.
-- **To row below (*)**: Jumps to the beginning of the cell in the row below, regardless of the current cursor position. This differs from physical cursor keys, which follow each visual line.
-- **Exit table downward (*)**: From any position in the last row, moves the cursor out of the table to the beginning of the line below.
+- **Within a table cell (*):**
+  - **Not on last visual line**: Moves to the visual line below within the same cell, equivalent to physical cursor keys.
+  - **Last visual line**: Jumps to the beginning of the cell in the row below (same column).
+- **Exit table downward (*)**: From the last visual line of any cell in the last row, moves the cursor out of the table to the beginning of the line below.
 
 ### Cursor LEFT
 - **Within text**: Moves left one character, or moves to the previous visual line at the start of a line, equivalent to physical cursor keys.
@@ -85,5 +88,6 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 ## Limitations
 - **No Word-Level Navigation**: Movement by word (e.g., Option/Ctrl + Left/Right) is currently not supported.
 - **No Visual Line Navigation for HOME/END**: Cursor HOME and Cursor END move directly to the beginning or end of the actual logical line (the entire paragraph), rather than the visually wrapped line.
+- **Brief scroll flash when entering a tall wrapped cell (UP)**: When pressing UP into a cell whose wrapped content exceeds the screen height, the view momentarily scrolls to the cell start before jumping to the bottom visual line. This is an inherent side effect of the two-step navigation used to locate the bottom visual line within Obsidian's Live Preview table widget.
 - **Shortcut Conflicts (Windows)**: On Windows, these commands may conflict with system defaults (e.g., Ctrl+A for Select All). Users must manually resolve these conflicts in the settings.
 
