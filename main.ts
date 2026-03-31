@@ -244,19 +244,40 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	moveCursorEnd(editor: Editor) {
 		const cursor = editor.getCursor();
-		let position = cursor.ch;
 		const line = editor.getLine(cursor.line);
-
-		if (position === line.length) return;
 
 		if (this.isLivePreviewMode() && this.isPositionInTable(editor)) {
 			// LivePreviewMode & In the table
-			({ pos: position } = this.getEndOfCellPosition(line, position));
-		} else {
-			// Out of table
-			position = line.length;
+			const { pos } = this.getEndOfCellPosition(line, cursor.ch);
+			editor.setCursor({ line: cursor.line, ch: pos });
+			return;
 		}
-		editor.setCursor({ line: cursor.line, ch: position });
+
+		// Non-table: visual-line-aware end
+		const cm = editor.cm;
+		if (cm) {
+			const lineFrom = editor.posToOffset({ line: cursor.line, ch: 0 });
+			const currentHead = cm.state.selection.main.head;
+			const vlEnd = cm.moveToLineBoundary(cm.state.selection.main, true, true);
+			const vlEndCh = vlEnd.head - lineFrom;
+
+			if (vlEnd.head !== currentHead) {
+				if (vlEndCh > 0 && vlEndCh < line.length) {
+					// Soft-wrap boundary: place at last char of VL1, then goRight
+					// (goRight arrival may render cursor at VL1 right edge)
+					editor.setCursor({ line: cursor.line, ch: vlEndCh - 1 });
+					editor.exec('goRight');
+				} else {
+					// Last VL in line: go directly to logical line end
+					editor.setCursor({ line: cursor.line, ch: line.length });
+				}
+				return;
+			}
+		}
+
+		// Already at VL end -> move to logical line end
+		if (cursor.ch === line.length) return;
+		editor.setCursor({ line: cursor.line, ch: line.length });
 	}
 
 
