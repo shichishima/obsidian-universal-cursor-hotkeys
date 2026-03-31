@@ -1,6 +1,7 @@
 import { Editor, Plugin, MarkdownView } from 'obsidian';
 import { syntaxTree } from '@codemirror/language';
 import { EditorView } from "@codemirror/view";
+import { EditorSelection } from '@codemirror/state';
 
 // Extend the Obsidian Editor interface to include the internal CodeMirror 6 instance (EditorView)
 declare module "obsidian" {
@@ -79,17 +80,39 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	moveCursorHome(editor: Editor) {
 		const cursor = editor.getCursor();
-		let position = cursor.ch;
-		if (position === 0) return;
+		const ch = cursor.ch;
+		if (ch === 0) return;
 
 		const line = editor.getLine(cursor.line);
 		if (this.isLivePreviewMode() && this.isPositionInTable(editor)) {
-			// LivePreviewMode & In the table
-			({ pos: position } = this.getBeginningOfCellPosition(line, position));
-		} else {
-			// Out of table
-			position = this.getBeginningOfLinePosition(line, position);
+			// LivePreviewMode & In the table: jump to cell start
+			const { pos } = this.getBeginningOfCellPosition(line, ch);
+			editor.setCursor({ line: cursor.line, ch: pos });
+			return;
 		}
+
+		// Non-table: visual-line-aware smart home
+		const cm = editor.cm;
+		if (cm) {
+			const lineFrom = editor.posToOffset({ line: cursor.line, ch: 0 });
+			const currentHead = cm.state.selection.main.head;
+			const vlStart = cm.moveToLineBoundary(cm.state.selection.main, false, true);
+			const vlCh = vlStart.head - lineFrom;
+
+			if (vlStart.head !== currentHead && vlCh > 0) {
+				// Case (1a): VL2+, not at VL left edge -> move to VL left edge
+				cm.dispatch({
+					selection: EditorSelection.cursor(vlStart.head, vlStart.assoc),
+					scrollIntoView: true,
+					userEvent: 'move',
+				});
+				return;
+			}
+			// Case (1b): VL2+ at left edge, or Case (2): VL1 -> fall through to smart home
+		}
+
+		// Smart home: content start -> ch=0
+		const position = this.getBeginningOfLinePosition(line, ch);
 		editor.setCursor({ line: cursor.line, ch: position });
 	}
 
@@ -324,7 +347,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 						// goDown from VL1 start in a non-wrapped cell lands at VL1 end (= originalCh),
 						// which causes the goDown probe in handleCellStartSnap to give a false case-b.
 						// Detect this directly: if cursor was at end of cell content, it's VL1 end
-						// of a non-wrapped cell → go to previous row without probing.
+						// of a non-wrapped cell -> go to previous row without probing.
 						const closingPipeRegex = /(?<!\\)\|/g;
 						closingPipeRegex.lastIndex = cursor.ch;
 						const pipeMatch = closingPipeRegex.exec(line);
@@ -332,7 +355,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 							? line.slice(0, pipeMatch.index).trimEnd().length
 							: line.trimEnd().length;
 						if (cursor.ch >= endOfCellContent) {
-							// VL1 end of non-wrapped cell → go to previous row
+							// VL1 end of non-wrapped cell -> go to previous row
 							this.setCursorToPrevRow(editor, cellIndex);
 							setTimeout(() => {
 								if (this.isPositionInTable(editor)) {
@@ -397,10 +420,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	// Called when goUp snapped the cursor to startOfCellContent, and cursor.ch < endOfCellContent.
 	// Two cases:
-	//   (a) VL1 middle of any cell: goDown from VL1 start lands at VL1 end (ch ≠ originalCh)
-	//       → go to previous row
+	//   (a) VL1 middle of any cell: goDown from VL1 start lands at VL1 end (ch != originalCh)
+	//       -> go to previous row
 	//   (b) VL2+ left edge of a wrapped cell: goDown from VL1 start returns to originalCh
-	//       → stay at VL1 start
+	//       -> stay at VL1 start
 	// (VL1 end of non-wrapped cell is handled before this call via endOfCellContent check.)
 	handleCellStartSnap(editor: Editor, originalLine: number, originalCh: number, cellIndex: number) {
 		editor.exec('goDown');
