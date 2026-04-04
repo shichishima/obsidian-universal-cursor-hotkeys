@@ -15,7 +15,8 @@ Windows users can also use this plugin to enable Emacs-style cursor movement.
 - **Seamless Table Navigation:** Move between table cells and jump in/out of tables using the same keys as text editing.
 - **Cross-Platform Compatibility:** Enable macOS-style (Emacs) navigation for Windows users.
 - **Essential Movement Commands:** Includes support for Up (Ctrl+P), Down (Ctrl+N), Left (Ctrl+B), Right (Ctrl+F), Home (Ctrl+A), and End (Ctrl+E).
-- **Smart Home Position:** The Home command (Ctrl+A) is optimized for Markdown, intelligently moving the cursor to the start of the content by accounting for heading characters (`# `), list markers, and footnote indicators (`[^1]: `).
+- **Visual-Line-Aware HOME/END:** On soft-wrapped lines, HOME stops at the start of the current visual line on the first press, then moves to the content start on the next. END stops at the end of the current visual line on the first press, then moves to the logical line end on the next.
+- **Smart Home Position:** The Home command (Ctrl+A) is optimized for Markdown, intelligently moving the cursor to the start of the content by accounting for heading characters (`# `), list markers (`- `), and footnote indicators (`[^1]: `).
 
 
 ## How to Setup
@@ -35,59 +36,61 @@ For more information on how each command behaves, please refer to the Command De
 | DOWN  | Ctrl + N           | Smart DOWN: Text/Cell movement and Table entry (from top) & exit (from bottom). |
 | LEFT  | Ctrl + B           | Smart LEFT: Move by character or jump to the previous cell. |
 | RIGHT | Ctrl + F           | Smart RIGHT: Move by character or jump to the next cell. |
-| HOME  | Ctrl + A           | Smart HOME: Jump to content start (skips markers) or previous cell. |
-| END   | Ctrl + E           | Smart END: Jump to the end of the logical line or next cell. |
+| HOME  | Ctrl + A           | Smart HOME: Visual-line-aware; jumps to content start (skips markers) or previous cell. |
+| END   | Ctrl + E           | Smart END: Visual-line-aware; jumps to end of visual/logical line or next cell. |
 
 ## Command Details
 Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 
 ### Cursor UP
-- **Within text**: Moves up to the previous visual line, equivalent to physical cursor keys.
-- **From below table (*)**: If the cursor is on the line immediately below a table, it enters the table and moves to the **left edge of the bottom visual line** of the bottom-left cell.
+- **Within text:** Moves up to the previous visual line, equivalent to physical cursor keys.
+- **From below a table (*):** If the cursor is on the line immediately below a table, it enters the table and moves to the left edge of the bottom visual line of the bottom-left cell.
 - **Within a table cell (*):**
-  - **First visual line**: Moves to the **left edge of the bottom visual line** of the cell directly above (same column). For non-wrapped cells, this is the cell start.
-  - **Not on first visual line**: Moves to the visual line above within the same cell, equivalent to physical cursor keys.
-- **Exit table upward (*)**: If in the top row of a table, exits the table to the line above.
+  - **First visual line:** Moves to the left edge of the bottom visual line of the cell directly above (same column). For non-wrapped cells, this is the cell start.
+  - **On other visual lines:** Moves to the visual line above within the same cell, equivalent to physical cursor keys.
+- **Exiting a table upward (*):** If in the top row of a table, exits the table to the line above.
 
 ### Cursor DOWN
-- **Within text**: Moves down to the next visual line, equivalent to physical cursor keys.
-- **From above table (*)**: If the cursor is on the line immediately above a table, it enters the table and moves to the beginning of the top-left cell.
+- **Within text:** Moves down one visual line, equivalent to physical cursor keys.
+- **From above a table (*):** If the cursor is on the line immediately above a table, it enters the table and moves to the beginning of the top-left cell.
 - **Within a table cell (*):**
-  - **Not on last visual line**: Moves to the visual line below within the same cell, equivalent to physical cursor keys.
-  - **Last visual line**: Jumps to the beginning of the cell in the row below (same column).
-- **Exit table downward (*)**: From the last visual line of any cell in the last row, moves the cursor out of the table to the beginning of the line below.
+  - **On other visual lines:** Moves to the visual line below within the same cell, equivalent to physical cursor keys.
+  - **Last visual line:** Jumps to the beginning of the cell in the row below (same column).
+- **Exiting a table downward (*):** From the last visual line of any cell in the last row, moves the cursor out of the table to the beginning of the line below.
 
 ### Cursor LEFT
-- **Within text**: Moves left one character, or moves to the previous visual line at the start of a line, equivalent to physical cursor keys.
-- **Within a table cell (*):** Moves to the previous visual line if the text is wrapped, equivalent to physical cursor keys.
-- **At the beginning of a cell (*):** Jumps to the end of the text in the cell to the left.
-- **In the leftmost cell (*):** Stops at the beginning of the text. Unlike physical cursor keys, it will not move to the row above or exit the table.
+- **Within text:** Moves left by one character, equivalent to physical cursor keys.
+- **Within a table cell (*):** Moves left one character within the cell content.
+- **At the beginning of cell content (*):** Jumps to the end of the text in the cell on the left (same row).
+- **In the leftmost cell, at the cell start (data row) (*):** Jumps to the end of the rightmost cell in the row above.
+- **In the leftmost cell, at the cell start (header row) (*):** Exits the table to the line above.
 
 ### Cursor RIGHT
-- **Within text**: Moves right one character, or moves to the next visual line at the end of a line, equivalent to physical cursor keys.
-- **Within a table cell (*)**: Moves to the next visual line if the text is wrapped, equivalent to physical cursor keys.
-- **At the end of a cell (*)**: Jumps to the beginning of the text in the cell to the right.
-- **In the rightmost cell (*)**: Stops at the end of the text. Unlike physical cursor keys, it will not move to the row below or exit the table.
+- **Within text:** Moves right by one character, equivalent to physical cursor keys.
+- **Within a table cell (*):** Moves right one character within the cell content.
+- **At the end of cell content (*):** Jumps to the beginning of the text in the cell to the right (same row).
+- **In the rightmost cell, at the cell end (non-last row) (*):** Jumps to the beginning of the leftmost cell in the row below.
+- **In the rightmost cell, at the cell end (last row) (*):** Exits the table to the line below.
 
 ### Cursor HOME
-- **Within text**: Jumps to the start of the actual content by skipping Markdown markers:
-  - **Lists & Quotes**: Skips indentation (leading whitespace), unordered list markers (`- `, `* `, `+ `), checkboxes (`- [ ] `), ordered lists (`1. ` or `1) `), and blockquotes (`>`).
-  - **Headings & Footnotes**: Skips heading markers (`# `) and footnote indicators (`[^1]: `). Unlike the standard HOME key, which moves directly to the absolute beginning of the line, this command stops first at the beginning of the text content.
-  - **At the start of content**: If the cursor is already at the beginning of the text content, it moves to the absolute beginning of the logical line.
-- **Within a table cell (*)**: Jumps to the beginning of the text in the same cell. Note: Unlike the "Within text" behavior, this does not skip Markdown markers, as markers such as list items (`- `) or checkboxes (`- [ ] `) are not rendered as functional elements within tables in Live Preview. It also does not move to the start of the visual line.
-- **At the beginning of a cell (*)**: Jumps to the end of the text in the cell to the left.
-- **In the leftmost cell (*)**: Stops at the beginning of the text. It will not move to the row above.
+- **Within text:** Moves to the beginning of the line in **3 steps**.
+  - **Step 1:** Moves to the start of the current visual line (if wrapped).
+  - **Step 2:** Moves to the start of the actual content, skipping markers such as indentation, list markers (`- `, `* `, `+ `), checkboxes (`- [ ] `), ordered lists (`1. ` or `1) `), blockquotes (`>`), heading markers (`# `), and footnote indicators (`[^1]: `).
+  - **Step 3:** Moves to the absolute beginning of the logical line (ch=0).
+- **Within a table cell (*):** Moves to the beginning of the current in-cell line (the sub-line within a `<br>`-separated cell). Does not skip Markdown markers.
+  - **At the beginning of an in-cell line (*):** Jumps to the end of the text in the cell to the left, or to the previous row's rightmost cell if in the leftmost column.
+  - **In the header row, leftmost cell, at the cell start (*):** Exits the table to the line above.
 
 ### Cursor END
-- **Within text**: Moves the cursor to the end of the logical line (the entire paragraph), regardless of visual line wrapping.
-- **Within a table cell (*)**: Jumps to the end of the text in the same cell. Note: It does not move to the end of the visual line.
-- **At the end of a cell (*)**: Jumps to the beginning of the text in the cell to the right.
-- **In the rightmost cell (*)**: Stops at the end of the text. It will not move to the row below.
-
+- **Within text:** Moves to the end of the line in **2 steps** (visual-line-aware).
+  - **1st step:** Moves to the end of the current visual line (if wrapped).
+  - **2nd step:** Moves to the end of the logical line (the entire paragraph).
+- **Within a table cell (*):** Moves to the right edge of the in-cell line (visual-line-**un**aware).
+  - **At the end of bottom in-cell line (*):** Jumps to the beginning of the text in the cell to the right, or to the next row's leftmost cell if in the rightmost column.
+  - **At the right edge of a non-bottom in-cell line:** Does not move any further.
+  - **In the last row, rightmost cell, at cell end (*):** Exits the table to the line below.
 
 ## Limitations
-- **No Word-Level Navigation**: Movement by word (e.g., Option/Ctrl + Left/Right) is currently not supported.
-- **No Visual Line Navigation for HOME/END**: Cursor HOME and Cursor END move directly to the beginning or end of the actual logical line (the entire paragraph), rather than the visually wrapped line.
-- **Brief scroll flash when entering a tall wrapped cell (UP)**: When pressing UP into a cell whose wrapped content exceeds the screen height, the view momentarily scrolls to the cell start before jumping to the bottom visual line. This is an inherent side effect of the two-step navigation used to locate the bottom visual line within Obsidian's Live Preview table widget.
-- **Shortcut Conflicts (Windows)**: On Windows, these commands may conflict with system defaults (e.g., Ctrl+A for Select All). Users must manually resolve these conflicts in the settings.
-
+- **No Word-Level Navigation:** Movement by word (e.g., Option/Ctrl + Left/Right) is currently not supported.
+- **Brief scroll flash when entering a tall wrapped cell (UP):** When pressing UP into a cell whose wrapped content exceeds the screen height, the view momentarily scrolls to the cell start before jumping to the bottom visual line. This is an inherent side effect of the two-step navigation used to locate the bottom visual line within Obsidian's Live Preview table widget.
+- **Shortcut Conflicts (Windows):** On Windows, these commands may conflict with system defaults (e.g., Ctrl+A for Select All). Users must manually resolve these conflicts in the settings.
