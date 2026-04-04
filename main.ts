@@ -79,6 +79,17 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			}
 		});
 
+		this.addCommand({
+			id: "select-all",
+			name: "Select All",
+			editorCallback: (editor: Editor) => {
+				editor.setSelection(
+					{ line: 0, ch: 0 },
+					{ line: editor.lastLine(), ch: editor.getLine(editor.lastLine()).length }
+				);
+			},
+		});
+
 	}
 
 	onunload() {
