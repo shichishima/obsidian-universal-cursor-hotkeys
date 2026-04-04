@@ -8,7 +8,7 @@ This plugin provides hotkey commands for that purpose, enabling movement between
 The commands ensure a consistent navigation experience across your entire note, supporting fluid movement in both plain text paragraphs and table cells.
 
 Windows users can also use this plugin to enable Emacs-style cursor movement.
-(Note: You must manually assign the commands in the hotkey settings; please resolve any conflicts with existing system shortcuts, such as Ctrl+A for "Select All," as needed).
+(Note: You must manually assign the commands in the hotkey settings; please resolve any conflicts with existing system shortcuts, such as Ctrl+A for "Select all," as needed).
 
 
 ## Key Features
@@ -17,7 +17,7 @@ Windows users can also use this plugin to enable Emacs-style cursor movement.
 - **Essential Movement Commands:** Includes support for Up (Ctrl+P), Down (Ctrl+N), Left (Ctrl+B), Right (Ctrl+F), Home (Ctrl+A), and End (Ctrl+E).
 - **Visual-Line-Aware HOME/END:** On soft-wrapped lines, HOME stops at the start of the current visual line on the first press, then moves to the content start on the next. END stops at the end of the current visual line on the first press, then moves to the logical line end on the next.
 - **Smart Home Position:** The Home command (Ctrl+A) is optimized for Markdown, intelligently moving the cursor to the start of the content by accounting for heading characters (`# `), list markers (`- `), and footnote indicators (`[^1]: `).
-- **Select All Command:** Includes a dedicated "Select All" command to replace the default Ctrl+A behavior when the hotkey is reassigned.
+- **Select All Command:** Includes a dedicated "Select all" command to replace the default Ctrl+A behavior when the hotkey is reassigned.
 
 ## How to Setup
 - **Enable the Plugin:** After installation, enable "Universal Cursor Hotkeys" in your community plugins list.
@@ -25,7 +25,7 @@ Windows users can also use this plugin to enable Emacs-style cursor movement.
 
 ### Note:
 - No hotkeys are assigned by default. You must manually set them to enable the navigation.
-- **Windows Users**: Assigning Ctrl+A or Ctrl+F will overwrite standard OS shortcuts like "Select All" or "Find".
+- **Windows Users**: Assigning Ctrl+A or Ctrl+F will overwrite standard OS shortcuts like "Select all" or "Find".
 
 ## Recommended Hotkey Map
 For more information on how each command behaves, please refer to the Command Details section below.
@@ -93,7 +93,7 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 ## Limitations
 - **No Word-Level Navigation:** Movement by word (e.g., Option/Ctrl + Left/Right) is currently not supported.
 - **Brief scroll flash when entering a tall wrapped cell (UP):** When pressing UP into a cell whose wrapped content exceeds the screen height, the view momentarily scrolls to the cell start before jumping to the bottom visual line. This is an inherent side effect of the two-step navigation used to locate the bottom visual line within Obsidian's Live Preview table widget.
-- **Shortcut Conflicts (Windows):** On Windows, these commands may conflict with system defaults (e.g., Ctrl+A for Select All). Users must manually resolve these conflicts in the settings. A dedicated "Select All" command is provided by this plugin to restore this functionality.
+- **Shortcut Conflicts (Windows):** On Windows, these commands may conflict with system defaults (e.g., Ctrl+A for Select all). Users must manually resolve these conflicts in the settings. A dedicated "Select all" command is provided by this plugin to restore this functionality.
 
 ## Acknowledgments
 - The code and documentation for this plugin were developed with the assistance of AI.

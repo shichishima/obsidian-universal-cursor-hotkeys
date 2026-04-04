@@ -81,7 +81,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 		this.addCommand({
 			id: "select-all",
-			name: "Select All",
+			name: "Select all",
 			editorCallback: (editor: Editor) => {
 				editor.setSelection(
 					{ line: 0, ch: 0 },
