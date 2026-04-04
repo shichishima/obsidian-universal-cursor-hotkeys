@@ -128,6 +128,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 					scrollIntoView: true,
 					userEvent: 'move',
 				});
+				// goRight+goLeft: re-register cursor inside the visual line so that
+				// subsequent goUp navigates to VL1 rather than the logical line above.
+				editor.exec('goRight');
+				editor.exec('goLeft');
 				return;
 			}
 			// Case (1b): VL2+ at left edge, or Case (2): VL1 -> fall through to smart home
@@ -163,15 +167,35 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const cm = editor.cm;
 		if (cm) {
 			const lineFrom = editor.posToOffset({ line: cursor.line, ch: 0 });
+			const lineEndOffset = lineFrom + line.length;
 			const currentHead = cm.state.selection.main.head;
 			const vlEnd = cm.moveToLineBoundary(cm.state.selection.main, true, true);
 			const vlEndCh = vlEnd.head - lineFrom;
 
 			if (vlEnd.head !== currentHead) {
 				if (vlEndCh > 0 && vlEndCh < line.length) {
-					// Soft-wrap boundary: place at last char of VL1, then goRight
-					editor.setCursor({ line: cursor.line, ch: vlEndCh - 1 });
-					editor.exec('goRight');
+					// vlEnd is before the logical line end: either a soft-wrap boundary,
+					// or hidden markdown syntax at EOL (e.g. `code`, [[link]]) causing
+					// moveToLineBoundary to stop before the closing delimiter.
+					// Distinguish the two by checking if the logical line end shares the
+					// same visual line as the current cursor position.
+					const lineEndVlStart = cm.moveToLineBoundary(
+						EditorSelection.cursor(lineEndOffset), false, true
+					);
+					const currentVlStart = cm.moveToLineBoundary(
+						cm.state.selection.main, false, true
+					);
+					if (lineEndVlStart.head === currentVlStart.head) {
+						// Same visual line: hidden markdown at EOL -> jump to logical line end
+						editor.setCursor({ line: cursor.line, ch: line.length });
+					} else {
+						// Soft-wrap boundary. Ideally assoc=-1 would render the cursor at
+						// VL1 end, but Obsidian overrides assoc rendering and places the
+						// cursor at VL2 start instead. Workaround: place at last char of
+						// VL1, then goRight to land at VL1 right edge.
+						editor.setCursor({ line: cursor.line, ch: vlEndCh - 1 });
+						editor.exec('goRight');
+					}
 				} else {
 					// Last VL in line: go directly to logical line end
 					editor.setCursor({ line: cursor.line, ch: line.length });
