@@ -399,9 +399,13 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// move to Left cell / Right edge
 	//	(a)->(A) : same row
 	//	(b)->(B) : if leftmost cell, move to upper row & rightmost cell
+	//	(c)->(C) : if left edge of 1st row, leftmost column, exit table above
 	// shared by moveCursorHome (Ctrl-A) and moveCursorLeft (Ctrl-B)
 	//
 	//  cellIndex=0          1           lastCellIndex
+	// (C)
+	// +--------------+-------------+---+--------------+
+	// |(c)Header     | Header      |...|              |
 	// +--------------+-------------+---+--------------+
 	// | some text in |(a)some text |...| some text in |
 	// | the cell(A)  | in the cell |   | the cell(B)  |
@@ -426,9 +430,9 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// Leftmost cell: go to previous row
 		const targetLine = this.getPrevRowLine(editor);
 		if (targetLine === -1) {
-			// Header row: go outside table
+			// Header row: go outside table. (c)->(C)
 			if (cursor.line > 0) {
-				editor.setCursor({ line: cursor.line - 1, ch: 0 });
+				this.setCursorViaCm(editor, cursor.line - 1, 0);
 			}
 			return;
 		}
@@ -445,6 +449,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// move to Right cell / Left edge
 	//	(a)->(A) : same row
 	//	(b)->(B) : if rightmost cell, move to lower row & leftmost cell
+	//	(c)->(C) : if right edge of bottom row, rightmost column, exit table below
 	// shared by moveCursorEnd (Ctrl-E) and moveCursorRight (Ctrl-F)
 	//
 	//  cellIndex=0      lastCellIndex-1  lastCellIndex
@@ -452,9 +457,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// |             |...| some text in |(A)some text in |
 	// |             |   | the cell(a)  | the cell(b)    |
 	// +-------------+---+--------------+----------------+
-	// |(B)some text |...|              |                |
-	// | in the cell |   |              |                |
+	// |(B)some text |...|              | some text in   |
+	// | in the cell |   |              | the cell(c)    |
 	// +-------------+----+-------------+----------------+
+	// (C)
 	moveToRightCellStart(editor: Editor) {
 		const cursor = editor.getCursor();
 		const line = editor.getLine(cursor.line);
@@ -473,9 +479,9 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// Rightmost cell: go to next row
 		const targetLine = this.getNextRowLine(editor);
 		if (targetLine === -1) {
-			// Last row: go outside table
+			// Last row: go outside table (c)->(C)
 			if (cursor.line < editor.lineCount() - 1) {
-				editor.setCursor({ line: cursor.line + 1, ch: 0 });
+				this.setCursorViaCm(editor, cursor.line + 1, 0);
 			}
 			return;
 		}
