@@ -38,6 +38,7 @@ For more information on how each command behaves, please refer to the Command De
 | RIGHT | Ctrl + F           | Smart RIGHT: Move by character or jump to the next cell. |
 | HOME  | Ctrl + A           | Smart HOME: Visual-line-aware; jumps to content start (skips markers) or previous cell. |
 | END   | Ctrl + E           | Smart END: Visual-line-aware; jumps to end of visual/logical line or next cell. |
+| Select all | (None)        | For Windows users: Restores "Select all" functionality if Ctrl+A is reassigned to HOME. Assign a custom key or run from the command palette. |
 
 ## Command Details
 Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
