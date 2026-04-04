@@ -241,12 +241,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				// LivePreviewMode & In the table
 				const line = editor.getLine(cursor.line);
 				const ch = cursor.ch;
-				const lastPipeIndex = line.lastIndexOf('|', ch - 1);
-				if (lastPipeIndex === -1) return;
-
-				// Locate the first non-space character in the current cell
-				const startOffset = line.slice(lastPipeIndex + 1).search(/\S|$/);
-				const startOfCellContent = lastPipeIndex + 1 + startOffset;
+				const startOfCellContent = this.getStartOfCellContent(line, ch);
 				const cellIndex = this.getCellIndex(line, ch);
 
 				// Enter the widget so that goUp/goDown navigate visual lines within it.
@@ -266,31 +261,18 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 					if (cursor.ch <= startOfCellContent) {
 						// Was at cell start -> go to previous row
 						this.setCursorToPrevRow(editor, cellIndex);
-						setTimeout(() => {
-							if (this.isPositionInTable(editor)) {
-								this.moveToBottomVisualLineOfCell(editor);
-							}
-						}, 0);
+						this.scheduleBottomVisualLine(editor);
 					} else if (cursorAfter.ch === startOfCellContent) {
 						// goDown from VL1 start in a non-wrapped cell lands at VL1 end (= originalCh),
 						// which causes the goDown probe in handleCellStartSnap to give a false case-b.
 						// Detect this directly: if cursor was at end of cell content, it's VL1 end
 						// of a non-wrapped cell -> go to previous row without probing.
 
-						const closingPipeRegex = /(?<!\\)\|/g;
-						closingPipeRegex.lastIndex = cursor.ch;
-						const pipeMatch = closingPipeRegex.exec(line);
-						const endOfCellContent = pipeMatch
-							? line.slice(0, pipeMatch.index).trimEnd().length
-							: line.trimEnd().length;
+						const endOfCellContent = this.getEndOfCellContent(line, cursor.ch);
 						if (cursor.ch >= endOfCellContent) {
 							// VL1 end of non-wrapped cell -> go to previous row
 							this.setCursorToPrevRow(editor, cellIndex);
-							setTimeout(() => {
-								if (this.isPositionInTable(editor)) {
-									this.moveToBottomVisualLineOfCell(editor);
-								}
-							}, 0);
+							this.scheduleBottomVisualLine(editor);
 						} else {
 							this.handleCellStartSnap(editor, cursor.line, cursor.ch, cellIndex);
 						}
@@ -307,11 +289,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 							this.setCursorViaCm(editor, targetLine, targetCh);
 						}
 					}
-					setTimeout(() => {
-						if (this.isPositionInTable(editor)) {
-							this.moveToBottomVisualLineOfCell(editor);
-						}
-					}, 0);
+					this.scheduleBottomVisualLine(editor);
 				}
 				return;
 			} else {
@@ -332,11 +310,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 					if (targetCh !== -1) {
 						editor.setCursor({ line: targetLine, ch: targetCh });
 					}
-					setTimeout(() => {
-						if (this.isPositionInTable(editor)) {
-							this.moveToBottomVisualLineOfCell(editor);
-						}
-					}, 0);
+					this.scheduleBottomVisualLine(editor);
 					return;
 				}
 			}
@@ -367,10 +341,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 				const cursorAfter = editor.getCursor();
 				if (cursorAfter.line === cursor.line) {
-					const nextPipeIndex = line.indexOf('|', cursorAfter.ch);
-					const endOfCellContent = nextPipeIndex !== -1
-						? line.slice(0, nextPipeIndex).trimEnd().length
-						: line.trimEnd().length;
+					const endOfCellContent = this.getEndOfCellContent(line, cursorAfter.ch);
 
 					if (cursorAfter.ch >= endOfCellContent) {
 						this.setCursorToNextRow(editor, cellIndex);
@@ -519,7 +490,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	// Moves the cursor to the beginning of the specified column in the previous row.
 	//
-	// (*1)            <-- BlankLine
+	// (*1)                     <-- BlankLine
 	// | header | (*2)header |  <-- HeaderRow
 	// | ------ | ---------- |  <-- DelimiterLine
 	// | text   | (*3)text   |  <-- FirstDataRow
@@ -643,8 +614,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		//  first  / middle: endOfInCellLine = position of <br>  (= seg.end)
 		//
 		//  isEmpty fallback when no non-whitespace is found:
-		//    single → seg.start  (endOfInCellLine = seg.start + 0 = seg.start → isEmpty)
-		//    first  → seg.end    (= br.start → startOfInCellLine = endOfInCellLine → isEmpty)
+		//    single -> seg.start  (endOfInCellLine = seg.start + 0 = seg.start -> isEmpty)
+		//    first  -> seg.end    (= br.start -> startOfInCellLine = endOfInCellLine -> isEmpty)
 		const segContent = line.slice(seg.start, seg.end);
 		let startOfInCellLine: number;
 		let endOfInCellLine: number;
@@ -819,12 +790,19 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			// VL1 middle: go to previous row
 			editor.exec('goUp');
 			this.setCursorToPrevRow(editor, cellIndex);
-			setTimeout(() => {
-				if (this.isPositionInTable(editor)) {
-					this.moveToBottomVisualLineOfCell(editor);
-				}
-			}, 0);
+			this.scheduleBottomVisualLine(editor);
 		}
+	}
+
+
+	// Schedules moveToBottomVisualLineOfCell for the next event loop tick.
+	// Used after synchronous cursor placement to let the DOM settle first.
+	scheduleBottomVisualLine(editor: Editor) {
+		setTimeout(() => {
+			if (this.isPositionInTable(editor)) {
+				this.moveToBottomVisualLineOfCell(editor);
+			}
+		}, 0);
 	}
 
 
