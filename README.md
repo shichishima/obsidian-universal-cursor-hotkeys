@@ -84,8 +84,8 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 
 ### Cursor END
 - **Within text:** Moves to the end of the line in **2 steps** (visual-line-aware).
-  - **1st step:** Moves to the end of the current visual line (if wrapped).
-  - **2nd step:** Moves to the end of the logical line (the entire paragraph).
+  - **Step 1:** Moves to the end of the current visual line (if wrapped).
+  - **Step 2:** Moves to the end of the logical line (the entire paragraph).
 - **Within a table cell (*):** Moves to the right edge of the in-cell line (visual-line-**un**aware).
   - **At the end of bottom in-cell line (*):** Jumps to the beginning of the text in the cell to the right, or to the next row's leftmost cell if in the rightmost column.
   - **At the right edge of a non-bottom in-cell line:** Does not move any further.
