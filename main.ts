@@ -11,8 +11,6 @@ declare module "obsidian" {
 }
 
 
-const CELL_SEPARATOR_REGEX = /(?<!\\)\|/g;
-
 interface InCellLineInfo {
 	lineType: 'single' | 'first' | 'middle' | 'last';
 	startOfInCellLine: number;   // left edge (ch position)
@@ -22,6 +20,8 @@ interface InCellLineInfo {
 
 
 export default class universalCursorHotkeysPlugin extends Plugin {
+
+	private readonly CELL_SEPARATOR_REGEX = /(?<!\\)\|/g;
 
 	onload() {
 
@@ -101,30 +101,91 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Entry points: Ctrl-A / Ctrl-E / Ctrl-B / Ctrl-F
 	//===========================================================================
 
-	moveCursorHome(editor: Editor) {
+	private moveCursorHome(editor: Editor) {
 		const cursor = editor.getCursor();
-		const ch = cursor.ch;
-		if (ch === 0) return;
+		if (cursor.ch === 0) return;
 
-		const line = editor.getLine(cursor.line);
-
-		// In-cell Home : every in-cell line, no 2-step Home.
 		if (this.isLivePreviewMode() && this.isPositionInTable(editor)) {
-			const info = this.getInCellLineInfo(line, ch);
-			if (!info) return;
-
-			if (info.isEmpty || ch <= info.startOfInCellLine) {
-				if (info.lineType === 'single' || info.lineType === 'first') {
-					this.moveToLeftCellEnd(editor);
-				}
-				return;
-			}
-			// Middle or right position -> move to left edge of current in-cell line
-			this.setCursorViaCm(editor, cursor.line, info.startOfInCellLine);
+			this.moveCursorHomeInTable(editor);
 			return;
 		}
 
-		// Non-table : visual-line-aware 2-step home, markdown-aware smart home.
+		this.moveCursorHomeNonTable(editor);
+	}
+
+
+	private moveCursorEnd(editor: Editor) {
+		if (this.isLivePreviewMode() && this.isPositionInTable(editor)) {
+			this.moveCursorEndInTable(editor);
+			return;
+		}
+
+		this.moveCursorEndNonTable(editor);
+	}
+
+
+	private moveCursorLeft(editor: Editor) {
+		const cursor = editor.getCursor();
+
+		if (this.isLivePreviewMode() && this.isPositionInTable(editor)) {
+			const line = editor.getLine(cursor.line);
+			const startOfCell = this.getStartOfCellContent(line, cursor.ch);
+			if (cursor.ch <= startOfCell) {
+				this.moveToLeftCellEnd(editor);
+			} else {
+				editor.exec('goLeft');
+			}
+			return;
+		}
+
+		editor.exec('goLeft');
+	}
+
+
+	private moveCursorRight(editor: Editor) {
+		const cursor = editor.getCursor();
+
+		if (this.isLivePreviewMode() && this.isPositionInTable(editor)) {
+			const line = editor.getLine(cursor.line);
+			const endOfCell = this.getEndOfCellContent(line, cursor.ch);
+			if (cursor.ch >= endOfCell) {
+				this.moveToRightCellStart(editor);
+			} else {
+				editor.exec('goRight');
+			}
+			return;
+		}
+
+		editor.exec('goRight');
+	}
+
+
+	//===========================================================================
+	// Ctrl-A/E table helpers
+	//===========================================================================
+
+	// In-cell Home: every in-cell line, no 2-step Home.
+	private moveCursorHomeInTable(editor: Editor) {
+		const cursor = editor.getCursor();
+		const line = editor.getLine(cursor.line);
+		const info = this.getInCellLineInfo(line, cursor.ch);
+		if (!info) return;
+
+		if (info.isEmpty || cursor.ch <= info.startOfInCellLine) {
+			if (info.lineType === 'single' || info.lineType === 'first') {
+				this.moveToLeftCellEnd(editor);
+			}
+			return;
+		}
+		// Middle or right position -> move to left edge of current in-cell line.
+		this.setCursorViaCm(editor, cursor.line, info.startOfInCellLine);
+	}
+
+
+	// Non-table Home: visual-line-aware 2-step home, markdown-aware smart home.
+	private moveCursorHomeNonTable(editor: Editor) {
+		const cursor = editor.getCursor();
+		const line = editor.getLine(cursor.line);
 		const cm = editor.cm;
 		if (cm) {
 			const lineFrom = editor.posToOffset({ line: cursor.line, ch: 0 });
@@ -133,7 +194,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			const vlCh = vlStart.head - lineFrom;
 
 			if (vlStart.head !== currentHead && vlCh > 0) {
-				// Case (1a): VL2+, not at VL left edge -> move to VL left edge
+				// Case (1a): VL2+, not at VL left edge -> move to VL left edge.
 				cm.dispatch({
 					selection: EditorSelection.cursor(vlStart.head, vlStart.assoc),
 					scrollIntoView: true,
@@ -145,36 +206,37 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				editor.exec('goLeft');
 				return;
 			}
-			// Case (1b): VL2+ at left edge, or Case (2): VL1 -> fall through to smart home
+			// Case (1b): VL2+ at left edge, or Case (2): VL1 -> fall through to smart home.
 		}
 
-		// Smart home: content start -> ch=0
-		const position = this.getBeginningOfLinePosition(line, ch);
+		// Smart home: content start -> ch=0.
+		const position = this.getBeginningOfLinePosition(line, cursor.ch);
 		editor.setCursor({ line: cursor.line, ch: position });
 	}
 
 
-	moveCursorEnd(editor: Editor) {
+	// In-cell End: every in-cell line, no 2-step End.
+	private moveCursorEndInTable(editor: Editor) {
 		const cursor = editor.getCursor();
 		const line = editor.getLine(cursor.line);
+		const info = this.getInCellLineInfo(line, cursor.ch);
+		if (!info) return;
 
-		// In-cell End : every in-cell line, no 2-step End.
-		if (this.isLivePreviewMode() && this.isPositionInTable(editor)) {
-			const info = this.getInCellLineInfo(line, cursor.ch);
-			if (!info) return;
-
-			if (info.isEmpty || cursor.ch >= info.endOfInCellLine) {
-				if (info.lineType === 'single' || info.lineType === 'last') {
-					this.moveToRightCellStart(editor);
-				}
-				return;
+		if (info.isEmpty || cursor.ch >= info.endOfInCellLine) {
+			if (info.lineType === 'single' || info.lineType === 'last') {
+				this.moveToRightCellStart(editor);
 			}
-			// Middle or left position -> move to right edge of current in-cell line
-			this.setCursorViaCm(editor, cursor.line, info.endOfInCellLine);
 			return;
 		}
+		// Middle or left position -> move to right edge of current in-cell line.
+		this.setCursorViaCm(editor, cursor.line, info.endOfInCellLine);
+	}
 
-		// Non-table: visual-line-aware end
+
+	// Non-table End: visual-line-aware end.
+	private moveCursorEndNonTable(editor: Editor) {
+		const cursor = editor.getCursor();
+		const line = editor.getLine(cursor.line);
 		const cm = editor.cm;
 		if (cm) {
 			const lineFrom = editor.posToOffset({ line: cursor.line, ch: 0 });
@@ -197,7 +259,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 						cm.state.selection.main, false, true
 					);
 					if (lineEndVlStart.head === currentVlStart.head) {
-						// Same visual line: hidden markdown at EOL -> jump to logical line end
+						// Same visual line: hidden markdown at EOL -> jump to logical line end.
 						editor.setCursor({ line: cursor.line, ch: line.length });
 					} else {
 						// Soft-wrap boundary. Ideally assoc=-1 would render the cursor at
@@ -208,52 +270,18 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 						editor.exec('goRight');
 					}
 				} else {
-					// Last VL in line: go directly to logical line end
+					// Last VL in line: go directly to logical line end.
 					editor.setCursor({ line: cursor.line, ch: line.length });
 				}
 				return;
 			}
+			// Fell through: already at VL end.
 		}
 
-		// Already at VL end -> move to logical line end
-		if (cursor.ch === line.length) return;
-		editor.setCursor({ line: cursor.line, ch: line.length });
-	}
-
-
-	moveCursorLeft(editor: Editor) {
-		const cursor = editor.getCursor();
-
-		if (this.isLivePreviewMode() && this.isPositionInTable(editor)) {
-			const line = editor.getLine(cursor.line);
-			const startOfCell = this.getStartOfCellContent(line, cursor.ch);
-			if (cursor.ch <= startOfCell) {
-				this.moveToLeftCellEnd(editor);
-			} else {
-				editor.exec('goLeft');
-			}
-			return;
+		// No cm, or already at VL end -> move to logical line end.
+		if (cursor.ch !== line.length) {
+			editor.setCursor({ line: cursor.line, ch: line.length });
 		}
-
-		editor.exec('goLeft');
-	}
-
-
-	moveCursorRight(editor: Editor) {
-		const cursor = editor.getCursor();
-
-		if (this.isLivePreviewMode() && this.isPositionInTable(editor)) {
-			const line = editor.getLine(cursor.line);
-			const endOfCell = this.getEndOfCellContent(line, cursor.ch);
-			if (cursor.ch >= endOfCell) {
-				this.moveToRightCellStart(editor);
-			} else {
-				editor.exec('goRight');
-			}
-			return;
-		}
-
-		editor.exec('goRight');
 	}
 
 
@@ -261,140 +289,148 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Entry points: Ctrl-P / Ctrl-N
 	//===========================================================================
 
-	moveCursorUp(editor: Editor) {
+	private moveCursorUp(editor: Editor) {
 		const cursor = editor.getCursor();
 
-		// Top of file
-		if (cursor.line === 0) {
-			// If it is the first line of the file, goUp is OK even if it is in a table.
-			editor.exec('goUp');
-			return;
-		}
+		// Top of file: goUp is safe even inside a table.
+		if (cursor.line === 0) { editor.exec('goUp'); return; }
 
 		if (this.isLivePreviewMode()) {
 			if (this.isPositionInTable(editor)) {
-				// LivePreviewMode & In the table
-				const line = editor.getLine(cursor.line);
-				const ch = cursor.ch;
-				const startOfCellContent = this.getStartOfCellContent(line, ch);
-				const cellIndex = this.getCellIndex(line, ch);
-
-				// Enter the widget so that goUp/goDown navigate visual lines within it.
-				// Without this, a cursor placed by cm.dispatch (e.g. from moveToBottomVisualLineOfCell)
-				// is not registered inside the widget, causing goDown tests to misbehave.
-				editor.exec('goRight');
-				editor.exec('goLeft');
-
-				editor.exec('goUp');
-
-				// If goUp stayed on the same logical line, and the cursor was already
-				// at cell start before goUp, proceed to the previous row.
-				// (If cursor was on a lower visual line, goUp correctly moved to the
-				// visual line above within the same cell — no further action needed.)
-				const cursorAfter = editor.getCursor();
-				if (cursorAfter.line === cursor.line) {
-					if (cursor.ch <= startOfCellContent) {
-						// Was at cell start -> go to previous row
-						this.setCursorToPrevRow(editor, cellIndex);
-						this.scheduleBottomVisualLine(editor);
-					} else if (cursorAfter.ch === startOfCellContent) {
-						// goDown from VL1 start in a non-wrapped cell lands at VL1 end (= originalCh),
-						// which causes the goDown probe in handleCellStartSnap to give a false case-b.
-						// Detect this directly: if cursor was at end of cell content, it's VL1 end
-						// of a non-wrapped cell -> go to previous row without probing.
-
-						const endOfCellContent = this.getEndOfCellContent(line, cursor.ch);
-						if (cursor.ch >= endOfCellContent) {
-							// VL1 end of non-wrapped cell -> go to previous row
-							this.setCursorToPrevRow(editor, cellIndex);
-							this.scheduleBottomVisualLine(editor);
-						} else {
-							this.handleCellStartSnap(editor, cursor.line, cursor.ch, cellIndex);
-						}
-					}
-					// else: goUp moved within cell to visual line above - done
-				} else {
-					// goUp moved to a different logical line (previous table row or outside table)
-					if (this.isPositionInTable(editor)) {
-						// Re-place cursor at cell start so moveToBottomVisualLineOfCell can
-						// navigate down properly (same pattern as setCursorToPrevRow + moveToBottom)
-						const targetLine = cursorAfter.line;
-						const targetCh = this.getChByCellIndex(editor, targetLine, cellIndex);
-						if (targetCh !== -1) {
-							this.setCursorViaCm(editor, targetLine, targetCh);
-						}
-					}
-					this.scheduleBottomVisualLine(editor);
-				}
+				this.moveCursorUpInTable(editor);
 				return;
-			} else {
-				// Out of table
-				if (this.isPositionInTable(editor, cursor.line - 1, 1)) {
-					// Line directly below the table.
-					// Only enter the table if on VL1; if on VL2+, a regular goUp suffices.
-					editor.exec('goUp');
-					const afterUp = editor.getCursor();
-					if (afterUp.line === cursor.line) {
-						// VL2+: goUp moved within visual lines, result already applied.
-						return;
-					}
-					// VL1: goUp moved to the table's last row; reposition to bottom-left cell.
-
-					const targetLine = cursor.line - 1;
-					const targetCh = this.getChByCellIndex(editor, targetLine, 0);
-					if (targetCh !== -1) {
-						editor.setCursor({ line: targetLine, ch: targetCh });
-					}
-					this.scheduleBottomVisualLine(editor);
-					return;
-				}
+			}
+			if (this.isPositionInTable(editor, cursor.line - 1, 1)) {
+				this.moveCursorUpIntoTable(editor);
+				return;
 			}
 		}
 
 		editor.exec('goUp');
-		return;
 	}
 
 
-	moveCursorDown(editor: Editor) {
+	private moveCursorDown(editor: Editor) {
 		const cursor = editor.getCursor();
 
-		// Bottom of file
-		if (cursor.line === editor.lineCount() - 1) {
-			editor.exec('goDown');
-			return;
-		}
+		// Bottom of file: goDown is safe even inside a table.
+		if (cursor.line === editor.lineCount() - 1) { editor.exec('goDown'); return; }
 
 		if (this.isLivePreviewMode()) {
 			if (this.isPositionInTable(editor)) {
-				// LivePreviewMode & In the table
-				const line = editor.getLine(cursor.line);
-				const ch = cursor.ch;
-				const cellIndex = this.getCellIndex(line, ch);
-
-				editor.exec('goDown');
-
-				const cursorAfter = editor.getCursor();
-				if (cursorAfter.line === cursor.line) {
-					const endOfCellContent = this.getEndOfCellContent(line, cursorAfter.ch);
-
-					if (cursorAfter.ch >= endOfCellContent) {
-						this.setCursorToNextRow(editor, cellIndex);
-					}
-				}
+				this.moveCursorDownInTable(editor);
 				return;
-			} else {
-				// Out of table
-				if (this.isPositionInTable(editor, cursor.line + 1, 1)) {
-					const targetCh = this.getChByCellIndex(editor, cursor.line + 1, 0);
-					editor.setCursor({ line: cursor.line + 1, ch: targetCh });
-					return;
-				}
+			}
+			if (this.isPositionInTable(editor, cursor.line + 1, 1)) {
+				this.moveCursorDownIntoTable(editor);
+				return;
 			}
 		}
 
 		editor.exec('goDown');
-		return;
+	}
+
+
+	//===========================================================================
+	// Ctrl-P/N table entry helpers
+	//===========================================================================
+
+	// Handles goUp when the cursor is inside a table cell in Live Preview mode.
+	private moveCursorUpInTable(editor: Editor) {
+		const cursor = editor.getCursor();
+		const line = editor.getLine(cursor.line);
+		const startOfCellContent = this.getStartOfCellContent(line, cursor.ch);
+		const cellIndex = this.getCellIndex(line, cursor.ch);
+
+		// Enter the widget so that goUp/goDown navigate visual lines within it.
+		// Without this, a cursor placed by cm.dispatch (e.g. from moveToBottomVisualLineOfCell)
+		// is not registered inside the widget, causing goDown tests to misbehave.
+		editor.exec('goRight');
+		editor.exec('goLeft');
+		editor.exec('goUp');
+
+		const cursorAfter = editor.getCursor();
+		if (cursorAfter.line !== cursor.line) {
+			// goUp moved to a different logical line (previous table row or outside table).
+			// Re-place cursor at cell start so moveToBottomVisualLineOfCell can navigate down properly.
+			if (this.isPositionInTable(editor)) {
+				const targetCh = this.getChByCellIndex(editor, cursorAfter.line, cellIndex);
+				if (targetCh !== -1) {
+					this.setCursorViaCm(editor, cursorAfter.line, targetCh);
+				}
+			}
+			this.scheduleBottomVisualLine(editor);
+			return;
+		}
+
+		// goUp stayed on the same logical line.
+		if (cursor.ch <= startOfCellContent) {
+			// Was at cell start -> go to previous row.
+			this.setCursorToPrevRow(editor, cellIndex);
+			this.scheduleBottomVisualLine(editor);
+			return;
+		}
+
+		if (cursorAfter.ch === startOfCellContent) {
+			// goDown from VL1 start in a non-wrapped cell lands at VL1 end (= originalCh),
+			// which causes the goDown probe in handleCellStartSnap to give a false case-b.
+			// Detect this directly: if cursor was at end of cell content, it's VL1 end
+			// of a non-wrapped cell -> go to previous row without probing.
+			const endOfCellContent = this.getEndOfCellContent(line, cursor.ch);
+			if (cursor.ch >= endOfCellContent) {
+				// VL1 end of non-wrapped cell -> go to previous row.
+				this.setCursorToPrevRow(editor, cellIndex);
+				this.scheduleBottomVisualLine(editor);
+			} else {
+				this.handleCellStartSnap(editor, cursor.line, cursor.ch, cellIndex);
+			}
+		}
+		// else: goUp moved within the cell to the visual line above - done.
+	}
+
+
+	// Handles goUp when the cursor is on the line directly below a table in Live Preview mode.
+	private moveCursorUpIntoTable(editor: Editor) {
+		const cursor = editor.getCursor();
+		// Only enter the table if on VL1; if on VL2+, a regular goUp suffices.
+		editor.exec('goUp');
+		if (editor.getCursor().line === cursor.line) {
+			// VL2+: goUp moved within visual lines, result already applied.
+			return;
+		}
+		// VL1: goUp moved to the table's last row; reposition to the bottom-left cell.
+		const targetLine = cursor.line - 1;
+		const targetCh = this.getChByCellIndex(editor, targetLine, 0);
+		if (targetCh !== -1) {
+			editor.setCursor({ line: targetLine, ch: targetCh });
+		}
+		this.scheduleBottomVisualLine(editor);
+	}
+
+
+	// Handles goDown when the cursor is inside a table cell in Live Preview mode.
+	private moveCursorDownInTable(editor: Editor) {
+		const cursor = editor.getCursor();
+		const line = editor.getLine(cursor.line);
+		const cellIndex = this.getCellIndex(line, cursor.ch);
+
+		editor.exec('goDown');
+
+		const cursorAfter = editor.getCursor();
+		if (cursorAfter.line === cursor.line) {
+			const endOfCellContent = this.getEndOfCellContent(line, cursorAfter.ch);
+			if (cursorAfter.ch >= endOfCellContent) {
+				this.setCursorToNextRow(editor, cellIndex);
+			}
+		}
+	}
+
+
+	// Handles goDown when the cursor is on the line directly above a table in Live Preview mode.
+	private moveCursorDownIntoTable(editor: Editor) {
+		const cursor = editor.getCursor();
+		const targetCh = this.getChByCellIndex(editor, cursor.line + 1, 0);
+		editor.setCursor({ line: cursor.line + 1, ch: targetCh });
 	}
 
 
@@ -419,7 +455,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// |(b)some text  |             |...|              |
 	// | in the cell  |             |   |              |
 	// +--------------+-------------+---+--------------+
-	moveToLeftCellEnd(editor: Editor) {
+	private moveToLeftCellEnd(editor: Editor) {
 		const cursor = editor.getCursor();
 		const line = editor.getLine(cursor.line);
 		const cellIndex = this.getCellIndex(line, cursor.ch);
@@ -467,7 +503,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// | in the cell |   |              | the cell(c)    |
 	// +-------------+----+-------------+----------------+
 	// (C)
-	moveToRightCellStart(editor: Editor) {
+	private moveToRightCellStart(editor: Editor) {
 		const cursor = editor.getCursor();
 		const line = editor.getLine(cursor.line);
 		const cellIndex = this.getCellIndex(line, cursor.ch);
@@ -505,7 +541,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	// Returns the line number of the previous table data row.
 	// Returns -1 when the current row is the header row (caller should go outside the table).
-	getPrevRowLine(editor: Editor): number {
+	private getPrevRowLine(editor: Editor): number {
 		const cursor = editor.getCursor();
 		if (!this.isPositionInTable(editor, cursor.line - 1, 1)) return -1;
 		const isDelimiter = /^\s*\|?[:\s-]+\|[:\s- |]*$/.test(editor.getLine(cursor.line - 1));
@@ -515,7 +551,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	// Returns the line number of the next table data row.
 	// Returns -1 when the current row is the last row (caller should go outside the table).
-	getNextRowLine(editor: Editor): number {
+	private getNextRowLine(editor: Editor): number {
 		const cursor = editor.getCursor();
 		if (!this.isPositionInTable(editor, cursor.line + 1, 1)) return -1;
 		const isDelimiter = /^\s*\|?[:\s]*?-+[:\s-]*\|[:\s-|]*$/.test(editor.getLine(cursor.line + 1));
@@ -534,7 +570,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// (*2)->(*1) if above is outside table (header row), go out.
 	// (*3)->(*2) if above is delimiter line, go to cursor.line-2.
 	// (*4)->(*3) go to cursor.line-1.
-	setCursorToPrevRow(editor: Editor, cellIndex: number) {
+	private setCursorToPrevRow(editor: Editor, cellIndex: number) {
 		const cursor = editor.getCursor();
 		const targetLine = this.getPrevRowLine(editor);
 
@@ -561,7 +597,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// (*1)->(*2) if below is delimiter line, go to cursor.line+2.
 	// (*2)->(*3) go to cursor.line+1.
 	// (*3)->(*4) go outside table.
-	setCursorToNextRow(editor: Editor, cellIndex: number) {
+	private setCursorToNextRow(editor: Editor, cellIndex: number) {
 		const cursor = editor.getCursor();
 		const targetLine = this.getNextRowLine(editor);
 
@@ -583,26 +619,19 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	// Parses the cell at position ch and returns info about the in-cell line
 	// (the <br>-delimited sub-line) that the cursor is currently on.
-	getInCellLineInfo(line: string, ch: number): InCellLineInfo | null {
+	private getInCellLineInfo(line: string, ch: number): InCellLineInfo | null {
 		// 1. Find bounding pipes for the cell containing ch
-		const pipes = [...line.matchAll(CELL_SEPARATOR_REGEX)].map(m => m.index);
-		let openPipeIdx = -1;
-		let closePipeIdx = -1;
-		for (const p of pipes) {
-			if (p < ch) openPipeIdx = p;
-			else if (closePipeIdx === -1) { closePipeIdx = p; break; }
-		}
-		if (openPipeIdx === -1 || closePipeIdx === -1) return null;
-
-		const cellStart = openPipeIdx + 1;
-		const cellEnd   = closePipeIdx;
+		const bounds = this.getCellBounds(line, ch);
+		if (!bounds) return null;
+		const cellStart = bounds.open + 1;
+		const cellEnd   = bounds.close;
 
 		// 2. Find <br> tags within the cell (case-insensitive, no spaces or slash inside)
 		const cellContent = line.slice(cellStart, cellEnd);
 		const brMatches   = [...cellContent.matchAll(/<[bB][rR]>/g)];
 		const brPositions = brMatches.map(m => ({
-			start: cellStart + m.index,
-			end:   cellStart + m.index + m[0].length,
+			start: cellStart + (m.index as number),
+			end:   cellStart + (m.index as number) + m[0].length,
 		}));
 
 		// 3. Build in-cell line segments separated by <br> tags
@@ -685,6 +714,22 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Cell content position helpers
 	//===========================================================================
 
+	// Returns the open/close pipe positions bounding the cell that contains ch.
+	// open  = index of the pipe immediately to the left of ch
+	// close = index of the pipe immediately to the right of ch (or line.length if absent)
+	// Returns null if ch is not inside any cell (no pipe to the left).
+	private getCellBounds(line: string, ch: number): { open: number; close: number } | null {
+		const pipes = this.getPipePositions(line);
+		let open = -1;
+		for (const p of pipes) {
+			if (p < ch) open = p;
+			else break;
+		}
+		if (open === -1) return null;
+		const close = pipes.find(p => p > ch) ?? line.length;
+		return { open, close };
+	}
+
 	// +----------------------+
 	// |(a)some text in the   |	(a) startOfCellContent
 	// | cell.<br>            |
@@ -695,40 +740,28 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Indicates cell start/end, regardless of line wrapping or in-cell lines.
 
 	// Returns target cursor position when moving to the left cell with Ctrl-E or Ctrl-F.
-	getStartOfCellContent(line: string, ch: number): number {
-		const pipes = [...line.matchAll(CELL_SEPARATOR_REGEX)].map(m => m.index);
-		let openPipeIdx = -1;
-		for (const p of pipes) {
-			if (p < ch) openPipeIdx = p;
-			else break;
-		}
-		if (openPipeIdx === -1) return 0;
-		const closePipeIdx = pipes.find(p => p > ch) ?? line.length;
-		const firstNonSpace = line.slice(openPipeIdx + 1, closePipeIdx).search(/\S/);
-		return firstNonSpace === -1
-			? openPipeIdx + 1
-			: openPipeIdx + 1 + firstNonSpace;
+	private getStartOfCellContent(line: string, ch: number): number {
+		const bounds = this.getCellBounds(line, ch);
+		if (!bounds) return 0;
+		const { open, close } = bounds;
+		const firstNonSpace = line.slice(open + 1, close).search(/\S/);
+		return firstNonSpace === -1 ? open + 1 : open + 1 + firstNonSpace;
 	}
 
 
 	// Returns target cursor position when moving to the right cell with Ctrl-A or Ctrl-B.
-	getEndOfCellContent(line: string, ch: number): number {
-		const pipes = [...line.matchAll(CELL_SEPARATOR_REGEX)].map(m => m.index);
-		let openPipeIdx = -1;
-		for (const p of pipes) {
-			if (p < ch) openPipeIdx = p;
-			else break;
-		}
-		if (openPipeIdx === -1) return 0;
-		const closePipeIdx = pipes.find(p => p > ch) ?? line.length;
-		return openPipeIdx + 1 + line.slice(openPipeIdx + 1, closePipeIdx).trimEnd().length;
+	private getEndOfCellContent(line: string, ch: number): number {
+		const bounds = this.getCellBounds(line, ch);
+		if (!bounds) return 0;
+		const { open, close } = bounds;
+		return open + 1 + line.slice(open + 1, close).trimEnd().length;
 	}
 
 
 	// Returns endOfCellContent for the cell at the given 0-based cellIndex.
 	// Returns -1 if cellIndex is out of range.
-	getEndOfCellContentByCellIndex(line: string, cellIndex: number): number {
-		const pipes = [...line.matchAll(CELL_SEPARATOR_REGEX)].map(m => m.index);
+	private getEndOfCellContentByCellIndex(line: string, cellIndex: number): number {
+		const pipes = this.getPipePositions(line);
 		if (cellIndex < 0 || cellIndex + 1 >= pipes.length) return -1;
 		const openPipe  = pipes[cellIndex];
 		const closePipe = pipes[cellIndex + 1];
@@ -737,85 +770,46 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 
 	// Returns the 0-based index of the rightmost cell in a table row.
-	getRightmostCellIndex(line: string): number {
-		const pipes = [...line.matchAll(CELL_SEPARATOR_REGEX)];
-		return Math.max(0, pipes.length - 2);
+	private getRightmostCellIndex(line: string): number {
+		return Math.max(0, this.getPipePositions(line).length - 2);
 	}
 
 
 	//===========================================================================
-	// Cell index / position helpers
+	// Cell index helpers
 	//===========================================================================
 
-	getCellIndex(line: string, ch: number): number {
-		const textBeforeCursor = line.substring(0, ch);
-		const matches = textBeforeCursor.match(CELL_SEPARATOR_REGEX);
-		if (!matches) return 0;
-		return matches.length - 1;
+	private getCellIndex(line: string, ch: number): number {
+		return Math.max(0, this.getPipePositions(line.substring(0, ch)).length - 1);
 	}
 
 
-	getChByCellIndex(editor: Editor, line: number, cellIndex: number): number {
+	private getChByCellIndex(editor: Editor, line: number, cellIndex: number): number {
 		const lineText = editor.getLine(line);
-		const matches  = [...lineText.matchAll(CELL_SEPARATOR_REGEX)];
+		const pipes = this.getPipePositions(lineText);
 
-		if (cellIndex >= 0 && cellIndex < matches.length) {
-			const pipeIndex = matches[cellIndex].index;
-			const closingPipeMatch = matches[cellIndex + 1];
-			const searchEnd = closingPipeMatch ? closingPipeMatch.index : lineText.length;
+		if (cellIndex >= 0 && cellIndex < pipes.length) {
+			const pipeIndex = pipes[cellIndex];
+			const searchEnd = pipes[cellIndex + 1] ?? lineText.length;
 			const cellContent = lineText.substring(pipeIndex + 1, searchEnd);
 			const firstNonSpaceMatch = cellContent.search(/\S/);
 
-			if (firstNonSpaceMatch !== -1) {
-				return pipeIndex + 1 + firstNonSpaceMatch;
-			} else {
-				return pipeIndex + 1;
-			}
+			return firstNonSpaceMatch !== -1
+				? pipeIndex + 1 + firstNonSpaceMatch
+				: pipeIndex + 1;
 		}
 
 		return -1;
 	}
 
 
-	getBeginningOfLinePosition(line: string, ch: number): number {
-
-		// Headings in an unordered list
-		let result = line.match(/^(\s*[-+*]\s)?#+\s/);
-		if (result !== null && result[0].length < ch) {
-			return result[0].length;
-		}
-
-		result = line.match(/^#{1,6}\s/); // Headings
-
-		if (result === null) {
-			result = line.match(/^\[\^.+\]:\s*/); // Footnotes
-		}
-		if (result === null) {
-			result = line.match(/^\s*\d+[.)]\s/); // Ordered lists
-		}
-		if (result === null) {
-			result = line.match(/^\s*>\s*/); // Quotes
-		}
-		if (result === null) {
-			// Indents, Unordered lists, Task lists
-			result = line.match(/^\s*([-+*]\s(\[.\]\s)?)?/);
-		}
-
-		if (result !== null && result[0].length < ch) {
-			return result[0].length;
-		} else {
-			return 0;
-		}
-	}
-
-
 	//===========================================================================
-	// Ctrl-P/N helpers
+	// Ctrl-P/N deeper helpers
 	//===========================================================================
 
 	// Called when goUp snapped the cursor to startOfCellContent.
 	// Probes with goDown to distinguish VL1-middle from VL2+ left edge.
-	handleCellStartSnap(editor: Editor, originalLine: number, originalCh: number, cellIndex: number) {
+	private handleCellStartSnap(editor: Editor, originalLine: number, originalCh: number, cellIndex: number) {
 		editor.exec('goDown');
 		const backTest = editor.getCursor();
 		if (backTest.line === originalLine && backTest.ch === originalCh) {
@@ -832,7 +826,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	// Schedules moveToBottomVisualLineOfCell for the next event loop tick.
 	// Used after synchronous cursor placement to let the DOM settle first.
-	scheduleBottomVisualLine(editor: Editor) {
+	private scheduleBottomVisualLine(editor: Editor) {
 		setTimeout(() => {
 			if (this.isPositionInTable(editor)) {
 				this.moveToBottomVisualLineOfCell(editor);
@@ -850,17 +844,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	//   3. Determine landing position:
 	//      - lastPos within cell content: on bottom visual line -> stay at lastPos.
 	//      - lastPos at/past cell content end: non-wrapped cell -> restore to cell start.
-	moveToBottomVisualLineOfCell(editor: Editor) {
+	private moveToBottomVisualLineOfCell(editor: Editor) {
 		const startLine  = editor.getCursor().line;
 		const originalPos = editor.getCursor();
 		const line = editor.getLine(startLine);
-
-		const closingPipeRegex = /(?<!\\)\|/g;
-		closingPipeRegex.lastIndex = originalPos.ch;
-		const pipeMatch = closingPipeRegex.exec(line);
-		const closingPipeIndex = pipeMatch ? pipeMatch.index : -1;
-		const cellEnd = closingPipeIndex !== -1 ? closingPipeIndex : line.length;
-		const endOfCellContent = line.slice(0, cellEnd).trimEnd().length;
 
 		editor.exec('goRight');
 		if (editor.getCursor().line !== startLine) {
@@ -869,6 +856,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}
 		editor.exec('goLeft');
 
+		const endOfCellContent = this.getEndOfCellContent(line, originalPos.ch);
 		let lastPos = editor.getCursor();
 		let breakReason: 'endOfCell' | 'noMove' | 'exitedLine' = 'noMove';
 
@@ -907,7 +895,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Infrastructure
 	//===========================================================================
 
-	isPositionInTable(editor: Editor, line?: number, ch?: number): boolean {
+	private isPositionInTable(editor: Editor, line?: number, ch?: number): boolean {
 		const cm = editor.cm;
 		if (!cm) return false;
 
@@ -932,7 +920,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	// Use cm.dispatch directly to avoid triggering Obsidian's table editor
 	// interference that occurs when moving the cursor within a Live Preview table.
-	setCursorViaCm(editor: Editor, line: number, ch: number) {
+	private setCursorViaCm(editor: Editor, line: number, ch: number) {
 		const cm  = editor.cm;
 		const pos = editor.posToOffset({ line, ch });
 		cm.dispatch({ selection: { anchor: pos, head: pos } });
@@ -940,7 +928,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 
-	isLivePreviewMode(): boolean {
+	private isLivePreviewMode(): boolean {
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 		if (!view) return false;
 
@@ -948,6 +936,44 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (mode !== "source") return false;
 
 		return !view.getState().source;
+	}
+
+
+	// Returns the ch position of the content-start for smart Home in non-table lines.
+	private getBeginningOfLinePosition(line: string, ch: number): number {
+
+		// Headings in an unordered list
+		let result = line.match(/^(\s*[-+*]\s)?#+\s/);
+		if (result !== null && result[0].length < ch) {
+			return result[0].length;
+		}
+
+		result = line.match(/^#{1,6}\s/); // Headings
+
+		if (result === null) {
+			result = line.match(/^\[\^.+\]:\s*/); // Footnotes
+		}
+		if (result === null) {
+			result = line.match(/^\s*\d+[.)]\s/); // Ordered lists
+		}
+		if (result === null) {
+			result = line.match(/^\s*>\s*/); // Quotes
+		}
+		if (result === null) {
+			// Indents, Unordered lists, Task lists
+			result = line.match(/^\s*([-+*]\s(\[.\]\s)?)?/);
+		}
+
+		if (result !== null && result[0].length < ch) {
+			return result[0].length;
+		} else {
+			return 0;
+		}
+	}
+
+
+	private getPipePositions(line: string): number[] {
+		return [...line.matchAll(this.CELL_SEPARATOR_REGEX)].map(m => m.index as number);
 	}
 
 }
