@@ -103,121 +103,24 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	private moveCursorHome(editor: Editor) {
 		const cursor = editor.getCursor();
-		const ch = cursor.ch;
-		if (ch === 0) return;
+		if (cursor.ch === 0) return;
 
-		const line = editor.getLine(cursor.line);
-
-		// In-cell Home : every in-cell line, no 2-step Home.
 		if (this.isLivePreviewMode() && this.isPositionInTable(editor)) {
-			const info = this.getInCellLineInfo(line, ch);
-			if (!info) return;
-
-			if (info.isEmpty || ch <= info.startOfInCellLine) {
-				if (info.lineType === 'single' || info.lineType === 'first') {
-					this.moveToLeftCellEnd(editor);
-				}
-				return;
-			}
-			// Middle or right position -> move to left edge of current in-cell line
-			this.setCursorViaCm(editor, cursor.line, info.startOfInCellLine);
+			this.moveCursorHomeInTable(editor);
 			return;
 		}
 
-		// Non-table : visual-line-aware 2-step home, markdown-aware smart home.
-		const cm = editor.cm;
-		if (cm) {
-			const lineFrom = editor.posToOffset({ line: cursor.line, ch: 0 });
-			const currentHead = cm.state.selection.main.head;
-			const vlStart = cm.moveToLineBoundary(cm.state.selection.main, false, true);
-			const vlCh = vlStart.head - lineFrom;
-
-			if (vlStart.head !== currentHead && vlCh > 0) {
-				// Case (1a): VL2+, not at VL left edge -> move to VL left edge
-				cm.dispatch({
-					selection: EditorSelection.cursor(vlStart.head, vlStart.assoc),
-					scrollIntoView: true,
-					userEvent: 'move',
-				});
-				// goRight+goLeft: re-register cursor inside the visual line so that
-				// subsequent goUp navigates to VL1 rather than the logical line above.
-				editor.exec('goRight');
-				editor.exec('goLeft');
-				return;
-			}
-			// Case (1b): VL2+ at left edge, or Case (2): VL1 -> fall through to smart home
-		}
-
-		// Smart home: content start -> ch=0
-		const position = this.getBeginningOfLinePosition(line, ch);
-		editor.setCursor({ line: cursor.line, ch: position });
+		this.moveCursorHomeNonTable(editor);
 	}
 
 
 	private moveCursorEnd(editor: Editor) {
-		const cursor = editor.getCursor();
-		const line = editor.getLine(cursor.line);
-
-		// In-cell End : every in-cell line, no 2-step End.
 		if (this.isLivePreviewMode() && this.isPositionInTable(editor)) {
-			const info = this.getInCellLineInfo(line, cursor.ch);
-			if (!info) return;
-
-			if (info.isEmpty || cursor.ch >= info.endOfInCellLine) {
-				if (info.lineType === 'single' || info.lineType === 'last') {
-					this.moveToRightCellStart(editor);
-				}
-				return;
-			}
-			// Middle or left position -> move to right edge of current in-cell line
-			this.setCursorViaCm(editor, cursor.line, info.endOfInCellLine);
+			this.moveCursorEndInTable(editor);
 			return;
 		}
 
-		// Non-table: visual-line-aware end
-		const cm = editor.cm;
-		if (cm) {
-			const lineFrom = editor.posToOffset({ line: cursor.line, ch: 0 });
-			const lineEndOffset = lineFrom + line.length;
-			const currentHead = cm.state.selection.main.head;
-			const vlEnd = cm.moveToLineBoundary(cm.state.selection.main, true, true);
-			const vlEndCh = vlEnd.head - lineFrom;
-
-			if (vlEnd.head !== currentHead) {
-				if (vlEndCh > 0 && vlEndCh < line.length) {
-					// vlEnd is before the logical line end: either a soft-wrap boundary,
-					// or hidden markdown syntax at EOL (e.g. `code`, [[link]]) causing
-					// moveToLineBoundary to stop before the closing delimiter.
-					// Distinguish the two by checking if the logical line end shares the
-					// same visual line as the current cursor position.
-					const lineEndVlStart = cm.moveToLineBoundary(
-						EditorSelection.cursor(lineEndOffset), false, true
-					);
-					const currentVlStart = cm.moveToLineBoundary(
-						cm.state.selection.main, false, true
-					);
-					if (lineEndVlStart.head === currentVlStart.head) {
-						// Same visual line: hidden markdown at EOL -> jump to logical line end
-						editor.setCursor({ line: cursor.line, ch: line.length });
-					} else {
-						// Soft-wrap boundary. Ideally assoc=-1 would render the cursor at
-						// VL1 end, but Obsidian overrides assoc rendering and places the
-						// cursor at VL2 start instead. Workaround: place at last char of
-						// VL1, then goRight to land at VL1 right edge.
-						editor.setCursor({ line: cursor.line, ch: vlEndCh - 1 });
-						editor.exec('goRight');
-					}
-				} else {
-					// Last VL in line: go directly to logical line end
-					editor.setCursor({ line: cursor.line, ch: line.length });
-				}
-				return;
-			}
-		}
-
-		// Already at VL end -> move to logical line end
-		if (cursor.ch === line.length) return;
-		editor.setCursor({ line: cursor.line, ch: line.length });
+		this.moveCursorEndNonTable(editor);
 	}
 
 
@@ -254,6 +157,131 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}
 
 		editor.exec('goRight');
+	}
+
+
+	//===========================================================================
+	// Ctrl-A/E table helpers
+	//===========================================================================
+
+	// In-cell Home: every in-cell line, no 2-step Home.
+	private moveCursorHomeInTable(editor: Editor) {
+		const cursor = editor.getCursor();
+		const line = editor.getLine(cursor.line);
+		const info = this.getInCellLineInfo(line, cursor.ch);
+		if (!info) return;
+
+		if (info.isEmpty || cursor.ch <= info.startOfInCellLine) {
+			if (info.lineType === 'single' || info.lineType === 'first') {
+				this.moveToLeftCellEnd(editor);
+			}
+			return;
+		}
+		// Middle or right position -> move to left edge of current in-cell line.
+		this.setCursorViaCm(editor, cursor.line, info.startOfInCellLine);
+	}
+
+
+	// Non-table Home: visual-line-aware 2-step home, markdown-aware smart home.
+	private moveCursorHomeNonTable(editor: Editor) {
+		const cursor = editor.getCursor();
+		const line = editor.getLine(cursor.line);
+		const cm = editor.cm;
+		if (cm) {
+			const lineFrom = editor.posToOffset({ line: cursor.line, ch: 0 });
+			const currentHead = cm.state.selection.main.head;
+			const vlStart = cm.moveToLineBoundary(cm.state.selection.main, false, true);
+			const vlCh = vlStart.head - lineFrom;
+
+			if (vlStart.head !== currentHead && vlCh > 0) {
+				// Case (1a): VL2+, not at VL left edge -> move to VL left edge.
+				cm.dispatch({
+					selection: EditorSelection.cursor(vlStart.head, vlStart.assoc),
+					scrollIntoView: true,
+					userEvent: 'move',
+				});
+				// goRight+goLeft: re-register cursor inside the visual line so that
+				// subsequent goUp navigates to VL1 rather than the logical line above.
+				editor.exec('goRight');
+				editor.exec('goLeft');
+				return;
+			}
+			// Case (1b): VL2+ at left edge, or Case (2): VL1 -> fall through to smart home.
+		}
+
+		// Smart home: content start -> ch=0.
+		const position = this.getBeginningOfLinePosition(line, cursor.ch);
+		editor.setCursor({ line: cursor.line, ch: position });
+	}
+
+
+	// In-cell End: every in-cell line, no 2-step End.
+	private moveCursorEndInTable(editor: Editor) {
+		const cursor = editor.getCursor();
+		const line = editor.getLine(cursor.line);
+		const info = this.getInCellLineInfo(line, cursor.ch);
+		if (!info) return;
+
+		if (info.isEmpty || cursor.ch >= info.endOfInCellLine) {
+			if (info.lineType === 'single' || info.lineType === 'last') {
+				this.moveToRightCellStart(editor);
+			}
+			return;
+		}
+		// Middle or left position -> move to right edge of current in-cell line.
+		this.setCursorViaCm(editor, cursor.line, info.endOfInCellLine);
+	}
+
+
+	// Non-table End: visual-line-aware end.
+	private moveCursorEndNonTable(editor: Editor) {
+		const cursor = editor.getCursor();
+		const line = editor.getLine(cursor.line);
+		const cm = editor.cm;
+		if (cm) {
+			const lineFrom = editor.posToOffset({ line: cursor.line, ch: 0 });
+			const lineEndOffset = lineFrom + line.length;
+			const currentHead = cm.state.selection.main.head;
+			const vlEnd = cm.moveToLineBoundary(cm.state.selection.main, true, true);
+			const vlEndCh = vlEnd.head - lineFrom;
+
+			if (vlEnd.head !== currentHead) {
+				if (vlEndCh > 0 && vlEndCh < line.length) {
+					// vlEnd is before the logical line end: either a soft-wrap boundary,
+					// or hidden markdown syntax at EOL (e.g. `code`, [[link]]) causing
+					// moveToLineBoundary to stop before the closing delimiter.
+					// Distinguish the two by checking if the logical line end shares the
+					// same visual line as the current cursor position.
+					const lineEndVlStart = cm.moveToLineBoundary(
+						EditorSelection.cursor(lineEndOffset), false, true
+					);
+					const currentVlStart = cm.moveToLineBoundary(
+						cm.state.selection.main, false, true
+					);
+					if (lineEndVlStart.head === currentVlStart.head) {
+						// Same visual line: hidden markdown at EOL -> jump to logical line end.
+						editor.setCursor({ line: cursor.line, ch: line.length });
+					} else {
+						// Soft-wrap boundary. Ideally assoc=-1 would render the cursor at
+						// VL1 end, but Obsidian overrides assoc rendering and places the
+						// cursor at VL2 start instead. Workaround: place at last char of
+						// VL1, then goRight to land at VL1 right edge.
+						editor.setCursor({ line: cursor.line, ch: vlEndCh - 1 });
+						editor.exec('goRight');
+					}
+				} else {
+					// Last VL in line: go directly to logical line end.
+					editor.setCursor({ line: cursor.line, ch: line.length });
+				}
+				return;
+			}
+			// Fell through: already at VL end.
+		}
+
+		// No cm, or already at VL end -> move to logical line end.
+		if (cursor.ch !== line.length) {
+			editor.setCursor({ line: cursor.line, ch: line.length });
+		}
 	}
 
 
