@@ -585,24 +585,17 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// (the <br>-delimited sub-line) that the cursor is currently on.
 	getInCellLineInfo(line: string, ch: number): InCellLineInfo | null {
 		// 1. Find bounding pipes for the cell containing ch
-		const pipes = [...line.matchAll(CELL_SEPARATOR_REGEX)].map(m => m.index);
-		let openPipeIdx = -1;
-		let closePipeIdx = -1;
-		for (const p of pipes) {
-			if (p < ch) openPipeIdx = p;
-			else if (closePipeIdx === -1) { closePipeIdx = p; break; }
-		}
-		if (openPipeIdx === -1 || closePipeIdx === -1) return null;
-
-		const cellStart = openPipeIdx + 1;
-		const cellEnd   = closePipeIdx;
+		const bounds = this.getCellBounds(line, ch);
+		if (!bounds) return null;
+		const cellStart = bounds.open + 1;
+		const cellEnd   = bounds.close;
 
 		// 2. Find <br> tags within the cell (case-insensitive, no spaces or slash inside)
 		const cellContent = line.slice(cellStart, cellEnd);
 		const brMatches   = [...cellContent.matchAll(/<[bB][rR]>/g)];
 		const brPositions = brMatches.map(m => ({
-			start: cellStart + m.index,
-			end:   cellStart + m.index + m[0].length,
+			start: cellStart + (m.index as number),
+			end:   cellStart + (m.index as number) + m[0].length,
 		}));
 
 		// 3. Build in-cell line segments separated by <br> tags
@@ -685,6 +678,22 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Cell content position helpers
 	//===========================================================================
 
+	// Returns the open/close pipe positions bounding the cell that contains ch.
+	// open  = index of the pipe immediately to the left of ch
+	// close = index of the pipe immediately to the right of ch (or line.length if absent)
+	// Returns null if ch is not inside any cell (no pipe to the left).
+	private getCellBounds(line: string, ch: number): { open: number; close: number } | null {
+		const pipes = [...line.matchAll(CELL_SEPARATOR_REGEX)].map(m => m.index as number);
+		let open = -1;
+		for (const p of pipes) {
+			if (p < ch) open = p;
+			else break;
+		}
+		if (open === -1) return null;
+		const close = pipes.find(p => p > ch) ?? line.length;
+		return { open, close };
+	}
+
 	// +----------------------+
 	// |(a)some text in the   |	(a) startOfCellContent
 	// | cell.<br>            |
@@ -696,39 +705,27 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	// Returns target cursor position when moving to the left cell with Ctrl-E or Ctrl-F.
 	getStartOfCellContent(line: string, ch: number): number {
-		const pipes = [...line.matchAll(CELL_SEPARATOR_REGEX)].map(m => m.index);
-		let openPipeIdx = -1;
-		for (const p of pipes) {
-			if (p < ch) openPipeIdx = p;
-			else break;
-		}
-		if (openPipeIdx === -1) return 0;
-		const closePipeIdx = pipes.find(p => p > ch) ?? line.length;
-		const firstNonSpace = line.slice(openPipeIdx + 1, closePipeIdx).search(/\S/);
-		return firstNonSpace === -1
-			? openPipeIdx + 1
-			: openPipeIdx + 1 + firstNonSpace;
+		const bounds = this.getCellBounds(line, ch);
+		if (!bounds) return 0;
+		const { open, close } = bounds;
+		const firstNonSpace = line.slice(open + 1, close).search(/\S/);
+		return firstNonSpace === -1 ? open + 1 : open + 1 + firstNonSpace;
 	}
 
 
 	// Returns target cursor position when moving to the right cell with Ctrl-A or Ctrl-B.
 	getEndOfCellContent(line: string, ch: number): number {
-		const pipes = [...line.matchAll(CELL_SEPARATOR_REGEX)].map(m => m.index);
-		let openPipeIdx = -1;
-		for (const p of pipes) {
-			if (p < ch) openPipeIdx = p;
-			else break;
-		}
-		if (openPipeIdx === -1) return 0;
-		const closePipeIdx = pipes.find(p => p > ch) ?? line.length;
-		return openPipeIdx + 1 + line.slice(openPipeIdx + 1, closePipeIdx).trimEnd().length;
+		const bounds = this.getCellBounds(line, ch);
+		if (!bounds) return 0;
+		const { open, close } = bounds;
+		return open + 1 + line.slice(open + 1, close).trimEnd().length;
 	}
 
 
 	// Returns endOfCellContent for the cell at the given 0-based cellIndex.
 	// Returns -1 if cellIndex is out of range.
 	getEndOfCellContentByCellIndex(line: string, cellIndex: number): number {
-		const pipes = [...line.matchAll(CELL_SEPARATOR_REGEX)].map(m => m.index);
+		const pipes = [...line.matchAll(CELL_SEPARATOR_REGEX)].map(m => m.index as number);
 		if (cellIndex < 0 || cellIndex + 1 >= pipes.length) return -1;
 		const openPipe  = pipes[cellIndex];
 		const closePipe = pipes[cellIndex + 1];
@@ -760,9 +757,9 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const matches  = [...lineText.matchAll(CELL_SEPARATOR_REGEX)];
 
 		if (cellIndex >= 0 && cellIndex < matches.length) {
-			const pipeIndex = matches[cellIndex].index;
+			const pipeIndex = matches[cellIndex].index as number;
 			const closingPipeMatch = matches[cellIndex + 1];
-			const searchEnd = closingPipeMatch ? closingPipeMatch.index : lineText.length;
+			const searchEnd = closingPipeMatch ? closingPipeMatch.index as number : lineText.length;
 			const cellContent = lineText.substring(pipeIndex + 1, searchEnd);
 			const firstNonSpaceMatch = cellContent.search(/\S/);
 
