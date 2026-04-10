@@ -11,8 +11,6 @@ declare module "obsidian" {
 }
 
 
-const CELL_SEPARATOR_REGEX = /(?<!\\)\|/g;
-
 interface InCellLineInfo {
 	lineType: 'single' | 'first' | 'middle' | 'last';
 	startOfInCellLine: number;   // left edge (ch position)
@@ -22,6 +20,12 @@ interface InCellLineInfo {
 
 
 export default class universalCursorHotkeysPlugin extends Plugin {
+
+	private readonly CELL_SEPARATOR_REGEX = /(?<!\\)\|/g;
+
+	private getPipePositions(line: string): number[] {
+		return [...line.matchAll(this.CELL_SEPARATOR_REGEX)].map(m => m.index as number);
+	}
 
 	onload() {
 
@@ -683,7 +687,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// close = index of the pipe immediately to the right of ch (or line.length if absent)
 	// Returns null if ch is not inside any cell (no pipe to the left).
 	private getCellBounds(line: string, ch: number): { open: number; close: number } | null {
-		const pipes = [...line.matchAll(CELL_SEPARATOR_REGEX)].map(m => m.index as number);
+		const pipes = this.getPipePositions(line);
 		let open = -1;
 		for (const p of pipes) {
 			if (p < ch) open = p;
@@ -725,7 +729,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Returns endOfCellContent for the cell at the given 0-based cellIndex.
 	// Returns -1 if cellIndex is out of range.
 	getEndOfCellContentByCellIndex(line: string, cellIndex: number): number {
-		const pipes = [...line.matchAll(CELL_SEPARATOR_REGEX)].map(m => m.index as number);
+		const pipes = this.getPipePositions(line);
 		if (cellIndex < 0 || cellIndex + 1 >= pipes.length) return -1;
 		const openPipe  = pipes[cellIndex];
 		const closePipe = pipes[cellIndex + 1];
@@ -735,8 +739,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	// Returns the 0-based index of the rightmost cell in a table row.
 	getRightmostCellIndex(line: string): number {
-		const pipes = [...line.matchAll(CELL_SEPARATOR_REGEX)];
-		return Math.max(0, pipes.length - 2);
+		return Math.max(0, this.getPipePositions(line).length - 2);
 	}
 
 
@@ -745,29 +748,23 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	//===========================================================================
 
 	getCellIndex(line: string, ch: number): number {
-		const textBeforeCursor = line.substring(0, ch);
-		const matches = textBeforeCursor.match(CELL_SEPARATOR_REGEX);
-		if (!matches) return 0;
-		return matches.length - 1;
+		return Math.max(0, this.getPipePositions(line.substring(0, ch)).length - 1);
 	}
 
 
 	getChByCellIndex(editor: Editor, line: number, cellIndex: number): number {
 		const lineText = editor.getLine(line);
-		const matches  = [...lineText.matchAll(CELL_SEPARATOR_REGEX)];
+		const pipes = this.getPipePositions(lineText);
 
-		if (cellIndex >= 0 && cellIndex < matches.length) {
-			const pipeIndex = matches[cellIndex].index as number;
-			const closingPipeMatch = matches[cellIndex + 1];
-			const searchEnd = closingPipeMatch ? closingPipeMatch.index as number : lineText.length;
+		if (cellIndex >= 0 && cellIndex < pipes.length) {
+			const pipeIndex = pipes[cellIndex];
+			const searchEnd = pipes[cellIndex + 1] ?? lineText.length;
 			const cellContent = lineText.substring(pipeIndex + 1, searchEnd);
 			const firstNonSpaceMatch = cellContent.search(/\S/);
 
-			if (firstNonSpaceMatch !== -1) {
-				return pipeIndex + 1 + firstNonSpaceMatch;
-			} else {
-				return pipeIndex + 1;
-			}
+			return firstNonSpaceMatch !== -1
+				? pipeIndex + 1 + firstNonSpaceMatch
+				: pipeIndex + 1;
 		}
 
 		return -1;
