@@ -855,13 +855,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const originalPos = editor.getCursor();
 		const line = editor.getLine(startLine);
 
-		const closingPipeRegex = /(?<!\\)\|/g;
-		closingPipeRegex.lastIndex = originalPos.ch;
-		const pipeMatch = closingPipeRegex.exec(line);
-		const closingPipeIndex = pipeMatch ? pipeMatch.index : -1;
-		const cellEnd = closingPipeIndex !== -1 ? closingPipeIndex : line.length;
-		const endOfCellContent = line.slice(0, cellEnd).trimEnd().length;
-
 		editor.exec('goRight');
 		if (editor.getCursor().line !== startLine) {
 			editor.setCursor(originalPos);
@@ -869,6 +862,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}
 		editor.exec('goLeft');
 
+		const endOfCellContent = this.getEndOfCellContent(line, originalPos.ch);
 		let lastPos = editor.getCursor();
 		let breakReason: 'endOfCell' | 'noMove' | 'exitedLine' = 'noMove';
 
