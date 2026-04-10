@@ -304,6 +304,109 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 
 	//===========================================================================
+	// Ctrl-P/N table entry helpers
+	//===========================================================================
+
+	// Handles goUp when the cursor is inside a table cell in Live Preview mode.
+	private moveCursorUpInTable(editor: Editor) {
+		const cursor = editor.getCursor();
+		const line = editor.getLine(cursor.line);
+		const startOfCellContent = this.getStartOfCellContent(line, cursor.ch);
+		const cellIndex = this.getCellIndex(line, cursor.ch);
+
+		// Enter the widget so that goUp/goDown navigate visual lines within it.
+		// Without this, a cursor placed by cm.dispatch (e.g. from moveToBottomVisualLineOfCell)
+		// is not registered inside the widget, causing goDown tests to misbehave.
+		editor.exec('goRight');
+		editor.exec('goLeft');
+		editor.exec('goUp');
+
+		const cursorAfter = editor.getCursor();
+		if (cursorAfter.line !== cursor.line) {
+			// goUp moved to a different logical line (previous table row or outside table).
+			// Re-place cursor at cell start so moveToBottomVisualLineOfCell can navigate down properly.
+			if (this.isPositionInTable(editor)) {
+				const targetCh = this.getChByCellIndex(editor, cursorAfter.line, cellIndex);
+				if (targetCh !== -1) {
+					this.setCursorViaCm(editor, cursorAfter.line, targetCh);
+				}
+			}
+			this.scheduleBottomVisualLine(editor);
+			return;
+		}
+
+		// goUp stayed on the same logical line.
+		if (cursor.ch <= startOfCellContent) {
+			// Was at cell start -> go to previous row.
+			this.setCursorToPrevRow(editor, cellIndex);
+			this.scheduleBottomVisualLine(editor);
+			return;
+		}
+
+		if (cursorAfter.ch === startOfCellContent) {
+			// goDown from VL1 start in a non-wrapped cell lands at VL1 end (= originalCh),
+			// which causes the goDown probe in handleCellStartSnap to give a false case-b.
+			// Detect this directly: if cursor was at end of cell content, it's VL1 end
+			// of a non-wrapped cell -> go to previous row without probing.
+			const endOfCellContent = this.getEndOfCellContent(line, cursor.ch);
+			if (cursor.ch >= endOfCellContent) {
+				// VL1 end of non-wrapped cell -> go to previous row.
+				this.setCursorToPrevRow(editor, cellIndex);
+				this.scheduleBottomVisualLine(editor);
+			} else {
+				this.handleCellStartSnap(editor, cursor.line, cursor.ch, cellIndex);
+			}
+		}
+		// else: goUp moved within the cell to the visual line above - done.
+	}
+
+
+	// Handles goUp when the cursor is on the line directly below a table in Live Preview mode.
+	private moveCursorUpIntoTable(editor: Editor) {
+		const cursor = editor.getCursor();
+		// Only enter the table if on VL1; if on VL2+, a regular goUp suffices.
+		editor.exec('goUp');
+		if (editor.getCursor().line === cursor.line) {
+			// VL2+: goUp moved within visual lines, result already applied.
+			return;
+		}
+		// VL1: goUp moved to the table's last row; reposition to the bottom-left cell.
+		const targetLine = cursor.line - 1;
+		const targetCh = this.getChByCellIndex(editor, targetLine, 0);
+		if (targetCh !== -1) {
+			editor.setCursor({ line: targetLine, ch: targetCh });
+		}
+		this.scheduleBottomVisualLine(editor);
+	}
+
+
+	// Handles goDown when the cursor is inside a table cell in Live Preview mode.
+	private moveCursorDownInTable(editor: Editor) {
+		const cursor = editor.getCursor();
+		const line = editor.getLine(cursor.line);
+		const cellIndex = this.getCellIndex(line, cursor.ch);
+
+		editor.exec('goDown');
+
+		const cursorAfter = editor.getCursor();
+		if (cursorAfter.line === cursor.line) {
+			const endOfCellContent = this.getEndOfCellContent(line, cursorAfter.ch);
+			if (cursorAfter.ch >= endOfCellContent) {
+				this.setCursorToNextRow(editor, cellIndex);
+			}
+		}
+	}
+
+
+	// Handles goDown when the cursor is on the line directly above a table in Live Preview mode.
+	private moveCursorDownIntoTable(editor: Editor) {
+		const cursor = editor.getCursor();
+		const targetCh = this.getChByCellIndex(editor, cursor.line + 1, 0);
+		editor.setCursor({ line: cursor.line + 1, ch: targetCh });
+	}
+
+
+	//===========================================================================
 	// Shared table actions
 	//===========================================================================
 
@@ -673,107 +776,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 
 	//===========================================================================
-	// Ctrl-P/N helpers
+	// Ctrl-P/N deeper helpers
 	//===========================================================================
-
-	// Handles goUp when the cursor is inside a table cell in Live Preview mode.
-	private moveCursorUpInTable(editor: Editor) {
-		const cursor = editor.getCursor();
-		const line = editor.getLine(cursor.line);
-		const startOfCellContent = this.getStartOfCellContent(line, cursor.ch);
-		const cellIndex = this.getCellIndex(line, cursor.ch);
-
-		// Enter the widget so that goUp/goDown navigate visual lines within it.
-		// Without this, a cursor placed by cm.dispatch (e.g. from moveToBottomVisualLineOfCell)
-		// is not registered inside the widget, causing goDown tests to misbehave.
-		editor.exec('goRight');
-		editor.exec('goLeft');
-		editor.exec('goUp');
-
-		const cursorAfter = editor.getCursor();
-		if (cursorAfter.line !== cursor.line) {
-			// goUp moved to a different logical line (previous table row or outside table).
-			// Re-place cursor at cell start so moveToBottomVisualLineOfCell can navigate down properly.
-			if (this.isPositionInTable(editor)) {
-				const targetCh = this.getChByCellIndex(editor, cursorAfter.line, cellIndex);
-				if (targetCh !== -1) {
-					this.setCursorViaCm(editor, cursorAfter.line, targetCh);
-				}
-			}
-			this.scheduleBottomVisualLine(editor);
-			return;
-		}
-
-		// goUp stayed on the same logical line.
-		if (cursor.ch <= startOfCellContent) {
-			// Was at cell start -> go to previous row.
-			this.setCursorToPrevRow(editor, cellIndex);
-			this.scheduleBottomVisualLine(editor);
-			return;
-		}
-
-		if (cursorAfter.ch === startOfCellContent) {
-			// goDown from VL1 start in a non-wrapped cell lands at VL1 end (= originalCh),
-			// which causes the goDown probe in handleCellStartSnap to give a false case-b.
-			// Detect this directly: if cursor was at end of cell content, it's VL1 end
-			// of a non-wrapped cell -> go to previous row without probing.
-			const endOfCellContent = this.getEndOfCellContent(line, cursor.ch);
-			if (cursor.ch >= endOfCellContent) {
-				// VL1 end of non-wrapped cell -> go to previous row.
-				this.setCursorToPrevRow(editor, cellIndex);
-				this.scheduleBottomVisualLine(editor);
-			} else {
-				this.handleCellStartSnap(editor, cursor.line, cursor.ch, cellIndex);
-			}
-		}
-		// else: goUp moved within the cell to the visual line above - done.
-	}
-
-
-	// Handles goUp when the cursor is on the line directly below a table in Live Preview mode.
-	private moveCursorUpIntoTable(editor: Editor) {
-		const cursor = editor.getCursor();
-		// Only enter the table if on VL1; if on VL2+, a regular goUp suffices.
-		editor.exec('goUp');
-		if (editor.getCursor().line === cursor.line) {
-			// VL2+: goUp moved within visual lines, result already applied.
-			return;
-		}
-		// VL1: goUp moved to the table's last row; reposition to the bottom-left cell.
-		const targetLine = cursor.line - 1;
-		const targetCh = this.getChByCellIndex(editor, targetLine, 0);
-		if (targetCh !== -1) {
-			editor.setCursor({ line: targetLine, ch: targetCh });
-		}
-		this.scheduleBottomVisualLine(editor);
-	}
-
-
-	// Handles goDown when the cursor is inside a table cell in Live Preview mode.
-	private moveCursorDownInTable(editor: Editor) {
-		const cursor = editor.getCursor();
-		const line = editor.getLine(cursor.line);
-		const cellIndex = this.getCellIndex(line, cursor.ch);
-
-		editor.exec('goDown');
-
-		const cursorAfter = editor.getCursor();
-		if (cursorAfter.line === cursor.line) {
-			const endOfCellContent = this.getEndOfCellContent(line, cursorAfter.ch);
-			if (cursorAfter.ch >= endOfCellContent) {
-				this.setCursorToNextRow(editor, cellIndex);
-			}
-		}
-	}
-
-
-	// Handles goDown when the cursor is on the line directly above a table in Live Preview mode.
-	private moveCursorDownIntoTable(editor: Editor) {
-		const cursor = editor.getCursor();
-		const targetCh = this.getChByCellIndex(editor, cursor.line + 1, 0);
-		editor.setCursor({ line: cursor.line + 1, ch: targetCh });
-	}
-
 
 	// Called when goUp snapped the cursor to startOfCellContent.
 	// Probes with goDown to distinguish VL1-middle from VL2+ left edge.
