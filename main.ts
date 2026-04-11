@@ -630,8 +630,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const cellContent = line.slice(cellStart, cellEnd);
 		const brMatches   = [...cellContent.matchAll(/<[bB][rR]>/g)];
 		const brPositions = brMatches.map(m => ({
-			start: cellStart + (m.index as number),
-			end:   cellStart + (m.index as number) + m[0].length,
+			start: cellStart + m.index,
+			end:   cellStart + m.index + m[0].length,
 		}));
 
 		// 3. Build in-cell line segments separated by <br> tags
@@ -973,7 +973,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 
 	private getPipePositions(line: string): number[] {
-		return [...line.matchAll(this.CELL_SEPARATOR_REGEX)].map(m => m.index as number);
+		return [...line.matchAll(this.CELL_SEPARATOR_REGEX)].map(m => m.index);
 	}
 
 }
