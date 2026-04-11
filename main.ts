@@ -342,6 +342,14 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const startOfCellContent = this.getStartOfCellContent(line, cursor.ch);
 		const cellIndex = this.getCellIndex(line, cursor.ch);
 
+		// Empty cell: goRight/goLeft does not enter the widget, so goUp is unreliable.
+		// Detect by string analysis alone and navigate to the previous row directly.
+		if (startOfCellContent === this.getEndOfCellContent(line, cursor.ch)) {
+			this.setCursorToPrevRow(editor, cellIndex);
+			this.scheduleBottomVisualLine(editor);
+			return;
+		}
+
 		// Enter the widget so that goUp/goDown navigate visual lines within it.
 		// Without this, a cursor placed by cm.dispatch (e.g. from moveToBottomVisualLineOfCell)
 		// is not registered inside the widget, causing goDown tests to misbehave.
@@ -413,6 +421,14 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const cursor = editor.getCursor();
 		const line = editor.getLine(cursor.line);
 		const cellIndex = this.getCellIndex(line, cursor.ch);
+
+		// Empty cell: goDown is unreliable when the cursor was placed via cm.dispatch
+		// (not registered inside the widget).  Detect by string analysis alone and
+		// navigate to the next row directly, bypassing goDown entirely.
+		if (this.getStartOfCellContent(line, cursor.ch) === this.getEndOfCellContent(line, cursor.ch)) {
+			this.setCursorToNextRow(editor, cellIndex);
+			return;
+		}
 
 		editor.exec('goDown');
 
