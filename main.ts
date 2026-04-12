@@ -22,6 +22,7 @@ interface InCellLineInfo {
 export default class universalCursorHotkeysPlugin extends Plugin {
 
 	private readonly CELL_SEPARATOR_REGEX = /(?<!\\)\|/g;
+	private readonly TABLE_DELIMITER_REGEX = /^\s*\|?[:\s]*?-+[:\s-]*\|[:\s-|]*$/;
 
 	onload() {
 
@@ -559,7 +560,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private getPrevRowLine(editor: Editor): number {
 		const cursor = editor.getCursor();
 		if (!this.isPositionInTable(editor, cursor.line - 1, 1)) return -1;
-		const isDelimiter = /^\s*\|?[:\s-]+\|[:\s- |]*$/.test(editor.getLine(cursor.line - 1));
+		const isDelimiter = this.TABLE_DELIMITER_REGEX.test(editor.getLine(cursor.line - 1));
 		return isDelimiter ? cursor.line - 2 : cursor.line - 1;
 	}
 
@@ -569,7 +570,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private getNextRowLine(editor: Editor): number {
 		const cursor = editor.getCursor();
 		if (!this.isPositionInTable(editor, cursor.line + 1, 1)) return -1;
-		const isDelimiter = /^\s*\|?[:\s]*?-+[:\s-]*\|[:\s-|]*$/.test(editor.getLine(cursor.line + 1));
+		const isDelimiter = this.TABLE_DELIMITER_REGEX.test(editor.getLine(cursor.line + 1));
 		if (isDelimiter) {
 			// Verify cursor.line+2 exists and is actually a data row inside the table.
 			// Without this, a header-only table would return a line outside the table.
