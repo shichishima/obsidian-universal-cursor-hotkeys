@@ -130,7 +130,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (this.isLivePreviewMode() && this.isPositionInTable(editor)) {
 			const line = editor.getLine(cursor.line);
 			const startOfCell = this.getStartOfCellContent(line, cursor.ch);
-			if (cursor.ch <= startOfCell) {
+			const endOfCell = this.getEndOfCellContent(line, cursor.ch);
+			if (startOfCell === endOfCell || cursor.ch <= startOfCell) {
 				this.moveToLeftCellEnd(editor);
 			} else {
 				editor.exec('goLeft');
@@ -716,7 +717,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			else break;
 		}
 		if (open === -1) return null;
-		const close = pipes.find(p => p > ch) ?? line.length;
+		const close = pipes.find(p => p >= ch) ?? line.length;
 		return { open, close };
 	}
 
