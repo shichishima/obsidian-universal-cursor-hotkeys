@@ -555,13 +555,39 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Table row navigation
 	//===========================================================================
 
+	// Pure computation: given whether the adjacent line is in the table and its text,
+	// returns the target line number for upward navigation.
+	// Extracted from getPrevRowLine to allow unit testing of delimiter detection logic.
+	private computePrevRowLine(currentLine: number, prevLineInTable: boolean, prevLineText: string): number {
+		if (!prevLineInTable) return -1;
+		return this.TABLE_DELIMITER_REGEX.test(prevLineText) ? currentLine - 2 : currentLine - 1;
+	}
+
+
+	// Pure computation: given whether adjacent lines are in the table and the next line's text,
+	// returns the target line number for downward navigation.
+	// Extracted from getNextRowLine to allow unit testing of delimiter detection logic.
+	private computeNextRowLine(currentLine: number, nextLineInTable: boolean, nextLineText: string, lineAfterNextInTable: boolean): number {
+		if (!nextLineInTable) return -1;
+		if (this.TABLE_DELIMITER_REGEX.test(nextLineText)) {
+			// Verify cursor.line+2 exists and is actually a data row inside the table.
+			// Without this, a header-only table would return a line outside the table.
+			if (!lineAfterNextInTable) return -1;
+			return currentLine + 2;
+		}
+		return currentLine + 1;
+	}
+
+
 	// Returns the line number of the previous table data row.
 	// Returns -1 when the current row is the header row (caller should go outside the table).
 	private getPrevRowLine(editor: Editor): number {
 		const cursor = editor.getCursor();
-		if (!this.isPositionInTable(editor, cursor.line - 1, 1)) return -1;
-		const isDelimiter = this.TABLE_DELIMITER_REGEX.test(editor.getLine(cursor.line - 1));
-		return isDelimiter ? cursor.line - 2 : cursor.line - 1;
+		return this.computePrevRowLine(
+			cursor.line,
+			this.isPositionInTable(editor, cursor.line - 1, 1),
+			editor.getLine(cursor.line - 1),
+		);
 	}
 
 
@@ -569,16 +595,14 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Returns -1 when the current row is the last row (caller should go outside the table).
 	private getNextRowLine(editor: Editor): number {
 		const cursor = editor.getCursor();
-		if (!this.isPositionInTable(editor, cursor.line + 1, 1)) return -1;
-		const isDelimiter = this.TABLE_DELIMITER_REGEX.test(editor.getLine(cursor.line + 1));
-		if (isDelimiter) {
-			// Verify cursor.line+2 exists and is actually a data row inside the table.
-			// Without this, a header-only table would return a line outside the table.
-			if (cursor.line + 2 >= editor.lineCount()) return -1;
-			if (!this.isPositionInTable(editor, cursor.line + 2, 1)) return -1;
-			return cursor.line + 2;
-		}
-		return cursor.line + 1;
+		const lineAfterNextInTable = cursor.line + 2 < editor.lineCount()
+			&& this.isPositionInTable(editor, cursor.line + 2, 1);
+		return this.computeNextRowLine(
+			cursor.line,
+			this.isPositionInTable(editor, cursor.line + 1, 1),
+			editor.getLine(cursor.line + 1),
+			lineAfterNextInTable,
+		);
 	}
 
 
