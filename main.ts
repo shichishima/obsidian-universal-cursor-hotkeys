@@ -321,9 +321,12 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 
-		// Enter the widget so that goUp/goDown navigate visual lines within it.
-		// Without this, a cursor placed by cm.dispatch (e.g. from moveToBottomVisualLineOfCell)
-		// is not registered inside the widget, causing goDown tests to misbehave.
+		// goRight+goLeft: CM6 internally tracks which VL the cursor belongs to.
+		// By stepping right then left, goLeft returns to the same ch but with the
+		// correct assoc for the current VL (-1 if on VL_1 trailing edge, +1 if on
+		// VL_2+ leading edge). This disambiguates the VL_1/VL_2 boundary where both
+		// sides share the same ch value, and also registers the cursor inside the
+		// table widget so subsequent goUp navigates visual lines correctly.
 		editor.exec('goRight');
 		editor.exec('goLeft');
 		editor.exec('goUp');
