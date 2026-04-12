@@ -350,7 +350,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			// goUp moved to a different logical line (previous table row or outside table).
 			// Re-place cursor at cell start so moveToBottomVisualLineOfCell can navigate down properly.
 			if (this.isPositionInTable(editor)) {
-				const targetCh = this.getChByCellIndex(editor, cursorAfter.line, cellIndex);
+				const targetCh = this.getChByCellIndex(editor.getLine(cursorAfter.line), cellIndex);
 				if (targetCh !== -1) {
 					this.setCursorViaCm(editor, cursorAfter.line, targetCh);
 				}
@@ -396,7 +396,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}
 		// VL1: goUp moved to the table's last row; reposition to the bottom-left cell.
 		const targetLine = cursor.line - 1;
-		const targetCh = this.getChByCellIndex(editor, targetLine, 0);
+		const targetCh = this.getChByCellIndex(editor.getLine(targetLine), 0);
 		if (targetCh !== -1) {
 			editor.setCursor({ line: targetLine, ch: targetCh });
 		}
@@ -440,7 +440,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Handles goDown when the cursor is on the line directly above a table in Live Preview mode.
 	private moveCursorDownIntoTable(editor: Editor) {
 		const cursor = editor.getCursor();
-		const targetCh = this.getChByCellIndex(editor, cursor.line + 1, 0);
+		const targetCh = this.getChByCellIndex(editor.getLine(cursor.line + 1), 0);
 		editor.setCursor({ line: cursor.line + 1, ch: targetCh });
 	}
 
@@ -522,7 +522,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 		if (cellIndex < lastCellIndex) {
 			// Same row: move to right cell's start
-			const targetCh = this.getChByCellIndex(editor, cursor.line, cellIndex + 1);
+			const targetCh = this.getChByCellIndex(line, cellIndex + 1);
 			if (targetCh !== -1) {
 				this.setCursorViaCm(editor, cursor.line, targetCh);
 			}
@@ -544,7 +544,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 		// Next row: leftmost cell start
-		const targetCh = this.getChByCellIndex(editor, targetLine, 0);
+		const targetCh = this.getChByCellIndex(editor.getLine(targetLine), 0);
 		if (targetCh !== -1) {
 			this.setCursorViaCm(editor, targetLine, targetCh);
 		}
@@ -602,7 +602,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			this.setCursorViaCm(editor, cursor.line - 1, 0);
 			return;
 		}
-		const targetCh = this.getChByCellIndex(editor, targetLine, cellIndex);
+		const targetCh = this.getChByCellIndex(editor.getLine(targetLine), cellIndex);
 		if (targetCh !== -1) {
 			this.setCursorViaCm(editor, targetLine, targetCh);
 		}
@@ -636,7 +636,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			this.setCursorViaCm(editor, exitLine, 0);
 			return;
 		}
-		const targetCh = this.getChByCellIndex(editor, targetLine, cellIndex);
+		const targetCh = this.getChByCellIndex(editor.getLine(targetLine), cellIndex);
 		if (targetCh !== -1) {
 			this.setCursorViaCm(editor, targetLine, targetCh);
 		}
@@ -814,8 +814,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 
-	private getChByCellIndex(editor: Editor, line: number, cellIndex: number): number {
-		const lineText = editor.getLine(line);
+	private getChByCellIndex(lineText: string, cellIndex: number): number {
 		const pipes = this.getPipePositions(lineText);
 
 		if (cellIndex >= 0 && cellIndex < pipes.length) {
