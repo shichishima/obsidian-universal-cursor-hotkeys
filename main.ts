@@ -285,8 +285,20 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private moveCursorDown(editor: Editor) {
 		const cursor = editor.getCursor();
 
-		// Bottom of file: goDown is safe even inside a table.
-		if (cursor.line === editor.lineCount() - 1) { editor.exec('goDown'); return; }
+		// Last content line: at the absolute last line, or at the line just before a trailing empty line.
+		const lastLine = editor.lineCount() - 1;
+		if (cursor.line === lastLine ||
+			(cursor.line === lastLine - 1 && editor.getLine(lastLine) === '')) {
+			if (this.isLivePreviewMode() && this.isPositionInTable(editor)) {
+				if (cursor.line + 1 >= editor.lineCount()) {
+					editor.replaceRange('\n', { line: cursor.line, ch: editor.getLine(cursor.line).length });
+				}
+				this.setCursorViaCm(editor, cursor.line + 1, 0);
+				return;
+			}
+			editor.exec('goDown');
+			return;
+		}
 
 		if (this.isLivePreviewMode()) {
 			if (this.isPositionInTable(editor)) {
@@ -405,6 +417,13 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 
+		// No next data row (last data row, or header-only table): bypass goDown, which
+		// may land on the delimiter row instead of exiting the table.
+		if (this.getNextRowLine(editor) === -1) {
+			this.setCursorToNextRow(editor, cellIndex);
+			return;
+		}
+
 		editor.exec('goDown');
 
 		const cursorAfter = editor.getCursor();
@@ -512,10 +531,15 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// Rightmost cell: go to next row
 		const targetLine = this.getNextRowLine(editor);
 		if (targetLine === -1) {
-			// Last row: go outside table (c)->(C)
-			if (cursor.line < editor.lineCount() - 1) {
-				this.setCursorViaCm(editor, cursor.line + 1, 0);
+			// Last row: go outside table (c)->(C), skipping any remaining table rows (e.g. delimiter).
+			let exitLine = cursor.line + 1;
+			while (exitLine < editor.lineCount() && this.isPositionInTable(editor, exitLine, 1)) {
+				exitLine++;
 			}
+			if (exitLine >= editor.lineCount()) {
+				editor.replaceRange('\n', { line: exitLine - 1, ch: editor.getLine(exitLine - 1).length });
+			}
+			this.setCursorViaCm(editor, exitLine, 0);
 			return;
 		}
 		// Next row: leftmost cell start
@@ -546,7 +570,14 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const cursor = editor.getCursor();
 		if (!this.isPositionInTable(editor, cursor.line + 1, 1)) return -1;
 		const isDelimiter = /^\s*\|?[:\s]*?-+[:\s-]*\|[:\s-|]*$/.test(editor.getLine(cursor.line + 1));
-		return isDelimiter ? cursor.line + 2 : cursor.line + 1;
+		if (isDelimiter) {
+			// Verify cursor.line+2 exists and is actually a data row inside the table.
+			// Without this, a header-only table would return a line outside the table.
+			if (cursor.line + 2 >= editor.lineCount()) return -1;
+			if (!this.isPositionInTable(editor, cursor.line + 2, 1)) return -1;
+			return cursor.line + 2;
+		}
+		return cursor.line + 1;
 	}
 
 
@@ -593,8 +624,15 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const targetLine = this.getNextRowLine(editor);
 
 		if (targetLine === -1) {
-			// Last row: go outside table
-			this.setCursorViaCm(editor, cursor.line + 1, 0);
+			// Last data row: exit below, skipping any remaining table rows (e.g. delimiter).
+			let exitLine = cursor.line + 1;
+			while (exitLine < editor.lineCount() && this.isPositionInTable(editor, exitLine, 1)) {
+				exitLine++;
+			}
+			if (exitLine >= editor.lineCount()) {
+				editor.replaceRange('\n', { line: exitLine - 1, ch: editor.getLine(exitLine - 1).length });
+			}
+			this.setCursorViaCm(editor, exitLine, 0);
 			return;
 		}
 		const targetCh = this.getChByCellIndex(editor, targetLine, cellIndex);
