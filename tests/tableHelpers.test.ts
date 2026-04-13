@@ -181,4 +181,180 @@ describe('tableHelpers', () => {
 			expect(plugin.getEndOfCellContent('| hello |', 0)).toBe(0)
 		})
 	})
+
+	// ===========================================================================
+	// getPipePositions
+	// ===========================================================================
+
+	describe('getPipePositions(line)', () => {
+		it('multi-cell row returns all pipe indices', () => {
+			// | a | b | c |  →  pipes at 0, 4, 8, 12
+			expect(plugin.getPipePositions('| a | b | c |')).toEqual([0, 4, 8, 12])
+		})
+
+		it('escaped pipe \\| is excluded', () => {
+			// '| a \\| b |'  →  unescaped pipes at 0 and 9
+			expect(plugin.getPipePositions('| a \\| b |')).toEqual([0, 9])
+		})
+
+		it('line with no pipes returns []', () => {
+			expect(plugin.getPipePositions('hello world')).toEqual([])
+		})
+	})
+
+	// ===========================================================================
+	// getRightmostCellIndex
+	// ===========================================================================
+
+	describe('getRightmostCellIndex(line)', () => {
+		it('three cells | a | b | c | — returns 2', () => {
+			// 4 pipes → Math.max(0, 4-2) = 2
+			expect(plugin.getRightmostCellIndex('| a | b | c |')).toBe(2)
+		})
+
+		it('single cell | a | — returns 0', () => {
+			// 2 pipes → Math.max(0, 2-2) = 0
+			expect(plugin.getRightmostCellIndex('| a |')).toBe(0)
+		})
+	})
+
+	// ===========================================================================
+	// getCellIndex
+	// ===========================================================================
+
+	describe('getCellIndex(line, ch)', () => {
+		// | a | b |  →  pipes at 0, 4, 8
+		const line = '| a | b |'
+
+		it('ch in first cell — returns 0', () => {
+			// substring(0, 2) = "| " → 1 pipe → max(0, 1-1) = 0
+			expect(plugin.getCellIndex(line, 2)).toBe(0)
+		})
+
+		it('ch in second cell — returns 1', () => {
+			// substring(0, 6) = "| a | " → 2 pipes → max(0, 2-1) = 1
+			expect(plugin.getCellIndex(line, 6)).toBe(1)
+		})
+
+		it('ch before any pipe (ch=0) — clamped to 0', () => {
+			// substring(0, 0) = "" → 0 pipes → max(0, 0-1) = 0
+			expect(plugin.getCellIndex(line, 0)).toBe(0)
+		})
+	})
+
+	// ===========================================================================
+	// getEndOfCellContentByCellIndex
+	// ===========================================================================
+
+	describe('getEndOfCellContentByCellIndex(line, cellIndex)', () => {
+		// | hello | world |  →  pipes at 0, 8, 16
+		const line = '| hello | world |'
+
+		it('cellIndex=0 — returns end of first cell content', () => {
+			// slice(1,8)=" hello ", trimEnd=" hello" (len=6) → 0+1+6=7
+			expect(plugin.getEndOfCellContentByCellIndex(line, 0)).toBe(7)
+		})
+
+		it('cellIndex=1 — returns end of second cell content', () => {
+			// slice(9,16)=" world ", trimEnd=" world" (len=6) → 8+1+6=15
+			expect(plugin.getEndOfCellContentByCellIndex(line, 1)).toBe(15)
+		})
+
+		it('cellIndex out of range (too high) — returns -1', () => {
+			expect(plugin.getEndOfCellContentByCellIndex(line, 2)).toBe(-1)
+		})
+
+		it('cellIndex negative — returns -1', () => {
+			expect(plugin.getEndOfCellContentByCellIndex(line, -1)).toBe(-1)
+		})
+	})
+
+	// ===========================================================================
+	// getInCellLineInfo
+	// ===========================================================================
+
+	describe('getInCellLineInfo(line, ch)', () => {
+		it('no <br>: lineType single, correct start/end, isEmpty false', () => {
+			// | hello |  pipes at 0, 8
+			// seg={start:1,end:8}, segContent=" hello "
+			// startOfInCellLine=2 (skip leading space), endOfInCellLine=7 (trimEnd)
+			expect(plugin.getInCellLineInfo('| hello |', 3)).toEqual({
+				lineType: 'single',
+				startOfInCellLine: 2,
+				endOfInCellLine: 7,
+				isEmpty: false,
+			})
+		})
+
+		it('spaces-only cell: lineType single, isEmpty true', () => {
+			// |   |  pipes at 0, 4; seg={start:1,end:4}
+			// no non-space → startOfInCellLine=seg.start=1, endOfInCellLine=1+0=1
+			expect(plugin.getInCellLineInfo('|   |', 2)).toEqual({
+				lineType: 'single',
+				startOfInCellLine: 1,
+				endOfInCellLine: 1,
+				isEmpty: true,
+			})
+		})
+
+		it('ch before any pipe — returns null', () => {
+			expect(plugin.getInCellLineInfo('| hello |', 0)).toBeNull()
+		})
+
+		it('one <br>: ch in first segment — lineType first, endOfInCellLine at <br> start', () => {
+			// | hello<br>world |  pipes at 0, 17
+			// <br> at positions 7-10 (in line)
+			// seg[0]={start:1,end:7}: startOfInCellLine=2, endOfInCellLine=7
+			expect(plugin.getInCellLineInfo('| hello<br>world |', 3)).toEqual({
+				lineType: 'first',
+				startOfInCellLine: 2,
+				endOfInCellLine: 7,
+				isEmpty: false,
+			})
+		})
+
+		it('one <br>: ch in last segment — lineType last, startOfInCellLine right after <br>', () => {
+			// | hello<br>world |
+			// seg[1]={start:11,end:17}: startOfInCellLine=11, endOfInCellLine=16 (trimEnd "world")
+			expect(plugin.getInCellLineInfo('| hello<br>world |', 13)).toEqual({
+				lineType: 'last',
+				startOfInCellLine: 11,
+				endOfInCellLine: 16,
+				isEmpty: false,
+			})
+		})
+
+		it('two <br>: ch in middle segment — lineType middle', () => {
+			// | a<br>b<br>c |  pipes at 0, 14
+			// brPositions: {start:3,end:7}, {start:8,end:12}
+			// segments: [{1,3},{7,8},{12,14}]
+			// ch=7 ('b' in middle): segIndex=1, lineType='middle'
+			// startOfInCellLine=7, endOfInCellLine=8
+			expect(plugin.getInCellLineInfo('| a<br>b<br>c |', 7)).toEqual({
+				lineType: 'middle',
+				startOfInCellLine: 7,
+				endOfInCellLine: 8,
+				isEmpty: false,
+			})
+		})
+
+		it('ch inside a <br> tag — assigned to preceding segment', () => {
+			// | hello<br>world |, ch=9 is inside <br> (positions 7-10)
+			// brPositions: {start:7,end:11}
+			// segIndex fallback: ch=9 > 7 && < 11 → segIndex=0 (preceding segment)
+			// seg[0]={start:1,end:7}: lineType='first'
+			expect(plugin.getInCellLineInfo('| hello<br>world |', 9)).toEqual({
+				lineType: 'first',
+				startOfInCellLine: 2,
+				endOfInCellLine: 7,
+				isEmpty: false,
+			})
+		})
+
+		it('<BR> uppercase is also recognized', () => {
+			expect(plugin.getInCellLineInfo('| a<BR>b |', 3)).toMatchObject({
+				lineType: 'first',
+			})
+		})
+	})
 })
