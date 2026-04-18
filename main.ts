@@ -274,7 +274,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			}
 			// Fell through: already at VL end.
 		}
-		// No cm, or already at VL end -> move to logical line end.
+		// visualLineMovement OFF, no cm, or already at VL end -> move to logical line end.
 		const cursor = editor.getCursor();
 		const line = editor.getLine(cursor.line);
 		if (cursor.ch !== line.length) {
