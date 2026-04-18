@@ -1,4 +1,4 @@
-import { Editor, Plugin, MarkdownView } from 'obsidian';
+import { App, Editor, Plugin, PluginSettingTab, Setting, MarkdownView } from 'obsidian';
 import { syntaxTree } from '@codemirror/language';
 import { EditorView } from "@codemirror/view";
 import { EditorSelection } from '@codemirror/state';
@@ -11,6 +11,19 @@ declare module "obsidian" {
 }
 
 
+interface UniversalCursorHotkeysSettings {
+	smartHomeStandard: boolean;
+	smartHomeAdvanced: boolean;
+	visualLineMovement: boolean;
+}
+
+const DEFAULT_SETTINGS: UniversalCursorHotkeysSettings = {
+	smartHomeStandard: true,
+	smartHomeAdvanced: true,
+	visualLineMovement: true,
+};
+
+
 interface InCellLineInfo {
 	lineType: 'single' | 'first' | 'middle' | 'last';
 	startOfInCellLine: number;   // left edge (ch position)
@@ -21,10 +34,14 @@ interface InCellLineInfo {
 
 export default class universalCursorHotkeysPlugin extends Plugin {
 
+	settings: UniversalCursorHotkeysSettings;
+
 	private readonly CELL_SEPARATOR_REGEX = /(?<!\\)\|/g;
 	private readonly TABLE_DELIMITER_REGEX = /^\s*\|?[:\s]*?-+[:\s-]*\|[:\s-|]*$/;
 
-	onload() {
+	async onload() {
+		await this.loadSettings();
+		this.addSettingTab(new UniversalCursorHotkeysSettingTab(this.app, this));
 
 		this.addCommand({
 			id: 'cursor-home',
@@ -95,6 +112,14 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	onunload() {
 
+	}
+
+	async loadSettings() {
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+	}
+
+	async saveSettings() {
+		await this.saveData(this.settings);
 	}
 
 
@@ -1029,4 +1054,49 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		return [...line.matchAll(this.CELL_SEPARATOR_REGEX)].map(m => m.index);
 	}
 
+}
+
+
+class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
+	plugin: universalCursorHotkeysPlugin;
+
+	constructor(app: App, plugin: universalCursorHotkeysPlugin) {
+		super(app, plugin);
+		this.plugin = plugin;
+	}
+
+	display(): void {
+		const { containerEl } = this;
+		containerEl.empty();
+
+		new Setting(containerEl)
+			.setName('Visual Line Movement')
+			.setDesc('ON: the first HOME / END moves to the visual line edge. OFF: moves directly to the logical line start / end.')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.visualLineMovement)
+				.onChange(async (value) => {
+					this.plugin.settings.visualLineMovement = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Smart HOME (Standard)')
+			.setDesc('When moving to the logical line start with HOME, jump past leading Markdown syntax. Targets: lists, ordered lists, checkboxes, indents, blockquotes.')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.smartHomeStandard)
+				.onChange(async (value) => {
+					this.plugin.settings.smartHomeStandard = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Smart HOME (Advanced)')
+			.setDesc('Also skip past headings ( # ) and footnotes ( [^1]: ), when Smart HOME (Standard) is ON.')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.smartHomeAdvanced)
+				.onChange(async (value) => {
+					this.plugin.settings.smartHomeAdvanced = value;
+					await this.plugin.saveSettings();
+				}));
+	}
 }
