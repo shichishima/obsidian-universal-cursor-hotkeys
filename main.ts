@@ -194,8 +194,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			const currentHead = cm.state.selection.main.head;
 			const vlStart = cm.moveToLineBoundary(cm.state.selection.main, false, true);
 			const vlCh = vlStart.head - lineFrom;
+			// Only treat as VL2+ if vlCh is past the smart home position.
+			// Prevents widget decorations (e.g. footnote [^1]: ) from causing a false VL dispatch.
+			const lineSmartHomePos = this.getBeginningOfLinePosition(line, line.length || 1);
 
-			if (vlStart.head !== currentHead && vlCh > 0) {
+			if (vlStart.head !== currentHead && vlCh > lineSmartHomePos) {
 				// Case (1a): VL2+, not at VL left edge -> move to VL left edge.
 				cm.dispatch({
 					selection: EditorSelection.create([EditorSelection.cursor(vlStart.head, vlStart.assoc)]),
