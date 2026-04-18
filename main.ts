@@ -214,7 +214,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const cursor = editor.getCursor();
 		const line = editor.getLine(cursor.line);
 		const cm = editor.cm;
-		if (cm) {
+		if (cm && this.settings.visualLineMovement) {
 			const lineFrom = editor.posToOffset({ line: cursor.line, ch: 0 });
 			const currentHead = cm.state.selection.main.head;
 			const vlStart = cm.moveToLineBoundary(cm.state.selection.main, false, true);
@@ -259,7 +259,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Non-table End: visual-line-aware 2-step end.
 	private moveCursorEndNonTable(editor: Editor) {
 		const cm = editor.cm;
-		if (cm) {
+		if (cm && this.settings.visualLineMovement) {
 			const currentHead = cm.state.selection.main.head;
 			const vlEnd = cm.moveToLineBoundary(cm.state.selection.main, true, true);
 
