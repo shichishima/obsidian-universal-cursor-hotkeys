@@ -1018,7 +1018,12 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 
 	// Returns the ch position of the content-start for smart Home in non-table lines.
+	// When smartHomeStandard is OFF, always returns 0 (plain logical line start).
 	private getBeginningOfLinePosition(line: string, ch: number): number {
+
+		if (!this.settings.smartHomeStandard) {
+			return 0;
+		}
 
 		// Headings in an unordered list
 		let result = line.match(/^(\s*[-+*]\s)?#+\s/);
