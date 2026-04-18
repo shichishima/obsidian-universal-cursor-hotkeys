@@ -7,7 +7,10 @@ vi.mock('@codemirror/language', () => ({
 
 import UniversalCursorHotkeysPlugin from '../main.ts'
 
-// Helper: build a mock editor with cm
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
 function makeEditorWithCm(
 	moveToLineBoundaryResult: { head: number; assoc: number },
 	currentHead: number,
@@ -30,7 +33,6 @@ function makeEditorWithCm(
 	}
 }
 
-// Helper: build a mock editor without cm
 function makeEditorWithoutCm(line: string, ch: number) {
 	const mockSetCursor = vi.fn()
 	return {
@@ -44,166 +46,161 @@ function makeEditorWithoutCm(line: string, ch: number) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Matrix
+//
+// Each row defines one scenario and the expected outcome under two settings:
+//   vlTrue  = visualLineMovement: true
+//   vlFalse = visualLineMovement: false
+//
+// dispatch: number   → cm.dispatch called with that cursor offset
+// dispatch: null     → cm.dispatch NOT called
+// setCursor: number  → editor.setCursor called with { line:0, ch }
+// setCursor: null    → editor.setCursor NOT called
+// ---------------------------------------------------------------------------
+
+type CmOpts = { vlHead: number; vlAssoc: number; currentHead: number }
+type NoCmOpts = { line: string; ch: number }
+
+type EndRow = {
+	desc: string
+	// provide either cm or noCm (not both)
+	cm?: CmOpts & { cursorCh: number; lineText: string }
+	noCm?: NoCmOpts
+	vlTrue:  { dispatch?: { head: number; assoc: number } | null; setCursor?: number | null }
+	vlFalse: { dispatch?: null; setCursor?: number | null }
+}
+
+const matrix: EndRow[] = [
+	// --- cm available ---
+
+	{
+		desc: 'cm: cursor before VL end — dispatch to VL end',
+		cm: { vlHead: 11, vlAssoc: -1, currentHead: 0, cursorCh: 0, lineText: 'hello world' },
+		vlTrue:  { dispatch: { head: 11, assoc: -1 }, setCursor: null },
+		vlFalse: { dispatch: null, setCursor: 11 },
+	},
+	{
+		desc: 'cm: soft-wrap VL1 end — dispatch with assoc=-1',
+		cm: { vlHead: 40, vlAssoc: -1, currentHead: 0, cursorCh: 0, lineText: 'hello world' },
+		vlTrue:  { dispatch: { head: 40, assoc: -1 }, setCursor: null },
+		vlFalse: { dispatch: null, setCursor: 11 },
+	},
+	{
+		desc: 'cm: hidden markdown at line end (assoc=0) — dispatch with assoc=0',
+		cm: { vlHead: 20, vlAssoc: 0, currentHead: 5, cursorCh: 5, lineText: 'hello world extra' },
+		vlTrue:  { dispatch: { head: 20, assoc: 0 }, setCursor: null },
+		vlFalse: { dispatch: null, setCursor: 17 },
+	},
+	{
+		desc: 'cm: already at VL end (2-step) — no dispatch, setCursor to logical end',
+		cm: { vlHead: 11, vlAssoc: -1, currentHead: 11, cursorCh: 8, lineText: 'hello world' },
+		vlTrue:  { dispatch: null, setCursor: 11 },
+		vlFalse: { dispatch: null, setCursor: 11 },
+	},
+	{
+		desc: 'cm: cursor already at logical end — setCursor not called',
+		cm: { vlHead: 11, vlAssoc: -1, currentHead: 11, cursorCh: 11, lineText: 'hello world' },
+		vlTrue:  { dispatch: null, setCursor: null },
+		vlFalse: { dispatch: null, setCursor: null },
+	},
+
+	// --- no cm ---
+
+	{
+		desc: 'no cm: cursor at middle — setCursor to line end',
+		noCm: { line: 'hello world', ch: 3 },
+		vlTrue:  { dispatch: null, setCursor: 11 },
+		vlFalse: { dispatch: null, setCursor: 11 },
+	},
+	{
+		desc: 'no cm: cursor at line start (ch=0) — setCursor to line end',
+		noCm: { line: 'hello', ch: 0 },
+		vlTrue:  { dispatch: null, setCursor: 5 },
+		vlFalse: { dispatch: null, setCursor: 5 },
+	},
+	{
+		desc: 'no cm: cursor already at line end — setCursor not called',
+		noCm: { line: 'hello', ch: 5 },
+		vlTrue:  { dispatch: null, setCursor: null },
+		vlFalse: { dispatch: null, setCursor: null },
+	},
+	{
+		desc: 'no cm: empty line — setCursor not called',
+		noCm: { line: '', ch: 0 },
+		vlTrue:  { dispatch: null, setCursor: null },
+		vlFalse: { dispatch: null, setCursor: null },
+	},
+	{
+		desc: 'no cm: multibyte characters — setCursor to line end',
+		noCm: { line: 'あいう', ch: 1 },
+		vlTrue:  { dispatch: null, setCursor: 3 },
+		vlFalse: { dispatch: null, setCursor: 3 },
+	},
+]
+
+// ---------------------------------------------------------------------------
+// Test runner
+// ---------------------------------------------------------------------------
+
 describe('moveCursorEndNonTable', () => {
 	let plugin: any
 
 	beforeEach(() => {
 		plugin = Object.create(UniversalCursorHotkeysPlugin.prototype)
-		plugin.settings = { smartHomeStandard: true, smartHomeAdvanced: true, visualLineMovement: true }
 	})
 
-	// -------------------------------------------------------------------------
-	// with cm: dispatch the result of moveToLineBoundary as-is
-	// -------------------------------------------------------------------------
+	for (const row of matrix) {
+		for (const [label, vl] of [['vl=true', true], ['vl=false', false]] as const) {
+			const expected = vl ? row.vlTrue : row.vlFalse
 
-	describe('with cm available', () => {
-		it('calls moveToLineBoundary(main, true, true)', () => {
-			const { editor, mockMoveToLineBoundary } = makeEditorWithCm({ head: 10, assoc: -1 }, 5)
-			plugin.moveCursorEndNonTable(editor)
-			expect(mockMoveToLineBoundary).toHaveBeenCalledWith(
-				editor.cm.state.selection.main, true, true
-			)
-		})
+			it(`[${label}] ${row.desc}`, () => {
+				plugin.settings = { smartHomeStandard: true, smartHomeAdvanced: true, visualLineMovement: vl }
 
-		it('plain text: dispatch receives head and assoc', () => {
-			// e.g. "hello world" (offset 0-10), line end offset=11, assoc=-1
-			const { editor, mockDispatch } = makeEditorWithCm({ head: 11, assoc: -1 }, 0)
-			plugin.moveCursorEndNonTable(editor)
-			expect(mockDispatch).toHaveBeenCalledWith({
-				selection: EditorSelection.create([EditorSelection.cursor(11, -1)]),
-				scrollIntoView: true,
-				userEvent: 'move',
+				let editor: any
+				let dispatchMock: ReturnType<typeof vi.fn> | undefined
+
+				if (row.cm) {
+					const { cm } = row
+					const built = makeEditorWithCm(
+						{ head: cm.vlHead, assoc: cm.vlAssoc },
+						cm.currentHead,
+					)
+					built.editor.getCursor = vi.fn().mockReturnValue({ line: 0, ch: cm.cursorCh })
+					built.editor.getLine   = vi.fn().mockReturnValue(cm.lineText)
+					editor      = built.editor
+					dispatchMock = built.mockDispatch
+				} else {
+					const { noCm } = row as { noCm: NoCmOpts }
+					const built = makeEditorWithoutCm(noCm.line, noCm.ch)
+					editor = built.editor
+				}
+
+				plugin.moveCursorEndNonTable(editor)
+
+				// dispatch assertion
+				if (dispatchMock) {
+					if (expected.dispatch) {
+						const { head, assoc } = expected.dispatch
+						expect(dispatchMock).toHaveBeenCalledWith({
+							selection: EditorSelection.create([EditorSelection.cursor(head, assoc)]),
+							scrollIntoView: true,
+							userEvent: 'move',
+						})
+					} else {
+						expect(dispatchMock).not.toHaveBeenCalled()
+					}
+				}
+
+				// setCursor assertion
+				if (expected.setCursor !== undefined) {
+					if (expected.setCursor === null) {
+						expect(editor.setCursor).not.toHaveBeenCalled()
+					} else {
+						expect(editor.setCursor).toHaveBeenCalledWith({ line: 0, ch: expected.setCursor })
+					}
+				}
 			})
-		})
-
-		it('soft-wrap: VL1 end assoc=-1 is dispatched as-is', () => {
-			// moveToLineBoundary returns offset=40, assoc=-1 for soft-wrapped VL1 end
-			const { editor, mockDispatch } = makeEditorWithCm({ head: 40, assoc: -1 }, 0)
-			plugin.moveCursorEndNonTable(editor)
-			expect(mockDispatch).toHaveBeenCalledWith({
-				selection: EditorSelection.create([EditorSelection.cursor(40, -1)]),
-				scrollIntoView: true,
-				userEvent: 'move',
-			})
-		})
-
-		it('hidden markdown (assoc=0): dispatch receives head and assoc=0', () => {
-			// e.g. `[[link]]` hidden markdown at end of line
-			const { editor, mockDispatch } = makeEditorWithCm({ head: 20, assoc: 0 }, 5)
-			plugin.moveCursorEndNonTable(editor)
-			expect(mockDispatch).toHaveBeenCalledWith({
-				selection: EditorSelection.create([EditorSelection.cursor(20, 0)]),
-				scrollIntoView: true,
-				userEvent: 'move',
-			})
-		})
-
-		it('already at VL end: dispatch not called, setCursor moves to logical line end (2-step)', () => {
-			// moveToLineBoundary returns same head as currentHead = already at VL end
-			// -> fall through to logical line end via setCursor
-			const { editor } = makeEditorWithCm({ head: 11, assoc: -1 }, 11)
-			editor.getLine = vi.fn().mockReturnValue('hello world')  // length=11
-			editor.getCursor = vi.fn().mockReturnValue({ line: 0, ch: 8 })  // ch < length
-			plugin.moveCursorEndNonTable(editor)
-			expect(editor.cm.dispatch).not.toHaveBeenCalled()
-			expect(editor.setCursor).toHaveBeenCalledWith({ line: 0, ch: 11 })
-		})
-
-		it('setCursor is not called', () => {
-			const { editor } = makeEditorWithCm({ head: 11, assoc: -1 }, 0)
-			plugin.moveCursorEndNonTable(editor)
-			expect(editor.setCursor).not.toHaveBeenCalled()
-		})
-	})
-
-	// -------------------------------------------------------------------------
-	// without cm: setCursor fallback to logical line end
-	// -------------------------------------------------------------------------
-
-	describe('without cm (fallback)', () => {
-		it('plain text: cursor at middle — setCursor called at line end', () => {
-			const { editor, mockSetCursor } = makeEditorWithoutCm('hello world', 3)
-			plugin.moveCursorEndNonTable(editor)
-			expect(mockSetCursor).toHaveBeenCalledWith({ line: 0, ch: 11 })
-		})
-
-		it('cursor at line start (ch=0) — setCursor called at line end', () => {
-			const { editor, mockSetCursor } = makeEditorWithoutCm('hello', 0)
-			plugin.moveCursorEndNonTable(editor)
-			expect(mockSetCursor).toHaveBeenCalledWith({ line: 0, ch: 5 })
-		})
-
-		it('cursor already at line end — setCursor is not called', () => {
-			const { editor, mockSetCursor } = makeEditorWithoutCm('hello', 5)
-			plugin.moveCursorEndNonTable(editor)
-			expect(mockSetCursor).not.toHaveBeenCalled()
-		})
-
-		it('empty line: ch=0 and line.length=0 — setCursor is not called', () => {
-			const { editor, mockSetCursor } = makeEditorWithoutCm('', 0)
-			plugin.moveCursorEndNonTable(editor)
-			expect(mockSetCursor).not.toHaveBeenCalled()
-		})
-
-		it('multibyte characters: ch < line.length — setCursor moves to line end', () => {
-			// 'あいう' has JS length=3
-			const { editor, mockSetCursor } = makeEditorWithoutCm('あいう', 1)
-			plugin.moveCursorEndNonTable(editor)
-			expect(mockSetCursor).toHaveBeenCalledWith({ line: 0, ch: 3 })
-		})
-	})
-
-	// -------------------------------------------------------------------------
-	// visualLineMovement = false: skip VL step, go directly to logical line end
-	// -------------------------------------------------------------------------
-
-	describe('visualLineMovement = false', () => {
-		beforeEach(() => {
-			plugin.settings = { smartHomeStandard: true, smartHomeAdvanced: true, visualLineMovement: false }
-		})
-
-		it('with cm, cursor at VL middle: dispatch is not called', () => {
-			const { editor, mockDispatch } = makeEditorWithCm({ head: 40, assoc: -1 }, 0)
-			editor.getCursor = vi.fn().mockReturnValue({ line: 0, ch: 0 })
-			editor.getLine = vi.fn().mockReturnValue('hello world')
-			plugin.moveCursorEndNonTable(editor)
-			expect(mockDispatch).not.toHaveBeenCalled()
-		})
-
-		it('with cm, cursor at line start: setCursor moves to logical line end', () => {
-			const { editor } = makeEditorWithCm({ head: 11, assoc: -1 }, 0)
-			editor.getCursor = vi.fn().mockReturnValue({ line: 0, ch: 0 })
-			editor.getLine = vi.fn().mockReturnValue('hello world')
-			plugin.moveCursorEndNonTable(editor)
-			expect(editor.setCursor).toHaveBeenCalledWith({ line: 0, ch: 11 })
-		})
-
-		it('with cm, cursor at line middle: setCursor moves to logical line end', () => {
-			const { editor } = makeEditorWithCm({ head: 11, assoc: -1 }, 5)
-			editor.getCursor = vi.fn().mockReturnValue({ line: 0, ch: 5 })
-			editor.getLine = vi.fn().mockReturnValue('hello world')
-			plugin.moveCursorEndNonTable(editor)
-			expect(editor.setCursor).toHaveBeenCalledWith({ line: 0, ch: 11 })
-		})
-
-		it('with cm, cursor already at line end: setCursor is not called', () => {
-			const { editor } = makeEditorWithCm({ head: 11, assoc: -1 }, 11)
-			editor.getCursor = vi.fn().mockReturnValue({ line: 0, ch: 11 })
-			editor.getLine = vi.fn().mockReturnValue('hello world')
-			plugin.moveCursorEndNonTable(editor)
-			expect(editor.setCursor).not.toHaveBeenCalled()
-		})
-
-		it('without cm, cursor at line middle: setCursor moves to logical line end', () => {
-			const { editor, mockSetCursor } = makeEditorWithoutCm('hello world', 3)
-			plugin.moveCursorEndNonTable(editor)
-			expect(mockSetCursor).toHaveBeenCalledWith({ line: 0, ch: 11 })
-		})
-
-		it('without cm, cursor already at line end: setCursor is not called', () => {
-			const { editor, mockSetCursor } = makeEditorWithoutCm('hello', 5)
-			plugin.moveCursorEndNonTable(editor)
-			expect(mockSetCursor).not.toHaveBeenCalled()
-		})
-	})
+		}
+	}
 })

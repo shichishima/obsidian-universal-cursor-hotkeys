@@ -73,7 +73,7 @@ const categories: { name: string; skipAutoStep2?: boolean; rows: TestRow[] }[] =
 	},
 	{
 		name: '(Advanced) Headings',
-		rows: [ // 1 3 5  7 9
+		rows: [ // 1 3 5 7 9
 			['## hello',           5,    3,    0,    0],
 			['## hello',           1,    0,    0,    0],  // cursor inside "## " prefix → ch=0
 			['###### deep',        9,    7,    0,    0],
@@ -82,7 +82,7 @@ const categories: { name: string; skipAutoStep2?: boolean; rows: TestRow[] }[] =
 	},
 	{
 		name: '(Advanced) Footnotes',
-		rows: [ //0     6 8
+		rows: [ //0  3  6 8
 			['[^1]: note',         8,    6,    0,    0],
 			['[^1]: note',         3,    0,    0,    0],
 		],
