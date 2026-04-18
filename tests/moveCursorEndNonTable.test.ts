@@ -49,14 +49,15 @@ describe('moveCursorEndNonTable', () => {
 
 	beforeEach(() => {
 		plugin = Object.create(UniversalCursorHotkeysPlugin.prototype)
+		plugin.settings = { smartHomeStandard: true, smartHomeAdvanced: true, visualLineMovement: true }
 	})
 
 	// -------------------------------------------------------------------------
-	// cm あり: moveToLineBoundary の結果をそのまま dispatch する
+	// with cm: dispatch the result of moveToLineBoundary as-is
 	// -------------------------------------------------------------------------
 
-	describe('cm が利用可能な場合', () => {
-		it('moveToLineBoundary(main, true, true) で呼ばれる', () => {
+	describe('with cm available', () => {
+		it('calls moveToLineBoundary(main, true, true)', () => {
 			const { editor, mockMoveToLineBoundary } = makeEditorWithCm({ head: 10, assoc: -1 }, 5)
 			plugin.moveCursorEndNonTable(editor)
 			expect(mockMoveToLineBoundary).toHaveBeenCalledWith(
@@ -64,8 +65,8 @@ describe('moveCursorEndNonTable', () => {
 			)
 		})
 
-		it('通常テキスト: dispatch に head と assoc が渡される', () => {
-			// 例: "hello world" (offset 0-10) の行末 offset=11, assoc=-1
+		it('plain text: dispatch receives head and assoc', () => {
+			// e.g. "hello world" (offset 0-10), line end offset=11, assoc=-1
 			const { editor, mockDispatch } = makeEditorWithCm({ head: 11, assoc: -1 }, 0)
 			plugin.moveCursorEndNonTable(editor)
 			expect(mockDispatch).toHaveBeenCalledWith({
@@ -75,8 +76,8 @@ describe('moveCursorEndNonTable', () => {
 			})
 		})
 
-		it('soft-wrap: VL1 末尾の assoc=-1 がそのまま dispatch される', () => {
-			// soft-wrap で VL1 末尾 offset=40, assoc=-1 を moveToLineBoundary が返す想定
+		it('soft-wrap: VL1 end assoc=-1 is dispatched as-is', () => {
+			// moveToLineBoundary returns offset=40, assoc=-1 for soft-wrapped VL1 end
 			const { editor, mockDispatch } = makeEditorWithCm({ head: 40, assoc: -1 }, 0)
 			plugin.moveCursorEndNonTable(editor)
 			expect(mockDispatch).toHaveBeenCalledWith({
@@ -86,8 +87,8 @@ describe('moveCursorEndNonTable', () => {
 			})
 		})
 
-		it('hidden markdown (assoc=0): dispatch に head と assoc=0 が渡される', () => {
-			// `[[link]]` のような hidden markdown が行末にある場合
+		it('hidden markdown (assoc=0): dispatch receives head and assoc=0', () => {
+			// e.g. `[[link]]` hidden markdown at end of line
 			const { editor, mockDispatch } = makeEditorWithCm({ head: 20, assoc: 0 }, 5)
 			plugin.moveCursorEndNonTable(editor)
 			expect(mockDispatch).toHaveBeenCalledWith({
@@ -97,11 +98,10 @@ describe('moveCursorEndNonTable', () => {
 			})
 		})
 
-		it('すでに VL 末尾にいる場合は dispatch されず setCursor で論理行末へ (2-step)', () => {
-			// moveToLineBoundary が currentHead と同じ head を返す = すでに VL 末尾
-			// → フォールスルーして論理行末へ setCursor
+		it('already at VL end: dispatch not called, setCursor moves to logical line end (2-step)', () => {
+			// moveToLineBoundary returns same head as currentHead = already at VL end
+			// -> fall through to logical line end via setCursor
 			const { editor } = makeEditorWithCm({ head: 11, assoc: -1 }, 11)
-			// getLine / getCursor が必要なので設定
 			editor.getLine = vi.fn().mockReturnValue('hello world')  // length=11
 			editor.getCursor = vi.fn().mockReturnValue({ line: 0, ch: 8 })  // ch < length
 			plugin.moveCursorEndNonTable(editor)
@@ -109,7 +109,7 @@ describe('moveCursorEndNonTable', () => {
 			expect(editor.setCursor).toHaveBeenCalledWith({ line: 0, ch: 11 })
 		})
 
-		it('setCursor は呼ばれない', () => {
+		it('setCursor is not called', () => {
 			const { editor } = makeEditorWithCm({ head: 11, assoc: -1 }, 0)
 			plugin.moveCursorEndNonTable(editor)
 			expect(editor.setCursor).not.toHaveBeenCalled()
@@ -117,39 +117,93 @@ describe('moveCursorEndNonTable', () => {
 	})
 
 	// -------------------------------------------------------------------------
-	// cm なし: 論理行末への setCursor フォールバック
+	// without cm: setCursor fallback to logical line end
 	// -------------------------------------------------------------------------
 
-	describe('cm がない場合 (fallback)', () => {
-		it('通常テキスト: カーソルが中間にある場合、行末に setCursor が呼ばれる', () => {
+	describe('without cm (fallback)', () => {
+		it('plain text: cursor at middle — setCursor called at line end', () => {
 			const { editor, mockSetCursor } = makeEditorWithoutCm('hello world', 3)
 			plugin.moveCursorEndNonTable(editor)
 			expect(mockSetCursor).toHaveBeenCalledWith({ line: 0, ch: 11 })
 		})
 
-		it('カーソルが行頭 (ch=0) にある場合、行末に setCursor が呼ばれる', () => {
+		it('cursor at line start (ch=0) — setCursor called at line end', () => {
 			const { editor, mockSetCursor } = makeEditorWithoutCm('hello', 0)
 			plugin.moveCursorEndNonTable(editor)
 			expect(mockSetCursor).toHaveBeenCalledWith({ line: 0, ch: 5 })
 		})
 
-		it('カーソルがすでに行末にある場合、setCursor は呼ばれない', () => {
+		it('cursor already at line end — setCursor is not called', () => {
 			const { editor, mockSetCursor } = makeEditorWithoutCm('hello', 5)
 			plugin.moveCursorEndNonTable(editor)
 			expect(mockSetCursor).not.toHaveBeenCalled()
 		})
 
-		it('空行: カーソルが ch=0 かつ line.length=0 なので setCursor は呼ばれない', () => {
+		it('empty line: ch=0 and line.length=0 — setCursor is not called', () => {
 			const { editor, mockSetCursor } = makeEditorWithoutCm('', 0)
 			plugin.moveCursorEndNonTable(editor)
 			expect(mockSetCursor).not.toHaveBeenCalled()
 		})
 
-		it('マルチバイト文字の行: ch が文字数未満なら行末に移動する', () => {
-			// 'あいう' は JS 上 length=3
+		it('multibyte characters: ch < line.length — setCursor moves to line end', () => {
+			// 'あいう' has JS length=3
 			const { editor, mockSetCursor } = makeEditorWithoutCm('あいう', 1)
 			plugin.moveCursorEndNonTable(editor)
 			expect(mockSetCursor).toHaveBeenCalledWith({ line: 0, ch: 3 })
+		})
+	})
+
+	// -------------------------------------------------------------------------
+	// visualLineMovement = false: skip VL step, go directly to logical line end
+	// -------------------------------------------------------------------------
+
+	describe('visualLineMovement = false', () => {
+		beforeEach(() => {
+			plugin.settings = { smartHomeStandard: true, smartHomeAdvanced: true, visualLineMovement: false }
+		})
+
+		it('with cm, cursor at VL middle: dispatch is not called', () => {
+			const { editor, mockDispatch } = makeEditorWithCm({ head: 40, assoc: -1 }, 0)
+			editor.getCursor = vi.fn().mockReturnValue({ line: 0, ch: 0 })
+			editor.getLine = vi.fn().mockReturnValue('hello world')
+			plugin.moveCursorEndNonTable(editor)
+			expect(mockDispatch).not.toHaveBeenCalled()
+		})
+
+		it('with cm, cursor at line start: setCursor moves to logical line end', () => {
+			const { editor } = makeEditorWithCm({ head: 11, assoc: -1 }, 0)
+			editor.getCursor = vi.fn().mockReturnValue({ line: 0, ch: 0 })
+			editor.getLine = vi.fn().mockReturnValue('hello world')
+			plugin.moveCursorEndNonTable(editor)
+			expect(editor.setCursor).toHaveBeenCalledWith({ line: 0, ch: 11 })
+		})
+
+		it('with cm, cursor at line middle: setCursor moves to logical line end', () => {
+			const { editor } = makeEditorWithCm({ head: 11, assoc: -1 }, 5)
+			editor.getCursor = vi.fn().mockReturnValue({ line: 0, ch: 5 })
+			editor.getLine = vi.fn().mockReturnValue('hello world')
+			plugin.moveCursorEndNonTable(editor)
+			expect(editor.setCursor).toHaveBeenCalledWith({ line: 0, ch: 11 })
+		})
+
+		it('with cm, cursor already at line end: setCursor is not called', () => {
+			const { editor } = makeEditorWithCm({ head: 11, assoc: -1 }, 11)
+			editor.getCursor = vi.fn().mockReturnValue({ line: 0, ch: 11 })
+			editor.getLine = vi.fn().mockReturnValue('hello world')
+			plugin.moveCursorEndNonTable(editor)
+			expect(editor.setCursor).not.toHaveBeenCalled()
+		})
+
+		it('without cm, cursor at line middle: setCursor moves to logical line end', () => {
+			const { editor, mockSetCursor } = makeEditorWithoutCm('hello world', 3)
+			plugin.moveCursorEndNonTable(editor)
+			expect(mockSetCursor).toHaveBeenCalledWith({ line: 0, ch: 11 })
+		})
+
+		it('without cm, cursor already at line end: setCursor is not called', () => {
+			const { editor, mockSetCursor } = makeEditorWithoutCm('hello', 5)
+			plugin.moveCursorEndNonTable(editor)
+			expect(mockSetCursor).not.toHaveBeenCalled()
 		})
 	})
 })

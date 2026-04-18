@@ -6,6 +6,99 @@ vi.mock('@codemirror/language', () => ({
 
 import UniversalCursorHotkeysPlugin from '../main.ts'
 
+// Tuple: [line, ch, Adv. (Std=ON&Adv=ON), Std. (Std=ON&Adv=OFF), OFF (Std=OFF)]
+// "OFF" is tested twice — Advanced=ON and Advanced=OFF — sharing the same expected value.
+type TestRow = [string, number, number, number, number]
+
+const settingsMatrix: Array<{
+	label: string
+	std: boolean
+	adv: boolean
+	idx: 2 | 3 | 4
+}> = [
+	{ label: 'Adv.',         std: true,  adv: true,  idx: 2 },
+	{ label: 'Std.',         std: true,  adv: false, idx: 3 },
+	{ label: 'OFF (Adv=ON)', std: false, adv: true,  idx: 4 },
+	{ label: 'OFF (Adv=OFF)',std: false, adv: false, idx: 4 },
+]
+
+const categories: { name: string; skipAutoStep2?: boolean; rows: TestRow[] }[] = [
+	{
+		name: 'Unordered lists',
+		rows: [ //  2 4 6 8           ch,  Adv., Std., OFF]
+			['- item',             4,    2,    2,     0],
+			['+ item',             4,    2,    2,     0],
+			['* item',             4,    2,    2,     0],
+			['  - item',           6,    4,    4,     0],
+			['    * item',         8,    6,    6,     0],
+			['- item',             1,    0,    0,     0],  // cursor inside "- " prefix → ch=0
+		],
+	},
+	{
+		name: 'Task lists',
+		rows: [ //      6 8 0
+			['- [ ] item',         8,    6,    6,     0],
+			['- [x] item',         8,    6,    6,     0],
+			['  - [ ] item',      10,    8,    8,     0],
+			['  - [x] item',      10,    8,    8,     0],
+			['  - [x] item',       5,    0,    0,     0],
+		],
+	},
+	{
+		name: 'Ordered lists',
+		rows: [ //   345678
+			['1. item',            5,    3,    3,     0],
+			['1) item',            5,    3,    3,     0],
+			['10. item',           6,    4,    4,     0],
+			['  1. item',          7,    5,    5,     0],
+			['  10. item',         8,    6,    6,     0],
+			['10. item',           2,    0,    0,     0],
+		],
+	},
+	{
+		name: 'Blockquotes',
+		rows: [ // 1234 6
+			['> text',             4,    2,    2,     0],
+			['>text',              3,    1,    1,     0],
+			['>   text',           6,    4,    4,     0],
+		],
+	},
+	{
+		name: 'Plain text and edge cases',
+		rows: [ //0 2 45
+			['hello world',        5,    0,    0,     0],
+			['  hello',            4,    2,    2,     0],
+			['',                   0,    0,    0,     0],
+		],
+	},
+	{
+		name: '(Advanced) Headings',
+		rows: [ // 1 3 5  7 9
+			['## hello',           5,    3,    0,    0],
+			['## hello',           1,    0,    0,    0],  // cursor inside "## " prefix → ch=0
+			['###### deep',        9,    7,    0,    0],
+			['###### deep',        3,    0,    0,    0],
+		],
+	},
+	{
+		name: '(Advanced) Footnotes',
+		rows: [ //0     6 8
+			['[^1]: note',         8,    6,    0,    0],
+			['[^1]: note',         3,    0,    0,    0],
+		],
+	},
+	{
+		name: '(Advanced) Heading inside unordered list',
+		skipAutoStep2: true,  // 3-step navigation: already tested explicitly row-by-row
+		rows: [	// 3-step navigation: adv-prefix → list-prefix → ch=0
+			//0 2  5 7
+			['- ## hello',         7,    5,    2,    0],  // 1st step: past "- ## " / past "- "
+			['- ## hello',         5,    2,    2,    0],  // 2nd step: past "- "
+			['- ## hello',         2,    0,    0,    0],  // 3rd step: ch=0
+		],
+	},
+]
+
 describe('getBeginningOfLinePosition(line, ch)', () => {
 	let plugin: any
 
@@ -13,110 +106,30 @@ describe('getBeginningOfLinePosition(line, ch)', () => {
 		plugin = Object.create(UniversalCursorHotkeysPlugin.prototype)
 	})
 
-	// -------------------------------------------------------------------------
-	// Headings
-	// -------------------------------------------------------------------------
+	for (const { label, std, adv, idx } of settingsMatrix) {
+		describe(label, () => {
+			beforeEach(() => {
+				plugin.settings = { smartHomeStandard: std, smartHomeAdvanced: adv, visualLineMovement: true }
+			})
 
-	it('heading ## hello — returns index after "## " when ch is past the prefix', () => {
-		// "## ".length = 3; ch=5 > 3 → 3
-		expect(plugin.getBeginningOfLinePosition('## hello', 5)).toBe(3)
-	})
-
-	it('heading ###### deep — returns index after "###### "', () => {
-		expect(plugin.getBeginningOfLinePosition('###### deep', 8)).toBe(7)
-	})
-
-	it('heading ## hello — ch already at smart-home (ch=3) returns 0 (2-step toggle)', () => {
-		// result[0].length (3) < ch (3) is false → returns 0
-		expect(plugin.getBeginningOfLinePosition('## hello', 3)).toBe(0)
-	})
-
-	// -------------------------------------------------------------------------
-	// Heading inside unordered list
-	// -------------------------------------------------------------------------
-
-	it('heading in list "- ## hello" — returns index after "- ## "', () => {
-		// "- ## ".length = 5; ch=7 > 5 → 5
-		expect(plugin.getBeginningOfLinePosition('- ## hello', 7)).toBe(5)
-	})
-
-	// -------------------------------------------------------------------------
-	// Unordered lists
-	// -------------------------------------------------------------------------
-
-	it('unordered list "- item" — returns index after "- "', () => {
-		expect(plugin.getBeginningOfLinePosition('- item', 4)).toBe(2)
-	})
-
-	it('unordered list "+ item" — returns index after "+ "', () => {
-		expect(plugin.getBeginningOfLinePosition('+ item', 4)).toBe(2)
-	})
-
-	it('unordered list "* item" — returns index after "* "', () => {
-		expect(plugin.getBeginningOfLinePosition('* item', 4)).toBe(2)
-	})
-
-	// -------------------------------------------------------------------------
-	// Task lists
-	// -------------------------------------------------------------------------
-
-	it('task list "- [ ] item" — returns index after "- [ ] "', () => {
-		// "- [ ] ".length = 6; ch=8 > 6 → 6
-		expect(plugin.getBeginningOfLinePosition('- [ ] item', 8)).toBe(6)
-	})
-
-	it('completed task "- [x] item" — returns index after "- [x] "', () => {
-		expect(plugin.getBeginningOfLinePosition('- [x] item', 8)).toBe(6)
-	})
-
-	// -------------------------------------------------------------------------
-	// Ordered lists
-	// -------------------------------------------------------------------------
-
-	it('ordered list "1. item" — returns index after "1. "', () => {
-		expect(plugin.getBeginningOfLinePosition('1. item', 5)).toBe(3)
-	})
-
-	it('ordered list "10. item" — returns index after "10. "', () => {
-		expect(plugin.getBeginningOfLinePosition('10. item', 6)).toBe(4)
-	})
-
-	it('ordered list "1) item" — returns index after "1) "', () => {
-		expect(plugin.getBeginningOfLinePosition('1) item', 5)).toBe(3)
-	})
-
-	// -------------------------------------------------------------------------
-	// Blockquotes
-	// -------------------------------------------------------------------------
-
-	it('blockquote "> text" — returns index after "> "', () => {
-		expect(plugin.getBeginningOfLinePosition('> text', 4)).toBe(2)
-	})
-
-	// -------------------------------------------------------------------------
-	// Footnotes
-	// -------------------------------------------------------------------------
-
-	it('footnote "[^1]: note" — returns index after "[^1]: "', () => {
-		// "[^1]: ".length = 6; ch=8 > 6 → 6
-		expect(plugin.getBeginningOfLinePosition('[^1]: note', 8)).toBe(6)
-	})
-
-	// -------------------------------------------------------------------------
-	// Plain text
-	// -------------------------------------------------------------------------
-
-	it('plain text — returns 0', () => {
-		expect(plugin.getBeginningOfLinePosition('hello world', 5)).toBe(0)
-	})
-
-	it('indented line "  hello" — returns 0 when ch is past the indent', () => {
-		// "  ".length = 2 < ch=4 → 2? No: the last pattern matches "  " (length 2),
-		// and 2 < 4, so returns 2 (the indent position, acting as smart home).
-		expect(plugin.getBeginningOfLinePosition('  hello', 4)).toBe(2)
-	})
-
-	it('empty line — returns 0', () => {
-		expect(plugin.getBeginningOfLinePosition('', 0)).toBe(0)
-	})
+			for (const { name, skipAutoStep2, rows } of categories) {
+				describe(name, () => {
+					for (const row of rows) {
+						const [line, ch] = row
+						const expected = row[idx]
+						it(`"${line}"  ch=${ch}  →  ${expected}`, () => {
+							expect(plugin.getBeginningOfLinePosition(line, ch)).toBe(expected)
+						})
+						// 2nd step: when cursor is already at the smart home position, pressing HOME
+						// again should toggle to ch=0. Auto-generated for Adv./Std. modes only.
+						if (std && !skipAutoStep2 && expected > 0) {
+							it(`"${line}"  ch=${expected}  →  0  (2nd step)`, () => {
+								expect(plugin.getBeginningOfLinePosition(line, expected)).toBe(0)
+							})
+						}
+					}
+				})
+			}
+		})
+	}
 })
