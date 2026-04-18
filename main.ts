@@ -1025,16 +1025,20 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return 0;
 		}
 
-		// Headings in an unordered list
-		let result = line.match(/^(\s*[-+*]\s)?#+\s/);
-		if (result !== null && result[0].length < ch) {
-			return result[0].length;
-		}
+		let result = null
+		if (this.settings.smartHomeAdvanced) {
+			// Headings in an unordered list (Adv.)
+			// `- # heading-text`, 1st after `# `, 2nd after `- `
+			result = line.match(/^(\s*[-+*]\s)?#+\s/);
+			if (result !== null && result[0].length < ch) {
+				return result[0].length;
+			}
 
-		result = line.match(/^#{1,6}\s/); // Headings
+			result = line.match(/^#{1,6}\s/); // Headings (Adv.)
 
-		if (result === null) {
-			result = line.match(/^\[\^.+\]:\s*/); // Footnotes
+			if (result === null) {
+				result = line.match(/^\[\^.+\]:\s*/); // Footnotes (Adv.)
+			}
 		}
 		if (result === null) {
 			result = line.match(/^\s*\d+[.)]\s/); // Ordered lists
