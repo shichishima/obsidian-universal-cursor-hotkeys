@@ -15,12 +15,14 @@ interface UniversalCursorHotkeysSettings {
 	smartHomeStandard: boolean;
 	smartHomeAdvanced: boolean;
 	visualLineMovement: boolean;
+	crossRowNavigation: boolean;
 }
 
 const DEFAULT_SETTINGS: UniversalCursorHotkeysSettings = {
 	smartHomeStandard: true,
 	smartHomeAdvanced: true,
 	visualLineMovement: true,
+	crossRowNavigation: true,
 };
 
 
@@ -508,6 +510,9 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 
+		// Leftmost cell: stop here when row wrapping is disabled
+		if (!this.settings.crossRowNavigation) return;
+
 		// Leftmost cell: go to previous row
 		const targetLine = this.getPrevRowLine(editor);
 		if (targetLine === -1) {
@@ -556,6 +561,9 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			}
 			return;
 		}
+
+		// Rightmost cell: stop here when row wrapping is disabled
+		if (!this.settings.crossRowNavigation) return;
 
 		// Rightmost cell: go to next row
 		const targetLine = this.getNextRowLine(editor);
@@ -1108,6 +1116,16 @@ class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				.setValue(this.plugin.settings.smartHomeAdvanced)
 				.onChange(async (value) => {
 					this.plugin.settings.smartHomeAdvanced = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Cross-Row Navigation')
+			.setDesc('ON: LEFT / HOME at the first cell and RIGHT / END at the last cell wrap to the adjacent row. OFF: stops at the boundary.')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.crossRowNavigation)
+				.onChange(async (value) => {
+					this.plugin.settings.crossRowNavigation = value;
 					await this.plugin.saveSettings();
 				}));
 	}
