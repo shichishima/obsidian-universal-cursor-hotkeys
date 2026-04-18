@@ -63,33 +63,42 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 - **Within text:** Moves left by one character, equivalent to physical cursor keys.
 - **Within a table cell (*):** Moves left one character within the cell content.
 - **At the beginning of cell content (*):** Jumps to the end of the text in the cell on the left (same row).
-- **In the leftmost cell, at the cell start (data row) (*):** Jumps to the end of the rightmost cell in the row above.
-- **In the leftmost cell, at the cell start (header row) (*):** Exits the table to the line above.
+- **In the leftmost cell, at the cell start (data row) (*):** Jumps to the end of the rightmost cell in the row above. (→ **Cross-Row Navigation**)
+- **In the leftmost cell, at the cell start (header row) (*):** Exits the table to the line above. (→ **Cross-Row Navigation**)
 
 ### Cursor RIGHT
 - **Within text:** Moves right by one character, equivalent to physical cursor keys.
 - **Within a table cell (*):** Moves right one character within the cell content.
 - **At the end of cell content (*):** Jumps to the beginning of the text in the cell to the right (same row).
-- **In the rightmost cell, at the cell end (non-last row) (*):** Jumps to the beginning of the leftmost cell in the row below.
-- **In the rightmost cell, at the cell end (last row) (*):** Exits the table to the line below.
+- **In the rightmost cell, at the cell end (non-last row) (*):** Jumps to the beginning of the leftmost cell in the row below. (→ **Cross-Row Navigation**)
+- **In the rightmost cell, at the cell end (last row) (*):** Exits the table to the line below. (→ **Cross-Row Navigation**)
 
 ### Cursor HOME
 - **Within text:** Moves to the beginning of the line in **3 steps**.
-  - **Step 1:** Moves to the start of the current visual line (if wrapped).
-  - **Step 2:** Moves to the start of the actual content, skipping markers such as indentation, list markers (`- `, `* `, `+ `), checkboxes (`- [ ] `), ordered lists (`1. ` or `1) `), blockquotes (`>`), heading markers (`# `), and footnote indicators (`[^1]: `).
+  - **Step 1:** Moves to the start of the current visual line (if wrapped). (→ **Visual Line Movement**)
+  - **Step 2:** Moves to the start of the actual content, skipping markers such as indentation, list markers (`- `, `* `, `+ `), checkboxes (`- [ ] `), ordered lists (`1. ` or `1) `), blockquotes (`>`), heading markers (`# `), and footnote indicators (`[^1]: `). (→ **Smart HOME** settings)
   - **Step 3:** Moves to the absolute beginning of the logical line (ch=0).
 - **Within a table cell (*):** Moves to the beginning of the current in-cell line (the sub-line within a `<br>`-separated cell). Does not skip Markdown markers.
-  - **At the beginning of an in-cell line (*):** Jumps to the end of the text in the cell to the left, or to the previous row's rightmost cell if in the leftmost column.
-  - **In the header row, leftmost cell, at the cell start (*):** Exits the table to the line above.
+  - **At the beginning of an in-cell line (*):** Jumps to the end of the text in the cell to the left, or to the previous row's rightmost cell if in the leftmost column. (→ **Cross-Row Navigation**)
+  - **In the header row, leftmost cell, at the cell start (*):** Exits the table to the line above. (→ **Cross-Row Navigation**)
 
 ### Cursor END
 - **Within text:** Moves to the end of the line in **2 steps** (visual-line-aware).
-  - **Step 1:** Moves to the end of the current visual line (if wrapped).
+  - **Step 1:** Moves to the end of the current visual line (if wrapped). (→ **Visual Line Movement**)
   - **Step 2:** Moves to the end of the logical line (the entire paragraph).
 - **Within a table cell (*):** Moves to the right edge of the in-cell line (visual-line-**un**aware).
-  - **At the end of bottom in-cell line (*):** Jumps to the beginning of the text in the cell to the right, or to the next row's leftmost cell if in the rightmost column.
+  - **At the end of bottom in-cell line (*):** Jumps to the beginning of the text in the cell to the right, or to the next row's leftmost cell if in the rightmost column. (→ **Cross-Row Navigation**)
   - **At the right edge of a non-bottom in-cell line:** Does not move any further.
-  - **In the last row, rightmost cell, at cell end (*):** Exits the table to the line below.
+  - **In the last row, rightmost cell, at cell end (*):** Exits the table to the line below. (→ **Cross-Row Navigation**)
+
+## Settings
+
+| Setting | Default | Description |
+| ------- | :-----: | ----------- |
+| Visual Line Movement | ON | **ON:** the first HOME / END moves to the visual line edge.<br>**OFF:** moves directly to the logical line start / end. |
+| Smart HOME (Standard) | ON | **ON:** HOME jumps past leading Markdown syntax (lists, ordered lists, checkboxes, indents, blockquotes).<br>**OFF:** moves directly to the start of the line. |
+| Smart HOME (Advanced) | ON | **ON:** also skips past headings (`# `) and footnotes (`[^1]: `). Requires Smart HOME (Standard) to be ON. |
+| Cross-Row Navigation | ON | **ON:** LEFT / HOME at the first cell and RIGHT / END at the last cell wrap to the adjacent row.<br>**OFF:** stops at the boundary. |
 
 ## Limitations
 - **No Word-Level Navigation:** Movement by word (e.g., Option/Ctrl + Left/Right) is currently not supported.
