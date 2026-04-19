@@ -75,8 +75,8 @@ which cannot be reproduced without the Obsidian/CodeMirror rendering pipeline.
 
 | Method | Testable | Tested | Notes |
 |--------|----------|--------|-------|
-| `moveToLeftCellEnd` | 🚫 | ☐ | Calls `isPositionInTable` via `getPrevRowLine` |
-| `moveToRightCellStart` | 🚫 | ☐ | Calls `isPositionInTable` via `getNextRowLine` and `setCursorViaCm` |
+| `moveToLeftCellEnd` | ⚙️ | ☑ | `getPrevRowLine` mocked; `setCursorViaCm` spied — tests `crossRowNavigation` OFF/ON branching |
+| `moveToRightCellStart` | ⚙️ | ☑ | `getNextRowLine` mocked; `setCursorViaCm` spied — tests `crossRowNavigation` OFF/ON branching |
 
 ---
 
@@ -221,6 +221,25 @@ type EndRow = {
 Test names are auto-generated: `[vl=true] cm: cursor before VL end — dispatch to VL end`.
 
 To add a scenario: append a row to `matrix` with both `vlTrue` and `vlFalse` outcomes filled in.
+
+---
+
+### `crossRowNavigation.test.ts` — 6 tests
+
+Tests the `crossRowNavigation` setting branch in `moveToLeftCellEnd` and `moveToRightCellStart`.
+
+**Test line:** `'| a | b |'` — 2 cells, pipes at ch 0 / 4 / 8, cell 0 start = 2, end = 3; cell 1 start = 6, end = 7.
+
+`setCursorViaCm` is replaced with `vi.fn()`. `getPrevRowLine` / `getNextRowLine` are mocked where needed to isolate the setting branch from `isPositionInTable`.
+
+| Scenario | crossRowNavigation | Expected |
+|---|:---:|---|
+| `moveToLeftCellEnd` — leftmost cell | OFF | `setCursorViaCm` not called |
+| `moveToLeftCellEnd` — non-leftmost cell | OFF | called with left cell end (same row) |
+| `moveToLeftCellEnd` — leftmost cell (data row) | ON | called with previous row rightmost cell end |
+| `moveToRightCellStart` — rightmost cell | OFF | `setCursorViaCm` not called |
+| `moveToRightCellStart` — non-rightmost cell | OFF | called with right cell start (same row) |
+| `moveToRightCellStart` — rightmost cell (non-last row) | ON | called with next row leftmost cell start |
 
 ---
 
