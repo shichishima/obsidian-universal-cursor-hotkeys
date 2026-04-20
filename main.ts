@@ -1091,7 +1091,9 @@ class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('Visual Line Movement')
-			.setDesc('ON: the first HOME / END moves to the visual line edge. OFF: moves directly to the logical line start / end.')
+			.then(setting => this.setHtmlDesc(setting, '' +
+				'<b>ON:</b> HOME/END first moves to the visual line edge, then to the logical line start/end.<br>' +
+				'<b>OFF:</b> Moves directly to the logical line start/end.'))
 			.addToggle(toggle => toggle
 				.setValue(this.plugin.settings.visualLineMovement)
 				.onChange(async (value) => {
@@ -1101,7 +1103,9 @@ class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('Smart HOME (Standard)')
-			.setDesc('When moving to the logical line start with HOME, jump past leading Markdown syntax. Targets: lists, ordered lists, checkboxes, indents, blockquotes.')
+			.then(setting => this.setHtmlDesc(setting, '' +
+				'<b>ON:</b> HOME moves to the content start, after leading Markdown syntax (lists, checkboxes, indents, etc.).<br>' +
+				'<b>OFF:</b> HOME moves directly to the start of the line.'))
 			.addToggle(toggle => toggle
 				.setValue(this.plugin.settings.smartHomeStandard)
 				.onChange(async (value) => {
@@ -1111,7 +1115,9 @@ class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('Smart HOME (Advanced)')
-			.setDesc('Also skip past headings ( # ) and footnotes ( [^1]: ), when Smart HOME (Standard) is ON.')
+			.then(setting => this.setHtmlDesc(setting, '' +
+				'<b>ON:</b> Also skips past headings (<code>#</code>) and footnotes (<code>[^1]:</code>).<br>' +
+				'Requires <b>Smart HOME (Standard)</b> to be enabled.'))
 			.addToggle(toggle => toggle
 				.setValue(this.plugin.settings.smartHomeAdvanced)
 				.onChange(async (value) => {
@@ -1121,12 +1127,21 @@ class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('Cross-Row Navigation')
-			.setDesc('ON: LEFT / HOME at the first cell and RIGHT / END at the last cell wrap to the adjacent row. OFF: stops at the boundary.')
+			.then(setting => this.setHtmlDesc(setting, '' +
+				'<b>ON:</b> LEFT/HOME at the first cell and RIGHT/END at the last cell wrap to the adjacent row.<br>' +
+				'<b>OFF:</b> Stops at the boundary.'))
 			.addToggle(toggle => toggle
 				.setValue(this.plugin.settings.crossRowNavigation)
 				.onChange(async (value) => {
 					this.plugin.settings.crossRowNavigation = value;
 					await this.plugin.saveSettings();
 				}));
+	}
+
+	private setHtmlDesc(setting: Setting, html: string): Setting {
+		const desc = new DocumentFragment();
+		const span = desc.createEl("span");
+		span.innerHTML = html;
+		return setting.setDesc(desc);
 	}
 }
