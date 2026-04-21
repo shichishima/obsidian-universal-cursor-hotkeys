@@ -1101,6 +1101,18 @@ class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 
+		let advancedEl: HTMLElement;
+		let advancedToggle: any;
+		const setAdvancedDisabled = (disabled: boolean) => {
+			advancedEl.style.opacity       = disabled ? '0.4' : '';
+			advancedEl.style.pointerEvents = disabled ? 'none' : '';
+			if (disabled && this.plugin.settings.smartHomeAdvanced) {
+				this.plugin.settings.smartHomeAdvanced = false;
+				advancedToggle.setValue(false);
+				this.plugin.saveSettings();
+			}
+		};
+
 		new Setting(containerEl)
 			.setName('Smart HOME (Standard)')
 			.then(setting => this.setHtmlDesc(setting, '' +
@@ -1110,20 +1122,26 @@ class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				.setValue(this.plugin.settings.smartHomeStandard)
 				.onChange(async (value) => {
 					this.plugin.settings.smartHomeStandard = value;
+					setAdvancedDisabled(!value);
 					await this.plugin.saveSettings();
 				}));
 
-		new Setting(containerEl)
+		advancedEl = new Setting(containerEl)
 			.setName('Smart HOME (Advanced)')
 			.then(setting => this.setHtmlDesc(setting, '' +
 				'<b>ON:</b> Also skips past headings (<code>#</code>) and footnotes (<code>[^1]:</code>).<br>' +
 				'Requires <b>Smart HOME (Standard)</b> to be enabled.'))
-			.addToggle(toggle => toggle
-				.setValue(this.plugin.settings.smartHomeAdvanced)
-				.onChange(async (value) => {
-					this.plugin.settings.smartHomeAdvanced = value;
-					await this.plugin.saveSettings();
-				}));
+			.addToggle(toggle => {
+				advancedToggle = toggle;
+				toggle.setValue(this.plugin.settings.smartHomeAdvanced)
+					.onChange(async (value) => {
+						this.plugin.settings.smartHomeAdvanced = value;
+						await this.plugin.saveSettings();
+					});
+			})
+			.settingEl;
+
+		setAdvancedDisabled(!this.plugin.settings.smartHomeStandard);
 
 		new Setting(containerEl)
 			.setName('Cross-Row Navigation')
