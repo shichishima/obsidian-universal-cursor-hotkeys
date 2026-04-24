@@ -66,7 +66,7 @@ which cannot be reproduced without the Obsidian/CodeMirror rendering pipeline.
 |--------|----------|--------|-------|
 | `moveCursorUpInTable` | 🚫 | ☐ | `goRight` / `goLeft` / `goUp` + CM6 visual-line state |
 | `moveCursorUpIntoTable` | 🚫 | ☐ | `goUp` crossing table boundary |
-| `moveCursorDownInTable` | 🚫 | ☐ | `goDown` + CM6 visual-line state |
+| `moveCursorDownInTable` | ⚙️ | ☑ | `goDown` result classified by post-move cursor position; CM6 visual-line state mocked via `getCursor` sequence |
 | `moveCursorDownIntoTable` | 🚫 | ☐ | `goDown` crossing table boundary |
 
 ---
@@ -295,3 +295,44 @@ Items already covered by `tests/*.test.ts` are checked.
 - [x] `nextLineInTable: true`, delimiter row, `lineAfterNextInTable: true` — returns `currentLine + 2`
 - [x] `nextLineInTable: true`, delimiter row, `lineAfterNextInTable: false` (header-only table) — returns `-1`
 - [x] `nextLineInTable: true`, spaces-only `|     |` — treated as regular row, **not** delimiter (regression)
+
+---
+
+## `moveCursorDownInTable` — Ctrl-N (in-table)
+
+CM6 visual-line state is simulated by controlling the `getCursor` return sequence before/after `exec('goDown')`.
+
+### empty cell
+
+- [x] Empty cell (`|  |`, cursor at content start) — no `goDown`, `setCursorToNextRow` called
+
+### first / middle segment (`<br>`-separated cell)
+
+- [x] `type=first` — `goDown` called once, `setCursorToNextRow` NOT called
+- [x] `type=middle` — `goDown` called once, `setCursorToNextRow` NOT called
+
+### pre-eoc check (cursor at/past eoc before goDown)
+
+- [x] `type=single`, `ch=eoc` — no `goDown`, `setCursorToNextRow` called
+- [x] `type=single`, `ch>eoc` — no `goDown`, `setCursorToNextRow` called
+- [x] `type=last`, `ch=eoc` — no `goDown`, `setCursorToNextRow` called
+
+### goDown exits to a different line
+
+- [x] Lands on delimiter row — `setCursorToNextRow` called
+- [x] Lands on normal (non-table) line — `setCursorToNextRow` NOT called
+
+### goDown stays on same line — no-op (file-end table)
+
+- [x] `type=single`, `ch` unchanged after `goDown` — `setCursorToNextRow` called
+- [x] `type=last`, `ch` unchanged after `goDown` — `setCursorToNextRow` called
+
+### goDown stays on same line — ch advances within cell (soft-wrap VL advance)
+
+- [x] `type=single`, `ch` moves to `< eoc` — `setCursorToNextRow` NOT called
+- [x] `type=last`, `ch` moves to `< eoc` — `setCursorToNextRow` NOT called
+
+### goDown stays on same line — ch clips to eoc (VL_N indicator)
+
+- [x] `ch` after `goDown` equals `eoc` — `setCursorToNextRow` called
+- [x] `ch` after `goDown` exceeds `eoc` — `setCursorToNextRow` called

@@ -1,0 +1,207 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+vi.mock('@codemirror/language', () => ({
+	syntaxTree: vi.fn(),
+}))
+
+import UniversalCursorHotkeysPlugin from '../main.ts'
+
+// Line layout:
+//   LINE_2SEG = '| line1<br>line2 |'
+//     pipes at 0, 17
+//     'line1' at ch 2-6  → type='first'
+//     'line2' at ch 11-15 → type='last'
+//     endOfCellContent = 16  (open+1+len(' line1<br>line2'.trimEnd())=0+1+15=16)
+//
+//   LINE_3SEG = '| a<br>b<br>c |'
+//     pipes at 0, 14
+//     'a' at ch 2   → type='first'
+//     'b' at ch 7   → type='middle'
+//     'c' at ch 12  → type='last'
+//     endOfCellContent = 13  (open+1+len(' a<br>b<br>c'.trimEnd())=0+1+12=13)
+//
+//   LINE_SINGLE = '| content |'
+//     no <br> → type='single'
+//     endOfCellContent = 9  (open+1+len(' content'.trimEnd())=0+1+8=9)
+//
+//   LINE_DELIM = '| --- |'
+
+const LINE_2SEG   = '| line1<br>line2 |'
+const LINE_3SEG   = '| a<br>b<br>c |'
+const LINE_SINGLE = '| content |'
+const LINE_EMPTY  = '|  |'
+const LINE_DELIM  = '| --- |'
+
+describe('moveCursorDownInTable', () => {
+	let plugin: any
+
+	beforeEach(() => {
+		plugin = Object.create(UniversalCursorHotkeysPlugin.prototype)
+		plugin.CELL_SEPARATOR_REGEX  = /(?<!\\)\|/g
+		plugin.TABLE_DELIMITER_REGEX = /^\s*\|?[:\s]*?-+[:\s-]*\|[:\s-|]*$/
+		plugin.setCursorToNextRow = vi.fn()
+		plugin.setCursorViaCm    = vi.fn()
+		plugin.getNextRowLine    = vi.fn().mockReturnValue(-1)
+	})
+
+	// Build editor mock with explicit getCursor return sequence.
+	// cursors: returned in order; last value repeats.
+	const makeEditorSeq = (lineText: string, cursors: {line: number, ch: number}[], lineMap?: Record<number, string>) => {
+		const mock = vi.fn()
+		cursors.forEach((c, i) => {
+			if (i < cursors.length - 1) mock.mockReturnValueOnce(c)
+			else mock.mockReturnValue(c)
+		})
+		return {
+			getCursor: mock,
+			getLine: vi.fn().mockImplementation((n: number) => lineMap?.[n] ?? lineText),
+			exec: vi.fn(),
+		}
+	}
+
+	const makeEditor = (line: string, ch: number, sameLine = false, afterCh?: number) =>
+		makeEditorSeq(line, [
+			{ line: 1, ch },
+			{ line: sameLine ? 1 : 2, ch: afterCh ?? ch },
+		])
+
+	// ===========================================================================
+	// first / middle: early return after single goDown
+	// ===========================================================================
+
+	it('type=first: goDown called once, setCursorToNextRow NOT called', () => {
+		const editor = makeEditor(LINE_2SEG, 3)
+		plugin.moveCursorDownInTable(editor)
+		expect(editor.exec).toHaveBeenCalledTimes(1)
+		expect(plugin.setCursorToNextRow).not.toHaveBeenCalled()
+	})
+
+	it('type=middle: goDown called once, setCursorToNextRow NOT called', () => {
+		const editor = makeEditor(LINE_3SEG, 7)
+		plugin.moveCursorDownInTable(editor)
+		expect(editor.exec).toHaveBeenCalledTimes(1)
+		expect(plugin.setCursorToNextRow).not.toHaveBeenCalled()
+	})
+
+	// ===========================================================================
+	// empty cell: bypass goDown entirely (goDown unreliable on cm.dispatch cursor)
+	// ===========================================================================
+
+	it('empty cell: no goDown, setCursorToNextRow called', () => {
+		// LINE_EMPTY = '|  |'  open=0 close=3  eoc=1  start=1  start===eoc
+		const editor = makeEditor(LINE_EMPTY, 1)
+		plugin.moveCursorDownInTable(editor)
+		expect(editor.exec).not.toHaveBeenCalled()
+		expect(plugin.setCursorToNextRow).toHaveBeenCalled()
+	})
+
+	// ===========================================================================
+	// pre-eoc check: cursor.ch >= eoc → no goDown, exit directly
+	// ===========================================================================
+
+	it('type=single, ch=eoc: no goDown, setCursorToNextRow called', () => {
+		// LINE_SINGLE eoc=9
+		const editor = makeEditor(LINE_SINGLE, 9)
+		plugin.moveCursorDownInTable(editor)
+		expect(editor.exec).not.toHaveBeenCalled()
+		expect(plugin.setCursorToNextRow).toHaveBeenCalled()
+	})
+
+	it('type=single, ch>eoc: no goDown, setCursorToNextRow called', () => {
+		// ch=10 is past eoc=9
+		const editor = makeEditor(LINE_SINGLE, 10)
+		plugin.moveCursorDownInTable(editor)
+		expect(editor.exec).not.toHaveBeenCalled()
+		expect(plugin.setCursorToNextRow).toHaveBeenCalled()
+	})
+
+	it('type=last, ch=eoc: no goDown, setCursorToNextRow called', () => {
+		// LINE_2SEG eoc=16
+		const editor = makeEditor(LINE_2SEG, 16)
+		plugin.moveCursorDownInTable(editor)
+		expect(editor.exec).not.toHaveBeenCalled()
+		expect(plugin.setCursorToNextRow).toHaveBeenCalled()
+	})
+
+	// ===========================================================================
+	// 1st goDown: exits to different line
+	// ===========================================================================
+
+	it('1st goDown exits to delimiter row → setCursorToNextRow called', () => {
+		const editor = makeEditorSeq(LINE_SINGLE, [
+			{ line: 1, ch: 3 },
+			{ line: 2, ch: 0 },
+		], { 1: LINE_SINGLE, 2: LINE_DELIM })
+		plugin.moveCursorDownInTable(editor)
+		expect(editor.exec).toHaveBeenCalledTimes(1)
+		expect(plugin.setCursorToNextRow).toHaveBeenCalled()
+	})
+
+	it('1st goDown exits to normal line → setCursorToNextRow NOT called', () => {
+		const editor = makeEditorSeq(LINE_SINGLE, [
+			{ line: 1, ch: 3 },
+			{ line: 2, ch: 3 },
+		], { 1: LINE_SINGLE, 2: 'text below table' })
+		plugin.moveCursorDownInTable(editor)
+		expect(editor.exec).toHaveBeenCalledTimes(1)
+		expect(plugin.setCursorToNextRow).not.toHaveBeenCalled()
+	})
+
+	// ===========================================================================
+	// 1st goDown: same line, ch unchanged (complete no-op → file-end)
+	// ===========================================================================
+
+	it('type=single: 1st goDown no-op → setCursorToNextRow called', () => {
+		const editor = makeEditor(LINE_SINGLE, 3, true)
+		plugin.moveCursorDownInTable(editor)
+		expect(editor.exec).toHaveBeenCalledTimes(1)
+		expect(plugin.setCursorToNextRow).toHaveBeenCalled()
+	})
+
+	it('type=last: 1st goDown no-op → setCursorToNextRow called', () => {
+		const editor = makeEditor(LINE_2SEG, 13, true)
+		plugin.moveCursorDownInTable(editor)
+		expect(editor.exec).toHaveBeenCalledTimes(1)
+		expect(plugin.setCursorToNextRow).toHaveBeenCalled()
+	})
+
+	// ===========================================================================
+	// 1st goDown: same line, ch moves within cell (< eoc) → soft-wrap VL advance
+	// ===========================================================================
+
+	it('type=single: ch moves within cell → no exit, setCursorToNextRow NOT called', () => {
+		// LINE_SINGLE eoc=9; afterCh=6 < 9
+		const editor = makeEditor(LINE_SINGLE, 3, true, 6)
+		plugin.moveCursorDownInTable(editor)
+		expect(editor.exec).toHaveBeenCalledTimes(1)
+		expect(plugin.setCursorToNextRow).not.toHaveBeenCalled()
+	})
+
+	it('type=last: ch moves within cell → no exit, setCursorToNextRow NOT called', () => {
+		// LINE_2SEG eoc=16; afterCh=14 < 16 and != cursor.ch(13)
+		const editor = makeEditor(LINE_2SEG, 13, true, 14)
+		plugin.moveCursorDownInTable(editor)
+		expect(editor.exec).toHaveBeenCalledTimes(1)
+		expect(plugin.setCursorToNextRow).not.toHaveBeenCalled()
+	})
+
+	// ===========================================================================
+	// 1st goDown: same line, ch >= eoc (clip = VL_N indicator) → exit
+	// ===========================================================================
+
+	it('clip: ch = eoc after goDown → setCursorToNextRow called', () => {
+		// after goDown: ch=9 == eoc=9 for LINE_SINGLE
+		const editor = makeEditor(LINE_SINGLE, 3, true, 9)
+		plugin.moveCursorDownInTable(editor)
+		expect(editor.exec).toHaveBeenCalledTimes(1)
+		expect(plugin.setCursorToNextRow).toHaveBeenCalled()
+	})
+
+	it('clip: ch > eoc after goDown → setCursorToNextRow called', () => {
+		// after goDown: ch=10 > eoc=9 for LINE_SINGLE
+		const editor = makeEditor(LINE_SINGLE, 3, true, 10)
+		plugin.moveCursorDownInTable(editor)
+		expect(editor.exec).toHaveBeenCalledTimes(1)
+		expect(plugin.setCursorToNextRow).toHaveBeenCalled()
+	})
+})
