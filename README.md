@@ -95,6 +95,7 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 - **No Word-Level Navigation:** Movement by word (e.g., Option/Ctrl + Left/Right) is currently not supported.
 - **No Range Selection:** Shift+modifier combinations (e.g., Shift+Ctrl+P/N/B/F/A/E) for extending the selection are not supported. Use Shift+Arrow keys instead.
 - **Brief scroll flash when entering a tall wrapped cell (UP):** When pressing UP into a cell whose wrapped content exceeds the screen height, the view momentarily scrolls to the cell start before jumping to the bottom visual line. This is an inherent side effect of the two-step navigation used to locate the bottom visual line within Obsidian's Live Preview table widget.
+- **Ctrl+N may exit one visual line early in soft-wrapped table cells (DOWN) (*):** When the cursor is on the second-to-last visual line past the column corresponding to the last visual line's end-of-content, Ctrl+N exits to the next row instead of advancing one visual line. Both this case and being on the last visual line itself cause `goDown` to clip to the same end-of-content position; the two states are indistinguishable via any CM6 API inside the Live Preview table widget.
 - **Shortcut Conflicts (Windows):** On Windows, these commands may conflict with system defaults (e.g., Ctrl+A for Select all). Users must manually resolve these conflicts in the settings. A dedicated "Select all" command is provided by this plugin to restore this functionality.
 
 ## Acknowledgments
