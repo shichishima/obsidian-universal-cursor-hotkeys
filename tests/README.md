@@ -41,7 +41,7 @@ dedicated helper that is tested separately.
 
 | Method | Testable | Tested | Notes |
 |--------|----------|--------|-------|
-| `moveCursorHomeInTable` | 🚫 | ☐ | Calls `isPositionInTable`, `setCursorViaCm`, `moveToLeftCellEnd` |
+| `moveCursorHomeInTable` | ⚙️ | ☑ | `setCursorViaCm` / `moveToLeftCellEnd` mocked — tests Standard/Advanced smart home within cells |
 | `moveCursorHomeNonTable` | ✅ | ☑ | CM6 `moveToLineBoundary` + smart home; fully mockable |
 | `moveCursorEndInTable` | 🚫 | ☐ | Calls `isPositionInTable`, `setCursorViaCm`, `moveToRightCellStart` |
 | `moveCursorEndNonTable` | ✅ | ☑ | CM6 `moveToLineBoundary` + logical line end; fully mockable |
@@ -240,6 +240,31 @@ Tests the `crossRowNavigation` setting branch in `moveToLeftCellEnd` and `moveTo
 | `moveToRightCellStart` — rightmost cell | OFF | `setCursorViaCm` not called |
 | `moveToRightCellStart` — non-rightmost cell | OFF | called with right cell start (same row) |
 | `moveToRightCellStart` — rightmost cell (non-last row) | ON | called with next row leftmost cell start |
+
+---
+
+### `moveCursorHomeInTable.test.ts` — 11 tests
+
+Tests `moveCursorHomeInTable` (Ctrl-A / Home, in-table context).
+
+**Two-level matrix: cell line → rows per settings / cursor position.**
+`setCursorViaCm` and `moveToLeftCellEnd` are replaced with `vi.fn()`.
+
+Three cell lines are tested:
+
+| Cell line | `startOfInCellLine` | smart home position |
+|---|:---:|:---:|
+| `\| plain \|` | ch 2 | — (no prefix) |
+| `\| - item \|` | ch 2 (`-`) | ch 4 (`i`) — Standard |
+| `\| # heading \|` | ch 2 (`#`) | ch 4 (`h`) — Advanced |
+
+Each group covers the 3-step sequence where applicable:
+
+- cursor past smart home → `setCursorViaCm` at smart home
+- cursor at smart home → `setCursorViaCm` at `startOfInCellLine`
+- cursor at `startOfInCellLine` → `moveToLeftCellEnd` called
+
+To add a case: append a row to an existing group's `rows`, or add a new `Group` object.
 
 ---
 

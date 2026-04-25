@@ -206,7 +206,18 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			}
 			return;
 		}
-		// Middle or right position -> move to left edge of current in-cell line.
+
+		// Smart home within cell: apply Standard/Advanced prefix detection on cell content.
+		const bounds = this.getCellBounds(line, cursor.ch);
+		if (!bounds) return;
+		const cellContent = line.slice(info.startOfInCellLine, bounds.close);
+		const smartHomePos = info.startOfInCellLine + this.getBeginningOfLinePosition(cellContent, cursor.ch - info.startOfInCellLine);
+
+		if (cursor.ch > smartHomePos) {
+			this.setCursorViaCm(editor, cursor.line, smartHomePos);
+			return;
+		}
+		// At or before smart home: step back to cell content start.
 		this.setCursorViaCm(editor, cursor.line, info.startOfInCellLine);
 	}
 
