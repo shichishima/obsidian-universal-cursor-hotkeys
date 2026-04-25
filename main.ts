@@ -316,21 +316,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private moveCursorDown(editor: Editor) {
 		const cursor = editor.getCursor();
 
-		// Last content line: at the absolute last line, or at the line just before a trailing empty line.
-		const lastLine = editor.lineCount() - 1;
-		if (cursor.line === lastLine ||
-			(cursor.line === lastLine - 1 && editor.getLine(lastLine) === '')) {
-			if (this.isLivePreviewMode() && this.isPositionInTable(editor)) {
-				if (cursor.line + 1 >= editor.lineCount()) {
-					editor.replaceRange('\n', { line: cursor.line, ch: editor.getLine(cursor.line).length });
-				}
-				this.setCursorViaCm(editor, cursor.line + 1, 0);
-				return;
-			}
-			editor.exec('goDown');
-			return;
-		}
-
 		if (this.isLivePreviewMode()) {
 			if (this.isPositionInTable(editor)) {
 				this.moveCursorDownInTable(editor);
@@ -340,6 +325,14 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				this.moveCursorDownIntoTable(editor);
 				return;
 			}
+		}
+
+		// Last content line: at the absolute last line, or at the line just before a trailing empty line.
+		const lastLine = editor.lineCount() - 1;
+		if (cursor.line === lastLine ||
+			(cursor.line === lastLine - 1 && editor.getLine(lastLine) === '')) {
+			editor.exec('goDown');
+			return;
 		}
 
 		editor.exec('goDown');
@@ -439,31 +432,63 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const cursor = editor.getCursor();
 		const line = editor.getLine(cursor.line);
 		const cellIndex = this.getCellIndex(line, cursor.ch);
+		const eoc = this.getEndOfCellContent(line, cursor.ch);
+		const inCellInfo = this.getInCellLineInfo(line, cursor.ch);
+		const type = inCellInfo?.lineType ?? 'single';
 
 		// Empty cell: goDown is unreliable when the cursor was placed via cm.dispatch
 		// (not registered inside the widget).  Detect by string analysis alone and
 		// navigate to the next row directly, bypassing goDown entirely.
-		if (this.getStartOfCellContent(line, cursor.ch) === this.getEndOfCellContent(line, cursor.ch)) {
+		if (this.getStartOfCellContent(line, cursor.ch) === eoc) {
 			this.setCursorToNextRow(editor, cellIndex);
 			return;
 		}
 
-		// No next data row (last data row, or header-only table): bypass goDown, which
-		// may land on the delimiter row instead of exiting the table.
-		if (this.getNextRowLine(editor) === -1) {
+		// <br> cells with more in-cell lines below (first/middle): goDown navigates
+		// within the cell.  No post-check needed — we never exit the row here.
+		if (type === 'first' || type === 'middle') {
+			editor.exec('goDown');
+			return;
+		}
+
+		// type is 'single' or 'last'.
+		// If cursor is already at/past cell content end, we are at VL_N end.
+		// goDown from this position is unreliable (no-op in LP even when a row exists
+		// below).  Navigate to the next row directly.
+		if (cursor.ch >= eoc) {
 			this.setCursorToNextRow(editor, cellIndex);
 			return;
 		}
 
+		// Call goDown once and inspect where the cursor lands.
 		editor.exec('goDown');
+		const after = editor.getCursor();
 
-		const cursorAfter = editor.getCursor();
-		if (cursorAfter.line === cursor.line) {
-			const endOfCellContent = this.getEndOfCellContent(line, cursorAfter.ch);
-			if (cursorAfter.ch >= endOfCellContent) {
+		if (after.line !== cursor.line) {
+			// Exited to a different logical line.
+			const afterText = editor.getLine(after.line);
+			const isDelim = this.TABLE_DELIMITER_REGEX.test(afterText);
+			if (isDelim) {
 				this.setCursorToNextRow(editor, cellIndex);
 			}
+			return;
 		}
+
+		if (after.ch === cursor.ch) {
+			// Complete no-op: nothing below (file-end).
+			this.setCursorToNextRow(editor, cellIndex);
+			return;
+		}
+
+		const eocAfter = this.getEndOfCellContent(line, after.ch);
+		if (after.ch >= eocAfter) {
+			// goDown stayed on the same line and ch reached/passed eoc.
+			// This means we are on VL_N (last visual line) — exit to next row.
+			this.setCursorToNextRow(editor, cellIndex);
+			return;
+		}
+
+		// ch moved within cell: soft-wrap VL advance.
 	}
 
 
@@ -631,11 +656,12 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Returns -1 when the current row is the last row (caller should go outside the table).
 	private getNextRowLine(editor: Editor): number {
 		const cursor = editor.getCursor();
+		const nextLineExists = cursor.line + 1 < editor.lineCount();
 		const lineAfterNextInTable = cursor.line + 2 < editor.lineCount()
 			&& this.isPositionInTable(editor, cursor.line + 2, 1);
 		return this.computeNextRowLine(
 			cursor.line,
-			this.isPositionInTable(editor, cursor.line + 1, 1),
+			nextLineExists && this.isPositionInTable(editor, cursor.line + 1, 1),
 			editor.getLine(cursor.line + 1),
 			lineAfterNextInTable,
 		);

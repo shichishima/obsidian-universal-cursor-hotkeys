@@ -66,7 +66,7 @@ which cannot be reproduced without the Obsidian/CodeMirror rendering pipeline.
 |--------|----------|--------|-------|
 | `moveCursorUpInTable` | 🚫 | ☐ | `goRight` / `goLeft` / `goUp` + CM6 visual-line state |
 | `moveCursorUpIntoTable` | 🚫 | ☐ | `goUp` crossing table boundary |
-| `moveCursorDownInTable` | 🚫 | ☐ | `goDown` + CM6 visual-line state |
+| `moveCursorDownInTable` | ⚙️ | ☑ | `goDown` result classified by post-move cursor position; CM6 visual-line state mocked via `getCursor` sequence |
 | `moveCursorDownIntoTable` | 🚫 | ☐ | `goDown` crossing table boundary |
 
 ---
@@ -262,3 +262,110 @@ type HomeRow = {
 Cases in `matrix` cover: VL2+ dispatch (Case 1a), VL left-edge fallthrough (Case 1b), VL1 fallthrough (Case 2), heading 2-step toggle, and the footnote widget regression (vlCh=2 < lineSmartHomePos=6).
 
 A separate `smartHomeStandard = false` describe block verifies that all positions collapse to ch=0 when smart home is disabled.
+
+---
+
+## `getEndOfCellContentByCellIndex(line, cellIndex)`
+
+- [x] Valid index — returns correct end position
+- [x] Out-of-range index — returns `-1`
+
+---
+
+## `getRightmostCellIndex(line)`
+
+- [x] `| a | b | c |` — returns `2`
+- [x] Single cell `| a |` — returns `0`
+
+---
+
+## `getCellIndex(line, ch)`
+
+- [x] ch in first cell — returns `0`
+- [x] ch in second cell — returns `1`
+- [x] ch before any pipe — returns `0` (clamped)
+
+---
+
+## `getBeginningOfLinePosition(line, ch)`
+
+- [x] Heading `## hello`, ch past prefix — returns index after `## `
+- [x] Heading in unordered list `- ## hello` — returns index after `- ## `
+- [x] Ordered list `1. item` — returns index after `1. `
+- [x] Unordered list `- item` — returns index after `- `
+- [x] Task list `- [ ] item` — returns index after `- [ ] `
+- [x] Blockquote `> text` — returns index after `> `
+- [x] Footnote `[^1]: note` — returns index after `[^1]: `
+- [x] Plain text — returns `0`
+- [x] Already at smart-home position — returns `0` (2-step toggle to absolute start)
+
+---
+
+## `getInCellLineInfo(line, ch)`
+
+- [x] No `<br>` — `lineType: 'single'`, correct start/end
+- [x] One `<br>`: ch in first segment — `lineType: 'first'`
+- [x] One `<br>`: ch in last segment — `lineType: 'last'`
+- [x] Two `<br>`: ch in middle segment — `lineType: 'middle'`
+- [x] ch inside a `<br>` tag — assigned to preceding segment
+- [x] Spaces-only segment — `isEmpty: true`
+
+---
+
+## `computePrevRowLine` / `computeNextRowLine`
+
+### `computePrevRowLine(currentLine, prevLineInTable, prevLineText)`
+
+- [x] `prevLineInTable: false` — returns `-1`
+- [x] `prevLineInTable: true`, regular row — returns `currentLine - 1`
+- [x] `prevLineInTable: true`, delimiter row (`| --- |`) — returns `currentLine - 2`
+- [x] `prevLineInTable: true`, spaces-only `|     |` — treated as regular row, **not** delimiter (regression)
+
+### `computeNextRowLine(currentLine, nextLineInTable, nextLineText, lineAfterNextInTable)`
+
+- [x] `nextLineInTable: false` — returns `-1`
+- [x] `nextLineInTable: true`, regular row — returns `currentLine + 1`
+- [x] `nextLineInTable: true`, delimiter row, `lineAfterNextInTable: true` — returns `currentLine + 2`
+- [x] `nextLineInTable: true`, delimiter row, `lineAfterNextInTable: false` (header-only table) — returns `-1`
+- [x] `nextLineInTable: true`, spaces-only `|     |` — treated as regular row, **not** delimiter (regression)
+
+---
+
+## `moveCursorDownInTable` — Ctrl-N (in-table)
+
+CM6 visual-line state is simulated by controlling the `getCursor` return sequence before/after `exec('goDown')`.
+
+### empty cell
+
+- [x] Empty cell (`|  |`, cursor at content start) — no `goDown`, `setCursorToNextRow` called
+
+### first / middle segment (`<br>`-separated cell)
+
+- [x] `type=first` — `goDown` called once, `setCursorToNextRow` NOT called
+- [x] `type=middle` — `goDown` called once, `setCursorToNextRow` NOT called
+
+### pre-eoc check (cursor at/past eoc before goDown)
+
+- [x] `type=single`, `ch=eoc` — no `goDown`, `setCursorToNextRow` called
+- [x] `type=single`, `ch>eoc` — no `goDown`, `setCursorToNextRow` called
+- [x] `type=last`, `ch=eoc` — no `goDown`, `setCursorToNextRow` called
+
+### goDown exits to a different line
+
+- [x] Lands on delimiter row — `setCursorToNextRow` called
+- [x] Lands on normal (non-table) line — `setCursorToNextRow` NOT called
+
+### goDown stays on same line — no-op (file-end table)
+
+- [x] `type=single`, `ch` unchanged after `goDown` — `setCursorToNextRow` called
+- [x] `type=last`, `ch` unchanged after `goDown` — `setCursorToNextRow` called
+
+### goDown stays on same line — ch advances within cell (soft-wrap VL advance)
+
+- [x] `type=single`, `ch` moves to `< eoc` — `setCursorToNextRow` NOT called
+- [x] `type=last`, `ch` moves to `< eoc` — `setCursorToNextRow` NOT called
+
+### goDown stays on same line — ch clips to eoc (VL_N indicator)
+
+- [x] `ch` after `goDown` equals `eoc` — `setCursorToNextRow` called
+- [x] `ch` after `goDown` exceeds `eoc` — `setCursorToNextRow` called
