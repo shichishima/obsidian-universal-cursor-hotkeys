@@ -1155,7 +1155,7 @@ class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			.setName('Smart HOME (standard)')
 			.then(setting => this.setHtmlDesc(setting, '' +
 				'<b>ON:</b> HOME moves to the content start, after leading Markdown syntax (lists, checkboxes, indents, etc.).<br>' +
-				'<b>OFF:</b> HOME moves directly to the start of the line.'))
+				'<b>OFF:</b> Moves directly to the start of the line.'))
 			.addToggle(toggle => toggle
 				.setValue(this.plugin.settings.smartHomeStandard)
 				.onChange(async (value) => {
