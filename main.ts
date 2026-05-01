@@ -1,7 +1,7 @@
 import { App, Editor, Plugin, PluginSettingTab, Setting, MarkdownView } from 'obsidian';
 import { syntaxTree } from '@codemirror/language';
 import { EditorView } from "@codemirror/view";
-import { EditorSelection } from '@codemirror/state';
+import { EditorSelection, Transaction } from '@codemirror/state';
 
 // Extend the Obsidian Editor interface to include the internal CodeMirror 6 instance (EditorView)
 declare module "obsidian" {
@@ -40,6 +40,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	private readonly CELL_SEPARATOR_REGEX = /(?<!\\)\|/g;
 	private readonly TABLE_DELIMITER_REGEX = /^\s*\|?[:\s]*?-+[:\s-]*\|[:\s-|]*$/;
+
+	private isKillChaining: boolean = false;
+	private isDispatchingKill: boolean = false;
+	private killCache: string = '';
 
 	async onload() {
 		await this.loadSettings();
@@ -110,11 +114,48 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			},
 		});
 
+		this.addCommand({
+			id: 'kill-line',
+			name: 'Kill line',
+			repeatable: true,
+			editorCallback: (editor: Editor, _: MarkdownView) => {
+				this.killLine(editor);
+			}
+		});
+
+		this.registerEditorExtension(
+			EditorView.updateListener.of((update) => {
+				if (!this.isKillChaining) return;
+				if (update.docChanged || update.selectionSet) {
+					// Only reset on genuine user actions (keystrokes, arrow keys, etc.).
+					// Programmatic dispatches (our own, Obsidian's table editor re-dispatches)
+					// carry no Transaction.userEvent annotation and are ignored here.
+					const isUserAction = update.transactions.some(
+						tr => tr.annotation(Transaction.userEvent) !== undefined
+					);
+					if (isUserAction && !this.isDispatchingKill) this.isKillChaining = false;
+				}
+			})
+		);
+
+		this.registerDomEvent(document, 'mousedown', () => {
+			this.isKillChaining = false;
+		});
+
+		this.registerDomEvent(document, 'copy', () => {
+			this.killCache = '';
+		});
+
+		this.registerDomEvent(document, 'cut', () => {
+			this.killCache = '';
+		});
+
 	}
 
 	onunload() {
 
 	}
+
 
 	async loadSettings() {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
@@ -1109,6 +1150,134 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	private getPipePositions(line: string): number[] {
 		return [...line.matchAll(this.CELL_SEPARATOR_REGEX)].map(m => m.index);
+	}
+
+
+	private isTableLineSourceMode(line: string): boolean {
+		const trimmed = line.trimEnd();
+		return trimmed.startsWith('|') && trimmed.endsWith('|');
+	}
+
+
+	//===========================================================================
+	// Kill line (Ctrl-K)
+	//===========================================================================
+
+	private killLine(editor: Editor) {
+		const lineText = editor.getLine(editor.getCursor().line);
+		const inLPTable = this.isLivePreviewMode() && this.isPositionInTable(editor);
+		const inSourceTable = !this.isLivePreviewMode() && this.isTableLineSourceMode(lineText);
+
+		if (inLPTable || inSourceTable) {
+			const info = this.getInCellLineInfo(lineText, editor.getCursor().ch);
+			if (info) {
+				this.killLineInCellContext(editor, info);
+				return;
+			}
+		}
+
+		this.killLineNonTable(editor);
+	}
+
+
+	private killLineNonTable(editor: Editor) {
+		const cursor = editor.getCursor();
+		const lineText = editor.getLine(cursor.line);
+
+		if (cursor.ch < lineText.length) {
+			const text = lineText.slice(cursor.ch);
+			this.updateKillCache(text);
+			navigator.clipboard.writeText(this.killCache).catch(() => {});
+			this.isDispatchingKill = true;
+			editor.replaceRange('', cursor, { line: cursor.line, ch: lineText.length });
+			this.isDispatchingKill = false;
+			this.isKillChaining = true;
+			return;
+		}
+
+		if (cursor.line >= editor.lineCount() - 1) return;
+
+		const nextLineText = editor.getLine(cursor.line + 1);
+		const leadingWs = nextLineText.match(/^[ \t]*/)?.[0] ?? '';
+		this.updateKillCache('\n' + leadingWs);
+		navigator.clipboard.writeText(this.killCache).catch(() => {});
+		this.isDispatchingKill = true;
+		editor.replaceRange('', { line: cursor.line, ch: lineText.length }, { line: cursor.line + 1, ch: leadingWs.length });
+		this.isDispatchingKill = false;
+		this.isKillChaining = true;
+	}
+
+
+	private killLineInCellContext(editor: Editor, info: InCellLineInfo) {
+		const cursor = editor.getCursor();
+		const lineText = editor.getLine(cursor.line);
+
+		if (cursor.ch < info.endOfInCellLine) {
+			const text = lineText.slice(cursor.ch, info.endOfInCellLine);
+			this.updateKillCache(this.normalizeKillText(text));
+			navigator.clipboard.writeText(this.killCache).catch(() => {});
+			this.isDispatchingKill = true;
+			editor.replaceRange('', cursor, { line: cursor.line, ch: info.endOfInCellLine });
+			this.isDispatchingKill = false;
+			this.isKillChaining = true;
+			return;
+		}
+
+		// lineType 'first'/'middle': kill <br> forward from endOfInCellLine
+		if (info.lineType === 'first' || info.lineType === 'middle') {
+			const brMatch = lineText.slice(info.endOfInCellLine).match(/^<[bB][rR]>([ \t]*)/);
+			if (brMatch) {
+				const toCh = info.endOfInCellLine + brMatch[0].length;
+				const targetCh = info.endOfInCellLine;
+				const targetLine = cursor.line;
+				this.updateKillCache('\n');
+				navigator.clipboard.writeText(this.killCache).catch(() => {});
+				this.isDispatchingKill = true;
+				editor.setLine(targetLine, lineText.slice(0, targetCh) + lineText.slice(toCh));
+				this.isDispatchingKill = false;
+				// Defer cursor restore until after Obsidian's table editor re-dispatch settles,
+				// then set isKillChaining so the chain isn't broken by that re-dispatch.
+				setTimeout(() => {
+					this.isDispatchingKill = true;
+					this.setCursorViaCm(editor, targetLine, targetCh);
+					this.isDispatchingKill = false;
+					this.isKillChaining = true;
+				}, 0);
+				return;
+			}
+		}
+
+		// LP cursor snap: cursor may land at br.end (= startOfInCellLine of 'middle'/'last')
+		// rather than br.start. Kill the <br> that ends at cursor.ch.
+		if ((info.lineType === 'middle' || info.lineType === 'last') && cursor.ch === info.startOfInCellLine) {
+			const brMatch = lineText.slice(0, cursor.ch).match(/<[bB][rR]>([ \t]*)$/);
+			if (brMatch) {
+				const brStart = cursor.ch - brMatch[0].length;
+				const targetLine = cursor.line;
+				this.updateKillCache('\n');
+				navigator.clipboard.writeText(this.killCache).catch(() => {});
+				this.isDispatchingKill = true;
+				editor.setLine(targetLine, lineText.slice(0, brStart) + lineText.slice(cursor.ch));
+				this.isDispatchingKill = false;
+				setTimeout(() => {
+					this.isDispatchingKill = true;
+					this.setCursorViaCm(editor, targetLine, brStart);
+					this.isDispatchingKill = false;
+					this.isKillChaining = true;
+				}, 0);
+				return;
+			}
+		}
+	}
+
+
+	private normalizeKillText(text: string): string {
+		return text.replace(/<[bB][rR]>/g, '\n').replace(/\\\|/g, '|');
+	}
+
+
+	private updateKillCache(text: string): void {
+		this.killCache = this.isKillChaining ? this.killCache + text : text;
 	}
 
 }
