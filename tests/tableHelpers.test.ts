@@ -22,22 +22,28 @@ describe('tableHelpers', () => {
 	// ===========================================================================
 
 	describe('TABLE_DELIMITER_REGEX', () => {
-		const matches = (s: string) => expect(plugin.TABLE_DELIMITER_REGEX.test(s)).toBe(true)
-		const noMatch = (s: string) => expect(plugin.TABLE_DELIMITER_REGEX.test(s)).toBe(false)
+		const matchCases = [
+			'| --- |',
+			'| :---: |',
+			'| :--- |',
+			'| ---: |',
+			'| - |',
+			'| --- | --- |',
+			'  --- |',
+		]
+		const noMatchCases = [
+			'|     |',
+			'| abc |',
+			'| 123 |',
+			'||',
+		]
 
-		it('| --- | matches', () => matches('| --- |'))
-		it('| :---: | matches', () => matches('| :---: |'))
-		it('| :--- | matches',  () => matches('| :--- |'))
-		it('| ---: | matches',  () => matches('| ---: |'))
-		it('| - | (single dash) matches', () => matches('| - |'))
-		it('multi-cell | --- | --- | matches', () => matches('| --- | --- |'))
-		it('leading whitespace  --- | matches', () => matches('  --- |'))
-
-		// regressions: these must NOT match
-		it('spaces-only |     | does NOT match', () => noMatch('|     |'))
-		it('text content | abc | does NOT match', () => noMatch('| abc |'))
-		it('number content | 123 | does NOT match', () => noMatch('| 123 |'))
-		it('empty || does NOT match', () => noMatch('||'))
+		for (const s of matchCases) {
+			it(`matches: "${s}"`, () => expect(plugin.TABLE_DELIMITER_REGEX.test(s)).toBe(true))
+		}
+		for (const s of noMatchCases) {
+			it(`no match: "${s}"`, () => expect(plugin.TABLE_DELIMITER_REGEX.test(s)).toBe(false))
+		}
 	})
 
 	// ===========================================================================
@@ -45,141 +51,73 @@ describe('tableHelpers', () => {
 	// ===========================================================================
 
 	describe('getCellBounds', () => {
-		// | hello |
-		//  0123456 78   (pipe at 0, 8; length=9)
-		const line1 = '| hello |'
+		// [line, ch, expected]  null = no cell found
+		const cases: [string, number, { open: number; close: number } | null][] = [
+			// basic: ch inside cell
+			['| hello |',    3,  { open: 0, close: 8 }],
+			// ch just after open pipe
+			['| hello |',    1,  { open: 0, close: 8 }],
+			// regression: ch exactly on closing pipe → treated as right edge of left cell
+			['| hello |',    8,  { open: 0, close: 8 }],
+			// ch on opening pipe (no pipe to the left) → null
+			['| hello |',    0,  null],
+			// no pipes → null
+			['hello world',  3,  null],
+			// second cell in multi-cell row
+			['| a | b |',    5,  { open: 4, close: 8 }],
+			// escaped pipe is not a boundary
+			['| a \\| b |',  5,  { open: 0, close: 9 }],
+		]
 
-		it('ch inside cell returns correct open/close', () => {
-			// ch=3 ('e'): open=0, close=8
-			expect(plugin.getCellBounds(line1, 3)).toEqual({ open: 0, close: 8 })
-		})
-
-		it('ch just after open pipe returns correct bounds', () => {
-			// ch=1 (' '): open=0, close=8
-			expect(plugin.getCellBounds(line1, 1)).toEqual({ open: 0, close: 8 })
-		})
-
-		// Regression: before the p >= ch fix, ch on the closing pipe used p > ch and
-		// returned close = line.length (9) instead of 8, including the pipe in the slice.
-		it('ch exactly on closing pipe is treated as right edge of left cell', () => {
-			expect(plugin.getCellBounds(line1, 8)).toEqual({ open: 0, close: 8 })
-		})
-
-		it('ch on the opening pipe (position 0) returns null — no pipe to the left', () => {
-			expect(plugin.getCellBounds(line1, 0)).toBeNull()
-		})
-
-		it('line with no pipes returns null', () => {
-			expect(plugin.getCellBounds('hello world', 3)).toBeNull()
-		})
-
-		it('second cell in multi-cell row', () => {
-			// | a | b |  →  pipes at 0, 4, 8
-			//  01234567 8
-			// ch=5 (' ' after second pipe): open=4, close=8
-			expect(plugin.getCellBounds('| a | b |', 5)).toEqual({ open: 4, close: 8 })
-		})
-
-		it('escaped pipe \\| is not treated as a cell boundary', () => {
-			// '| a \\| b |'  →  unescaped pipes at 0 and 9 only
-			// ch=5 (inside the only cell): open=0, close=9
-			expect(plugin.getCellBounds('| a \\| b |', 5)).toEqual({ open: 0, close: 9 })
-		})
+		for (const [line, ch, expected] of cases) {
+			it(`"${line}" ch=${ch} → ${JSON.stringify(expected)}`, () => {
+				expect(plugin.getCellBounds(line, ch)).toEqual(expected)
+			})
+		}
 	})
 
 	// ===========================================================================
-	// getStartOfCellContent
+	// getStartOfCellContent / getEndOfCellContent
+	// Combined: same inputs, verify both start and end in one table.
+	// null start/end means isEmpty (start === end).
 	// ===========================================================================
 
-	describe('getStartOfCellContent', () => {
-		it('normal cell: returns position of first non-space character', () => {
-			// | hello |  pipes at 0, 8
-			// slice(1,8)=" hello ", firstNonSpace=1 → 0+1+1=2
-			expect(plugin.getStartOfCellContent('| hello |', 3)).toBe(2)
-		})
+	describe('getStartOfCellContent & getEndOfCellContent', () => {
+		// [line, ch, expectedStart, expectedEnd]
+		// expectedStart===expectedEnd means isEmpty
+		const cases: [string, number, number, number][] = [
+			// normal cell
+			//0 23   7
+			['| hello |',   3,  2,  7],
+			// leading spaces
+			//0  34   8
+			['|  hello |',  4,  3,  8],
+			// trailing spaces
+			//0 23   7
+			['| hello  |',  3,  2,  7],
+			// spaces-only: isEmpty (start === end)
+			//01 3
+			['|     |',     3,  1,  1],
+			// empty cell ||: isEmpty
+			//01
+			['||',          1,  1,  1],
+			// regression: ch on closing pipe — pipe NOT included in content slice
+			//0 2    78
+			['| hello |',   8,  2,  7],
+			// second cell
+			//0     6 8
+			['| a | bb |',  6,  6,  8],
+			// no pipe to left of ch: returns 0 (fallback)
+			//0
+			['| hello |',   0,  0,  0],
+		]
 
-		it('leading spaces: skips them to reach first non-space', () => {
-			// |  hello |  pipes at 0, 9
-			// slice(1,9)="  hello ", firstNonSpace=2 → 0+1+2=3
-			expect(plugin.getStartOfCellContent('|  hello |', 4)).toBe(3)
-		})
-
-		it('trailing spaces do not affect start', () => {
-			// | hello  |  pipes at 0, 9
-			// slice(1,9)=" hello  ", firstNonSpace=1 → 0+1+1=2
-			expect(plugin.getStartOfCellContent('| hello  |', 3)).toBe(2)
-		})
-
-		// Regression: spaces-only cell was misidentified as a delimiter row, causing wrong
-		// row navigation. start === end is the isEmpty signal used by moveCursorUpInTable.
-		it('spaces-only cell: start === end (isEmpty)', () => {
-			const line  = '|     |'
-			const start = plugin.getStartOfCellContent(line, 3)
-			const end   = plugin.getEndOfCellContent(line, 3)
-			expect(start).toBe(end)
-		})
-
-		it('empty cell ||: start === end', () => {
-			const line  = '||'
-			const start = plugin.getStartOfCellContent(line, 1)
-			const end   = plugin.getEndOfCellContent(line, 1)
-			expect(start).toBe(end)
-		})
-
-		it('no pipe to the left of ch: returns 0 (fallback)', () => {
-			expect(plugin.getStartOfCellContent('| hello |', 0)).toBe(0)
-		})
-	})
-
-	// ===========================================================================
-	// getEndOfCellContent
-	// ===========================================================================
-
-	describe('getEndOfCellContent', () => {
-		it('normal cell: returns position after last non-space character', () => {
-			// | hello |  pipes at 0, 8
-			// slice(1,8)=" hello ", trimEnd=" hello" (len=6) → 0+1+6=7
-			expect(plugin.getEndOfCellContent('| hello |', 3)).toBe(7)
-		})
-
-		it('trailing spaces: trims them', () => {
-			// | hello  |  pipes at 0, 9
-			// slice(1,9)=" hello  ", trimEnd=" hello" (len=6) → 0+1+6=7
-			expect(plugin.getEndOfCellContent('| hello  |', 3)).toBe(7)
-		})
-
-		it('leading spaces do not affect end', () => {
-			// |  hello |  pipes at 0, 9
-			// slice(1,9)="  hello ", trimEnd="  hello" (len=7) → 0+1+7=8
-			expect(plugin.getEndOfCellContent('|  hello |', 4)).toBe(8)
-		})
-
-		it('spaces-only cell: end === start (isEmpty)', () => {
-			const line  = '|     |'
-			const start = plugin.getStartOfCellContent(line, 3)
-			const end   = plugin.getEndOfCellContent(line, 3)
-			expect(end).toBe(start)
-		})
-
-		// Regression: with the old p > ch bug in getCellBounds, ch on the closing pipe
-		// caused close = line.length, including the pipe character in the trimEnd slice.
-		it('ch on closing pipe: pipe is NOT included in the content slice', () => {
-			// | hello |  close pipe at 8
-			// old code: close=9, slice(1,9)=" hello |", trimEnd=" hello |" (len=8) → 9 (wrong)
-			// new code: close=8, slice(1,8)=" hello ", trimEnd=" hello" (len=6)  → 7 (correct)
-			expect(plugin.getEndOfCellContent('| hello |', 8)).toBe(7)
-		})
-
-		it('second cell in multi-cell row', () => {
-			// | a | bb |  pipes at 0, 4, 9
-			// ch=6 ('b'): open=4, close=9
-			// slice(5,9)=" bb ", trimEnd=" bb" (len=3) → 4+1+3=8
-			expect(plugin.getEndOfCellContent('| a | bb |', 6)).toBe(8)
-		})
-
-		it('no pipe to the left of ch: returns 0 (fallback)', () => {
-			expect(plugin.getEndOfCellContent('| hello |', 0)).toBe(0)
-		})
+		for (const [line, ch, start, end] of cases) {
+			it(`"${line}" ch=${ch} → start=${start}, end=${end}`, () => {
+				expect(plugin.getStartOfCellContent(line, ch)).toBe(start)
+				expect(plugin.getEndOfCellContent(line, ch)).toBe(end)
+			})
+		}
 	})
 
 	// ===========================================================================
@@ -187,19 +125,17 @@ describe('tableHelpers', () => {
 	// ===========================================================================
 
 	describe('getPipePositions(line)', () => {
-		it('multi-cell row returns all pipe indices', () => {
-			// | a | b | c |  →  pipes at 0, 4, 8, 12
-			expect(plugin.getPipePositions('| a | b | c |')).toEqual([0, 4, 8, 12])
-		})
+		const cases: [string, number[]][] = [
+			['| a | b | c |',   [0, 4, 8, 12]],
+			['| a \\| b |',     [0, 9]],          // escaped pipe excluded
+			['hello world',     []],               // no pipes
+		]
 
-		it('escaped pipe \\| is excluded', () => {
-			// '| a \\| b |'  →  unescaped pipes at 0 and 9
-			expect(plugin.getPipePositions('| a \\| b |')).toEqual([0, 9])
-		})
-
-		it('line with no pipes returns []', () => {
-			expect(plugin.getPipePositions('hello world')).toEqual([])
-		})
+		for (const [line, expected] of cases) {
+			it(`"${line}" → [${expected}]`, () => {
+				expect(plugin.getPipePositions(line)).toEqual(expected)
+			})
+		}
 	})
 
 	// ===========================================================================
@@ -207,15 +143,16 @@ describe('tableHelpers', () => {
 	// ===========================================================================
 
 	describe('getRightmostCellIndex(line)', () => {
-		it('three cells | a | b | c | — returns 2', () => {
-			// 4 pipes → Math.max(0, 4-2) = 2
-			expect(plugin.getRightmostCellIndex('| a | b | c |')).toBe(2)
-		})
+		const cases: [string, number][] = [
+			['| a | b | c |',  2],   // 4 pipes → Math.max(0, 4-2) = 2
+			['| a |',          0],   // 2 pipes → Math.max(0, 2-2) = 0
+		]
 
-		it('single cell | a | — returns 0', () => {
-			// 2 pipes → Math.max(0, 2-2) = 0
-			expect(plugin.getRightmostCellIndex('| a |')).toBe(0)
-		})
+		for (const [line, expected] of cases) {
+			it(`"${line}" → ${expected}`, () => {
+				expect(plugin.getRightmostCellIndex(line)).toBe(expected)
+			})
+		}
 	})
 
 	// ===========================================================================
@@ -223,23 +160,20 @@ describe('tableHelpers', () => {
 	// ===========================================================================
 
 	describe('getCellIndex(line, ch)', () => {
-		// | a | b |  →  pipes at 0, 4, 8
+		// pipes at   0   4   8
 		const line = '| a | b |'
+		// expect       0   1
+		const cases: [number, number][] = [
+			[2, 0],   // ch in first cell
+			[6, 1],   // ch in second cell
+			[0, 0],   // ch before any pipe → clamped to 0
+		]
 
-		it('ch in first cell — returns 0', () => {
-			// substring(0, 2) = "| " → 1 pipe → max(0, 1-1) = 0
-			expect(plugin.getCellIndex(line, 2)).toBe(0)
-		})
-
-		it('ch in second cell — returns 1', () => {
-			// substring(0, 6) = "| a | " → 2 pipes → max(0, 2-1) = 1
-			expect(plugin.getCellIndex(line, 6)).toBe(1)
-		})
-
-		it('ch before any pipe (ch=0) — clamped to 0', () => {
-			// substring(0, 0) = "" → 0 pipes → max(0, 0-1) = 0
-			expect(plugin.getCellIndex(line, 0)).toBe(0)
-		})
+		for (const [ch, expected] of cases) {
+			it(`ch=${ch} → ${expected}`, () => {
+				expect(plugin.getCellIndex(line, ch)).toBe(expected)
+			})
+		}
 	})
 
 	// ===========================================================================
@@ -247,26 +181,22 @@ describe('tableHelpers', () => {
 	// ===========================================================================
 
 	describe('getEndOfCellContentByCellIndex(line, cellIndex)', () => {
-		// | hello | world |  →  pipes at 0, 8, 16
+		// pipes at   0       8       16
 		const line = '| hello | world |'
+		// cell no        0       1
+		// end               7       15
+		const cases: [number, number][] = [
+			[0,   7],   // first cell: slice(1,8)=" hello ", trimEnd→len=6, 0+1+6=7
+			[1,  15],   // second cell: slice(9,16)=" world ", trimEnd→len=6, 8+1+6=15
+			[2,  -1],   // out of range
+			[-1, -1],   // negative index
+		]
 
-		it('cellIndex=0 — returns end of first cell content', () => {
-			// slice(1,8)=" hello ", trimEnd=" hello" (len=6) → 0+1+6=7
-			expect(plugin.getEndOfCellContentByCellIndex(line, 0)).toBe(7)
-		})
-
-		it('cellIndex=1 — returns end of second cell content', () => {
-			// slice(9,16)=" world ", trimEnd=" world" (len=6) → 8+1+6=15
-			expect(plugin.getEndOfCellContentByCellIndex(line, 1)).toBe(15)
-		})
-
-		it('cellIndex out of range (too high) — returns -1', () => {
-			expect(plugin.getEndOfCellContentByCellIndex(line, 2)).toBe(-1)
-		})
-
-		it('cellIndex negative — returns -1', () => {
-			expect(plugin.getEndOfCellContentByCellIndex(line, -1)).toBe(-1)
-		})
+		for (const [cellIndex, expected] of cases) {
+			it(`cellIndex=${cellIndex} → ${expected}`, () => {
+				expect(plugin.getEndOfCellContentByCellIndex(line, cellIndex)).toBe(expected)
+			})
+		}
 	})
 
 	// ===========================================================================
@@ -275,9 +205,6 @@ describe('tableHelpers', () => {
 
 	describe('getInCellLineInfo(line, ch)', () => {
 		it('no <br>: lineType single, correct start/end, isEmpty false', () => {
-			// | hello |  pipes at 0, 8
-			// seg={start:1,end:8}, segContent=" hello "
-			// startOfInCellLine=2 (skip leading space), endOfInCellLine=7 (trimEnd)
 			expect(plugin.getInCellLineInfo('| hello |', 3)).toEqual({
 				lineType: 'single',
 				startOfInCellLine: 2,
@@ -287,8 +214,6 @@ describe('tableHelpers', () => {
 		})
 
 		it('spaces-only cell: lineType single, isEmpty true', () => {
-			// |   |  pipes at 0, 4; seg={start:1,end:4}
-			// no non-space → startOfInCellLine=seg.start=1, endOfInCellLine=1+0=1
 			expect(plugin.getInCellLineInfo('|   |', 2)).toEqual({
 				lineType: 'single',
 				startOfInCellLine: 1,
@@ -301,10 +226,7 @@ describe('tableHelpers', () => {
 			expect(plugin.getInCellLineInfo('| hello |', 0)).toBeNull()
 		})
 
-		it('one <br>: ch in first segment — lineType first, endOfInCellLine at <br> start', () => {
-			// | hello<br>world |  pipes at 0, 17
-			// <br> at positions 7-10 (in line)
-			// seg[0]={start:1,end:7}: startOfInCellLine=2, endOfInCellLine=7
+		it('one <br>: ch in first segment — lineType first', () => {
 			expect(plugin.getInCellLineInfo('| hello<br>world |', 3)).toEqual({
 				lineType: 'first',
 				startOfInCellLine: 2,
@@ -313,9 +235,7 @@ describe('tableHelpers', () => {
 			})
 		})
 
-		it('one <br>: ch in last segment — lineType last, startOfInCellLine right after <br>', () => {
-			// | hello<br>world |
-			// seg[1]={start:11,end:17}: startOfInCellLine=11, endOfInCellLine=16 (trimEnd "world")
+		it('one <br>: ch in last segment — lineType last', () => {
 			expect(plugin.getInCellLineInfo('| hello<br>world |', 13)).toEqual({
 				lineType: 'last',
 				startOfInCellLine: 11,
@@ -325,11 +245,6 @@ describe('tableHelpers', () => {
 		})
 
 		it('two <br>: ch in middle segment — lineType middle', () => {
-			// | a<br>b<br>c |  pipes at 0, 14
-			// brPositions: {start:3,end:7}, {start:8,end:12}
-			// segments: [{1,3},{7,8},{12,14}]
-			// ch=7 ('b' in middle): segIndex=1, lineType='middle'
-			// startOfInCellLine=7, endOfInCellLine=8
 			expect(plugin.getInCellLineInfo('| a<br>b<br>c |', 7)).toEqual({
 				lineType: 'middle',
 				startOfInCellLine: 7,
@@ -339,10 +254,6 @@ describe('tableHelpers', () => {
 		})
 
 		it('ch inside a <br> tag — assigned to preceding segment', () => {
-			// | hello<br>world |, ch=9 is inside <br> (positions 7-10)
-			// brPositions: {start:7,end:11}
-			// segIndex fallback: ch=9 > 7 && < 11 → segIndex=0 (preceding segment)
-			// seg[0]={start:1,end:7}: lineType='first'
 			expect(plugin.getInCellLineInfo('| hello<br>world |', 9)).toEqual({
 				lineType: 'first',
 				startOfInCellLine: 2,

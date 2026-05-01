@@ -15,72 +15,57 @@ describe('rowNavigation', () => {
 	})
 
 	// ===========================================================================
-	// computePrevRowLine
+	// computePrevRowLine(currentLine, prevLineInTable, prevLineText)
 	// ===========================================================================
 
-	describe('computePrevRowLine(currentLine, prevLineInTable, prevLineText)', () => {
-		it('prevLineInTable: false — returns -1 (cursor is at top of table or above)', () => {
-			expect(plugin.computePrevRowLine(5, false, '| some row |')).toBe(-1)
-		})
+	describe('computePrevRowLine', () => {
+		// [prevLineInTable, prevLineText, expected]
+		const cases: [boolean, string, number][] = [
+			// not in table
+			[false, '| some row |',  -1],
+			// regular rows -> currentLine - 1
+			[true,  '| data |',       4],
+			[true,  '| abc |',        4],
+			// delimiter row -> skip to currentLine - 2
+			[true,  '| --- |',        3],
+			[true,  '| :---: |',      3],
+			[true,  '| ---: |',       3],
+			// regression: spaces-only cell must NOT be treated as a delimiter
+			[true,  '|     |',        4],
+		]
 
-		it('prevLineInTable: true, regular row — returns currentLine - 1', () => {
-			expect(plugin.computePrevRowLine(5, true, '| data |')).toBe(4)
-		})
-
-		it('prevLineInTable: true, delimiter row | --- | — returns currentLine - 2', () => {
-			expect(plugin.computePrevRowLine(5, true, '| --- |')).toBe(3)
-		})
-
-		it('prevLineInTable: true, delimiter with alignment | :---: | — returns currentLine - 2', () => {
-			expect(plugin.computePrevRowLine(5, true, '| :---: |')).toBe(3)
-		})
-
-		// Regression: before the fix, /[:\s-]+/ matched spaces-only cells as delimiters,
-		// causing getPrevRowLine to skip two lines instead of one.
-		it('prevLineInTable: true, spaces-only |     | — NOT a delimiter, returns currentLine - 1', () => {
-			expect(plugin.computePrevRowLine(5, true, '|     |')).toBe(4)
-		})
-
-		it('prevLineInTable: true, text content | abc | — NOT a delimiter, returns currentLine - 1', () => {
-			expect(plugin.computePrevRowLine(5, true, '| abc |')).toBe(4)
-		})
+		for (const [prevInTable, text, expected] of cases) {
+			it(`(prevInTable=${prevInTable}, "${text}") → ${expected}`, () => {
+				expect(plugin.computePrevRowLine(5, prevInTable, text)).toBe(expected)
+			})
+		}
 	})
 
 	// ===========================================================================
-	// computeNextRowLine
+	// computeNextRowLine(currentLine, nextLineInTable, nextLineText, lineAfterNextInTable)
 	// ===========================================================================
 
-	describe('computeNextRowLine(currentLine, nextLineInTable, nextLineText, lineAfterNextInTable)', () => {
-		it('nextLineInTable: false — returns -1 (cursor is at bottom of table or below)', () => {
-			expect(plugin.computeNextRowLine(5, false, '| some row |', false)).toBe(-1)
-		})
+	describe('computeNextRowLine', () => {
+		// [nextLineInTable, nextLineText, lineAfterNextInTable, expected]
+		const cases: [boolean, string, boolean, number][] = [
+			// not in table
+			[false, '| some row |', false, -1],
+			// regular rows -> currentLine + 1
+			[true,  '| data |',     false,  6],
+			[true,  '| abc |',      false,  6],
+			// delimiter row + next row exists -> currentLine + 2
+			[true,  '| --- |',      true,   7],
+			[true,  '| :--- |',     true,   7],
+			// delimiter row + no row after (header-only table) -> -1
+			[true,  '| --- |',      false, -1],
+			// regression: spaces-only cell must NOT be treated as a delimiter
+			[true,  '|     |',      false,  6],
+		]
 
-		it('nextLineInTable: true, regular row — returns currentLine + 1', () => {
-			expect(plugin.computeNextRowLine(5, true, '| data |', false)).toBe(6)
-		})
-
-		it('nextLineInTable: true, delimiter row, lineAfterNextInTable: true — returns currentLine + 2', () => {
-			expect(plugin.computeNextRowLine(5, true, '| --- |', true)).toBe(7)
-		})
-
-		// Header-only table: delimiter is line+1, but line+2 is outside the table or does not exist.
-		// Without this guard, navigation from the header would land on a non-table line.
-		it('nextLineInTable: true, delimiter row, lineAfterNextInTable: false — returns -1 (header-only table)', () => {
-			expect(plugin.computeNextRowLine(5, true, '| --- |', false)).toBe(-1)
-		})
-
-		it('nextLineInTable: true, delimiter with alignment | :--- |, lineAfterNextInTable: true — returns currentLine + 2', () => {
-			expect(plugin.computeNextRowLine(5, true, '| :--- |', true)).toBe(7)
-		})
-
-		// Regression: same root cause as computePrevRowLine — spaces-only cells must not
-		// be treated as delimiter rows.
-		it('nextLineInTable: true, spaces-only |     | — NOT a delimiter, returns currentLine + 1', () => {
-			expect(plugin.computeNextRowLine(5, true, '|     |', false)).toBe(6)
-		})
-
-		it('nextLineInTable: true, text content | abc | — NOT a delimiter, returns currentLine + 1', () => {
-			expect(plugin.computeNextRowLine(5, true, '| abc |', false)).toBe(6)
-		})
+		for (const [nextInTable, text, afterNext, expected] of cases) {
+			it(`(nextInTable=${nextInTable}, "${text}", afterNext=${afterNext}) → ${expected}`, () => {
+				expect(plugin.computeNextRowLine(5, nextInTable, text, afterNext)).toBe(expected)
+			})
+		}
 	})
 })

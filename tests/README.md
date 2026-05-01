@@ -41,7 +41,7 @@ dedicated helper that is tested separately.
 
 | Method | Testable | Tested | Notes |
 |--------|----------|--------|-------|
-| `moveCursorHomeInTable` | 🚫 | ☐ | Calls `isPositionInTable`, `setCursorViaCm`, `moveToLeftCellEnd` |
+| `moveCursorHomeInTable` | ⚙️ | ☑ | `setCursorViaCm` / `moveToLeftCellEnd` mocked — tests Standard/Advanced smart home within cells |
 | `moveCursorHomeNonTable` | ✅ | ☑ | CM6 `moveToLineBoundary` + smart home; fully mockable |
 | `moveCursorEndInTable` | 🚫 | ☐ | Calls `isPositionInTable`, `setCursorViaCm`, `moveToRightCellStart` |
 | `moveCursorEndNonTable` | ✅ | ☑ | CM6 `moveToLineBoundary` + logical line end; fully mockable |
@@ -75,8 +75,8 @@ which cannot be reproduced without the Obsidian/CodeMirror rendering pipeline.
 
 | Method | Testable | Tested | Notes |
 |--------|----------|--------|-------|
-| `moveToLeftCellEnd` | 🚫 | ☐ | Calls `isPositionInTable` via `getPrevRowLine` |
-| `moveToRightCellStart` | 🚫 | ☐ | Calls `isPositionInTable` via `getNextRowLine` and `setCursorViaCm` |
+| `moveToLeftCellEnd` | ⚙️ | ☑ | `getPrevRowLine` mocked; `setCursorViaCm` spied — tests `crossRowNavigation` OFF/ON branching |
+| `moveToRightCellStart` | ⚙️ | ☑ | `getNextRowLine` mocked; `setCursorViaCm` spied — tests `crossRowNavigation` OFF/ON branching |
 
 ---
 
@@ -144,91 +144,149 @@ No editor object is needed; they are fully unit-testable.
 
 ---
 
-## Test checklist
+## Test file structure
 
-Unit-testable items not yet covered by an automated test.
-Items already covered by `tests/*.test.ts` are checked.
+### `linePosition.test.ts` — 167 tests
 
----
+Tests `getBeginningOfLinePosition(line, ch)`.
 
-## `moveCursorHomeNonTable` — Ctrl-A / Home (non-table)
+**Settings matrix × line categories × rows.** Four settings modes are defined once and looped over all categories:
 
-### cm available
+```
+settingsMatrix
+  Adv.          smartHomeStandard=true,  smartHomeAdvanced=true
+  Std.          smartHomeStandard=true,  smartHomeAdvanced=false
+  OFF (Adv=ON)  smartHomeStandard=false, smartHomeAdvanced=true
+  OFF (Adv=OFF) smartHomeStandard=false, smartHomeAdvanced=false
+```
 
-- [x] Case (1a): cursor on VL2+ non-left-edge — calls `moveToLineBoundary(main, false, true)`
-- [x] Case (1a): dispatches `EditorSelection.create` with assoc preserved
-- [x] Case (1a): `goRight` / `goLeft` are not called
-- [x] Case (1a): `setCursor` is not called
-- [x] Case (1b)/(2): already at VL left edge — falls through to smart home
-- [x] Case (1b)/(2): VL1 (`vlCh === 0`) — falls through to smart home
-- [x] Case (1b)/(2): heading line (`## hello`) — moves to content start (after `## `)
-- [x] Case (1b)/(2): `dispatch` is not called
+Each row is a tuple `[line, ch, advExpected, stdExpected, offExpected]`. A 2nd-step test (cursor at smart-home position → toggles to ch=0) is auto-generated unless `skipAutoStep2: true`.
 
-### cm absent (fallback)
-
-- [x] Plain text — moves to ch=0
-- [x] Heading line — moves to content start
-- [x] Already at line start (ch=0) — `setCursor` is still called with ch=0
+To add a case: append a row to an existing category, or add a new category object.
 
 ---
 
-## `moveCursorEndNonTable` — Ctrl-E / End (non-table)
+### `rowNavigation.test.ts` — 15 tests
 
-### cm available
+Tests `computePrevRowLine` and `computeNextRowLine`.
 
-- [x] Calls `moveToLineBoundary(main, true, true)`
-- [x] Plain text — dispatches with correct `head` and `assoc`
-- [x] Soft-wrap VL1 end — dispatches with `assoc=-1` preserved
-- [x] Hidden markdown at line end (e.g. `[[link]]`) — dispatches with `assoc=0`
-- [x] Already at VL end — falls through; `setCursor` moves to logical line end (2-step)
-- [x] `setCursor` is not called in the normal (non-fallthrough) case
+**Tuple arrays, one `it` per row.**
 
-### cm absent (fallback)
+```typescript
+// computePrevRowLine: [prevLineInTable, prevLineText, expected]
+[true, '| --- |', 3]   // delimiter → skip 2 lines
+[true, '|     |', 4]   // spaces-only: NOT a delimiter
 
-- [x] Cursor in the middle — `setCursor` moves to line end
-- [x] Cursor at line start (ch=0) — `setCursor` moves to line end
-- [x] Cursor already at line end — `setCursor` is not called
-- [x] Empty line — `setCursor` is not called
-- [x] Multibyte characters — `setCursor` moves to correct line end
+// computeNextRowLine: [nextLineInTable, nextLineText, lineAfterNextInTable, expected]
+[true, '| --- |', true,  7]   // delimiter + row exists → skip 2
+[true, '| --- |', false, -1]  // header-only table → no target
+```
 
 ---
 
-## `getPipePositions(line)`
+### `tableHelpers.test.ts` — 27 tests
 
-- [x] Row with multiple pipes `| a | b | c |` — returns correct indices
-- [x] Escaped pipe `\|` is excluded
-- [x] Line with no pipes — returns `[]`
+Tests cell-level helpers: `TABLE_DELIMITER_REGEX`, `getCellBounds`, `getStartOfCellContent`, `getEndOfCellContent`, `getPipePositions`, `getRightmostCellIndex`, `getCellIndex`, `getEndOfCellContentByCellIndex`, `getInCellLineInfo`.
 
----
+**Key design:** `getStartOfCellContent` and `getEndOfCellContent` share a single tuple table — same input, both outputs verified in one `it`:
 
-## `TABLE_DELIMITER_REGEX`
+```typescript
+// [line, ch, expectedStart, expectedEnd]
+['| hello |', 3, 2, 7]   // normal cell
+['|     |',   3, 1, 1]   // isEmpty: start === end
+```
 
-- [x] `| --- |` — matches
-- [x] `| :---: |` — matches
-- [x] `| :--- |` and `| ---: |` — match
-- [x] `| - |` (single dash) — matches
-- [x] `|     |` (spaces only) — does **not** match (regression: was wrongly matching before fix)
-- [x] `| abc |` (text content) — does not match
+`getInCellLineInfo` uses individual `it` blocks because it returns a struct.
 
 ---
 
-## `getCellBounds(line, ch)`
+### `moveCursorEndNonTable.test.ts` — 20 tests
 
-- [x] ch inside a cell — returns correct `{ open, close }`
-- [x] ch exactly on a pipe — treated as the right edge of the left cell (`p >= ch` fix)
-- [x] ch before any pipe — returns `null`
-- [x] Escaped pipe `\|` does not act as a cell boundary
+Tests `moveCursorEndNonTable` (Ctrl-E / End, non-table context).
+
+**Scenario matrix with `vlTrue` / `vlFalse` columns.** Each row defines a scenario and its expected outcome under both `visualLineMovement` values. The runner iterates `[vl=true, vl=false]` for every row:
+
+```typescript
+type EndRow = {
+  desc: string
+  cm?:  { vlHead, vlAssoc, currentHead, cursorCh, lineText }
+  noCm?: { line, ch }
+  vlTrue:  { dispatch?, setCursor? }   // visualLineMovement: true
+  vlFalse: { dispatch?, setCursor? }   // visualLineMovement: false
+}
+```
+
+`dispatch: { head, assoc }` asserts `cm.dispatch` was called with that cursor. `dispatch: null` asserts it was **not** called. Same convention for `setCursor`.
+
+Test names are auto-generated: `[vl=true] cm: cursor before VL end — dispatch to VL end`.
+
+To add a scenario: append a row to `matrix` with both `vlTrue` and `vlFalse` outcomes filled in.
 
 ---
 
-## `getStartOfCellContent(line, ch)` / `getEndOfCellContent(line, ch)`
+### `crossRowNavigation.test.ts` — 6 tests
 
-- [x] Normal cell `| hello |` — correct start / end positions
-- [x] Leading spaces `|  hello |` — start skips leading spaces
-- [x] Trailing spaces `| hello  |` — end trims trailing spaces
-- [x] Spaces-only cell `|     |` — `start === end` (isEmpty), regression for delimiter misdetection bug
-- [x] Empty cell `||` — `start === end`
-- [x] ch on closing pipe — pipe not included in content slice (regression: `p >= ch` fix)
+Tests the `crossRowNavigation` setting branch in `moveToLeftCellEnd` and `moveToRightCellStart`.
+
+**Test line:** `'| a | b |'` — 2 cells, pipes at ch 0 / 4 / 8, cell 0 start = 2, end = 3; cell 1 start = 6, end = 7.
+
+`setCursorViaCm` is replaced with `vi.fn()`. `getPrevRowLine` / `getNextRowLine` are mocked where needed to isolate the setting branch from `isPositionInTable`.
+
+| Scenario | crossRowNavigation | Expected |
+|---|:---:|---|
+| `moveToLeftCellEnd` — leftmost cell | OFF | `setCursorViaCm` not called |
+| `moveToLeftCellEnd` — non-leftmost cell | OFF | called with left cell end (same row) |
+| `moveToLeftCellEnd` — leftmost cell (data row) | ON | called with previous row rightmost cell end |
+| `moveToRightCellStart` — rightmost cell | OFF | `setCursorViaCm` not called |
+| `moveToRightCellStart` — non-rightmost cell | OFF | called with right cell start (same row) |
+| `moveToRightCellStart` — rightmost cell (non-last row) | ON | called with next row leftmost cell start |
+
+---
+
+### `moveCursorHomeInTable.test.ts` — 11 tests
+
+Tests `moveCursorHomeInTable` (Ctrl-A / Home, in-table context).
+
+**Two-level matrix: cell line → rows per settings / cursor position.**
+`setCursorViaCm` and `moveToLeftCellEnd` are replaced with `vi.fn()`.
+
+Three cell lines are tested:
+
+| Cell line | `startOfInCellLine` | smart home position |
+|---|:---:|:---:|
+| `\| plain \|` | ch 2 | — (no prefix) |
+| `\| - item \|` | ch 2 (`-`) | ch 4 (`i`) — Standard |
+| `\| # heading \|` | ch 2 (`#`) | ch 4 (`h`) — Advanced |
+
+Each group covers the 3-step sequence where applicable:
+
+- cursor past smart home → `setCursorViaCm` at smart home
+- cursor at smart home → `setCursorViaCm` at `startOfInCellLine`
+- cursor at `startOfInCellLine` → `moveToLeftCellEnd` called
+
+To add a case: append a row to an existing group's `rows`, or add a new `Group` object.
+
+---
+
+### `moveCursorHomeNonTable.test.ts` — 23 tests
+
+Tests `moveCursorHomeNonTable` (Ctrl-A / Home, non-table context).
+
+**Same matrix pattern as `moveCursorEndNonTable`.** Each row covers one scenario across `vl=true` and `vl=false`:
+
+```typescript
+type HomeRow = {
+  desc: string
+  cm?:  { currentHead, lineFrom, vlStartHead, vlStartAssoc, lineText, cursorCh }
+  noCm?: { lineText, ch }
+  vlTrue:  { dispatch?, setCursor? }
+  vlFalse: { dispatch?, setCursor? }
+}
+```
+
+Cases in `matrix` cover: VL2+ dispatch (Case 1a), VL left-edge fallthrough (Case 1b), VL1 fallthrough (Case 2), heading 2-step toggle, and the footnote widget regression (vlCh=2 < lineSmartHomePos=6).
+
+A separate `smartHomeStandard = false` describe block verifies that all positions collapse to ch=0 when smart home is disabled.
 
 ---
 

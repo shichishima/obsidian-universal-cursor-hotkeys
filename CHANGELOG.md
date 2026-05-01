@@ -1,0 +1,48 @@
+# Changelog
+
+## [0.3.0] - 2026-05-01
+
+### Added
+- Settings screen with four toggle options: Visual line movement, Smart HOME (standard), Smart HOME (advanced), and Cross-row navigation.
+- Smart HOME now works inside table cells, skipping in-cell line boundaries.
+
+## [0.2.3] - 2026-04-18
+
+### Fixed
+- Ctrl+N behavior in the bottom row of tables.
+
+## [0.2.2] - 2026-04-13
+
+### Fixed
+- Footnote Smart HOME incorrectly jumping to ch=0 due to a Live Preview widget artifact.
+
+## [0.2.1] - 2025-01-28
+
+### Added
+- "Select all" command to restore Ctrl+A select-all functionality when reassigned to HOME.
+
+### Fixed
+- Cursor movement from empty table cells.
+- Table exit conditions for file-end and header-only tables.
+- Unified delimiter-line regex for more reliable table detection.
+- Unstable `cm.dispatch` behavior in empty cells.
+
+## [0.2.0] - 2026-04-04
+
+### Added
+- Visual-line-aware UP/DOWN navigation for soft-wrapped table cells.
+- Visual-line-aware HOME (Ctrl+A) and END (Ctrl+E) for soft-wrapped lines outside tables.
+- In-cell HOME and END support.
+
+### Fixed
+- Multiple table navigation bugs in cursor-up movement.
+- Cursor placement when entering a wrapped table cell from above.
+
+## [0.1.0] - 2026-01-12
+
+### Added
+- Initial release.
+- Ctrl+P/N/B/F/A/E cursor navigation commands for text and Markdown table cells in Live Preview mode.
+- Smart HOME with Markdown marker skipping (lists, checkboxes, blockquotes, headings, footnotes).
+- Seamless table entry and exit in all directions.
+- Cross-row navigation (wrapping between rows via LEFT/RIGHT/HOME/END).

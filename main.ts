@@ -1,4 +1,4 @@
-import { Editor, Plugin, MarkdownView } from 'obsidian';
+import { App, Editor, Plugin, PluginSettingTab, Setting, MarkdownView } from 'obsidian';
 import { syntaxTree } from '@codemirror/language';
 import { EditorView } from "@codemirror/view";
 import { EditorSelection } from '@codemirror/state';
@@ -11,6 +11,21 @@ declare module "obsidian" {
 }
 
 
+interface UniversalCursorHotkeysSettings {
+	smartHomeStandard: boolean;
+	smartHomeAdvanced: boolean;
+	visualLineMovement: boolean;
+	crossRowNavigation: boolean;
+}
+
+const DEFAULT_SETTINGS: UniversalCursorHotkeysSettings = {
+	smartHomeStandard: true,
+	smartHomeAdvanced: true,
+	visualLineMovement: true,
+	crossRowNavigation: true,
+};
+
+
 interface InCellLineInfo {
 	lineType: 'single' | 'first' | 'middle' | 'last';
 	startOfInCellLine: number;   // left edge (ch position)
@@ -21,10 +36,14 @@ interface InCellLineInfo {
 
 export default class universalCursorHotkeysPlugin extends Plugin {
 
+	settings: UniversalCursorHotkeysSettings;
+
 	private readonly CELL_SEPARATOR_REGEX = /(?<!\\)\|/g;
 	private readonly TABLE_DELIMITER_REGEX = /^\s*\|?[:\s]*?-+[:\s-]*\|[:\s-|]*$/;
 
-	onload() {
+	async onload() {
+		await this.loadSettings();
+		this.addSettingTab(new UniversalCursorHotkeysSettingTab(this.app, this));
 
 		this.addCommand({
 			id: 'cursor-home',
@@ -95,6 +114,14 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	onunload() {
 
+	}
+
+	async loadSettings() {
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+	}
+
+	async saveSettings() {
+		await this.saveData(this.settings);
 	}
 
 
@@ -179,7 +206,18 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			}
 			return;
 		}
-		// Middle or right position -> move to left edge of current in-cell line.
+
+		// Smart home within cell: apply Standard/Advanced prefix detection on cell content.
+		const bounds = this.getCellBounds(line, cursor.ch);
+		if (!bounds) return;
+		const cellContent = line.slice(info.startOfInCellLine, bounds.close);
+		const smartHomePos = info.startOfInCellLine + this.getBeginningOfLinePosition(cellContent, cursor.ch - info.startOfInCellLine);
+
+		if (cursor.ch > smartHomePos) {
+			this.setCursorViaCm(editor, cursor.line, smartHomePos);
+			return;
+		}
+		// At or before smart home: step back to cell content start.
 		this.setCursorViaCm(editor, cursor.line, info.startOfInCellLine);
 	}
 
@@ -189,7 +227,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const cursor = editor.getCursor();
 		const line = editor.getLine(cursor.line);
 		const cm = editor.cm;
-		if (cm) {
+		if (cm && this.settings.visualLineMovement) {
 			const lineFrom = editor.posToOffset({ line: cursor.line, ch: 0 });
 			const currentHead = cm.state.selection.main.head;
 			const vlStart = cm.moveToLineBoundary(cm.state.selection.main, false, true);
@@ -237,7 +275,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Non-table End: visual-line-aware 2-step end.
 	private moveCursorEndNonTable(editor: Editor) {
 		const cm = editor.cm;
-		if (cm) {
+		if (cm && this.settings.visualLineMovement) {
 			const currentHead = cm.state.selection.main.head;
 			const vlEnd = cm.moveToLineBoundary(cm.state.selection.main, true, true);
 
@@ -252,7 +290,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			}
 			// Fell through: already at VL end.
 		}
-		// No cm, or already at VL end -> move to logical line end.
+		// visualLineMovement OFF, no cm, or already at VL end -> move to logical line end.
 		const cursor = editor.getCursor();
 		const line = editor.getLine(cursor.line);
 		if (cursor.ch !== line.length) {
@@ -508,6 +546,9 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 
+		// Leftmost cell: stop here when row wrapping is disabled
+		if (!this.settings.crossRowNavigation) return;
+
 		// Leftmost cell: go to previous row
 		const targetLine = this.getPrevRowLine(editor);
 		if (targetLine === -1) {
@@ -556,6 +597,9 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			}
 			return;
 		}
+
+		// Rightmost cell: stop here when row wrapping is disabled
+		if (!this.settings.crossRowNavigation) return;
 
 		// Rightmost cell: go to next row
 		const targetLine = this.getNextRowLine(editor);
@@ -1022,18 +1066,27 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 
 	// Returns the ch position of the content-start for smart Home in non-table lines.
+	// When smartHomeStandard is OFF, always returns 0 (plain logical line start).
 	private getBeginningOfLinePosition(line: string, ch: number): number {
 
-		// Headings in an unordered list
-		let result = line.match(/^(\s*[-+*]\s)?#+\s/);
-		if (result !== null && result[0].length < ch) {
-			return result[0].length;
+		if (!this.settings.smartHomeStandard) {
+			return 0;
 		}
 
-		result = line.match(/^#{1,6}\s/); // Headings
+		let result = null
+		if (this.settings.smartHomeAdvanced) {
+			// Headings in an unordered list (Adv.)
+			// `- # heading-text`, 1st after `# `, 2nd after `- `
+			result = line.match(/^(\s*[-+*]\s)?#+\s/);
+			if (result !== null && result[0].length < ch) {
+				return result[0].length;
+			}
 
-		if (result === null) {
-			result = line.match(/^\[\^.+\]:\s*/); // Footnotes
+			result = line.match(/^#{1,6}\s/); // Headings (Adv.)
+
+			if (result === null) {
+				result = line.match(/^\[\^.+\]:\s*/); // Footnotes (Adv.)
+			}
 		}
 		if (result === null) {
 			result = line.match(/^\s*\d+[.)]\s/); // Ordered lists
@@ -1058,4 +1111,93 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		return [...line.matchAll(this.CELL_SEPARATOR_REGEX)].map(m => m.index);
 	}
 
+}
+
+
+class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
+	plugin: universalCursorHotkeysPlugin;
+
+	constructor(app: App, plugin: universalCursorHotkeysPlugin) {
+		super(app, plugin);
+		this.plugin = plugin;
+	}
+
+	display(): void {
+		const { containerEl } = this;
+		containerEl.empty();
+
+		new Setting(containerEl)
+			.setName('Visual line movement')
+			.then(setting => this.setHtmlDesc(setting, '' +
+				'<b>ON:</b> HOME/END first moves to the visual line edge, then to the logical line start/end.<br>' +
+				'<b>OFF:</b> Moves directly to the logical line start/end.<br>' +
+				'<i>Does not apply inside table cells.</i>'))
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.visualLineMovement)
+				.onChange(async (value) => {
+					this.plugin.settings.visualLineMovement = value;
+					await this.plugin.saveSettings();
+				}));
+
+		let advancedEl: HTMLElement;
+		let advancedToggle: any;
+		const setAdvancedDisabled = (disabled: boolean) => {
+			advancedEl.style.opacity       = disabled ? '0.4' : '';
+			advancedEl.style.pointerEvents = disabled ? 'none' : '';
+			if (disabled && this.plugin.settings.smartHomeAdvanced) {
+				this.plugin.settings.smartHomeAdvanced = false;
+				advancedToggle.setValue(false);
+				this.plugin.saveSettings();
+			}
+		};
+
+		new Setting(containerEl)
+			.setName('Smart HOME (standard)')
+			.then(setting => this.setHtmlDesc(setting, '' +
+				'<b>ON:</b> HOME moves to the content start, after leading Markdown syntax (lists, checkboxes, indents, etc.).<br>' +
+				'<b>OFF:</b> Moves directly to the start of the line.'))
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.smartHomeStandard)
+				.onChange(async (value) => {
+					this.plugin.settings.smartHomeStandard = value;
+					setAdvancedDisabled(!value);
+					await this.plugin.saveSettings();
+				}));
+
+		advancedEl = new Setting(containerEl)
+			.setName('Smart HOME (advanced)')
+			.then(setting => this.setHtmlDesc(setting, '' +
+				'<b>ON:</b> Also skips past headings (<code>#</code>) and footnotes (<code>[^1]:</code>).<br>' +
+				'<i>Requires <b>Smart HOME (standard)</b> to be enabled.</i>'))
+			.addToggle(toggle => {
+				advancedToggle = toggle;
+				toggle.setValue(this.plugin.settings.smartHomeAdvanced)
+					.onChange(async (value) => {
+						this.plugin.settings.smartHomeAdvanced = value;
+						await this.plugin.saveSettings();
+					});
+			})
+			.settingEl;
+
+		setAdvancedDisabled(!this.plugin.settings.smartHomeStandard);
+
+		new Setting(containerEl)
+			.setName('Cross-row navigation')
+			.then(setting => this.setHtmlDesc(setting, '' +
+				'<b>ON:</b> LEFT/HOME at the leftmost cell and RIGHT/END at the rightmost cell wrap to the adjacent row.<br>' +
+				'<b>OFF:</b> Stops at the boundary.'))
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.crossRowNavigation)
+				.onChange(async (value) => {
+					this.plugin.settings.crossRowNavigation = value;
+					await this.plugin.saveSettings();
+				}));
+	}
+
+	private setHtmlDesc(setting: Setting, html: string): Setting {
+		const desc = new DocumentFragment();
+		const span = desc.createEl("span");
+		span.innerHTML = html;
+		return setting.setDesc(desc);
+	}
 }
