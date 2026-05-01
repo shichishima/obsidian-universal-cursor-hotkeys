@@ -1,10 +1,10 @@
 # Changelog
 
-## [0.3.0] - 2026-05-01
+## [0.3.0] - 2026-05-02
 
 ### Added
-- Settings screen with four toggle options: Visual line movement, Smart HOME (standard), Smart HOME (advanced), and Cross-row navigation.
-- Smart HOME now works inside table cells, skipping in-cell line boundaries.
+- Settings screen with four toggle options: Visual line movement, Smart Home (standard), Smart Home (advanced), and Cross-row navigation.
+- Smart Home now works inside table cells, skipping in-cell line boundaries.
 
 ## [0.2.3] - 2026-04-18
 
@@ -14,7 +14,7 @@
 ## [0.2.2] - 2026-04-13
 
 ### Fixed
-- Footnote Smart HOME incorrectly jumping to ch=0 due to a Live Preview widget artifact.
+- Footnote Smart Home incorrectly jumping to ch=0 due to a Live Preview widget artifact.
 
 ## [0.2.1] - 2025-01-28
 
@@ -43,6 +43,6 @@
 ### Added
 - Initial release.
 - Ctrl+P/N/B/F/A/E cursor navigation commands for text and Markdown table cells in Live Preview mode.
-- Smart HOME with Markdown marker skipping (lists, checkboxes, blockquotes, headings, footnotes).
+- Smart Home with Markdown marker skipping (lists, checkboxes, blockquotes, headings, footnotes).
 - Seamless table entry and exit in all directions.
 - Cross-row navigation (wrapping between rows via LEFT/RIGHT/HOME/END).
