@@ -1152,7 +1152,7 @@ class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		};
 
 		new Setting(containerEl)
-			.setName('Smart Home (standard)')
+			.setName('Smart home (standard)')
 			.then(setting => this.setHtmlDesc(setting, '' +
 				'<b>ON:</b> HOME moves to the content start, after leading Markdown syntax (lists, checkboxes, indents, etc.).<br>' +
 				'<b>OFF:</b> Moves directly to the start of the line.'))
@@ -1165,7 +1165,7 @@ class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				}));
 
 		advancedEl = new Setting(containerEl)
-			.setName('Smart Home (advanced)')
+			.setName('Smart home (advanced)')
 			.then(setting => this.setHtmlDesc(setting, '' +
 				'<b>ON:</b> Also skips past headings (<code>#</code>) and footnotes (<code>[^1]:</code>).<br>' +
 				'<i>Requires <b>Smart HOME (standard)</b> to be enabled.</i>'))
