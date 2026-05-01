@@ -1,4 +1,4 @@
-import { App, Editor, Plugin, PluginSettingTab, Setting, MarkdownView } from 'obsidian';
+import { App, Editor, Plugin, PluginSettingTab, Setting, MarkdownView, ToggleComponent, sanitizeHTMLToDom } from 'obsidian';
 import { syntaxTree } from '@codemirror/language';
 import { EditorView } from "@codemirror/view";
 import { EditorSelection } from '@codemirror/state';
@@ -1140,19 +1140,19 @@ class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				}));
 
 		let advancedEl: HTMLElement;
-		let advancedToggle: any;
+		let advancedToggle: ToggleComponent;
 		const setAdvancedDisabled = (disabled: boolean) => {
 			advancedEl.style.opacity       = disabled ? '0.4' : '';
 			advancedEl.style.pointerEvents = disabled ? 'none' : '';
 			if (disabled && this.plugin.settings.smartHomeAdvanced) {
 				this.plugin.settings.smartHomeAdvanced = false;
 				advancedToggle.setValue(false);
-				this.plugin.saveSettings();
+				void this.plugin.saveSettings();
 			}
 		};
 
 		new Setting(containerEl)
-			.setName('Smart HOME (standard)')
+			.setName('Smart Home (standard)')
 			.then(setting => this.setHtmlDesc(setting, '' +
 				'<b>ON:</b> HOME moves to the content start, after leading Markdown syntax (lists, checkboxes, indents, etc.).<br>' +
 				'<b>OFF:</b> Moves directly to the start of the line.'))
@@ -1165,7 +1165,7 @@ class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				}));
 
 		advancedEl = new Setting(containerEl)
-			.setName('Smart HOME (advanced)')
+			.setName('Smart Home (advanced)')
 			.then(setting => this.setHtmlDesc(setting, '' +
 				'<b>ON:</b> Also skips past headings (<code>#</code>) and footnotes (<code>[^1]:</code>).<br>' +
 				'<i>Requires <b>Smart HOME (standard)</b> to be enabled.</i>'))
@@ -1195,9 +1195,6 @@ class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 	}
 
 	private setHtmlDesc(setting: Setting, html: string): Setting {
-		const desc = new DocumentFragment();
-		const span = desc.createEl("span");
-		span.innerHTML = html;
-		return setting.setDesc(desc);
+		return setting.setDesc(sanitizeHTMLToDom(html));
 	}
 }
