@@ -3,8 +3,8 @@
 ## [0.3.0] - 2026-05-02
 
 ### Added
-- Settings screen with four toggle options: Visual line movement, Smart Home (standard), Smart Home (advanced), and Cross-row navigation.
-- Smart Home now works inside table cells, skipping in-cell line boundaries.
+- Settings screen with four toggle options: Visual line movement, Smart home (standard), Smart home (advanced), and Cross-row navigation.
+- Smart home now works inside table cells, skipping in-cell line boundaries.
 
 ## [0.2.3] - 2026-04-18
 
