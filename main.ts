@@ -123,6 +123,14 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			}
 		});
 
+		this.addCommand({
+			id: 'yank',
+			name: 'Yank',
+			editorCallback: (editor: Editor, _: MarkdownView) => {
+				this.yank(editor);
+			}
+		});
+
 		this.registerEditorExtension(
 			EditorView.updateListener.of((update) => {
 				if (!this.isKillChaining) return;
@@ -1278,6 +1286,35 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	private updateKillCache(text: string): void {
 		this.killCache = this.isKillChaining ? this.killCache + text : text;
+	}
+
+
+	//===========================================================================
+	// Yank (Ctrl-Y)
+	//===========================================================================
+
+	private yank(editor: Editor) {
+		if (!this.killCache) return;
+
+		const lineText = editor.getLine(editor.getCursor().line);
+		const inLPTable = this.isLivePreviewMode() && this.isPositionInTable(editor);
+		const inTable = inLPTable || this.isTableLineSourceMode(lineText);
+
+		const text = inTable
+			? this.killCache.replace(/\|/g, '\\|').replace(/\n/g, '<br>')
+			: this.killCache;
+
+		if (inLPTable && text.includes('<br>')) {
+			const from = editor.getCursor('from');
+			const targetLine = from.line;
+			const targetCh   = from.ch + text.length;
+			editor.replaceSelection(text);
+			setTimeout(() => {
+				this.setCursorViaCm(editor, targetLine, targetCh);
+			}, 0);
+		} else {
+			editor.replaceSelection(text);
+		}
 	}
 
 }

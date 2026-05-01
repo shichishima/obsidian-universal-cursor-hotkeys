@@ -19,6 +19,7 @@ Windows users can also use this plugin to enable Emacs-style cursor movement.
 - **Smart Home Position:** The Home command (Ctrl+A) is optimized for Markdown, intelligently moving the cursor to the start of the content by accounting for heading characters (`# `), list markers (`- `), and footnote indicators (`[^1]: `).
 - **Select All Command:** Includes a dedicated "Select all" command to replace the default Ctrl+A behavior when the hotkey is reassigned.
 - **Kill Line:** Kills from the cursor to the end of the line (or end of the in-cell line inside a table). Consecutive kills append to the kill cache and the system clipboard. Works in both Live Preview and Source Mode.
+- **Yank:** Pastes the contents of the kill cache at the cursor position. When yanking into a table cell (Live Preview or Source Mode), newlines and pipe characters are automatically converted to preserve table structure.
 
 ## How to Setup
 - **Enable the Plugin:** After installation, enable "Universal Cursor Hotkeys" in your community plugins list.
@@ -41,6 +42,7 @@ For more information on how each command behaves, please refer to the Command De
 | END   | Ctrl + E           | Smart END: Visual-line-aware; jumps to end of visual/logical line or next cell. |
 | Select all | (None)        | For Windows users: Restores "Select all" functionality if Ctrl+A is reassigned to HOME. Assign a custom key or run from the command palette. |
 | Kill line | Ctrl + K      | Kill from cursor to line end. Consecutive kills accumulate in the kill cache and clipboard. |
+| Yank | Ctrl + Y      | Paste from the kill cache. |
 
 ## Command Details
 Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
@@ -105,6 +107,13 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 - **Consecutive kills:** Each successive Kill Line appends to the kill cache rather than replacing it. Any other editing action (cursor movement, typing, mouse click) resets the accumulation.
 - **Interaction with standard copy/cut:** Pressing Ctrl+C or Ctrl+X clears the kill cache, breaking the consecutive-kill chain.
 
+### Yank
+
+- **Pastes from the kill cache**, not from the OS clipboard. Content copied via standard Ctrl+C / Ctrl+X is not accessible through Yank; use standard paste (Ctrl+V / Cmd+V) for that.
+- **Outside a table:** Inserts the kill cache text as-is at the cursor position.
+- **Within a table cell (Live Preview or Source Mode):** Newlines (`\n`) are converted to `<br>` and pipe characters (`|`) are escaped to `\|` before insertion to prevent breaking the table structure.
+- **Empty kill cache:** No operation.
+
 ## Settings
 
 | Setting | Default | Description |
@@ -120,7 +129,7 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 - **Brief scroll flash when entering a tall wrapped cell (UP):** When pressing UP into a cell whose wrapped content exceeds the screen height, the view momentarily scrolls to the cell start before jumping to the bottom visual line. This is an inherent side effect of the two-step navigation used to locate the bottom visual line within Obsidian's Live Preview table widget.
 - **Ctrl+N may exit one visual line early in soft-wrapped table cells (DOWN) (*):** When the cursor is on the second-to-last visual line past the column corresponding to the last visual line's end-of-content, Ctrl+N exits to the next row instead of advancing one visual line. Both this case and being on the last visual line itself cause `goDown` to clip to the same end-of-content position; the two states are indistinguishable via any CM6 API inside the Live Preview table widget.
 - **Shortcut Conflicts (Windows):** On Windows, these commands may conflict with system defaults (e.g., Ctrl+A for Select all). Users must manually resolve these conflicts in the settings. A dedicated "Select all" command is provided by this plugin to restore this functionality.
-- **Kill Line — pasting into a table cell (Source Mode):** In Source Mode, newlines in the kill cache are stored as `\n` and written to the clipboard as-is. Pasting this content into a table cell via standard paste will insert a literal line break, breaking the table structure. If you need to paste multi-line killed text into a table cell in Source Mode, replace `\n` with `<br>` manually after pasting.
+- **Kill Line / Yank — standard paste into a Source Mode table cell:** The kill cache stores newlines as `\n`. Pasting via standard paste (Ctrl+V / Cmd+V) into a Source Mode table cell inserts literal line breaks, breaking the table structure. Use the Yank command instead, which automatically converts `\n` to `<br>` when the cursor is inside a Source Mode table cell.
 
 ## Acknowledgments
 - The code and documentation for this plugin were developed with the assistance of AI.
