@@ -1206,7 +1206,9 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (cursor.line >= editor.lineCount() - 1) return;
 
 		const nextLineText = editor.getLine(cursor.line + 1);
-		const leadingWs = nextLineText.match(/^[ \t]*/)?.[0] ?? '';
+		const leadingWs = this.settings.smartHomeStandard
+			? (nextLineText.match(/^[ \t]*/)?.[0] ?? '')
+			: '';
 		this.updateKillCache('\n' + leadingWs);
 		navigator.clipboard.writeText(this.killCache).catch(() => {});
 		this.isDispatchingKill = true;
@@ -1366,8 +1368,8 @@ class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName('Smart HOME (standard)')
 			.then(setting => this.setHtmlDesc(setting, '' +
-				'<b>ON:</b> HOME moves to the content start, after leading Markdown syntax (lists, checkboxes, indents, etc.).<br>' +
-				'<b>OFF:</b> Moves directly to the start of the line.'))
+				'<b>ON:</b> HOME moves to the content start, after leading Markdown syntax (lists, checkboxes, indents, etc.). Kill Line also trims leading whitespace when joining lines.<br>' +
+				'<b>OFF:</b> Moves directly to the start of the line. Kill Line joins lines as-is, preserving leading whitespace.'))
 			.addToggle(toggle => toggle
 				.setValue(this.plugin.settings.smartHomeStandard)
 				.onChange(async (value) => {

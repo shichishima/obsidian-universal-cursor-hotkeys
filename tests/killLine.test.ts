@@ -90,19 +90,42 @@ describe('killLine', () => {
 	// ===========================================================================
 
 	describe('killLineNonTable — cursor at line end', () => {
-		it('joins next line, killing newline + leading whitespace', () => {
-			const editor = makeEditor(['hello', '  world'], 0, 5)
-			plugin.killLineNonTable(editor)
-			expect(editor._buf[0]).toBe('helloworld')
-			expect(plugin.killCache).toBe('\n  ')
-			expect(plugin.isKillChaining).toBe(true)
+		describe('smartHomeStandard: ON (default) — trims leading whitespace', () => {
+			it('joins next line, killing newline + leading whitespace', () => {
+				const editor = makeEditor(['hello', '  world'], 0, 5)
+				plugin.killLineNonTable(editor)
+				expect(editor._buf[0]).toBe('helloworld')
+				expect(plugin.killCache).toBe('\n  ')
+				expect(plugin.isKillChaining).toBe(true)
+			})
+
+			it('joins next line with no leading whitespace', () => {
+				const editor = makeEditor(['hello', 'world'], 0, 5)
+				plugin.killLineNonTable(editor)
+				expect(editor._buf[0]).toBe('helloworld')
+				expect(plugin.killCache).toBe('\n')
+			})
 		})
 
-		it('joins next line with no leading whitespace', () => {
-			const editor = makeEditor(['hello', 'world'], 0, 5)
-			plugin.killLineNonTable(editor)
-			expect(editor._buf[0]).toBe('helloworld')
-			expect(plugin.killCache).toBe('\n')
+		describe('smartHomeStandard: OFF — preserves leading whitespace', () => {
+			beforeEach(() => {
+				plugin.settings = { ...plugin.settings, smartHomeStandard: false }
+			})
+
+			it('joins next line without trimming leading whitespace', () => {
+				const editor = makeEditor(['hello', '  world'], 0, 5)
+				plugin.killLineNonTable(editor)
+				expect(editor._buf[0]).toBe('hello  world')
+				expect(plugin.killCache).toBe('\n')
+				expect(plugin.isKillChaining).toBe(true)
+			})
+
+			it('joins next line with no leading whitespace — same as ON', () => {
+				const editor = makeEditor(['hello', 'world'], 0, 5)
+				plugin.killLineNonTable(editor)
+				expect(editor._buf[0]).toBe('helloworld')
+				expect(plugin.killCache).toBe('\n')
+			})
 		})
 
 		it('does nothing at last line', () => {

@@ -98,7 +98,7 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 ### Kill Line
 
 - **Within text, cursor not at line end:** Kills from the cursor to the end of the logical line. The killed text is copied to the kill cache and the system clipboard.
-- **Within text, cursor at line end:** Kills the newline and any leading whitespace on the next line, joining it with the current line.
+- **Within text, cursor at line end:** Kills the newline and joins with the next line. When **Smart HOME (standard)** is ON, any leading whitespace at the start of the next line is also killed.
 - **At end of file:** No operation.
 - **Within a table cell:**
   - **Cursor not at in-cell line end:** Kills from the cursor to the end of the current in-cell line (up to `<br>` or `|`).
@@ -119,7 +119,7 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 | Setting | Default | Description |
 | ------- | :-----: | ----------- |
 | Visual Line Movement | ON | **ON:** the first HOME / END moves to the visual line edge.<br>**OFF:** moves directly to the logical line start / end. |
-| Smart HOME (Standard) | ON | **ON:** HOME jumps past leading Markdown syntax (lists, ordered lists, checkboxes, indents, blockquotes).<br>**OFF:** moves directly to the start of the line. |
+| Smart HOME (Standard) | ON | **ON:** HOME jumps past leading Markdown syntax (lists, ordered lists, checkboxes, indents, blockquotes). Kill Line also trims leading whitespace when joining lines.<br>**OFF:** moves directly to the start of the line. Kill Line joins lines as-is, preserving leading whitespace. |
 | Smart HOME (Advanced) | ON | **ON:** also skips past headings (`# `) and footnotes (`[^1]: `). Requires Smart HOME (Standard) to be ON. |
 | Cross-Row Navigation | ON | **ON:** LEFT / HOME at the first cell and RIGHT / END at the last cell wrap to the adjacent row.<br>**OFF:** stops at the boundary. |
 
