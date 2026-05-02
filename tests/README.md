@@ -132,6 +132,26 @@ No editor object is needed; they are fully unit-testable.
 
 ---
 
+### Entry points — Kill line / Yank (Ctrl-K / Ctrl-Y)
+
+| Method | Testable | Tested | Notes |
+|--------|----------|--------|-------|
+| `killLine` | 🚫 | ☐ | Branches on `isLivePreviewMode()` + `isPositionInTable()`; delegates to `killLineNonTable` or `killLineInCellContext` |
+| `yank` | ⚙️ | ☑ | Async; `navigator.clipboard` stubbed; `isLivePreviewMode` + `isPositionInTable` + `setCursorViaCm` mocked; fake timers for `<br>` path |
+
+---
+
+### Kill line helpers
+
+| Method | Testable | Tested | Notes |
+|--------|----------|--------|-------|
+| `killLineNonTable` | ⚙️ | ☑ | Editor mock with cross-line `replaceRange`; `navigator.clipboard` stubbed |
+| `killLineInCellContext` | ⚙️ | ☑ | Editor mock + fake timers; `setLine` + deferred `setCursorViaCm` path tested |
+| `normalizeKillText` | ✅ | ☑ | Pure string: `<br>` → `\n`, `\|` → `\|` |
+| `updateKillCache` | ✅ | ☑ | Uses `isKillChaining` flag; pure accumulation logic |
+
+---
+
 ### Infrastructure
 
 | Method | Testable | Tested | Notes |
@@ -141,6 +161,7 @@ No editor object is needed; they are fully unit-testable.
 | `isLivePreviewMode` | 🚫 | ☐ | `app.workspace.getActiveViewOfType` |
 | `getBeginningOfLinePosition` | ✅ | ☑ | Pure string → smart home position |
 | `getPipePositions` | ✅ | ☑ | Pure regex over string |
+| `isTableLineSourceMode` | ✅ | ☑ | Pure string: starts and ends with `\|` |
 
 ---
 
@@ -166,7 +187,7 @@ To add a case: append a row to an existing category, or add a new category objec
 
 ---
 
-### `rowNavigation.test.ts` — 15 tests
+### `rowNavigation.test.ts` — 14 tests
 
 Tests `computePrevRowLine` and `computeNextRowLine`.
 
@@ -184,7 +205,7 @@ Tests `computePrevRowLine` and `computeNextRowLine`.
 
 ---
 
-### `tableHelpers.test.ts` — 27 tests
+### `tableHelpers.test.ts` — 46 tests
 
 Tests cell-level helpers: `TABLE_DELIMITER_REGEX`, `getCellBounds`, `getStartOfCellContent`, `getEndOfCellContent`, `getPipePositions`, `getRightmostCellIndex`, `getCellIndex`, `getEndOfCellContentByCellIndex`, `getInCellLineInfo`.
 
@@ -287,6 +308,61 @@ type HomeRow = {
 Cases in `matrix` cover: VL2+ dispatch (Case 1a), VL left-edge fallthrough (Case 1b), VL1 fallthrough (Case 2), heading 2-step toggle, and the footnote widget regression (vlCh=2 < lineSmartHomePos=6).
 
 A separate `smartHomeStandard = false` describe block verifies that all positions collapse to ch=0 when smart home is disabled.
+
+---
+
+### `moveCursorDownInTable.test.ts` — 14 tests
+
+Tests `moveCursorDownInTable` (Ctrl-N / Down, in-table context).
+
+CM6 visual-line state is simulated by controlling the `getCursor` return sequence before/after `exec('goDown')`. `setCursorToNextRow` is replaced with `vi.fn()`.
+
+---
+
+### `killHelpers.test.ts` — 24 tests
+
+Tests three pure/near-pure helpers used by the kill-line feature.
+
+**All cases are array-driven loops.**
+
+`normalizeKillText` — 9 cases: plain text, `<br>` → `\n` (case-insensitive), multiple `<br>`, `\|` → `|`, combined.
+
+`updateKillCache` — 5 cases: overwrite when `isKillChaining=false`, append when `isKillChaining=true`, multi-step accumulation.
+
+`isTableLineSourceMode` — 10 cases: lines starting and ending with `|` return `true`; lines missing either boundary, indented lines, and empty string return `false`.
+
+---
+
+### `killLine.test.ts` — 15 tests
+
+Tests `killLineNonTable` and `killLineInCellContext`.
+
+**Editor mock** provides `getCursor`, `getLine`, `lineCount`, `replaceRange` (single- and cross-line), `setLine`, with a `_buf` array for post-call assertions. `navigator.clipboard.writeText` is stubbed with `vi.stubGlobal`. `setCursorViaCm` is replaced with `vi.fn()`.
+
+`killLineNonTable` cases:
+- Cursor before line end: array of `[lineText, ch, expectedLineAfter, expectedCache]`
+- Cursor at line end: joins next line, killing `\n` + leading whitespace; no-op at last line
+- Consecutive kills: second kill with `isKillChaining=true` appends to cache
+
+`killLineInCellContext` cases:
+- Cursor before `endOfInCellLine`: array of `[lineText, ch, expectedLine, expectedNormalizedCache]`; cache compared via `normalizeKillText` to be text-representation-agnostic
+- Cursor at `endOfInCellLine` of `first`/`middle` segment (kill `<br>`): uses `vi.useFakeTimers()` — asserts `setLine` synchronously, then `setCursorViaCm` + `isKillChaining=true` after `vi.runAllTimers()`
+- No-op at `last` segment end and at `single` segment end
+
+---
+
+### `yank.test.ts` — 14 tests
+
+Tests the async `yank` method.
+
+**`navigator.clipboard.readText`** is stubbed per-test via `vi.stubGlobal`. `isLivePreviewMode`, `isPositionInTable`, and `setCursorViaCm` are replaced with `vi.fn()`. Editor mock exposes `replaceSelection` as `vi.fn()`.
+
+Cases:
+- Outside table: array of `[clipboard, expectedPasted]` — plain text, `\n`, `|` all pass through unchanged; empty clipboard → no-op
+- Source mode table (`isTableLineSourceMode` is a real method, reads `getLine` return): array of `[clipboard, expectedPasted]` — `\n` → `<br>`, `|` → `\|`
+- LP table, no `<br>` in result: plain text and pipe-only content use `replaceSelection` directly
+- LP table, `<br>` in result: uses `vi.useFakeTimers()` — asserts `replaceSelection` called with converted text, then `setCursorViaCm` called at `from.ch + text.length` after `vi.runAllTimers()`
+- Clipboard fallback: when `readText` rejects, `killCache` is used; empty `killCache` → no-op
 
 ---
 
@@ -394,3 +470,64 @@ CM6 visual-line state is simulated by controlling the `getCursor` return sequenc
 
 - [x] `ch` after `goDown` equals `eoc` — `setCursorToNextRow` called
 - [x] `ch` after `goDown` exceeds `eoc` — `setCursorToNextRow` called
+
+---
+
+## `normalizeKillText(text)`
+
+- [x] `<br>` (any case) → `\n`
+- [x] Multiple `<br>` — all converted
+- [x] `\|` → `|`
+- [x] Combined `<br>` and `\|` — both converted
+- [x] Plain text — unchanged
+
+---
+
+## `updateKillCache(text)`
+
+- [x] `isKillChaining=false` — overwrites `killCache`
+- [x] `isKillChaining=true` — appends to `killCache`
+- [x] Multi-step accumulation: text + `\n` + more text
+
+---
+
+## `isTableLineSourceMode(line)`
+
+- [x] Lines starting and ending with `|` — returns `true`
+- [x] Trailing spaces trimmed before end check
+- [x] Lines missing `|` at start or end — returns `false`
+- [x] Empty string — returns `false`
+- [x] Lines with leading whitespace before `|` — returns `false`
+
+---
+
+## `killLineNonTable`
+
+- [x] Cursor before line end — kills from cursor to logical line end; `killCache` updated; `isKillChaining` set
+- [x] Cursor at line end — kills `\n` + leading whitespace of next line (join)
+- [x] Cursor at last line end — no-op
+- [x] Consecutive kills with `isKillChaining=true` — appends to `killCache`
+
+---
+
+## `killLineInCellContext`
+
+- [x] Cursor before `endOfInCellLine` — kills to in-cell line end; `normalizeKillText` applied; `isKillChaining` set
+- [x] Escaped pipe `\|` in killed text — `normalizeKillText` converts to `|` in clipboard representation
+- [x] Cursor at `endOfInCellLine` of `first`/`middle` — kills `<br>` via `setLine`; cursor deferred via `setTimeout`; `isKillChaining` set after timer
+- [x] `<br>` with trailing spaces — spaces removed along with `<br>`
+- [x] Cursor at `endOfInCellLine` of `last` segment — no-op (cell boundary)
+- [x] Cursor at `endOfInCellLine` of `single` segment — no-op
+
+---
+
+## `yank`
+
+- [x] Outside table — pastes clipboard text as-is
+- [x] Empty clipboard — no-op
+- [x] Source mode table — `\n` → `<br>`, `|` → `\|`
+- [x] LP table, no `<br>` in result — `replaceSelection` called directly
+- [x] LP table, `<br>` in result — `replaceSelection` called, then `setCursorViaCm` at `from.ch + text.length` (deferred)
+- [x] Combined `|` escape + `\n` conversion — correct deferred cursor position
+- [x] Clipboard read failure — falls back to `killCache`
+- [x] Clipboard failure + empty `killCache` — no-op
