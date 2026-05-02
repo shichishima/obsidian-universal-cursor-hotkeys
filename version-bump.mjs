@@ -1,3 +1,6 @@
+// update "minAppVersion" in manifest.json if needed
+// npm version <<newversion>>
+
 import { readFileSync, writeFileSync } from "fs";
 
 const targetVersion = process.env.npm_package_version;
