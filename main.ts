@@ -1382,7 +1382,7 @@ class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			.setName('Smart home (advanced)')
 			.then(setting => this.setHtmlDesc(setting, '' +
 				'<b>ON:</b> Also skips past headings (<code>#</code>) and footnotes (<code>[^1]:</code>).<br>' +
-				'<i>Requires <b>Smart HOME (standard)</b> to be enabled.</i>'))
+				'<i>Requires <b>Smart home (standard)</b> to be enabled.</i>'))
 			.addToggle(toggle => {
 				advancedToggle = toggle;
 				toggle.setValue(this.plugin.settings.smartHomeAdvanced)

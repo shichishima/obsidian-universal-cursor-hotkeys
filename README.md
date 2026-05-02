@@ -38,7 +38,7 @@ For more information on how each command behaves, please refer to the Command De
 | DOWN  | Ctrl + N           | Smart DOWN: Text/Cell movement and Table entry (from top) & exit (from bottom). |
 | LEFT  | Ctrl + B           | Smart LEFT: Move by character or jump to the previous cell. |
 | RIGHT | Ctrl + F           | Smart RIGHT: Move by character or jump to the next cell. |
-| HOME  | Ctrl + A           | Smart HOME: Visual-line-aware; jumps to content start (skips markers) or previous cell. |
+| HOME  | Ctrl + A           | Smart home: Visual-line-aware; jumps to content start (skips markers) or previous cell. |
 | END   | Ctrl + E           | Smart END: Visual-line-aware; jumps to end of visual/logical line or next cell. |
 | Select all | (None)        | For Windows users: Restores "Select all" functionality if Ctrl+A is reassigned to HOME. Assign a custom key or run from the command palette. |
 | Kill line | Ctrl + K      | Kill from cursor to line end. Consecutive kills accumulate in the kill cache and clipboard. |
@@ -80,7 +80,7 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 ### Cursor HOME
 - **Within text:** Moves to the beginning of the line in **3 steps**.
   - **Step 1:** Moves to the start of the current visual line (if wrapped). (→ **Visual Line Movement**)
-  - **Step 2:** Moves to the start of the actual content, skipping markers such as indentation, list markers (`- `, `* `, `+ `), checkboxes (`- [ ] `), ordered lists (`1. ` or `1) `), blockquotes (`>`), heading markers (`# `), and footnote indicators (`[^1]: `). (→ **Smart HOME** settings)
+  - **Step 2:** Moves to the start of the actual content, skipping markers such as indentation, list markers (`- `, `* `, `+ `), checkboxes (`- [ ] `), ordered lists (`1. ` or `1) `), blockquotes (`>`), heading markers (`# `), and footnote indicators (`[^1]: `). (→ **Smart home** settings)
   - **Step 3:** Moves to the absolute beginning of the logical line (ch=0).
 - **Within a table cell (*):** Moves to the beginning of the current in-cell line (the sub-line within a `<br>`-separated cell). Does not skip Markdown markers.
   - **At the beginning of an in-cell line (*):** Jumps to the end of the text in the cell to the left, or to the previous row's rightmost cell if in the leftmost column. (→ **Cross-Row Navigation**)
@@ -98,7 +98,7 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 ### Kill Line
 
 - **Within text, cursor not at line end:** Kills from the cursor to the end of the logical line. The killed text is copied to the kill cache and the system clipboard.
-- **Within text, cursor at line end:** Kills the newline and joins with the next line. When **Smart HOME (standard)** is ON, any leading whitespace at the start of the next line is also killed.
+- **Within text, cursor at line end:** Kills the newline and joins with the next line. When **Smart home (standard)** is ON, any leading whitespace at the start of the next line is also killed.
 - **At end of file:** No operation.
 - **Within a table cell:**
   - **Cursor not at in-cell line end:** Kills from the cursor to the end of the current in-cell line (up to `<br>` or `|`).
@@ -119,8 +119,8 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 | Setting | Default | Description |
 | ------- | :-----: | ----------- |
 | Visual Line Movement | ON | **ON:** the first HOME / END moves to the visual line edge.<br>**OFF:** moves directly to the logical line start / end. |
-| Smart HOME (Standard) | ON | **ON:** HOME jumps past leading Markdown syntax (lists, ordered lists, checkboxes, indents, blockquotes). Kill Line also trims leading whitespace when joining lines.<br>**OFF:** moves directly to the start of the line. Kill Line joins lines as-is, preserving leading whitespace. |
-| Smart HOME (Advanced) | ON | **ON:** also skips past headings (`# `) and footnotes (`[^1]: `). Requires Smart HOME (Standard) to be ON. |
+| Smart home (standard) | ON | **ON:** HOME jumps past leading Markdown syntax (lists, ordered lists, checkboxes, indents, blockquotes). Kill Line also trims leading whitespace when joining lines.<br>**OFF:** moves directly to the start of the line. Kill Line joins lines as-is, preserving leading whitespace. |
+| Smart home (advanced) | ON | **ON:** also skips past headings (`# `) and footnotes (`[^1]: `). Requires Smart home (standard) to be ON. |
 | Cross-Row Navigation | ON | **ON:** LEFT / HOME at the first cell and RIGHT / END at the last cell wrap to the adjacent row.<br>**OFF:** stops at the boundary. |
 
 ## Limitations
