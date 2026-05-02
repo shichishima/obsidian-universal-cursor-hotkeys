@@ -82,18 +82,21 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
   - **Step 1:** Moves to the start of the current visual line (if wrapped). (→ **Visual Line Movement**)
   - **Step 2:** Moves to the start of the actual content, skipping markers such as indentation, list markers (`- `, `* `, `+ `), checkboxes (`- [ ] `), ordered lists (`1. ` or `1) `), blockquotes (`>`), heading markers (`# `), and footnote indicators (`[^1]: `). (→ **Smart home** settings)
   - **Step 3:** Moves to the absolute beginning of the logical line (ch=0).
-- **Within a table cell (*):** Moves to the beginning of the current in-cell line (the sub-line within a `<br>`-separated cell). Does not skip Markdown markers.
-  - **At the beginning of an in-cell line (*):** Jumps to the end of the text in the cell to the left, or to the previous row's rightmost cell if in the leftmost column. (→ **Cross-Row Navigation**)
-  - **In the header row, leftmost cell, at the cell start (*):** Exits the table to the line above. (→ **Cross-Row Navigation**)
+- **Within a table cell:** Moves to the beginning of the current in-cell line (the sub-line within a `<br>`-separated cell), respecting the **Smart home** settings.
+  - **At the beginning of a non-first in-cell line (after `<br>`):** Does not move any further.
+  - **At the beginning of the first in-cell line:** Jumps to the end of the text in the cell to the left, or to the previous row's rightmost cell if in the leftmost column. (→ **Cross-Row Navigation**)
+  - **In the header row, leftmost cell, at the cell start:** Exits the table to the line above. (→ **Cross-Row Navigation**)
 
 ### Cursor END
 - **Within text:** Moves to the end of the line in **2 steps** (visual-line-aware).
   - **Step 1:** Moves to the end of the current visual line (if wrapped). (→ **Visual Line Movement**)
   - **Step 2:** Moves to the end of the logical line (the entire paragraph).
-- **Within a table cell (*):** Moves to the right edge of the in-cell line (visual-line-**un**aware).
-  - **At the end of bottom in-cell line (*):** Jumps to the beginning of the text in the cell to the right, or to the next row's leftmost cell if in the rightmost column. (→ **Cross-Row Navigation**)
-  - **At the right edge of a non-bottom in-cell line:** Does not move any further.
-  - **In the last row, rightmost cell, at cell end (*):** Exits the table to the line below. (→ **Cross-Row Navigation**)
+- **Within a table cell:** Moves to the right edge of the current in-cell line (visual-line-**un**aware).
+  - **At the right edge of a non-last in-cell line (before `<br>`):** Does not move any further.
+  - **At the right edge of the last in-cell line:** Jumps to the beginning of the text in the cell to the right, or to the next row's leftmost cell if in the rightmost column. (→ **Cross-Row Navigation**)
+  - **In the last row, rightmost cell, at cell end:** Exits the table to the line below. (→ **Cross-Row Navigation**)
+  - **In Source Mode, cursor inside a `<br>` tag:** Jumps to the right edge of the next in-cell line, skipping the `<br>` tag.
+  - **In Source Mode, cursor before the first `|` (ch=0):** Snaps to the content start of the first cell.
 
 ### Kill Line
 

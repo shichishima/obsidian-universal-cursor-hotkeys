@@ -187,6 +187,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 
+		if (!this.isLivePreviewMode() && this.isTableLineSourceMode(editor.getLine(cursor.line))) {
+			this.moveCursorHomeInTableSourceMode(editor);
+			return;
+		}
+
 		this.moveCursorHomeNonTable(editor);
 	}
 
@@ -194,6 +199,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private moveCursorEnd(editor: Editor) {
 		if (this.isLivePreviewMode() && this.isPositionInTable(editor)) {
 			this.moveCursorEndInTable(editor);
+			return;
+		}
+
+		if (!this.isLivePreviewMode() && this.isTableLineSourceMode(editor.getLine(editor.getCursor().line))) {
+			this.moveCursorEndInTableSourceMode(editor);
 			return;
 		}
 
@@ -314,6 +324,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			if (info.lineType === 'single' || info.lineType === 'last') {
 				this.moveToRightCellStart(editor);
 			}
+			// 'first' or 'middle': do nothing.
 			return;
 		}
 		// Middle or left position -> move to right edge of current in-cell line.
@@ -345,6 +356,68 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (cursor.ch !== line.length) {
 			editor.setCursor({ line: cursor.line, ch: line.length });
 		}
+	}
+
+
+	//===========================================================================
+	// Ctrl-A/E table helpers — Source Mode
+	//===========================================================================
+
+	private moveCursorHomeInTableSourceMode(editor: Editor) {
+		const cursor = editor.getCursor();
+		const line = editor.getLine(cursor.line);
+		const info = this.getInCellLineInfo(line, cursor.ch);
+		if (!info) return;
+
+		if (info.isEmpty || cursor.ch <= info.startOfInCellLine) {
+			if (info.lineType === 'single' || info.lineType === 'first') {
+				this.moveToLeftCellEndSourceMode(editor);
+			}
+			return;
+		}
+
+		const bounds = this.getCellBounds(line, cursor.ch);
+		if (!bounds) return;
+		const cellContent = line.slice(info.startOfInCellLine, bounds.close);
+		const smartHomePos = info.startOfInCellLine + this.getBeginningOfLinePosition(cellContent, cursor.ch - info.startOfInCellLine);
+
+		if (cursor.ch > smartHomePos) {
+			editor.setCursor({ line: cursor.line, ch: smartHomePos });
+			return;
+		}
+		editor.setCursor({ line: cursor.line, ch: info.startOfInCellLine });
+	}
+
+
+	private moveCursorEndInTableSourceMode(editor: Editor) {
+		const cursor = editor.getCursor();
+		const line = editor.getLine(cursor.line);
+
+		// Cursor is before the first pipe (outside any cell): snap to cell 0 content start.
+		if (cursor.ch === 0) {
+			const targetCh = this.getChByCellIndex(line, 0);
+			if (targetCh !== -1) editor.setCursor({ line: cursor.line, ch: targetCh });
+			return;
+		}
+
+		const info = this.getInCellLineInfo(line, cursor.ch);
+		if (!info) return;
+
+		if (info.isEmpty || cursor.ch >= info.endOfInCellLine) {
+			if (info.lineType === 'single' || info.lineType === 'last') {
+				this.moveToRightCellStartSourceMode(editor);
+			} else if (cursor.ch > info.endOfInCellLine) {
+				// 'first' or 'middle' with cursor strictly inside <br> text: skip to next segment's end.
+				const brLen = line.slice(info.endOfInCellLine).match(/^<[bB][rR]>([ \t]*)/)?.[0].length ?? 0;
+				if (brLen > 0) {
+					const nextInfo = this.getInCellLineInfo(line, info.endOfInCellLine + brLen);
+					if (nextInfo) editor.setCursor({ line: cursor.line, ch: nextInfo.endOfInCellLine });
+				}
+			}
+			// 'first' or 'middle' at exactly endOfInCellLine: do nothing.
+			return;
+		}
+		editor.setCursor({ line: cursor.line, ch: info.endOfInCellLine });
 	}
 
 
@@ -673,6 +746,76 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 
 	//===========================================================================
+	// Ctrl-B/F — cell boundary helpers — Source Mode
+	//===========================================================================
+
+	private moveToLeftCellEndSourceMode(editor: Editor) {
+		const cursor = editor.getCursor();
+		const line = editor.getLine(cursor.line);
+		const cellIndex = this.getCellIndex(line, cursor.ch);
+
+		if (cellIndex > 0) {
+			const targetCh = this.getEndOfCellContentByCellIndex(line, cellIndex - 1);
+			if (targetCh !== -1) {
+				editor.setCursor({ line: cursor.line, ch: targetCh });
+			}
+			return;
+		}
+
+		if (!this.settings.crossRowNavigation) return;
+
+		const targetLine = this.getPrevRowLineSourceMode(editor);
+		if (targetLine === -1) {
+			if (cursor.line > 0) {
+				editor.setCursor({ line: cursor.line - 1, ch: 0 });
+			}
+			return;
+		}
+		const targetLineText = editor.getLine(targetLine);
+		const rightmostIndex = this.getRightmostCellIndex(targetLineText);
+		const targetCh = this.getEndOfCellContentByCellIndex(targetLineText, rightmostIndex);
+		if (targetCh !== -1) {
+			editor.setCursor({ line: targetLine, ch: targetCh });
+		}
+	}
+
+
+	private moveToRightCellStartSourceMode(editor: Editor) {
+		const cursor = editor.getCursor();
+		const line = editor.getLine(cursor.line);
+		const cellIndex = this.getCellIndex(line, cursor.ch);
+		const lastCellIndex = this.getRightmostCellIndex(line);
+
+		if (cellIndex < lastCellIndex) {
+			const targetCh = this.getChByCellIndex(line, cellIndex + 1);
+			if (targetCh !== -1) {
+				editor.setCursor({ line: cursor.line, ch: targetCh });
+			}
+			return;
+		}
+
+		if (!this.settings.crossRowNavigation) return;
+
+		const targetLine = this.getNextRowLineSourceMode(editor);
+		if (targetLine === -1) {
+			let exitLine = cursor.line + 1;
+			while (exitLine < editor.lineCount() && this.isTableLineSourceMode(editor.getLine(exitLine))) {
+				exitLine++;
+			}
+			if (exitLine >= editor.lineCount()) {
+				editor.replaceRange('\n', { line: exitLine - 1, ch: editor.getLine(exitLine - 1).length });
+			}
+			editor.setCursor({ line: exitLine, ch: 0 });
+			return;
+		}
+		const targetCh = this.getChByCellIndex(editor.getLine(targetLine), 0);
+		if (targetCh !== -1) {
+			editor.setCursor({ line: targetLine, ch: targetCh });
+		}
+	}
+
+
+	//===========================================================================
 	// Table row navigation
 	//===========================================================================
 
@@ -723,6 +866,33 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			cursor.line,
 			nextLineExists && this.isPositionInTable(editor, cursor.line + 1, 1),
 			editor.getLine(cursor.line + 1),
+			lineAfterNextInTable,
+		);
+	}
+
+
+	private getPrevRowLineSourceMode(editor: Editor): number {
+		const cursor = editor.getCursor();
+		if (cursor.line === 0) return -1;
+		const prevLineText = editor.getLine(cursor.line - 1);
+		return this.computePrevRowLine(
+			cursor.line,
+			this.isTableLineSourceMode(prevLineText),
+			prevLineText,
+		);
+	}
+
+
+	private getNextRowLineSourceMode(editor: Editor): number {
+		const cursor = editor.getCursor();
+		const nextLineExists = cursor.line + 1 < editor.lineCount();
+		const nextLineText = nextLineExists ? editor.getLine(cursor.line + 1) : '';
+		const lineAfterNextInTable = cursor.line + 2 < editor.lineCount()
+			&& this.isTableLineSourceMode(editor.getLine(cursor.line + 2));
+		return this.computeNextRowLine(
+			cursor.line,
+			nextLineExists && this.isTableLineSourceMode(nextLineText),
+			nextLineText,
 			lineAfterNextInTable,
 		);
 	}
