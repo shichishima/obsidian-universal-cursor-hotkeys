@@ -127,7 +127,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: 'yank',
 			name: 'Yank',
 			editorCallback: (editor: Editor, _: MarkdownView) => {
-				this.yank(editor);
+				void this.yank(editor);
 			}
 		});
 
@@ -1293,16 +1293,22 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Yank (Ctrl-Y)
 	//===========================================================================
 
-	private yank(editor: Editor) {
-		if (!this.killCache) return;
+	private async yank(editor: Editor) {
+		let raw: string;
+		try {
+			raw = await navigator.clipboard.readText();
+		} catch {
+			raw = this.killCache;
+		}
+		if (!raw) return;
 
 		const lineText = editor.getLine(editor.getCursor().line);
 		const inLPTable = this.isLivePreviewMode() && this.isPositionInTable(editor);
 		const inTable = inLPTable || this.isTableLineSourceMode(lineText);
 
 		const text = inTable
-			? this.killCache.replace(/\|/g, '\\|').replace(/\n/g, '<br>')
-			: this.killCache;
+			? raw.replace(/\|/g, '\\|').replace(/\n/g, '<br>')
+			: raw;
 
 		if (inLPTable && text.includes('<br>')) {
 			const from = editor.getCursor('from');
