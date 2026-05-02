@@ -1,6 +1,15 @@
 # Universal Cursor Hotkeys
 Hotkey command set for macOS and Emacs-style cursor navigation and text editing. Supports seamless movement between Markdown table cells, with table-aware Kill & Yank for efficient editing.
 
+<table>
+  <tr>
+    <td align="center"><img width="450" src="https://github.com/user-attachments/assets/9e3cc803-2d95-47d9-9c7a-e205ab7b8c2b"/></td>
+    <td align="center"><img width="450" src="https://github.com/user-attachments/assets/f976b69a-779d-4ad3-a49b-a673278fe8da"/></td>
+  </tr>
+  <tr>
+    <td align="center"><img width="450" src="https://github.com/user-attachments/assets/14b0be17-67f3-4fe2-ae48-37808509b4bf"/></td>
+  </tr>
+</table>
 
 ## Why this plugin?
 In the standard Obsidian environment (especially on macOS), the Ctrl+P/N/B/F and Ctrl+A/E shortcuts often fail to work as expected within Markdown tables while in Live Preview mode.
