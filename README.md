@@ -1,5 +1,5 @@
 # Universal Cursor Hotkeys
-Hotkey command set for cursor navigation. It also supports moving between Markdown table cells in Live Preview mode.
+Hotkey command set for macOS and Emacs-style cursor navigation and text editing. Supports seamless movement between Markdown table cells, with table-aware Kill & Yank for efficient editing.
 
 
 ## Why this plugin?
@@ -9,6 +9,8 @@ The commands ensure a consistent navigation experience across your entire note, 
 
 Windows users can also use this plugin to enable Emacs-style cursor movement.
 (Note: You must manually assign the commands in the hotkey settings; please resolve any conflicts with existing system shortcuts, such as Ctrl+A for "Select all," as needed).
+
+Kill & Yank (Ctrl+K / Ctrl+Y) bring the full editing workflow into Obsidian. Kill from the cursor to the end of a line, chain multiple kills to accumulate text, then Yank it all back wherever you need it. Both commands work inside table cells too — including multi-line cells that use `<br>` — automatically handling newlines and pipe characters so your table structure is never broken.
 
 
 ## Key Features
