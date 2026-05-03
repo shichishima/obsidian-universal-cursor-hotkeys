@@ -3,11 +3,11 @@ Hotkey command set for macOS and Emacs-style cursor navigation and text editing.
 
 <table>
   <tr>
-    <td align="center"><img width="375" src="https://github.com/user-attachments/assets/9e3cc803-2d95-47d9-9c7a-e205ab7b8c2b"/></td>
-    <td align="center"><img width="375" src="https://github.com/user-attachments/assets/f976b69a-779d-4ad3-a49b-a673278fe8da"/></td>
+    <td align="center"><img width="375" height="375" alt="Image" src="https://github.com/user-attachments/assets/b89fe375-5754-422d-bca2-4ae674077788" /></td>
+    <td align="center"><img width="375" height="375" alt="Image" src="https://github.com/user-attachments/assets/8d773e0a-c9c9-4e18-8665-19c4cf32a141" /></td>
   </tr>
   <tr>
-    <td align="center"><img width="375" src="https://github.com/user-attachments/assets/14b0be17-67f3-4fe2-ae48-37808509b4bf"/></td>
+    <td align="center"><img width="375" height="375" alt="Image" src="https://github.com/user-attachments/assets/4c38d0a4-4e9d-4645-af92-26265be68135" /></td>
   </tr>
 </table>
 
