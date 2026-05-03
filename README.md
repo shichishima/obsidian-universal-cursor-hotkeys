@@ -132,10 +132,10 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 
 | Setting | Default | Description |
 | ------- | :-----: | ----------- |
-| Visual Line Movement | ON | **ON:** the first HOME / END moves to the visual line edge.<br>**OFF:** moves directly to the logical line start / end. |
+| Visual line movement | ON | **ON:** the first HOME / END moves to the visual line edge.<br>**OFF:** moves directly to the logical line start / end. |
 | Smart home (standard) | ON | **ON:** HOME jumps past leading Markdown syntax (lists, ordered lists, checkboxes, indents, blockquotes). Kill Line also trims leading whitespace when joining lines.<br>**OFF:** moves directly to the start of the line. Kill Line joins lines as-is, preserving leading whitespace. |
 | Smart home (advanced) | ON | **ON:** also skips past headings (`# `) and footnotes (`[^1]: `). Requires Smart home (standard) to be ON. |
-| Cross-Row Navigation | ON | **ON:** LEFT / HOME at the first cell and RIGHT / END at the last cell wrap to the adjacent row.<br>**OFF:** stops at the boundary. |
+| Cross-row navigation | ON | **ON:** LEFT / HOME at the first cell and RIGHT / END at the last cell wrap to the adjacent row.<br>**OFF:** stops at the boundary. |
 
 ## Limitations
 - **No Word-Level Navigation:** Movement by word (e.g., Option/Ctrl + Left/Right) is currently not supported.
