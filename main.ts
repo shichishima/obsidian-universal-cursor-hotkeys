@@ -1,7 +1,7 @@
 import { App, Editor, Plugin, PluginSettingTab, Setting, MarkdownView, ToggleComponent, sanitizeHTMLToDom } from 'obsidian';
 import { syntaxTree } from '@codemirror/language';
 import { EditorView } from "@codemirror/view";
-import { EditorSelection } from '@codemirror/state';
+import { EditorSelection, Transaction } from '@codemirror/state';
 
 // Extend the Obsidian Editor interface to include the internal CodeMirror 6 instance (EditorView)
 declare module "obsidian" {
@@ -40,6 +40,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	private readonly CELL_SEPARATOR_REGEX = /(?<!\\)\|/g;
 	private readonly TABLE_DELIMITER_REGEX = /^\s*\|?[:\s]*?-+[:\s-]*\|[:\s-|]*$/;
+
+	private isKillChaining: boolean = false;
+	private isDispatchingKill: boolean = false;
+	private killCache: string = '';
 
 	async onload() {
 		await this.loadSettings();
@@ -110,11 +114,56 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			},
 		});
 
+		this.addCommand({
+			id: 'kill-line',
+			name: 'Kill line',
+			repeatable: true,
+			editorCallback: (editor: Editor, _: MarkdownView) => {
+				this.killLine(editor);
+			}
+		});
+
+		this.addCommand({
+			id: 'yank',
+			name: 'Yank',
+			editorCallback: (editor: Editor, _: MarkdownView) => {
+				void this.yank(editor);
+			}
+		});
+
+		this.registerEditorExtension(
+			EditorView.updateListener.of((update) => {
+				if (!this.isKillChaining) return;
+				if (update.docChanged || update.selectionSet) {
+					// Only reset on genuine user actions (keystrokes, arrow keys, etc.).
+					// Programmatic dispatches (our own, Obsidian's table editor re-dispatches)
+					// carry no Transaction.userEvent annotation and are ignored here.
+					const isUserAction = update.transactions.some(
+						tr => tr.annotation(Transaction.userEvent) !== undefined
+					);
+					if (isUserAction && !this.isDispatchingKill) this.isKillChaining = false;
+				}
+			})
+		);
+
+		this.registerDomEvent(document, 'mousedown', () => {
+			this.isKillChaining = false;
+		});
+
+		this.registerDomEvent(document, 'copy', () => {
+			this.killCache = '';
+		});
+
+		this.registerDomEvent(document, 'cut', () => {
+			this.killCache = '';
+		});
+
 	}
 
 	onunload() {
 
 	}
+
 
 	async loadSettings() {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
@@ -138,6 +187,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 
+		if (!this.isLivePreviewMode() && this.isTableLineSourceMode(editor.getLine(cursor.line))) {
+			this.moveCursorHomeInTableSourceMode(editor);
+			return;
+		}
+
 		this.moveCursorHomeNonTable(editor);
 	}
 
@@ -145,6 +199,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private moveCursorEnd(editor: Editor) {
 		if (this.isLivePreviewMode() && this.isPositionInTable(editor)) {
 			this.moveCursorEndInTable(editor);
+			return;
+		}
+
+		if (!this.isLivePreviewMode() && this.isTableLineSourceMode(editor.getLine(editor.getCursor().line))) {
+			this.moveCursorEndInTableSourceMode(editor);
 			return;
 		}
 
@@ -265,6 +324,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			if (info.lineType === 'single' || info.lineType === 'last') {
 				this.moveToRightCellStart(editor);
 			}
+			// 'first' or 'middle': do nothing.
 			return;
 		}
 		// Middle or left position -> move to right edge of current in-cell line.
@@ -296,6 +356,68 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (cursor.ch !== line.length) {
 			editor.setCursor({ line: cursor.line, ch: line.length });
 		}
+	}
+
+
+	//===========================================================================
+	// Ctrl-A/E table helpers — Source Mode
+	//===========================================================================
+
+	private moveCursorHomeInTableSourceMode(editor: Editor) {
+		const cursor = editor.getCursor();
+		const line = editor.getLine(cursor.line);
+		const info = this.getInCellLineInfo(line, cursor.ch);
+		if (!info) return;
+
+		if (info.isEmpty || cursor.ch <= info.startOfInCellLine) {
+			if (info.lineType === 'single' || info.lineType === 'first') {
+				this.moveToLeftCellEndSourceMode(editor);
+			}
+			return;
+		}
+
+		const bounds = this.getCellBounds(line, cursor.ch);
+		if (!bounds) return;
+		const cellContent = line.slice(info.startOfInCellLine, bounds.close);
+		const smartHomePos = info.startOfInCellLine + this.getBeginningOfLinePosition(cellContent, cursor.ch - info.startOfInCellLine);
+
+		if (cursor.ch > smartHomePos) {
+			editor.setCursor({ line: cursor.line, ch: smartHomePos });
+			return;
+		}
+		editor.setCursor({ line: cursor.line, ch: info.startOfInCellLine });
+	}
+
+
+	private moveCursorEndInTableSourceMode(editor: Editor) {
+		const cursor = editor.getCursor();
+		const line = editor.getLine(cursor.line);
+
+		// Cursor is before the first pipe (outside any cell): snap to cell 0 content start.
+		if (cursor.ch === 0) {
+			const targetCh = this.getChByCellIndex(line, 0);
+			if (targetCh !== -1) editor.setCursor({ line: cursor.line, ch: targetCh });
+			return;
+		}
+
+		const info = this.getInCellLineInfo(line, cursor.ch);
+		if (!info) return;
+
+		if (info.isEmpty || cursor.ch >= info.endOfInCellLine) {
+			if (info.lineType === 'single' || info.lineType === 'last') {
+				this.moveToRightCellStartSourceMode(editor);
+			} else if (cursor.ch > info.endOfInCellLine) {
+				// 'first' or 'middle' with cursor strictly inside <br> text: skip to next segment's end.
+				const brLen = line.slice(info.endOfInCellLine).match(/^<[bB][rR]>([ \t]*)/)?.[0].length ?? 0;
+				if (brLen > 0) {
+					const nextInfo = this.getInCellLineInfo(line, info.endOfInCellLine + brLen);
+					if (nextInfo) editor.setCursor({ line: cursor.line, ch: nextInfo.endOfInCellLine });
+				}
+			}
+			// 'first' or 'middle' at exactly endOfInCellLine: do nothing.
+			return;
+		}
+		editor.setCursor({ line: cursor.line, ch: info.endOfInCellLine });
 	}
 
 
@@ -624,6 +746,76 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 
 	//===========================================================================
+	// Ctrl-B/F — cell boundary helpers — Source Mode
+	//===========================================================================
+
+	private moveToLeftCellEndSourceMode(editor: Editor) {
+		const cursor = editor.getCursor();
+		const line = editor.getLine(cursor.line);
+		const cellIndex = this.getCellIndex(line, cursor.ch);
+
+		if (cellIndex > 0) {
+			const targetCh = this.getEndOfCellContentByCellIndex(line, cellIndex - 1);
+			if (targetCh !== -1) {
+				editor.setCursor({ line: cursor.line, ch: targetCh });
+			}
+			return;
+		}
+
+		if (!this.settings.crossRowNavigation) return;
+
+		const targetLine = this.getPrevRowLineSourceMode(editor);
+		if (targetLine === -1) {
+			if (cursor.line > 0) {
+				editor.setCursor({ line: cursor.line - 1, ch: 0 });
+			}
+			return;
+		}
+		const targetLineText = editor.getLine(targetLine);
+		const rightmostIndex = this.getRightmostCellIndex(targetLineText);
+		const targetCh = this.getEndOfCellContentByCellIndex(targetLineText, rightmostIndex);
+		if (targetCh !== -1) {
+			editor.setCursor({ line: targetLine, ch: targetCh });
+		}
+	}
+
+
+	private moveToRightCellStartSourceMode(editor: Editor) {
+		const cursor = editor.getCursor();
+		const line = editor.getLine(cursor.line);
+		const cellIndex = this.getCellIndex(line, cursor.ch);
+		const lastCellIndex = this.getRightmostCellIndex(line);
+
+		if (cellIndex < lastCellIndex) {
+			const targetCh = this.getChByCellIndex(line, cellIndex + 1);
+			if (targetCh !== -1) {
+				editor.setCursor({ line: cursor.line, ch: targetCh });
+			}
+			return;
+		}
+
+		if (!this.settings.crossRowNavigation) return;
+
+		const targetLine = this.getNextRowLineSourceMode(editor);
+		if (targetLine === -1) {
+			let exitLine = cursor.line + 1;
+			while (exitLine < editor.lineCount() && this.isTableLineSourceMode(editor.getLine(exitLine))) {
+				exitLine++;
+			}
+			if (exitLine >= editor.lineCount()) {
+				editor.replaceRange('\n', { line: exitLine - 1, ch: editor.getLine(exitLine - 1).length });
+			}
+			editor.setCursor({ line: exitLine, ch: 0 });
+			return;
+		}
+		const targetCh = this.getChByCellIndex(editor.getLine(targetLine), 0);
+		if (targetCh !== -1) {
+			editor.setCursor({ line: targetLine, ch: targetCh });
+		}
+	}
+
+
+	//===========================================================================
 	// Table row navigation
 	//===========================================================================
 
@@ -674,6 +866,33 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			cursor.line,
 			nextLineExists && this.isPositionInTable(editor, cursor.line + 1, 1),
 			editor.getLine(cursor.line + 1),
+			lineAfterNextInTable,
+		);
+	}
+
+
+	private getPrevRowLineSourceMode(editor: Editor): number {
+		const cursor = editor.getCursor();
+		if (cursor.line === 0) return -1;
+		const prevLineText = editor.getLine(cursor.line - 1);
+		return this.computePrevRowLine(
+			cursor.line,
+			this.isTableLineSourceMode(prevLineText),
+			prevLineText,
+		);
+	}
+
+
+	private getNextRowLineSourceMode(editor: Editor): number {
+		const cursor = editor.getCursor();
+		const nextLineExists = cursor.line + 1 < editor.lineCount();
+		const nextLineText = nextLineExists ? editor.getLine(cursor.line + 1) : '';
+		const lineAfterNextInTable = cursor.line + 2 < editor.lineCount()
+			&& this.isTableLineSourceMode(editor.getLine(cursor.line + 2));
+		return this.computeNextRowLine(
+			cursor.line,
+			nextLineExists && this.isTableLineSourceMode(nextLineText),
+			nextLineText,
 			lineAfterNextInTable,
 		);
 	}
@@ -1111,6 +1330,171 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		return [...line.matchAll(this.CELL_SEPARATOR_REGEX)].map(m => m.index);
 	}
 
+
+	private isTableLineSourceMode(line: string): boolean {
+		const trimmed = line.trimEnd();
+		return trimmed.startsWith('|') && trimmed.endsWith('|');
+	}
+
+
+	//===========================================================================
+	// Kill line (Ctrl-K)
+	//===========================================================================
+
+	private killLine(editor: Editor) {
+		const lineText = editor.getLine(editor.getCursor().line);
+		const inLPTable = this.isLivePreviewMode() && this.isPositionInTable(editor);
+		const inSourceTable = !this.isLivePreviewMode() && this.isTableLineSourceMode(lineText);
+
+		if (inLPTable || inSourceTable) {
+			const info = this.getInCellLineInfo(lineText, editor.getCursor().ch);
+			if (info) {
+				this.killLineInCellContext(editor, info);
+				return;
+			}
+		}
+
+		this.killLineNonTable(editor);
+	}
+
+
+	private killLineNonTable(editor: Editor) {
+		const cursor = editor.getCursor();
+		const lineText = editor.getLine(cursor.line);
+
+		if (cursor.ch < lineText.length) {
+			const text = lineText.slice(cursor.ch);
+			this.updateKillCache(text);
+			navigator.clipboard.writeText(this.killCache).catch(() => {});
+			this.isDispatchingKill = true;
+			editor.replaceRange('', cursor, { line: cursor.line, ch: lineText.length });
+			this.isDispatchingKill = false;
+			this.isKillChaining = true;
+			return;
+		}
+
+		if (cursor.line >= editor.lineCount() - 1) return;
+
+		const nextLineText = editor.getLine(cursor.line + 1);
+		const leadingWs = this.settings.smartHomeStandard
+			? (nextLineText.match(/^[ \t]*/)?.[0] ?? '')
+			: '';
+		this.updateKillCache('\n' + leadingWs);
+		navigator.clipboard.writeText(this.killCache).catch(() => {});
+		this.isDispatchingKill = true;
+		editor.replaceRange('', { line: cursor.line, ch: lineText.length }, { line: cursor.line + 1, ch: leadingWs.length });
+		this.isDispatchingKill = false;
+		this.isKillChaining = true;
+	}
+
+
+	private killLineInCellContext(editor: Editor, info: InCellLineInfo) {
+		const cursor = editor.getCursor();
+		const lineText = editor.getLine(cursor.line);
+
+		if (cursor.ch < info.endOfInCellLine) {
+			const text = lineText.slice(cursor.ch, info.endOfInCellLine);
+			this.updateKillCache(this.normalizeKillText(text));
+			navigator.clipboard.writeText(this.killCache).catch(() => {});
+			this.isDispatchingKill = true;
+			editor.replaceRange('', cursor, { line: cursor.line, ch: info.endOfInCellLine });
+			this.isDispatchingKill = false;
+			this.isKillChaining = true;
+			return;
+		}
+
+		// lineType 'first'/'middle': kill <br> forward from endOfInCellLine
+		if (info.lineType === 'first' || info.lineType === 'middle') {
+			const brMatch = lineText.slice(info.endOfInCellLine).match(/^<[bB][rR]>([ \t]*)/);
+			if (brMatch) {
+				const toCh = info.endOfInCellLine + brMatch[0].length;
+				const targetCh = info.endOfInCellLine;
+				const targetLine = cursor.line;
+				this.updateKillCache('\n');
+				navigator.clipboard.writeText(this.killCache).catch(() => {});
+				this.isDispatchingKill = true;
+				editor.setLine(targetLine, lineText.slice(0, targetCh) + lineText.slice(toCh));
+				this.isDispatchingKill = false;
+				// Defer cursor restore until after Obsidian's table editor re-dispatch settles,
+				// then set isKillChaining so the chain isn't broken by that re-dispatch.
+				setTimeout(() => {
+					this.isDispatchingKill = true;
+					this.setCursorViaCm(editor, targetLine, targetCh);
+					this.isDispatchingKill = false;
+					this.isKillChaining = true;
+				}, 0);
+				return;
+			}
+		}
+
+		// LP cursor snap: cursor may land at br.end (= startOfInCellLine of 'middle'/'last')
+		// rather than br.start. Kill the <br> that ends at cursor.ch.
+		if ((info.lineType === 'middle' || info.lineType === 'last') && cursor.ch === info.startOfInCellLine) {
+			const brMatch = lineText.slice(0, cursor.ch).match(/<[bB][rR]>([ \t]*)$/);
+			if (brMatch) {
+				const brStart = cursor.ch - brMatch[0].length;
+				const targetLine = cursor.line;
+				this.updateKillCache('\n');
+				navigator.clipboard.writeText(this.killCache).catch(() => {});
+				this.isDispatchingKill = true;
+				editor.setLine(targetLine, lineText.slice(0, brStart) + lineText.slice(cursor.ch));
+				this.isDispatchingKill = false;
+				setTimeout(() => {
+					this.isDispatchingKill = true;
+					this.setCursorViaCm(editor, targetLine, brStart);
+					this.isDispatchingKill = false;
+					this.isKillChaining = true;
+				}, 0);
+				return;
+			}
+		}
+	}
+
+
+	private normalizeKillText(text: string): string {
+		return text.replace(/<[bB][rR]>/g, '\n').replace(/\\\|/g, '|');
+	}
+
+
+	private updateKillCache(text: string): void {
+		this.killCache = this.isKillChaining ? this.killCache + text : text;
+	}
+
+
+	//===========================================================================
+	// Yank (Ctrl-Y)
+	//===========================================================================
+
+	private async yank(editor: Editor) {
+		let raw: string;
+		try {
+			raw = await navigator.clipboard.readText();
+		} catch {
+			raw = this.killCache;
+		}
+		if (!raw) return;
+
+		const lineText = editor.getLine(editor.getCursor().line);
+		const inLPTable = this.isLivePreviewMode() && this.isPositionInTable(editor);
+		const inTable = inLPTable || this.isTableLineSourceMode(lineText);
+
+		const text = inTable
+			? raw.replace(/\|/g, '\\|').replace(/\n/g, '<br>')
+			: raw;
+
+		if (inLPTable && text.includes('<br>')) {
+			const from = editor.getCursor('from');
+			const targetLine = from.line;
+			const targetCh   = from.ch + text.length;
+			editor.replaceSelection(text);
+			setTimeout(() => {
+				this.setCursorViaCm(editor, targetLine, targetCh);
+			}, 0);
+		} else {
+			editor.replaceSelection(text);
+		}
+	}
+
 }
 
 
@@ -1154,8 +1538,8 @@ class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName('Smart home (standard)')
 			.then(setting => this.setHtmlDesc(setting, '' +
-				'<b>ON:</b> HOME moves to the content start, after leading Markdown syntax (lists, checkboxes, indents, etc.).<br>' +
-				'<b>OFF:</b> Moves directly to the start of the line.'))
+				'<b>ON:</b> HOME moves to the content start, after leading Markdown syntax (lists, checkboxes, indents, etc.). Kill Line also trims leading whitespace when joining lines.<br>' +
+				'<b>OFF:</b> Moves directly to the start of the line. Kill Line joins lines as-is, preserving leading whitespace.'))
 			.addToggle(toggle => toggle
 				.setValue(this.plugin.settings.smartHomeStandard)
 				.onChange(async (value) => {
@@ -1168,7 +1552,7 @@ class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			.setName('Smart home (advanced)')
 			.then(setting => this.setHtmlDesc(setting, '' +
 				'<b>ON:</b> Also skips past headings (<code>#</code>) and footnotes (<code>[^1]:</code>).<br>' +
-				'<i>Requires <b>Smart HOME (standard)</b> to be enabled.</i>'))
+				'<i>Requires <b>Smart home (standard)</b> to be enabled.</i>'))
 			.addToggle(toggle => {
 				advancedToggle = toggle;
 				toggle.setValue(this.plugin.settings.smartHomeAdvanced)

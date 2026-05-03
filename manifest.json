@@ -1,8 +1,8 @@
 {
 	"id": "universal-cursor-hotkeys",
 	"name": "Universal Cursor Hotkeys",
-	"version": "0.3.0",
-	"minAppVersion": "0.15.0",
+	"version": "0.4.0",
+	"minAppVersion": "1.5.0",
 	"description": "Use Ctrl+PNBF/AE (macOS and Emacs-style) navigation to move seamlessly between text and Markdown table cells.",
 	"author": "shichishima",
 	"authorUrl": "https://github.com/shichishima",
