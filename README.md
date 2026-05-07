@@ -31,6 +31,7 @@ Kill & Yank (Ctrl+K / Ctrl+Y) bring the full editing workflow into Obsidian. Kil
 - **Select All Command:** Includes a dedicated "Select all" command to replace the default Ctrl+A behavior when the hotkey is reassigned.
 - **Kill Line:** Kills from the cursor to the end of the line (or end of the in-cell line inside a table). Consecutive kills append to the kill cache and the system clipboard. Works in both Live Preview and Source Mode.
 - **Yank:** Pastes from the OS clipboard at the cursor position. When yanking into a table cell (Live Preview or Source Mode), newlines and pipe characters are automatically converted to preserve table structure.
+- **Page Down / Page Up:** Scrolls the view down or up by one page, moving the cursor with it.
 
 ## How to Setup
 - **Enable the Plugin:** After installation, enable "Universal Cursor Hotkeys" in your community plugins list.
@@ -54,6 +55,8 @@ For more information on how each command behaves, please refer to the Command De
 | Select all | (None)        | For Windows users: Restores "Select all" functionality if Ctrl+A is reassigned to HOME. Assign a custom key or run from the command palette. |
 | Kill line | Ctrl + K      | Kill from cursor to line end. Consecutive kills accumulate in the kill cache and clipboard. |
 | Yank | Ctrl + Y      | Paste from the OS clipboard. Table-aware: converts newlines and pipes automatically. |
+| Page down | Ctrl + V      | Scroll down one page, moving the cursor with it. |
+| Page up | Cmd + V (Alt + V) | Scroll up one page, moving the cursor with it. |
 
 ## Command Details
 Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
@@ -127,6 +130,12 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 - **Outside a table:** Inserts the clipboard text as-is.
 - **Within a table cell (Live Preview or Source Mode):** Newlines (`\n`) are converted to `<br>` and pipe characters (`|`) are escaped to `\|` before insertion to prevent breaking the table structure.
 - **Empty clipboard:** No operation.
+
+### Page down / Page up
+
+- Scrolls the view down (Page down) or up (Page up) by one page, moving the cursor with it.
+- Behavior is independent of cursor position — works the same in plain text and inside table cells.
+- **Shortcut conflicts:** Ctrl+V is the standard Paste shortcut on Windows. Cmd+V is the standard Paste shortcut on macOS. Both conflicts must be resolved manually in the hotkey settings.
 
 ## Settings
 
