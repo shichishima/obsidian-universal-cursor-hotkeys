@@ -156,10 +156,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: 'recenter',
 			name: 'Recenter',
 			editorCallback: (editor: Editor) => {
-				const cm = editor.cm;
-				if (cm) cm.dispatch({
-					effects: EditorView.scrollIntoView(cm.state.selection.main.head, { y: 'center' })
-				});
+				this.recenter(editor);
 			}
 		});
 
@@ -1297,6 +1294,44 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	// Use cm.dispatch directly to avoid triggering Obsidian's table editor
 	// interference that occurs when moving the cursor within a Live Preview table.
+	private recenter(editor: Editor) {
+		const cm = editor.cm;
+		if (!cm) return;
+
+		if (!this.isLivePreviewMode() || !this.isPositionInTable(editor)) {
+			cm.dispatch({
+				effects: EditorView.scrollIntoView(cm.state.selection.main.head, { y: 'center' })
+			});
+			return;
+		}
+
+		// Inside a Live Preview table widget, coordsAtPos is unreliable (returns dead/constant
+		// coordinates). Use window.getSelection() to get the actual browser cursor rect instead.
+		const browserSel = window.getSelection();
+		if (!browserSel || browserSel.rangeCount === 0) return;
+
+		const range = browserSel.getRangeAt(0);
+		const rangeRect = range.getBoundingClientRect();
+
+		// getBoundingClientRect() returns zeros when the range is anchored to a block element
+		// at offset 0 (e.g. div.cm-active.cm-line). Fall back to the container element's rect.
+		let cursorTop: number;
+		if (rangeRect.height > 0) {
+			cursorTop = rangeRect.top;
+		} else {
+			const node = range.startContainer;
+			const el = node instanceof Element ? node : node.parentElement;
+			const elRect = el?.getBoundingClientRect();
+			if (!elRect || elRect.height === 0) return;
+			cursorTop = elRect.top;
+		}
+
+		const scrollRect = cm.scrollDOM.getBoundingClientRect();
+		const relativeTop = cursorTop - scrollRect.top + cm.scrollDOM.scrollTop;
+		cm.scrollDOM.scrollTop = relativeTop - cm.scrollDOM.clientHeight / 2;
+	}
+
+
 	private setCursorViaCm(editor: Editor, line: number, ch: number) {
 		const cm  = editor.cm;
 		const pos = editor.posToOffset({ line, ch });
