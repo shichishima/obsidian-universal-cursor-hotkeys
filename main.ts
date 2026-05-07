@@ -2,6 +2,7 @@ import { App, Editor, Plugin, PluginSettingTab, Setting, MarkdownView, ToggleCom
 import { syntaxTree } from '@codemirror/language';
 import { EditorView } from "@codemirror/view";
 import { EditorSelection, Transaction } from '@codemirror/state';
+import { cursorPageDown, cursorPageUp } from '@codemirror/commands';
 
 // Extend the Obsidian Editor interface to include the internal CodeMirror 6 instance (EditorView)
 declare module "obsidian" {
@@ -128,6 +129,24 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Yank',
 			editorCallback: (editor: Editor, _: MarkdownView) => {
 				void this.yank(editor);
+			}
+		});
+
+		this.addCommand({
+			id: 'page-down',
+			name: 'Page down',
+			repeatable: true,
+			editorCallback: (editor: Editor) => {
+				this.moveCursorPageDown(editor);
+			}
+		});
+
+		this.addCommand({
+			id: 'page-up',
+			name: 'Page up',
+			repeatable: true,
+			editorCallback: (editor: Editor) => {
+				this.moveCursorPageUp(editor);
 			}
 		});
 
@@ -1334,6 +1353,21 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private isTableLineSourceMode(line: string): boolean {
 		const trimmed = line.trimEnd();
 		return trimmed.startsWith('|') && trimmed.endsWith('|');
+	}
+
+
+	//===========================================================================
+	// Scroll Page Down / Up (Ctrl-V / Meta-V)
+	//===========================================================================
+
+	private moveCursorPageDown(editor: Editor) {
+		const cm = editor.cm;
+		if (cm) cursorPageDown(cm);
+	}
+
+	private moveCursorPageUp(editor: Editor) {
+		const cm = editor.cm;
+		if (cm) cursorPageUp(cm);
 	}
 
 
