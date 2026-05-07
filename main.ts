@@ -175,15 +175,15 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			})
 		);
 
-		this.registerDomEvent(document, 'mousedown', () => {
+		this.registerDomEvent(activeDocument, 'mousedown', () => {
 			this.isKillChaining = false;
 		});
 
-		this.registerDomEvent(document, 'copy', () => {
+		this.registerDomEvent(activeDocument, 'copy', () => {
 			this.killCache = '';
 		});
 
-		this.registerDomEvent(document, 'cut', () => {
+		this.registerDomEvent(activeDocument, 'cut', () => {
 			this.killCache = '';
 		});
 
@@ -195,7 +195,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 
 	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData()) as UniversalCursorHotkeysSettings;
 	}
 
 	async saveSettings() {
@@ -1201,7 +1201,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Schedules moveToBottomVisualLineOfCell for the next event loop tick.
 	// Used after synchronous cursor placement to let the DOM settle first.
 	private scheduleBottomVisualLine(editor: Editor) {
-		setTimeout(() => {
+		activeWindow.setTimeout(() => {
 			if (this.isPositionInTable(editor)) {
 				this.moveToBottomVisualLineOfCell(editor);
 			}
@@ -1255,7 +1255,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}
 
 		if (breakReason === 'endOfCell') {
-			setTimeout(() => { this.setCursorViaCm(editor, lastPos.line, lastPos.ch); }, 0);
+			activeWindow.setTimeout(() => { this.setCursorViaCm(editor, lastPos.line, lastPos.ch); }, 0);
 			return;
 		}
 
@@ -1307,7 +1307,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 		// Inside a Live Preview table widget, coordsAtPos is unreliable (returns dead/constant
 		// coordinates). Use window.getSelection() to get the actual browser cursor rect instead.
-		const browserSel = window.getSelection();
+		const browserSel = activeWindow.getSelection();
 		if (!browserSel || browserSel.rangeCount === 0) return;
 
 		const range = browserSel.getRangeAt(0);
@@ -1320,7 +1320,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			cursorTop = rangeRect.top;
 		} else {
 			const node = range.startContainer;
-			const el = node instanceof Element ? node : node.parentElement;
+			const el = node.instanceOf(Element) ? node : node.parentElement;
 			const elRect = el?.getBoundingClientRect();
 			if (!elRect || elRect.height === 0) return;
 			cursorTop = elRect.top;
@@ -1484,7 +1484,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				this.isDispatchingKill = false;
 				// Defer cursor restore until after Obsidian's table editor re-dispatch settles,
 				// then set isKillChaining so the chain isn't broken by that re-dispatch.
-				setTimeout(() => {
+				activeWindow.setTimeout(() => {
 					this.isDispatchingKill = true;
 					this.setCursorViaCm(editor, targetLine, targetCh);
 					this.isDispatchingKill = false;
@@ -1506,7 +1506,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				this.isDispatchingKill = true;
 				editor.setLine(targetLine, lineText.slice(0, brStart) + lineText.slice(cursor.ch));
 				this.isDispatchingKill = false;
-				setTimeout(() => {
+				activeWindow.setTimeout(() => {
 					this.isDispatchingKill = true;
 					this.setCursorViaCm(editor, targetLine, brStart);
 					this.isDispatchingKill = false;
@@ -1554,7 +1554,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			const targetLine = from.line;
 			const targetCh   = from.ch + text.length;
 			editor.replaceSelection(text);
-			setTimeout(() => {
+			activeWindow.setTimeout(() => {
 				this.setCursorViaCm(editor, targetLine, targetCh);
 			}, 0);
 		} else {
