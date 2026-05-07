@@ -31,6 +31,7 @@ Kill & Yank (Ctrl+K / Ctrl+Y) bring the full editing workflow into Obsidian. Kil
 - **Select All Command:** Includes a dedicated "Select all" command to replace the default Ctrl+A behavior when the hotkey is reassigned.
 - **Kill Line:** Kills from the cursor to the end of the line (or end of the in-cell line inside a table). Consecutive kills append to the kill cache and the system clipboard. Works in both Live Preview and Source Mode.
 - **Yank:** Pastes from the OS clipboard at the cursor position. When yanking into a table cell (Live Preview or Source Mode), newlines and pipe characters are automatically converted to preserve table structure.
+- **Page Down / Page Up:** Scrolls the view down or up by one page, moving the cursor with it.
 
 ## How to Setup
 - **Enable the Plugin:** After installation, enable "Universal Cursor Hotkeys" in your community plugins list.
@@ -51,9 +52,11 @@ For more information on how each command behaves, please refer to the Command De
 | RIGHT | Ctrl + F           | Smart RIGHT: Move by character or jump to the next cell. |
 | HOME  | Ctrl + A           | Smart home: Visual-line-aware; jumps to content start (skips markers) or previous cell. |
 | END   | Ctrl + E           | Smart END: Visual-line-aware; jumps to end of visual/logical line or next cell. |
-| Select all | (None)        | For Windows users: Restores "Select all" functionality if Ctrl+A is reassigned to HOME. Assign a custom key or run from the command palette. |
 | Kill line | Ctrl + K      | Kill from cursor to line end. Consecutive kills accumulate in the kill cache and clipboard. |
 | Yank | Ctrl + Y      | Paste from the OS clipboard. Table-aware: converts newlines and pipes automatically. |
+| Page down | Ctrl + V      | Scroll down one page, moving the cursor with it. |
+| Page up | Cmd + V<br>(Alt + V) | Scroll up one page, moving the cursor with it. |
+| Select all | (None)        | For Windows users: Restores "Select all" functionality if Ctrl+A is reassigned to HOME. Assign a custom key or run from the command palette. |
 
 ## Command Details
 Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
@@ -128,6 +131,11 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 - **Within a table cell (Live Preview or Source Mode):** Newlines (`\n`) are converted to `<br>` and pipe characters (`|`) are escaped to `\|` before insertion to prevent breaking the table structure.
 - **Empty clipboard:** No operation.
 
+### Page down / Page up
+
+- Scrolls the view down (Page down) or up (Page up) by one page, moving the cursor with it.
+- Behavior is independent of cursor position — works the same in plain text and inside table cells.
+
 ## Settings
 
 | Setting | Default | Description |
@@ -143,6 +151,9 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 - **Brief scroll flash when entering a tall wrapped cell (UP):** When pressing UP into a cell whose wrapped content exceeds the screen height, the view momentarily scrolls to the cell start before jumping to the bottom visual line. This is an inherent side effect of the two-step navigation used to locate the bottom visual line within Obsidian's Live Preview table widget.
 - **Ctrl+N may exit one visual line early in soft-wrapped table cells (DOWN) (*):** When the cursor is on the second-to-last visual line past the column corresponding to the last visual line's end-of-content, Ctrl+N exits to the next row instead of advancing one visual line. Both this case and being on the last visual line itself cause `goDown` to clip to the same end-of-content position; the two states are indistinguishable via any CM6 API inside the Live Preview table widget.
 - **Source Mode table detection is heuristic:** In Source Mode, table rows are identified by a simple string check (line starts and ends with `|`). Unlike Live Preview mode, which uses the syntax tree, this approach may produce unexpected behavior on lines that coincidentally match the pattern but are not part of a Markdown table.
-- **Shortcut Conflicts (Windows):** On Windows, these commands may conflict with system defaults (e.g., Ctrl+A for Select all). Users must manually resolve these conflicts in the settings. A dedicated "Select all" command is provided by this plugin to restore this functionality.
+- **Shortcut Conflicts**
+  - **On Windows:** Assigning Ctrl+A (HOME) or Ctrl+V (Page down) overrides the system Select all and Paste shortcuts. For Select all, use the bundled "Select all" command (run from the command palette or assign it a custom hotkey). If you assign Ctrl+V to Page down, also register Yank (Ctrl+Y) to retain paste functionality.
+  - **On macOS:** Assigning Cmd+V to Page up overrides the system Paste shortcut. If you assign Cmd+V to Page up, also register Yank (Ctrl+Y) to retain paste functionality.
+
 ## Acknowledgments
 - The code and documentation for this plugin were developed with the assistance of AI.
