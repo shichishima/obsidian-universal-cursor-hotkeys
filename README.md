@@ -32,6 +32,7 @@ Kill & Yank (Ctrl+K / Ctrl+Y) bring the full editing workflow into Obsidian. Kil
 - **Kill Line:** Kills from the cursor to the end of the line (or end of the in-cell line inside a table). Consecutive kills append to the kill cache and the system clipboard. Works in both Live Preview and Source Mode.
 - **Yank:** Pastes from the OS clipboard at the cursor position. When yanking into a table cell (Live Preview or Source Mode), newlines and pipe characters are automatically converted to preserve table structure.
 - **Page Down / Page Up:** Scrolls the view down or up by one page, moving the cursor with it.
+- **Recenter:** Scrolls the view so that the cursor line appears at the center of the screen.
 
 ## How to Setup
 - **Enable the Plugin:** After installation, enable "Universal Cursor Hotkeys" in your community plugins list.
@@ -56,6 +57,7 @@ For more information on how each command behaves, please refer to the Command De
 | Yank | Ctrl + Y      | Paste from the OS clipboard. Table-aware: converts newlines and pipes automatically. |
 | Page down | Ctrl + V      | Scroll down one page, moving the cursor with it. |
 | Page up | Cmd + V<br>(Alt + V) | Scroll up one page, moving the cursor with it. |
+| Recenter | Ctrl + L      | Scroll the view so the cursor line is centered on screen. |
 | Select all | (None)        | For Windows users: Restores "Select all" functionality if Ctrl+A is reassigned to HOME. Assign a custom key or run from the command palette. |
 
 ## Command Details
@@ -130,6 +132,11 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 - **Outside a table:** Inserts the clipboard text as-is.
 - **Within a table cell (Live Preview or Source Mode):** Newlines (`\n`) are converted to `<br>` and pipe characters (`|`) are escaped to `\|` before insertion to prevent breaking the table structure.
 - **Empty clipboard:** No operation.
+
+### Recenter
+
+- Scrolls the view so that the line the cursor is on appears at the vertical center of the screen. The cursor position does not change.
+- Works the same regardless of cursor position — plain text or inside a table cell.
 
 ### Page down / Page up
 

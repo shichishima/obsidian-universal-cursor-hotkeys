@@ -152,6 +152,17 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			}
 		});
 
+		this.addCommand({
+			id: 'recenter',
+			name: 'Recenter',
+			editorCallback: (editor: Editor) => {
+				const cm = editor.cm;
+				if (cm) cm.dispatch({
+					effects: EditorView.scrollIntoView(cm.state.selection.main.head, { y: 'center' })
+				});
+			}
+		});
+
 		this.registerEditorExtension(
 			EditorView.updateListener.of((update) => {
 				if (!this.isKillChaining) return;
