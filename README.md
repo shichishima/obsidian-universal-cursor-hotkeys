@@ -62,111 +62,6 @@ For detailed behavior of each command, see [Command Details](#command-details) b
 | Select all | (None)        | For Windows users: Restores "Select all" functionality if Ctrl+A is reassigned to HOME. Assign a custom key or run from the command palette. |
 
 
-## Command Details
-
-Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
-
-### Cursor UP
-- **Within text:** Moves up to the previous visual line, equivalent to physical cursor keys.
-- **From below a table (*):** If the cursor is on the line immediately below a table, it enters the table and moves to the left edge of the bottom visual line of the bottom-left cell.
-- **Within a table cell (*):**
-  - **First visual line:** Moves to the left edge of the bottom visual line of the cell directly above (same column). For non-wrapped cells, this is the cell start.
-  - **On other visual lines:** Moves to the visual line above within the same cell, equivalent to physical cursor keys.
-- **Exiting a table upward (*):** If in the top row of a table, exits the table to the line above.
-
-### Cursor DOWN
-- **Within text:** Moves down one visual line, equivalent to physical cursor keys.
-- **From above a table (*):** If the cursor is on the line immediately above a table, it enters the table and moves to the beginning of the top-left cell.
-- **Within a table cell (*):**
-  - **On other visual lines:** Moves to the visual line below within the same cell, equivalent to physical cursor keys.
-  - **Last visual line:** Jumps to the beginning of the cell in the row below (same column).
-- **Exiting a table downward (*):** From the last visual line of any cell in the last row, moves the cursor out of the table to the beginning of the line below.
-
-### Cursor LEFT
-- **Within text:** Moves left by one character, equivalent to physical cursor keys.
-- **Within a table cell (*):** Moves left one character within the cell content.
-- **At the beginning of cell content (*):** Jumps to the end of the text in the cell on the left (same row).
-- **In the leftmost cell, at the cell start (data row) (*):** Jumps to the end of the rightmost cell in the row above. (→ **Cross-Row Navigation**)
-- **In the leftmost cell, at the cell start (header row) (*):** Exits the table to the line above. (→ **Cross-Row Navigation**)
-
-### Cursor RIGHT
-- **Within text:** Moves right by one character, equivalent to physical cursor keys.
-- **Within a table cell (*):** Moves right one character within the cell content.
-- **At the end of cell content (*):** Jumps to the beginning of the text in the cell to the right (same row).
-- **In the rightmost cell, at the cell end (non-last row) (*):** Jumps to the beginning of the leftmost cell in the row below. (→ **Cross-Row Navigation**)
-- **In the rightmost cell, at the cell end (last row) (*):** Exits the table to the line below. (→ **Cross-Row Navigation**)
-
-### Cursor HOME
-- **Within text:** Moves to the beginning of the line in **3 steps**.
-  - **Step 1:** Moves to the start of the current visual line (if wrapped). (→ **Visual Line Movement**)
-  - **Step 2:** Moves to the start of the actual content, skipping markers such as indentation, list markers (`- `, `* `, `+ `), checkboxes (`- [ ] `), ordered lists (`1. ` or `1) `), blockquotes (`>`), heading markers (`# `), and footnote indicators (`[^1]: `). (→ **Smart home** settings)
-  - **Step 3:** Moves to the absolute beginning of the logical line (ch=0).
-- **Within a table cell:** Moves to the beginning of the current in-cell line (the sub-line within a `<br>`-separated cell), respecting the **Smart home** settings.
-  - **At the beginning of a non-first in-cell line (after `<br>`):** Does not move any further.
-  - **At the beginning of the first in-cell line:** Jumps to the end of the text in the cell to the left, or to the previous row's rightmost cell if in the leftmost column. (→ **Cross-Row Navigation**)
-  - **In the header row, leftmost cell, at the cell start:** Exits the table to the line above. (→ **Cross-Row Navigation**)
-
-### Cursor END
-- **Within text:** Moves to the end of the line in **2 steps** (visual-line-aware).
-  - **Step 1:** Moves to the end of the current visual line (if wrapped). (→ **Visual Line Movement**)
-  - **Step 2:** Moves to the end of the logical line (the entire paragraph).
-- **Within a table cell:** Moves to the right edge of the current in-cell line (visual-line-**un**aware).
-  - **At the right edge of a non-last in-cell line (before `<br>`):** Does not move any further.
-  - **At the right edge of the last in-cell line:** Jumps to the beginning of the text in the cell to the right, or to the next row's leftmost cell if in the rightmost column. (→ **Cross-Row Navigation**)
-  - **In the last row, rightmost cell, at cell end:** Exits the table to the line below. (→ **Cross-Row Navigation**)
-  - **In Source Mode, cursor inside a `<br>` tag:** Jumps to the right edge of the next in-cell line, skipping the `<br>` tag.
-  - **In Source Mode, cursor before the first `|` (ch=0):** Snaps to the content start of the first cell.
-
-### Delete Char
-
-- **Within text:** Deletes the character at the cursor position (forward delete).
-- **Within a table cell (Live Preview):**
-  - **Within cell content:** Deletes one character forward.
-  - **At the end of a non-last in-cell line (before `<br>`):** Deletes the `<br>` tag, joining the current sub-line with the next.
-  - **At the end of the last in-cell line (cell boundary):** No operation.
-- **Within a table cell (Source Mode):** Deletes one character forward without HTML tag awareness. No operation at the cell content boundary (before trailing whitespace and `|`).
-
-### Kill Line
-
-- **Within text, cursor not at line end:** Kills from the cursor to the end of the logical line. The killed text is copied to the kill cache and the system clipboard.
-- **Within text, cursor at line end:** Kills the newline and joins with the next line. When **Smart home (standard)** is ON, any leading whitespace at the start of the next line is also killed.
-- **At end of file:** No operation.
-- **Within a table cell:**
-  - **Cursor not at in-cell line end:** Kills from the cursor to the end of the current in-cell line (up to `<br>` or `|`).
-  - **At the end of an in-cell line (before `<br>`):** Deletes the `<br>` tag, joining the current in-cell line with the next.
-  - **At the end of the last in-cell line (cell boundary):** No operation.
-- **Consecutive kills:** Each successive Kill Line appends to the kill cache rather than replacing it. Any other editing action (cursor movement, typing, mouse click) resets the accumulation.
-- **Interaction with standard copy/cut:** Pressing Ctrl+C or Ctrl+X clears the kill cache, breaking the consecutive-kill chain.
-
-### Kill Region
-
-- **Outside a table:** Kills (cuts) the selected text and copies it to the kill cache and the system clipboard. The selection can span multiple lines.
-- **Empty selection:** No operation.
-- **Within a table cell (Live Preview or Source Mode):**
-  - **Single-cell selection:** Kills the selected text within the cell. The kill cache stores normalized text (`<br>` → `\n`, `\|` → `|`).
-  - **Multi-row selection (spanning multiple table rows):** No operation.
-  - **Cross-cell selection (from and to in different cells):** No operation.
-  - **Selection including `<br>` (Live Preview):** The `<br>` separator is removed along with the selected text, joining the surrounding sub-lines.
-- **Kill chain:** Kill Region always resets the consecutive-kill chain. Killed text replaces the kill cache rather than appending to it.
-
-### Yank
-
-- **Pastes from the OS clipboard** at the cursor position. Content copied via standard Ctrl+C / Ctrl+X, Kill Line, or Kill Region is accessible through Yank.
-- **Outside a table:** Inserts the clipboard text as-is.
-- **Within a table cell (Live Preview or Source Mode):** Newlines (`\n`) are converted to `<br>` and pipe characters (`|`) are escaped to `\|` before insertion to prevent breaking the table structure.
-- **Empty clipboard:** No operation.
-
-### Recenter
-
-- Scrolls the view so that the line the cursor is on appears at the vertical center of the screen. The cursor position does not change.
-- Works the same regardless of cursor position — plain text or inside a table cell.
-
-### Page down / Page up
-
-- Scrolls the view down (Page down) or up (Page up) by one page, moving the cursor with it.
-- Behavior is independent of cursor position — works the same in plain text and inside table cells.
-
-
 ## Settings
 
 | Setting | Default | Description |
@@ -187,6 +82,153 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 - **Shortcut Conflicts**
   - **On Windows:** Assigning Ctrl+A (HOME) or Ctrl+V (Page down) overrides the system Select all and Paste shortcuts. For Select all, use the bundled "Select all" command (run from the command palette or assign it a custom hotkey). If you assign Ctrl+V to Page down, also register Yank (Ctrl+Y) to retain paste functionality.
   - **On macOS:** Assigning Cmd+V to Page up overrides the system Paste shortcut. If you assign Cmd+V to Page up, also register Yank (Ctrl+Y) to retain paste functionality.
+
+
+## Command Details
+
+Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
+
+<details>
+<summary>Cursor UP</summary>
+
+- **Within text:** Moves up to the previous visual line, equivalent to physical cursor keys.
+- **From below a table (*):** If the cursor is on the line immediately below a table, it enters the table and moves to the left edge of the bottom visual line of the bottom-left cell.
+- **Within a table cell (*):**
+  - **First visual line:** Moves to the left edge of the bottom visual line of the cell directly above (same column). For non-wrapped cells, this is the cell start.
+  - **On other visual lines:** Moves to the visual line above within the same cell, equivalent to physical cursor keys.
+- **Exiting a table upward (*):** If in the top row of a table, exits the table to the line above.
+
+</details>
+
+<details>
+<summary>Cursor DOWN</summary>
+
+- **Within text:** Moves down one visual line, equivalent to physical cursor keys.
+- **From above a table (*):** If the cursor is on the line immediately above a table, it enters the table and moves to the beginning of the top-left cell.
+- **Within a table cell (*):**
+  - **On other visual lines:** Moves to the visual line below within the same cell, equivalent to physical cursor keys.
+  - **Last visual line:** Jumps to the beginning of the cell in the row below (same column).
+- **Exiting a table downward (*):** From the last visual line of any cell in the last row, moves the cursor out of the table to the beginning of the line below.
+
+</details>
+
+<details>
+<summary>Cursor LEFT</summary>
+
+- **Within text:** Moves left by one character, equivalent to physical cursor keys.
+- **Within a table cell (*):** Moves left one character within the cell content.
+- **At the beginning of cell content (*):** Jumps to the end of the text in the cell on the left (same row).
+- **In the leftmost cell, at the cell start (data row) (*):** Jumps to the end of the rightmost cell in the row above. (→ **Cross-Row Navigation**)
+- **In the leftmost cell, at the cell start (header row) (*):** Exits the table to the line above. (→ **Cross-Row Navigation**)
+
+</details>
+
+<details>
+<summary>Cursor RIGHT</summary>
+
+- **Within text:** Moves right by one character, equivalent to physical cursor keys.
+- **Within a table cell (*):** Moves right one character within the cell content.
+- **At the end of cell content (*):** Jumps to the beginning of the text in the cell to the right (same row).
+- **In the rightmost cell, at the cell end (non-last row) (*):** Jumps to the beginning of the leftmost cell in the row below. (→ **Cross-Row Navigation**)
+- **In the rightmost cell, at the cell end (last row) (*):** Exits the table to the line below. (→ **Cross-Row Navigation**)
+
+</details>
+
+<details>
+<summary>Cursor HOME</summary>
+
+- **Within text:** Moves to the beginning of the line in **3 steps**.
+  - **Step 1:** Moves to the start of the current visual line (if wrapped). (→ **Visual Line Movement**)
+  - **Step 2:** Moves to the start of the actual content, skipping markers such as indentation, list markers (`- `, `* `, `+ `), checkboxes (`- [ ] `), ordered lists (`1. ` or `1) `), blockquotes (`>`), heading markers (`# `), and footnote indicators (`[^1]: `). (→ **Smart home** settings)
+  - **Step 3:** Moves to the absolute beginning of the logical line (ch=0).
+- **Within a table cell:** Moves to the beginning of the current in-cell line (the sub-line within a `<br>`-separated cell), respecting the **Smart home** settings.
+  - **At the beginning of a non-first in-cell line (after `<br>`):** Does not move any further.
+  - **At the beginning of the first in-cell line:** Jumps to the end of the text in the cell to the left, or to the previous row's rightmost cell if in the leftmost column. (→ **Cross-Row Navigation**)
+  - **In the header row, leftmost cell, at the cell start:** Exits the table to the line above. (→ **Cross-Row Navigation**)
+
+</details>
+
+<details>
+<summary>Cursor END</summary>
+
+- **Within text:** Moves to the end of the line in **2 steps** (visual-line-aware).
+  - **Step 1:** Moves to the end of the current visual line (if wrapped). (→ **Visual Line Movement**)
+  - **Step 2:** Moves to the end of the logical line (the entire paragraph).
+- **Within a table cell:** Moves to the right edge of the current in-cell line (visual-line-**un**aware).
+  - **At the right edge of a non-last in-cell line (before `<br>`):** Does not move any further.
+  - **At the right edge of the last in-cell line:** Jumps to the beginning of the text in the cell to the right, or to the next row's leftmost cell if in the rightmost column. (→ **Cross-Row Navigation**)
+  - **In the last row, rightmost cell, at cell end:** Exits the table to the line below. (→ **Cross-Row Navigation**)
+  - **In Source Mode, cursor inside a `<br>` tag:** Jumps to the right edge of the next in-cell line, skipping the `<br>` tag.
+  - **In Source Mode, cursor before the first `|` (ch=0):** Snaps to the content start of the first cell.
+
+</details>
+
+<details>
+<summary>Delete Char</summary>
+
+- **Within text:** Deletes the character at the cursor position (forward delete).
+- **Within a table cell (Live Preview):**
+  - **Within cell content:** Deletes one character forward.
+  - **At the end of a non-last in-cell line (before `<br>`):** Deletes the `<br>` tag, joining the current sub-line with the next.
+  - **At the end of the last in-cell line (cell boundary):** No operation.
+- **Within a table cell (Source Mode):** Deletes one character forward without HTML tag awareness. No operation at the cell content boundary (before trailing whitespace and `|`).
+
+</details>
+
+<details>
+<summary>Kill Line</summary>
+
+- **Within text, cursor not at line end:** Kills from the cursor to the end of the logical line. The killed text is copied to the kill cache and the system clipboard.
+- **Within text, cursor at line end:** Kills the newline and joins with the next line. When **Smart home (standard)** is ON, any leading whitespace at the start of the next line is also killed.
+- **At end of file:** No operation.
+- **Within a table cell:**
+  - **Cursor not at in-cell line end:** Kills from the cursor to the end of the current in-cell line (up to `<br>` or `|`).
+  - **At the end of an in-cell line (before `<br>`):** Deletes the `<br>` tag, joining the current in-cell line with the next.
+  - **At the end of the last in-cell line (cell boundary):** No operation.
+- **Consecutive kills:** Each successive Kill Line appends to the kill cache rather than replacing it. Any other editing action (cursor movement, typing, mouse click) resets the accumulation.
+- **Interaction with standard copy/cut:** Pressing Ctrl+C or Ctrl+X clears the kill cache, breaking the consecutive-kill chain.
+
+</details>
+
+<details>
+<summary>Kill Region</summary>
+
+- **Outside a table:** Kills (cuts) the selected text and copies it to the kill cache and the system clipboard. The selection can span multiple lines.
+- **Empty selection:** No operation.
+- **Within a table cell (Live Preview or Source Mode):**
+  - **Single-cell selection:** Kills the selected text within the cell. The kill cache stores normalized text (`<br>` → `\n`, `\|` → `|`).
+  - **Multi-row selection (spanning multiple table rows):** No operation.
+  - **Cross-cell selection (from and to in different cells):** No operation.
+  - **Selection including `<br>` (Live Preview):** The `<br>` separator is removed along with the selected text, joining the surrounding sub-lines.
+- **Kill chain:** Kill Region always resets the consecutive-kill chain. Killed text replaces the kill cache rather than appending to it.
+
+</details>
+
+<details>
+<summary>Yank</summary>
+
+- **Pastes from the OS clipboard** at the cursor position. Content copied via standard Ctrl+C / Ctrl+X, Kill Line, or Kill Region is accessible through Yank.
+- **Outside a table:** Inserts the clipboard text as-is.
+- **Within a table cell (Live Preview or Source Mode):** Newlines (`\n`) are converted to `<br>` and pipe characters (`|`) are escaped to `\|` before insertion to prevent breaking the table structure.
+- **Empty clipboard:** No operation.
+
+</details>
+
+<details>
+<summary>Recenter</summary>
+
+- Scrolls the view so that the line the cursor is on appears at the vertical center of the screen. The cursor position does not change.
+- Works the same regardless of cursor position — plain text or inside a table cell.
+
+</details>
+
+<details>
+<summary>Page down / Page up</summary>
+
+- Scrolls the view down (Page down) or up (Page up) by one page, moving the cursor with it.
+- Behavior is independent of cursor position — works the same in plain text and inside table cells.
+
+</details>
 
 
 ## Acknowledgments
