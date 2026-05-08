@@ -1,5 +1,5 @@
 # Universal Cursor Hotkeys
-Hotkey command set for macOS and Emacs-style cursor navigation and text editing. Supports seamless movement between Markdown table cells, with table-aware Kill & Yank for efficient editing.
+macOS/Emacs-style navigation and Kill & Yank — seamlessly across Markdown tables.
 
 <table>
   <tr>
@@ -11,41 +11,38 @@ Hotkey command set for macOS and Emacs-style cursor navigation and text editing.
   </tr>
 </table>
 
-## Why this plugin?
-In the standard Obsidian environment (especially on macOS), the Ctrl+P/N/B/F and Ctrl+A/E shortcuts often fail to work as expected within Markdown tables while in Live Preview mode.
-This plugin provides hotkey commands for that purpose, enabling movement between table cells just as you would with physical cursor keys.
-The commands ensure a consistent navigation experience across your entire note, supporting fluid movement in both plain text paragraphs and table cells.
+## Overview
+
+Navigate your entire note with Ctrl+P/N/B/F — including inside Markdown tables.
+On macOS, these shortcuts stop working the moment your cursor enters a table in Live Preview mode. This plugin fixes that, providing seamless movement between table cells just as you would with physical cursor keys.
 
 Windows users can also use this plugin to enable Emacs-style cursor movement.
-(Note: You must manually assign the commands in the hotkey settings; please resolve any conflicts with existing system shortcuts, such as Ctrl+A for "Select all," as needed).
+(Note: You must manually assign the commands in the hotkey settings; please resolve any conflicts with existing system shortcuts, such as Ctrl+A for "Select all," as needed.)
 
 Kill & Yank (Ctrl+K / Ctrl+Y), combined with Kill Region (Ctrl+W), bring the full editing workflow into Obsidian. Kill from the cursor to the end of a line, cut selected regions, chain multiple kills to accumulate text, then Yank it all back wherever you need it. All three commands work inside table cells too — including multi-line cells that use `<br>` — automatically handling newlines and pipe characters so your table structure is never broken.
 
 
-## Key Features
-- **Seamless Table Navigation:** Move between table cells and jump in/out of tables using the same keys as text editing.
-- **Cross-Platform Compatibility:** Enable macOS-style (Emacs) navigation for Windows users.
-- **Essential Movement Commands:** Includes support for Up (Ctrl+P), Down (Ctrl+N), Left (Ctrl+B), Right (Ctrl+F), Home (Ctrl+A), and End (Ctrl+E).
-- **Visual-Line-Aware HOME/END:** On soft-wrapped lines, HOME stops at the start of the current visual line on the first press, then moves to the content start on the next. END stops at the end of the current visual line on the first press, then moves to the logical line end on the next.
-- **Smart Home Position:** The Home command (Ctrl+A) is optimized for Markdown, intelligently moving the cursor to the start of the content by accounting for heading characters (`# `), list markers (`- `), and footnote indicators (`[^1]: `).
-- **Select All Command:** Includes a dedicated "Select all" command to replace the default Ctrl+A behavior when the hotkey is reassigned.
-- **Delete Char:** Deletes the character at the cursor (forward delete). Inside a table cell in Live Preview, stops at the cell boundary and joins `<br>`-separated sub-lines when deleting at their boundary.
-- **Kill Line:** Kills from the cursor to the end of the line (or end of the in-cell line inside a table). Consecutive kills append to the kill cache and the system clipboard. Works in both Live Preview and Source Mode.
-- **Kill Region:** Cuts the selected region to the kill cache and system clipboard. Inside a table, operates on a single-cell selection only — multi-row and cross-cell selections are no-ops to protect table structure.
-- **Yank:** Pastes from the OS clipboard at the cursor position. When yanking into a table cell (Live Preview or Source Mode), newlines and pipe characters are automatically converted to preserve table structure.
-- **Page Down / Page Up:** Scrolls the view down or up by one page, moving the cursor with it.
-- **Recenter:** Scrolls the view so that the cursor line appears at the center of the screen.
+## Install & Setup
 
-## How to Setup
-- **Enable the Plugin:** After installation, enable "Universal Cursor Hotkeys" in your community plugins list.
-- **Assign Hotkeys:** Go to the plugin settings and click the hotkey button to register and assign your preferred keys (e.g., Ctrl+P, Ctrl+N) to each command.
+### Installation via BRAT (recommended)
+
+1. Install the [BRAT plugin](https://github.com/TfTHacker/obsidian42-brat) from Obsidian's community plugins.
+2. Open BRAT settings and click **Add Beta Plugin**.
+3. Enter the repository URL: `https://github.com/shichishima/obsidian-universal-cursor-hotkeys`
+4. Click **Add Plugin**, then enable "Universal Cursor Hotkeys" in your community plugins list.
+
+### Assign Hotkeys
+
+Go to **Settings → Hotkeys**, search for "Universal Cursor Hotkeys", and assign your preferred keys (e.g., Ctrl+P, Ctrl+N) to each command.
 
 ### Note:
 - No hotkeys are assigned by default. You must manually set them to enable the navigation.
 - **Windows Users**: Assigning Ctrl+A or Ctrl+F will overwrite standard OS shortcuts like "Select all" or "Find".
 
-## Recommended Hotkey Map
-For more information on how each command behaves, please refer to the Command Details section below.
+
+## Command Reference
+
+For detailed behavior of each command, see [Command Details](#command-details) below.
 
 | Command Name | Recommended<br>Hotkey | Function Summary |
 | :--------: | :----------------: | ---------------- |
@@ -53,18 +50,20 @@ For more information on how each command behaves, please refer to the Command De
 | DOWN  | Ctrl + N           | Smart DOWN: Text/Cell movement and Table entry (from top) & exit (from bottom). |
 | LEFT  | Ctrl + B           | Smart LEFT: Move by character or jump to the previous cell. |
 | RIGHT | Ctrl + F           | Smart RIGHT: Move by character or jump to the next cell. |
-| HOME  | Ctrl + A           | Smart home: Visual-line-aware; jumps to content start (skips markers) or previous cell. |
+| HOME  | Ctrl + A           | Smart HOME: Visual-line-aware; jumps to content start (skips markers) or previous cell. |
 | END   | Ctrl + E           | Smart END: Visual-line-aware; jumps to end of visual/logical line or next cell. |
 | Delete char | Ctrl + D   | Forward-delete one character. Stops at cell boundary; joins sub-lines at `<br>` in Live Preview. |
 | Kill line | Ctrl + K      | Kill from cursor to line end. Consecutive kills accumulate in the kill cache and clipboard. |
 | Kill region | Ctrl + W    | Cut the selected region to the kill cache. Table-aware: single-cell only; no-op for multi-row or cross-cell selections. |
-| Yank | Ctrl + Y      | Paste from the OS clipboard. Table-aware: converts newlines and pipes automatically. |
+| Yank | Ctrl + Y           | Paste from the OS clipboard. Table-aware: converts newlines and pipes automatically. |
 | Page down | Ctrl + V      | Scroll down one page, moving the cursor with it. |
 | Page up | Cmd + V<br>(Alt + V) | Scroll up one page, moving the cursor with it. |
 | Recenter | Ctrl + L      | Scroll the view so the cursor line is centered on screen. |
 | Select all | (None)        | For Windows users: Restores "Select all" functionality if Ctrl+A is reassigned to HOME. Assign a custom key or run from the command palette. |
 
+
 ## Command Details
+
 Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 
 ### Cursor UP
@@ -167,6 +166,7 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 - Scrolls the view down (Page down) or up (Page up) by one page, moving the cursor with it.
 - Behavior is independent of cursor position — works the same in plain text and inside table cells.
 
+
 ## Settings
 
 | Setting | Default | Description |
@@ -175,6 +175,7 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 | Smart home (standard) | ON | **ON:** HOME jumps past leading Markdown syntax (lists, ordered lists, checkboxes, indents, blockquotes). Kill Line also trims leading whitespace when joining lines.<br>**OFF:** moves directly to the start of the line. Kill Line joins lines as-is, preserving leading whitespace. |
 | Smart home (advanced) | ON | **ON:** also skips past headings (`# `) and footnotes (`[^1]: `). Requires Smart home (standard) to be ON. |
 | Cross-row navigation | ON | **ON:** LEFT / HOME at the first cell and RIGHT / END at the last cell wrap to the adjacent row.<br>**OFF:** stops at the boundary. |
+
 
 ## Limitations
 - **No Word-Level Navigation:** Movement by word (e.g., Option/Ctrl + Left/Right) is currently not supported.
@@ -186,6 +187,7 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 - **Shortcut Conflicts**
   - **On Windows:** Assigning Ctrl+A (HOME) or Ctrl+V (Page down) overrides the system Select all and Paste shortcuts. For Select all, use the bundled "Select all" command (run from the command palette or assign it a custom hotkey). If you assign Ctrl+V to Page down, also register Yank (Ctrl+Y) to retain paste functionality.
   - **On macOS:** Assigning Cmd+V to Page up overrides the system Paste shortcut. If you assign Cmd+V to Page up, also register Yank (Ctrl+Y) to retain paste functionality.
+
 
 ## Acknowledgments
 - The code and documentation for this plugin were developed with the assistance of AI.
