@@ -125,6 +125,14 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		});
 
 		this.addCommand({
+			id: 'kill-region',
+			name: 'Kill region',
+			editorCallback: (editor: Editor) => {
+				this.killRegion(editor);
+			}
+		});
+
+		this.addCommand({
 			id: 'kill-line',
 			name: 'Kill line',
 			repeatable: true,
@@ -1619,6 +1627,72 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 
 	//===========================================================================
+	// Kill region (Ctrl-W)
+	//===========================================================================
+
+	private killRegion(editor: Editor) {
+		const from = editor.getCursor('from');
+		const to   = editor.getCursor('to');
+		if (from.line === to.line && from.ch === to.ch) return;
+
+		const fromLine = editor.getLine(from.line);
+		const toLine   = editor.getLine(to.line);
+
+		const inLPTable = this.isLivePreviewMode() && (
+			this.isPositionInTable(editor, from.line, from.ch) ||
+			this.isPositionInTable(editor, to.line,   to.ch)
+		);
+		const inSourceTable = !this.isLivePreviewMode() && (
+			this.isTableLineSourceMode(fromLine) ||
+			this.isTableLineSourceMode(toLine)
+		);
+
+		if (inLPTable || inSourceTable) {
+			if (from.line !== to.line) return;
+
+			const line        = fromLine;
+			const fromBounds  = this.getCellBounds(line, from.ch);
+			const toBounds    = this.getCellBounds(line, to.ch);
+			if (!fromBounds || !toBounds || fromBounds.open !== toBounds.open) return;
+		}
+
+		const rawText = editor.getSelection();
+		const text = (inLPTable || inSourceTable)
+			? this.normalizeKillText(rawText)
+			: rawText;
+
+		this.isKillChaining = false;
+		this.updateKillCache(text);
+		navigator.clipboard.writeText(this.killCache).catch(() => {});
+
+		if (inLPTable) {
+			const line = fromLine;
+			let prefix = line.slice(0, from.ch);
+			let suffix = line.slice(to.ch);
+			const bounds = this.getCellBounds(line, from.ch);
+			if (bounds) {
+				if (/^<[bB][rR]>/.test(suffix)) {
+					const cellContentBefore = line.slice(bounds.open + 1, from.ch).trim();
+					if (!cellContentBefore) suffix = suffix.replace(/^<[bB][rR]>([ \t]*)/, '');
+				} else if (/<[bB][rR]>$/.test(prefix)) {
+					const cellContentAfter = line.slice(to.ch, bounds.close).trim();
+					if (!cellContentAfter) prefix = prefix.replace(/<[bB][rR]>$/, '');
+				}
+			}
+			const targetLine = from.line;
+			editor.setLine(targetLine, prefix + suffix);
+			activeWindow.setTimeout(() => {
+				this.setCursorViaCm(editor, targetLine, prefix.length);
+			}, 0);
+		} else {
+			editor.replaceRange('', from, to);
+		}
+
+		this.isKillChaining = false;
+	}
+
+
+	//===========================================================================
 	// Yank (Ctrl-Y)
 	//===========================================================================
 
@@ -1640,10 +1714,17 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			: raw;
 
 		if (inLPTable && text.includes('<br>')) {
-			const from = editor.getCursor('from');
-			const targetLine = from.line;
-			const targetCh   = from.ch + text.length;
-			editor.replaceSelection(text);
+			const from        = editor.getCursor('from');
+			const to          = editor.getCursor('to');
+			const currentLine = editor.getLine(from.line);
+			const prefix      = currentLine.slice(0, from.ch);
+			const suffix      = currentLine.slice(to.ch);
+			const targetLine  = from.line;
+			// When text ends with <br>, place cursor at brStart (end of last meaningful content)
+			// to avoid landing at brEnd = close pipe on cells with no trailing space.
+			const textForCursor = text.replace(/<[bB][rR]>$/, '');
+			const targetCh      = prefix.length + textForCursor.length;
+			editor.setLine(targetLine, prefix + text + suffix);
 			activeWindow.setTimeout(() => {
 				this.setCursorViaCm(editor, targetLine, targetCh);
 			}, 0);
