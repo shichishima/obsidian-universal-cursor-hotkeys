@@ -17,9 +17,8 @@ Navigate your entire note with Ctrl+P/N/B/F — including inside Markdown tables
 On macOS, these shortcuts stop working the moment your cursor enters a table in Live Preview mode. This plugin fixes that, providing seamless movement between table cells just as you would with physical cursor keys.
 
 Windows users can also use this plugin to enable Emacs-style cursor movement.
-(Note: You must manually assign the commands in the hotkey settings; please resolve any conflicts with existing system shortcuts, such as Ctrl+A for "Select all," as needed.)
 
-Kill & Yank (Ctrl+K / Ctrl+Y), combined with Kill Region (Ctrl+W), bring the full editing workflow into Obsidian. Kill from the cursor to the end of a line, cut selected regions, chain multiple kills to accumulate text, then Yank it all back wherever you need it. All three commands work inside table cells too — including multi-line cells that use `<br>` — automatically handling newlines and pipe characters so your table structure is never broken.
+Kill & Yank (Ctrl+K / Ctrl+Y) and Kill Region (Ctrl+W) bring the full Emacs editing workflow to Obsidian — and all three work seamlessly inside table cells, automatically handling newlines and pipe characters.
 
 
 ## Install & Setup
