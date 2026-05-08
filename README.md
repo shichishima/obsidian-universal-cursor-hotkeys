@@ -29,6 +29,7 @@ Kill & Yank (Ctrl+K / Ctrl+Y) bring the full editing workflow into Obsidian. Kil
 - **Visual-Line-Aware HOME/END:** On soft-wrapped lines, HOME stops at the start of the current visual line on the first press, then moves to the content start on the next. END stops at the end of the current visual line on the first press, then moves to the logical line end on the next.
 - **Smart Home Position:** The Home command (Ctrl+A) is optimized for Markdown, intelligently moving the cursor to the start of the content by accounting for heading characters (`# `), list markers (`- `), and footnote indicators (`[^1]: `).
 - **Select All Command:** Includes a dedicated "Select all" command to replace the default Ctrl+A behavior when the hotkey is reassigned.
+- **Delete Char:** Deletes the character at the cursor (forward delete). Inside a table cell in Live Preview, stops at the cell boundary and joins `<br>`-separated sub-lines when deleting at their boundary.
 - **Kill Line:** Kills from the cursor to the end of the line (or end of the in-cell line inside a table). Consecutive kills append to the kill cache and the system clipboard. Works in both Live Preview and Source Mode.
 - **Yank:** Pastes from the OS clipboard at the cursor position. When yanking into a table cell (Live Preview or Source Mode), newlines and pipe characters are automatically converted to preserve table structure.
 - **Page Down / Page Up:** Scrolls the view down or up by one page, moving the cursor with it.
@@ -53,6 +54,7 @@ For more information on how each command behaves, please refer to the Command De
 | RIGHT | Ctrl + F           | Smart RIGHT: Move by character or jump to the next cell. |
 | HOME  | Ctrl + A           | Smart home: Visual-line-aware; jumps to content start (skips markers) or previous cell. |
 | END   | Ctrl + E           | Smart END: Visual-line-aware; jumps to end of visual/logical line or next cell. |
+| Delete char | Ctrl + D   | Forward-delete one character. Stops at cell boundary; joins sub-lines at `<br>` in Live Preview. |
 | Kill line | Ctrl + K      | Kill from cursor to line end. Consecutive kills accumulate in the kill cache and clipboard. |
 | Yank | Ctrl + Y      | Paste from the OS clipboard. Table-aware: converts newlines and pipes automatically. |
 | Page down | Ctrl + V      | Scroll down one page, moving the cursor with it. |
@@ -113,6 +115,15 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
   - **In the last row, rightmost cell, at cell end:** Exits the table to the line below. (→ **Cross-Row Navigation**)
   - **In Source Mode, cursor inside a `<br>` tag:** Jumps to the right edge of the next in-cell line, skipping the `<br>` tag.
   - **In Source Mode, cursor before the first `|` (ch=0):** Snaps to the content start of the first cell.
+
+### Delete Char
+
+- **Within text:** Deletes the character at the cursor position (forward delete).
+- **Within a table cell (Live Preview):**
+  - **Within cell content:** Deletes one character forward.
+  - **At the end of a non-last in-cell line (before `<br>`):** Deletes the `<br>` tag, joining the current sub-line with the next.
+  - **At the end of the last in-cell line (cell boundary):** No operation.
+- **Within a table cell (Source Mode):** Deletes one character forward without HTML tag awareness. No operation at the cell content boundary (before trailing whitespace and `|`).
 
 ### Kill Line
 

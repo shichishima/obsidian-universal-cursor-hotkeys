@@ -2,7 +2,7 @@ import { App, Editor, Plugin, PluginSettingTab, Setting, MarkdownView, ToggleCom
 import { syntaxTree } from '@codemirror/language';
 import { EditorView } from "@codemirror/view";
 import { EditorSelection, Transaction } from '@codemirror/state';
-import { cursorPageDown, cursorPageUp } from '@codemirror/commands';
+import { cursorPageDown, cursorPageUp, deleteCharForward } from '@codemirror/commands';
 
 // Extend the Obsidian Editor interface to include the internal CodeMirror 6 instance (EditorView)
 declare module "obsidian" {
@@ -116,6 +116,15 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		});
 
 		this.addCommand({
+			id: 'delete-char',
+			name: 'Delete char',
+			repeatable: true,
+			editorCallback: (editor: Editor) => {
+				this.deleteChar(editor);
+			}
+		});
+
+		this.addCommand({
 			id: 'kill-line',
 			name: 'Kill line',
 			repeatable: true,
@@ -127,6 +136,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		this.addCommand({
 			id: 'yank',
 			name: 'Yank',
+			repeatable: true,
 			editorCallback: (editor: Editor, _: MarkdownView) => {
 				void this.yank(editor);
 			}
@@ -1401,6 +1411,86 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private isTableLineSourceMode(line: string): boolean {
 		const trimmed = line.trimEnd();
 		return trimmed.startsWith('|') && trimmed.endsWith('|');
+	}
+
+
+	//===========================================================================
+	// Delete char (Ctrl-D)
+	//===========================================================================
+
+	private deleteChar(editor: Editor) {
+		const inLPTable = this.isLivePreviewMode() && this.isPositionInTable(editor);
+		if (inLPTable) {
+			this.deleteCharInTableLP(editor);
+			return;
+		}
+
+		const cursor = editor.getCursor();
+		const lineText = editor.getLine(cursor.line);
+		const inSourceTable = !this.isLivePreviewMode() && this.isTableLineSourceMode(lineText);
+		if (inSourceTable) {
+			this.deleteCharInTableSource(editor);
+			return;
+		}
+
+		const cm = editor.cm;
+		if (cm) deleteCharForward(cm);
+	}
+
+
+	private deleteCharInTableLP(editor: Editor) {
+		const cursor = editor.getCursor();
+		const lineText = editor.getLine(cursor.line);
+		const info = this.getInCellLineInfo(lineText, cursor.ch);
+		if (!info) {
+			const cm = editor.cm;
+			if (cm) deleteCharForward(cm);
+			return;
+		}
+
+		// At the last in-cell line's right edge: no-op (cell boundary)
+		if ((info.lineType === 'single' || info.lineType === 'last') && cursor.ch >= info.endOfInCellLine) {
+			return;
+		}
+
+		// At the end of a non-last in-cell line: delete the <br> tag to join sub-lines
+		if ((info.lineType === 'first' || info.lineType === 'middle') && cursor.ch >= info.endOfInCellLine) {
+			const brMatch = lineText.slice(info.endOfInCellLine).match(/^<[bB][rR]>([ \t]*)/);
+			if (brMatch) {
+				const brEnd = info.endOfInCellLine + brMatch[0].length;
+				const targetLine = cursor.line;
+				editor.setLine(targetLine, lineText.slice(0, info.endOfInCellLine) + lineText.slice(brEnd));
+				activeWindow.setTimeout(() => {
+					this.setCursorViaCm(editor, targetLine, info.endOfInCellLine);
+				}, 0);
+			}
+			return;
+		}
+
+		// Within cell content: delete one character forward
+		const cm = editor.cm;
+		if (cm) deleteCharForward(cm);
+	}
+
+
+	private deleteCharInTableSource(editor: Editor) {
+		const cursor = editor.getCursor();
+		const lineText = editor.getLine(cursor.line);
+		const bounds = this.getCellBounds(lineText, cursor.ch);
+
+		if (!bounds) {
+			const cm = editor.cm;
+			if (cm) deleteCharForward(cm);
+			return;
+		}
+
+		// At or past trailing whitespace before closing pipe: no-op (cell boundary)
+		const cellEnd = bounds.open + 1 + lineText.slice(bounds.open + 1, bounds.close).trimEnd().length;
+		if (cursor.ch >= cellEnd) return;
+
+		// Within cell: delete one character forward (no HTML-tag awareness in Source Mode)
+		const cm = editor.cm;
+		if (cm) deleteCharForward(cm);
 	}
 
 
