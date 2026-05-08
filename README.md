@@ -19,7 +19,7 @@ The commands ensure a consistent navigation experience across your entire note, 
 Windows users can also use this plugin to enable Emacs-style cursor movement.
 (Note: You must manually assign the commands in the hotkey settings; please resolve any conflicts with existing system shortcuts, such as Ctrl+A for "Select all," as needed).
 
-Kill & Yank (Ctrl+K / Ctrl+Y) bring the full editing workflow into Obsidian. Kill from the cursor to the end of a line, chain multiple kills to accumulate text, then Yank it all back wherever you need it. Both commands work inside table cells too — including multi-line cells that use `<br>` — automatically handling newlines and pipe characters so your table structure is never broken.
+Kill & Yank (Ctrl+K / Ctrl+Y), combined with Kill Region (Ctrl+W), bring the full editing workflow into Obsidian. Kill from the cursor to the end of a line, cut selected regions, chain multiple kills to accumulate text, then Yank it all back wherever you need it. All three commands work inside table cells too — including multi-line cells that use `<br>` — automatically handling newlines and pipe characters so your table structure is never broken.
 
 
 ## Key Features
@@ -31,6 +31,7 @@ Kill & Yank (Ctrl+K / Ctrl+Y) bring the full editing workflow into Obsidian. Kil
 - **Select All Command:** Includes a dedicated "Select all" command to replace the default Ctrl+A behavior when the hotkey is reassigned.
 - **Delete Char:** Deletes the character at the cursor (forward delete). Inside a table cell in Live Preview, stops at the cell boundary and joins `<br>`-separated sub-lines when deleting at their boundary.
 - **Kill Line:** Kills from the cursor to the end of the line (or end of the in-cell line inside a table). Consecutive kills append to the kill cache and the system clipboard. Works in both Live Preview and Source Mode.
+- **Kill Region:** Cuts the selected region to the kill cache and system clipboard. Inside a table, operates on a single-cell selection only — multi-row and cross-cell selections are no-ops to protect table structure.
 - **Yank:** Pastes from the OS clipboard at the cursor position. When yanking into a table cell (Live Preview or Source Mode), newlines and pipe characters are automatically converted to preserve table structure.
 - **Page Down / Page Up:** Scrolls the view down or up by one page, moving the cursor with it.
 - **Recenter:** Scrolls the view so that the cursor line appears at the center of the screen.
@@ -56,6 +57,7 @@ For more information on how each command behaves, please refer to the Command De
 | END   | Ctrl + E           | Smart END: Visual-line-aware; jumps to end of visual/logical line or next cell. |
 | Delete char | Ctrl + D   | Forward-delete one character. Stops at cell boundary; joins sub-lines at `<br>` in Live Preview. |
 | Kill line | Ctrl + K      | Kill from cursor to line end. Consecutive kills accumulate in the kill cache and clipboard. |
+| Kill region | Ctrl + W    | Cut the selected region to the kill cache. Table-aware: single-cell only; no-op for multi-row or cross-cell selections. |
 | Yank | Ctrl + Y      | Paste from the OS clipboard. Table-aware: converts newlines and pipes automatically. |
 | Page down | Ctrl + V      | Scroll down one page, moving the cursor with it. |
 | Page up | Cmd + V<br>(Alt + V) | Scroll up one page, moving the cursor with it. |
@@ -137,9 +139,20 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 - **Consecutive kills:** Each successive Kill Line appends to the kill cache rather than replacing it. Any other editing action (cursor movement, typing, mouse click) resets the accumulation.
 - **Interaction with standard copy/cut:** Pressing Ctrl+C or Ctrl+X clears the kill cache, breaking the consecutive-kill chain.
 
+### Kill Region
+
+- **Outside a table:** Kills (cuts) the selected text and copies it to the kill cache and the system clipboard. The selection can span multiple lines.
+- **Empty selection:** No operation.
+- **Within a table cell (Live Preview or Source Mode):**
+  - **Single-cell selection:** Kills the selected text within the cell. The kill cache stores normalized text (`<br>` → `\n`, `\|` → `|`).
+  - **Multi-row selection (spanning multiple table rows):** No operation.
+  - **Cross-cell selection (from and to in different cells):** No operation.
+  - **Selection including `<br>` (Live Preview):** The `<br>` separator is removed along with the selected text, joining the surrounding sub-lines.
+- **Kill chain:** Kill Region always resets the consecutive-kill chain. Killed text replaces the kill cache rather than appending to it.
+
 ### Yank
 
-- **Pastes from the OS clipboard** at the cursor position. Content copied via standard Ctrl+C / Ctrl+X or Kill Line is accessible through Yank.
+- **Pastes from the OS clipboard** at the cursor position. Content copied via standard Ctrl+C / Ctrl+X, Kill Line, or Kill Region is accessible through Yank.
 - **Outside a table:** Inserts the clipboard text as-is.
 - **Within a table cell (Live Preview or Source Mode):** Newlines (`\n`) are converted to `<br>` and pipe characters (`|`) are escaped to `\|` before insertion to prevent breaking the table structure.
 - **Empty clipboard:** No operation.
