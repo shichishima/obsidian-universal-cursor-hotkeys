@@ -142,19 +142,21 @@ describe('yank', () => {
 	describe('LP table — <br> in pasted text (deferred cursor)', () => {
 		beforeEach(() => {
 			vi.useFakeTimers()
+			vi.stubGlobal('activeWindow', globalThis)
 			plugin.isLivePreviewMode.mockReturnValue(true)
 			plugin.isPositionInTable.mockReturnValue(true)
 		})
 
-		it('calls replaceSelection then defers setCursorViaCm to after insert', async () => {
-			// clipboard: 'line1\nline2' → converted to 'line1<br>line2' (length 14)
+		it('calls setLine then defers setCursorViaCm after insert', async () => {
+			// clipboard: 'line1\nline2' → 'line1<br>line2' (14 chars, no trailing <br>)
+			// lineText='| cell |' ch=3 → prefix='| c', suffix='ell |'
+			// newLine = '| c' + 'line1<br>line2' + 'ell |'
+			// targetCh = 3 + 14 = 17
 			mockClipboard('line1\nline2')
 			const editor = makeEditor('| cell |', 3)
-			// cursor at ch=3; text becomes 'line1<br>line2' (14 chars) → targetCh = 3+14 = 17
 			await plugin.yank(editor)
 
-			expect(editor.replaceSelection).toHaveBeenCalledWith('line1<br>line2')
-			// setCursorViaCm not yet called
+			expect(editor.setLine).toHaveBeenCalledWith(0, '| cline1<br>line2ell |')
 			expect(plugin.setCursorViaCm).not.toHaveBeenCalled()
 
 			vi.runAllTimers()
@@ -162,15 +164,33 @@ describe('yank', () => {
 		})
 
 		it('combined pipe escape + newline: correct deferred position', async () => {
-			// clipboard: 'a | b\nc' → 'a \\| b<br>c' (length 11)
+			// clipboard: 'a | b\nc' → 'a \\| b<br>c' (11 chars, no trailing <br>)
+			// lineText='| cell |' ch=2 → prefix='| ', suffix='cell |'
+			// newLine = '| ' + 'a \\| b<br>c' + 'cell |'
+			// targetCh = 2 + 11 = 13
 			mockClipboard('a | b\nc')
 			const editor = makeEditor('| cell |', 2)
 			await plugin.yank(editor)
 
-			expect(editor.replaceSelection).toHaveBeenCalledWith('a \\| b<br>c')
+			expect(editor.setLine).toHaveBeenCalledWith(0, '| a \\| b<br>ccell |')
 
 			vi.runAllTimers()
 			expect(plugin.setCursorViaCm).toHaveBeenCalledWith(editor, 0, 13)
+		})
+
+		it('trailing <br>: cursor placed at brStart, not past close pipe', async () => {
+			// clipboard: 'text\n' → 'text<br>' (8 chars, ends with <br>)
+			// lineText='| |' ch=1 → prefix='|', suffix=' |'
+			// newLine = '|' + 'text<br>' + ' |' = '|text<br> |'
+			// textForCursor = 'text' (4 chars) → targetCh = 1 + 4 = 5
+			mockClipboard('text\n')
+			const editor = makeEditor('| |', 1)
+			await plugin.yank(editor)
+
+			expect(editor.setLine).toHaveBeenCalledWith(0, '|text<br> |')
+
+			vi.runAllTimers()
+			expect(plugin.setCursorViaCm).toHaveBeenCalledWith(editor, 0, 5)
 		})
 	})
 

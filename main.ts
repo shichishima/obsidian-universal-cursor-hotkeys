@@ -1484,11 +1484,16 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			: raw;
 
 		if (inLPTable && text.includes('<br>')) {
-			const from = editor.getCursor('from');
-			const targetLine = from.line;
-			const targetCh   = from.ch + text.length;
-			editor.replaceSelection(text);
-			setTimeout(() => {
+			const from        = editor.getCursor('from');
+			const to          = editor.getCursor('to');
+			const currentLine = editor.getLine(from.line);
+			const prefix      = currentLine.slice(0, from.ch);
+			const suffix      = currentLine.slice(to.ch);
+			const targetLine  = from.line;
+			const textForCursor = text.replace(/<[bB][rR]>$/, '');
+			const targetCh      = prefix.length + textForCursor.length;
+			editor.setLine(targetLine, prefix + text + suffix);
+			activeWindow.setTimeout(() => {
 				this.setCursorViaCm(editor, targetLine, targetCh);
 			}, 0);
 		} else {
