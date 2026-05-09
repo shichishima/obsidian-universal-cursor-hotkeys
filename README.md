@@ -56,8 +56,8 @@ For detailed behavior of each command, see [Command Details](#command-details) b
 | Yank | Ctrl + Y           | Paste from the OS clipboard. Table-aware: converts newlines and pipes automatically. |
 | Delete char | Ctrl + D   | Forward-delete one character. Stops at cell boundary; joins sub-lines at `<br>` in Live Preview. |
 | Recenter | Ctrl + L      | Scroll the view so the cursor line is centered on screen. |
-| Page down | (None)        | Scroll down one page, moving the cursor with it. ⚠️ Assigning Ctrl+V (Windows) or Cmd+V / Alt+V (macOS) will break paste in non-editor plugin views (e.g., Excalidraw). |
-| Page up | (None)        | Scroll up one page, moving the cursor with it. ⚠️ Same caution as Page down. |
+| Page down | (None)        | Scroll down one page, moving the cursor with it. ⚠️ Assigning Ctrl+V breaks paste in non-editor plugin views (e.g., Excalidraw) (Windows). |
+| Page up | (None)        | Scroll up one page, moving the cursor with it. ⚠️ Assigning Cmd+V breaks paste in non-editor plugin views (macOS). |
 | Select all | (None)        | For Windows users: Restores "Select all" functionality if Ctrl+A is reassigned to HOME. Assign a custom key or run from the command palette. |
 
 
@@ -75,12 +75,12 @@ For detailed behavior of each command, see [Command Details](#command-details) b
 - **No Word-Level Navigation:** Movement by word (e.g., Option/Ctrl + Left/Right) is currently not supported.
 - **No Range Selection:** Shift+modifier combinations (e.g., Shift+Ctrl+P/N/B/F/A/E) for extending the selection are not supported. Use Shift+Arrow keys instead.
 - **Brief scroll flash when entering a tall wrapped cell (UP):** When pressing UP into a cell whose wrapped content exceeds the screen height, the view momentarily scrolls to the cell start before jumping to the bottom visual line. This is an inherent side effect of the two-step navigation used to locate the bottom visual line within Obsidian's Live Preview table widget.
-- **Ctrl+N may exit one visual line early in soft-wrapped table cells (DOWN) (*):** When the cursor is on the second-to-last visual line past the column corresponding to the last visual line's end-of-content, Ctrl+N exits to the next row instead of advancing one visual line. Both this case and being on the last visual line itself cause `goDown` to clip to the same end-of-content position; the two states are indistinguishable via any CM6 API inside the Live Preview table widget.
+- **Ctrl+N may exit one visual line early in soft-wrapped table cells (DOWN):** In Live Preview tables, when the cursor is on the second-to-last visual line past the column corresponding to the last visual line's end-of-content, Ctrl+N exits to the next row instead of advancing one visual line. Both this case and being on the last visual line itself cause `goDown` to clip to the same end-of-content position; the two states are indistinguishable via any CM6 API inside the Live Preview table widget.
 - **Multi-cell cut, copy, and paste are not supported (Kill Line / Kill Region / Yank):** Kill Line, Kill Region, and Yank are text-level operations; inside a table, they work on the text content within individual cells. Selecting multiple cells and attempting to cut or paste with these commands is not supported. For multi-cell cut, copy, and paste operations, use the right-click context menu instead.
 - **Source Mode table detection is heuristic:** In Source Mode, table rows are identified by a simple string check (line starts and ends with `|`). Unlike Live Preview mode, which uses the syntax tree, this approach may produce unexpected behavior on lines that coincidentally match the pattern but are not part of a Markdown table.
 - **Shortcut Conflicts**
   - **On Windows:** Assigning Ctrl+A (HOME) overrides the system Select all shortcut. Use the bundled "Select all" command (run from the command palette or assign it a custom hotkey) as a replacement.
-  - **Page down / Page up — paste conflict:** Assigning Ctrl+V, Cmd+V, or Alt+V to Page down or Page up will break keyboard paste in non-editor plugin views (e.g., Excalidraw). Yank (Ctrl+Y) restores paste within the markdown editor, but cannot substitute for Cmd+V in those views. Right-click → Paste remains available as a workaround. It is recommended to assign these commands to keys that do not conflict with paste.
+  - **Page down / Page up — paste conflict:** Assigning Ctrl+V (Windows) or Cmd+V (macOS) to Page down or Page up will break keyboard paste in non-editor plugin views (e.g., Excalidraw). Yank (Ctrl+Y) restores paste within the markdown editor, but cannot substitute for Cmd+V in those views. Right-click → Paste remains available as a workaround. It is recommended to assign these commands to keys that do not conflict with paste.
 
 
 ## Command Details
