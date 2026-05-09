@@ -1353,7 +1353,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private setCursorViaCm(editor: Editor, line: number, ch: number) {
 		const cm  = editor.cm;
 		const pos = editor.posToOffset({ line, ch });
-		cm.dispatch({ selection: { anchor: pos, head: pos } });
+		cm.dispatch({ selection: { anchor: pos, head: pos }, userEvent: 'move' });
 		cm.focus();
 	}
 
@@ -1697,6 +1697,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	//===========================================================================
 
 	private async yank(editor: Editor) {
+		this.isKillChaining = false;
 		let raw: string;
 		try {
 			raw = await navigator.clipboard.readText();
