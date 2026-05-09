@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.4.1] - 2026-05-09
+
+### Fixed
+- **Kill chain not reset by Yank and cursor movement:** Yank and cursor-movement commands now correctly break the consecutive-kill accumulation, consistent with Emacs behavior.
+
 ## [0.4.0] - 2026-05-04
 
 ### Added

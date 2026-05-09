@@ -1,7 +1,7 @@
 {
 	"id": "universal-cursor-hotkeys",
 	"name": "Universal Cursor Hotkeys",
-	"version": "0.4.0",
+	"version": "0.4.1",
 	"minAppVersion": "1.5.0",
 	"description": "macOS/Emacs-style cursor navigation (Ctrl+PNBF/AE) and Kill/Yank (Ctrl+KY) with full Markdown table support.",
 	"author": "shichishima",
