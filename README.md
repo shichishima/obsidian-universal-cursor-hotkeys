@@ -19,7 +19,7 @@ The commands ensure a consistent navigation experience across your entire note, 
 Windows users can also use this plugin to enable Emacs-style cursor movement.
 (Note: You must manually assign the commands in the hotkey settings; please resolve any conflicts with existing system shortcuts, such as Ctrl+A for "Select all," as needed).
 
-Kill & Yank (Ctrl+K / Ctrl+Y), combined with Kill Region (Ctrl+W), bring the full editing workflow into Obsidian. Kill from the cursor to the end of a line, cut selected regions, chain multiple kills to accumulate text, then Yank it all back wherever you need it. All three commands work inside table cells too — including multi-line cells that use `<br>` — automatically handling newlines and pipe characters so your table structure is never broken.
+Kill & Yank (Ctrl+K / Ctrl+Y) bring the full editing workflow into Obsidian. Kill from the cursor to the end of a line, chain multiple kills to accumulate text, then Yank it all back wherever you need it. Both commands work inside table cells too — including multi-line cells that use `<br>` — automatically handling newlines and pipe characters so your table structure is never broken.
 
 
 ## Key Features
@@ -29,12 +29,8 @@ Kill & Yank (Ctrl+K / Ctrl+Y), combined with Kill Region (Ctrl+W), bring the ful
 - **Visual-Line-Aware HOME/END:** On soft-wrapped lines, HOME stops at the start of the current visual line on the first press, then moves to the content start on the next. END stops at the end of the current visual line on the first press, then moves to the logical line end on the next.
 - **Smart Home Position:** The Home command (Ctrl+A) is optimized for Markdown, intelligently moving the cursor to the start of the content by accounting for heading characters (`# `), list markers (`- `), and footnote indicators (`[^1]: `).
 - **Select All Command:** Includes a dedicated "Select all" command to replace the default Ctrl+A behavior when the hotkey is reassigned.
-- **Delete Char:** Deletes the character at the cursor (forward delete). Inside a table cell in Live Preview, stops at the cell boundary and joins `<br>`-separated sub-lines when deleting at their boundary.
 - **Kill Line:** Kills from the cursor to the end of the line (or end of the in-cell line inside a table). Consecutive kills append to the kill cache and the system clipboard. Works in both Live Preview and Source Mode.
-- **Kill Region:** Cuts the selected region to the kill cache and system clipboard. Inside a table, operates on a single-cell selection only — multi-row and cross-cell selections are no-ops to protect table structure.
 - **Yank:** Pastes from the OS clipboard at the cursor position. When yanking into a table cell (Live Preview or Source Mode), newlines and pipe characters are automatically converted to preserve table structure.
-- **Page Down / Page Up:** Scrolls the view down or up by one page, moving the cursor with it.
-- **Recenter:** Scrolls the view so that the cursor line appears at the center of the screen.
 
 ## How to Setup
 - **Enable the Plugin:** After installation, enable "Universal Cursor Hotkeys" in your community plugins list.
@@ -55,14 +51,9 @@ For more information on how each command behaves, please refer to the Command De
 | RIGHT | Ctrl + F           | Smart RIGHT: Move by character or jump to the next cell. |
 | HOME  | Ctrl + A           | Smart home: Visual-line-aware; jumps to content start (skips markers) or previous cell. |
 | END   | Ctrl + E           | Smart END: Visual-line-aware; jumps to end of visual/logical line or next cell. |
-| Delete char | Ctrl + D   | Forward-delete one character. Stops at cell boundary; joins sub-lines at `<br>` in Live Preview. |
-| Kill line | Ctrl + K      | Kill from cursor to line end. Consecutive kills accumulate in the kill cache and clipboard. |
-| Kill region | Ctrl + W    | Cut the selected region to the kill cache. Table-aware: single-cell only; no-op for multi-row or cross-cell selections. |
-| Yank | Ctrl + Y      | Paste from the OS clipboard. Table-aware: converts newlines and pipes automatically. |
-| Page down | Ctrl + V      | Scroll down one page, moving the cursor with it. |
-| Page up | Cmd + V<br>(Alt + V) | Scroll up one page, moving the cursor with it. |
-| Recenter | Ctrl + L      | Scroll the view so the cursor line is centered on screen. |
 | Select all | (None)        | For Windows users: Restores "Select all" functionality if Ctrl+A is reassigned to HOME. Assign a custom key or run from the command palette. |
+| Kill line | Ctrl + K      | Kill from cursor to line end. Consecutive kills accumulate in the kill cache and clipboard. |
+| Yank | Ctrl + Y      | Paste from the OS clipboard. Table-aware: converts newlines and pipes automatically. |
 
 ## Command Details
 Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
@@ -118,15 +109,6 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
   - **In Source Mode, cursor inside a `<br>` tag:** Jumps to the right edge of the next in-cell line, skipping the `<br>` tag.
   - **In Source Mode, cursor before the first `|` (ch=0):** Snaps to the content start of the first cell.
 
-### Delete Char
-
-- **Within text:** Deletes the character at the cursor position (forward delete).
-- **Within a table cell (Live Preview):**
-  - **Within cell content:** Deletes one character forward.
-  - **At the end of a non-last in-cell line (before `<br>`):** Deletes the `<br>` tag, joining the current sub-line with the next.
-  - **At the end of the last in-cell line (cell boundary):** No operation.
-- **Within a table cell (Source Mode):** Deletes one character forward without HTML tag awareness. No operation at the cell content boundary (before trailing whitespace and `|`).
-
 ### Kill Line
 
 - **Within text, cursor not at line end:** Kills from the cursor to the end of the logical line. The killed text is copied to the kill cache and the system clipboard.
@@ -139,33 +121,12 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 - **Consecutive kills:** Each successive Kill Line appends to the kill cache rather than replacing it. Any other editing action (cursor movement, typing, mouse click) resets the accumulation.
 - **Interaction with standard copy/cut:** Pressing Ctrl+C or Ctrl+X clears the kill cache, breaking the consecutive-kill chain.
 
-### Kill Region
-
-- **Outside a table:** Kills (cuts) the selected text and copies it to the kill cache and the system clipboard. The selection can span multiple lines.
-- **Empty selection:** No operation.
-- **Within a table cell (Live Preview or Source Mode):**
-  - **Single-cell selection:** Kills the selected text within the cell. The kill cache stores normalized text (`<br>` → `\n`, `\|` → `|`).
-  - **Multi-row selection (spanning multiple table rows):** No operation.
-  - **Cross-cell selection (from and to in different cells):** No operation.
-  - **Selection including `<br>` (Live Preview):** The `<br>` separator is removed along with the selected text, joining the surrounding sub-lines.
-- **Kill chain:** Kill Region always resets the consecutive-kill chain. Killed text replaces the kill cache rather than appending to it.
-
 ### Yank
 
-- **Pastes from the OS clipboard** at the cursor position. Content copied via standard Ctrl+C / Ctrl+X, Kill Line, or Kill Region is accessible through Yank.
+- **Pastes from the OS clipboard** at the cursor position. Content copied via standard Ctrl+C / Ctrl+X or Kill Line is accessible through Yank.
 - **Outside a table:** Inserts the clipboard text as-is.
 - **Within a table cell (Live Preview or Source Mode):** Newlines (`\n`) are converted to `<br>` and pipe characters (`|`) are escaped to `\|` before insertion to prevent breaking the table structure.
 - **Empty clipboard:** No operation.
-
-### Recenter
-
-- Scrolls the view so that the line the cursor is on appears at the vertical center of the screen. The cursor position does not change.
-- Works the same regardless of cursor position — plain text or inside a table cell.
-
-### Page down / Page up
-
-- Scrolls the view down (Page down) or up (Page up) by one page, moving the cursor with it.
-- Behavior is independent of cursor position — works the same in plain text and inside table cells.
 
 ## Settings
 
@@ -181,11 +142,7 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 - **No Range Selection:** Shift+modifier combinations (e.g., Shift+Ctrl+P/N/B/F/A/E) for extending the selection are not supported. Use Shift+Arrow keys instead.
 - **Brief scroll flash when entering a tall wrapped cell (UP):** When pressing UP into a cell whose wrapped content exceeds the screen height, the view momentarily scrolls to the cell start before jumping to the bottom visual line. This is an inherent side effect of the two-step navigation used to locate the bottom visual line within Obsidian's Live Preview table widget.
 - **Ctrl+N may exit one visual line early in soft-wrapped table cells (DOWN) (*):** When the cursor is on the second-to-last visual line past the column corresponding to the last visual line's end-of-content, Ctrl+N exits to the next row instead of advancing one visual line. Both this case and being on the last visual line itself cause `goDown` to clip to the same end-of-content position; the two states are indistinguishable via any CM6 API inside the Live Preview table widget.
-- **Multi-cell cut, copy, and paste are not supported (Kill Line / Kill Region / Yank):** Kill Line, Kill Region, and Yank are text-level operations; inside a table, they work on the text content within individual cells. Selecting multiple cells and attempting to cut or paste with these commands is not supported. For multi-cell cut, copy, and paste operations, use the right-click context menu instead.
 - **Source Mode table detection is heuristic:** In Source Mode, table rows are identified by a simple string check (line starts and ends with `|`). Unlike Live Preview mode, which uses the syntax tree, this approach may produce unexpected behavior on lines that coincidentally match the pattern but are not part of a Markdown table.
-- **Shortcut Conflicts**
-  - **On Windows:** Assigning Ctrl+A (HOME) or Ctrl+V (Page down) overrides the system Select all and Paste shortcuts. For Select all, use the bundled "Select all" command (run from the command palette or assign it a custom hotkey). If you assign Ctrl+V to Page down, also register Yank (Ctrl+Y) to retain paste functionality.
-  - **On macOS:** Assigning Cmd+V to Page up overrides the system Paste shortcut. If you assign Cmd+V to Page up, also register Yank (Ctrl+Y) to retain paste functionality.
-
+- **Shortcut Conflicts (Windows):** On Windows, these commands may conflict with system defaults (e.g., Ctrl+A for Select all). Users must manually resolve these conflicts in the settings. A dedicated "Select all" command is provided by this plugin to restore this functionality.
 ## Acknowledgments
 - The code and documentation for this plugin were developed with the assistance of AI.
