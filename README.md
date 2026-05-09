@@ -51,13 +51,13 @@ For detailed behavior of each command, see [Command Details](#command-details) b
 | RIGHT | Ctrl + F           | Smart RIGHT: Move by character or jump to the next cell. |
 | HOME  | Ctrl + A           | Smart HOME: Visual-line-aware; jumps to content start (skips markers) or previous cell. |
 | END   | Ctrl + E           | Smart END: Visual-line-aware; jumps to end of visual/logical line or next cell. |
-| Delete char | Ctrl + D   | Forward-delete one character. Stops at cell boundary; joins sub-lines at `<br>` in Live Preview. |
 | Kill line | Ctrl + K      | Kill from cursor to line end. Consecutive kills accumulate in the kill cache and clipboard. |
 | Kill region | Ctrl + W    | Cut the selected region to the kill cache. Table-aware: single-cell only; no-op for multi-row or cross-cell selections. |
 | Yank | Ctrl + Y           | Paste from the OS clipboard. Table-aware: converts newlines and pipes automatically. |
-| Page down | Ctrl + V      | Scroll down one page, moving the cursor with it. |
-| Page up | Cmd + V<br>(Alt + V) | Scroll up one page, moving the cursor with it. |
+| Delete char | Ctrl + D   | Forward-delete one character. Stops at cell boundary; joins sub-lines at `<br>` in Live Preview. |
 | Recenter | Ctrl + L      | Scroll the view so the cursor line is centered on screen. |
+| Page down | (None)        | Scroll down one page, moving the cursor with it. ⚠️ Assigning Ctrl+V (Windows) or Cmd+V / Alt+V (macOS) will break paste in non-editor plugin views (e.g., Excalidraw). |
+| Page up | (None)        | Scroll up one page, moving the cursor with it. ⚠️ Same caution as Page down. |
 | Select all | (None)        | For Windows users: Restores "Select all" functionality if Ctrl+A is reassigned to HOME. Assign a custom key or run from the command palette. |
 
 
@@ -79,8 +79,8 @@ For detailed behavior of each command, see [Command Details](#command-details) b
 - **Multi-cell cut, copy, and paste are not supported (Kill Line / Kill Region / Yank):** Kill Line, Kill Region, and Yank are text-level operations; inside a table, they work on the text content within individual cells. Selecting multiple cells and attempting to cut or paste with these commands is not supported. For multi-cell cut, copy, and paste operations, use the right-click context menu instead.
 - **Source Mode table detection is heuristic:** In Source Mode, table rows are identified by a simple string check (line starts and ends with `|`). Unlike Live Preview mode, which uses the syntax tree, this approach may produce unexpected behavior on lines that coincidentally match the pattern but are not part of a Markdown table.
 - **Shortcut Conflicts**
-  - **On Windows:** Assigning Ctrl+A (HOME) or Ctrl+V (Page down) overrides the system Select all and Paste shortcuts. For Select all, use the bundled "Select all" command (run from the command palette or assign it a custom hotkey). If you assign Ctrl+V to Page down, also register Yank (Ctrl+Y) to retain paste functionality.
-  - **On macOS:** Assigning Cmd+V to Page up overrides the system Paste shortcut. If you assign Cmd+V to Page up, also register Yank (Ctrl+Y) to retain paste functionality.
+  - **On Windows:** Assigning Ctrl+A (HOME) overrides the system Select all shortcut. Use the bundled "Select all" command (run from the command palette or assign it a custom hotkey) as a replacement.
+  - **Page down / Page up — paste conflict:** Assigning Ctrl+V, Cmd+V, or Alt+V to Page down or Page up will break keyboard paste in non-editor plugin views (e.g., Excalidraw). Yank (Ctrl+Y) restores paste within the markdown editor, but cannot substitute for Cmd+V in those views. Right-click → Paste remains available as a workaround. It is recommended to assign these commands to keys that do not conflict with paste.
 
 
 ## Command Details
@@ -163,18 +163,6 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 </details>
 
 <details>
-<summary>Delete Char</summary>
-
-- **Within text:** Deletes the character at the cursor position (forward delete).
-- **Within a table cell (Live Preview):**
-  - **Within cell content:** Deletes one character forward.
-  - **At the end of a non-last in-cell line (before `<br>`):** Deletes the `<br>` tag, joining the current sub-line with the next.
-  - **At the end of the last in-cell line (cell boundary):** No operation.
-- **Within a table cell (Source Mode):** Deletes one character forward without HTML tag awareness. No operation at the cell content boundary (before trailing whitespace and `|`).
-
-</details>
-
-<details>
 <summary>Kill Line</summary>
 
 - **Within text, cursor not at line end:** Kills from the cursor to the end of the logical line. The killed text is copied to the kill cache and the system clipboard.
@@ -210,6 +198,18 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 - **Outside a table:** Inserts the clipboard text as-is.
 - **Within a table cell (Live Preview or Source Mode):** Newlines (`\n`) are converted to `<br>` and pipe characters (`|`) are escaped to `\|` before insertion to prevent breaking the table structure.
 - **Empty clipboard:** No operation.
+
+</details>
+
+<details>
+<summary>Delete Char</summary>
+
+- **Within text:** Deletes the character at the cursor position (forward delete).
+- **Within a table cell (Live Preview):**
+  - **Within cell content:** Deletes one character forward.
+  - **At the end of a non-last in-cell line (before `<br>`):** Deletes the `<br>` tag, joining the current sub-line with the next.
+  - **At the end of the last in-cell line (cell boundary):** No operation.
+- **Within a table cell (Source Mode):** Deletes one character forward without HTML tag awareness. No operation at the cell content boundary (before trailing whitespace and `|`).
 
 </details>
 
