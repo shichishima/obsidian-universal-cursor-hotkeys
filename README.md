@@ -74,7 +74,7 @@ For detailed behavior of each command, see [Command Details](#command-details) b
 ## Limitations
 - **No Word-Level Navigation:** Movement by word (e.g., Option/Ctrl + Left/Right) is currently not supported.
 - **No Range Selection:** Shift+modifier combinations (e.g., Shift+Ctrl+P/N/B/F/A/E) for extending the selection are not supported. Use Shift+Arrow keys instead.
-- **Brief scroll flash when entering a tall wrapped cell (UP):** When pressing UP into a cell whose wrapped content exceeds the screen height, the view momentarily scrolls to the cell start before jumping to the bottom visual line. This is an inherent side effect of the two-step navigation used to locate the bottom visual line within Obsidian's Live Preview table widget.
+- **Brief scroll flash when entering a tall wrapped cell in Live Preview (UP):** When pressing UP into a cell whose wrapped content exceeds the screen height, the view momentarily scrolls to the cell start before jumping to the bottom visual line. This is an inherent side effect of the two-step navigation used to locate the bottom visual line within Obsidian's Live Preview table widget.
 - **Ctrl+N may exit one visual line early in soft-wrapped table cells (DOWN):** In Live Preview tables, when the cursor is on the second-to-last visual line past the column corresponding to the last visual line's end-of-content, Ctrl+N exits to the next row instead of advancing one visual line. Both this case and being on the last visual line itself cause `goDown` to clip to the same end-of-content position; the two states are indistinguishable via any CM6 API inside the Live Preview table widget.
 - **Multi-cell cut, copy, and paste are not supported (Kill Line / Kill Region / Yank):** Kill Line, Kill Region, and Yank are text-level operations; inside a table, they work on the text content within individual cells. Selecting multiple cells and attempting to cut or paste with these commands is not supported. For multi-cell cut, copy, and paste operations, use the right-click context menu instead.
 - **Source Mode table detection is heuristic:** In Source Mode, table rows are identified by a simple string check (line starts and ends with `|`). Unlike Live Preview mode, which uses the syntax tree, this approach may produce unexpected behavior on lines that coincidentally match the pattern but are not part of a Markdown table.
@@ -165,10 +165,11 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 <details>
 <summary>Kill Line</summary>
 
-- **Within text, cursor not at line end:** Kills from the cursor to the end of the logical line. The killed text is copied to the kill cache and the system clipboard.
-- **Within text, cursor at line end:** Kills the newline and joins with the next line. When **Smart home (standard)** is ON, any leading whitespace at the start of the next line is also killed.
-- **At end of file:** No operation.
-- **Within a table cell:**
+- **Outside a table:**
+  - **Cursor not at line end:** Kills from the cursor to the end of the logical line. The killed text is copied to the kill cache and the system clipboard.
+  - **Cursor at line end:** Kills the newline and joins with the next line. When **Smart home (standard)** is ON, any leading whitespace at the start of the next line is also killed.
+  - **At end of file:** No operation.
+- **Within a table cell (Live Preview or Source Mode):**
   - **Cursor not at in-cell line end:** Kills from the cursor to the end of the current in-cell line (up to `<br>` or `|`).
   - **At the end of an in-cell line (before `<br>`):** Deletes the `<br>` tag, joining the current in-cell line with the next.
   - **At the end of the last in-cell line (cell boundary):** No operation.
