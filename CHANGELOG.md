@@ -8,9 +8,11 @@
 - **Recenter (Ctrl+L):** Scrolls the view so the cursor line is centered on screen. Works in plain text and inside table cells.
 - **Page down / Page up:** Scrolls down or up one page, moving the cursor with it.
 
+## [0.4.1] - 2026-05-09
+
 ### Fixed
-- **Yank cursor position after pasting text ending with a newline:** Cursor no longer jumps to the next cell when yanking content that ends with `\n` into a table cell.
 - **Kill chain not reset by Yank and cursor movement:** Yank and cursor-movement commands now correctly break the consecutive-kill accumulation, consistent with Emacs behavior.
+- **Yank cursor position after pasting text ending with a newline:** Cursor no longer jumps to the next cell when yanking content that ends with `\n` into a table cell.
 
 ## [0.4.0] - 2026-05-04
 
