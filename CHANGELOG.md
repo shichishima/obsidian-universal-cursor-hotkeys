@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.4.1] - 2026-05-09
+
+### Fixed
+- **Kill chain not reset by Yank and cursor movement:** Yank and cursor-movement commands now correctly break the consecutive-kill accumulation, consistent with Emacs behavior.
+- **Yank cursor position after pasting text ending with a newline:** Cursor no longer jumps to the next cell when yanking content that ends with `\n` into a table cell.
+
 ## [0.4.0] - 2026-05-04
 
 ### Added
