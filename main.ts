@@ -1689,13 +1689,15 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				}
 			}
 			const targetLine  = from.line;
-			const scrollEl    = editor.cm?.scrollDOM;
-			const savedScroll = scrollEl?.scrollTop;
-			editor.setLine(targetLine, prefix + suffix);
-			activeWindow.setTimeout(() => {
-				if (scrollEl && savedScroll !== undefined) scrollEl.scrollTop = savedScroll;
-				this.setCursorViaCm(editor, targetLine, prefix.length);
-			}, 0);
+			const cm          = editor.cm;
+			const lineObj     = cm.state.doc.line(targetLine + 1);
+			const savedScroll = cm.scrollDOM?.scrollTop;
+			cm.dispatch({
+				changes:   { from: lineObj.from, to: lineObj.to, insert: prefix + suffix },
+				selection: { anchor: lineObj.from + prefix.length },
+			});
+			if (savedScroll !== undefined) cm.scrollDOM.scrollTop = savedScroll;
+			cm.focus();
 		} else {
 			editor.replaceRange('', from, to);
 		}
