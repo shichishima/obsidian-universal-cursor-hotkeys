@@ -1465,10 +1465,13 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if ((info.lineType === 'first' || info.lineType === 'middle') && cursor.ch >= info.endOfInCellLine) {
 			const brMatch = lineText.slice(info.endOfInCellLine).match(/^<[bB][rR]>([ \t]*)/);
 			if (brMatch) {
-				const brEnd = info.endOfInCellLine + brMatch[0].length;
-				const targetLine = cursor.line;
+				const brEnd       = info.endOfInCellLine + brMatch[0].length;
+				const targetLine  = cursor.line;
+				const scrollEl    = editor.cm?.scrollDOM;
+				const savedScroll = scrollEl?.scrollTop;
 				editor.setLine(targetLine, lineText.slice(0, info.endOfInCellLine) + lineText.slice(brEnd));
 				activeWindow.setTimeout(() => {
+					if (scrollEl && savedScroll !== undefined) scrollEl.scrollTop = savedScroll;
 					this.setCursorViaCm(editor, targetLine, info.endOfInCellLine);
 				}, 0);
 			}
@@ -1572,17 +1575,20 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (info.lineType === 'first' || info.lineType === 'middle') {
 			const brMatch = lineText.slice(info.endOfInCellLine).match(/^<[bB][rR]>([ \t]*)/);
 			if (brMatch) {
-				const toCh = info.endOfInCellLine + brMatch[0].length;
-				const targetCh = info.endOfInCellLine;
-				const targetLine = cursor.line;
+				const toCh        = info.endOfInCellLine + brMatch[0].length;
+				const targetCh    = info.endOfInCellLine;
+				const targetLine  = cursor.line;
 				this.updateKillCache('\n');
 				navigator.clipboard.writeText(this.killCache).catch(() => {});
 				this.isDispatchingKill = true;
+				const scrollEl1    = editor.cm?.scrollDOM;
+				const savedScroll1 = scrollEl1?.scrollTop;
 				editor.setLine(targetLine, lineText.slice(0, targetCh) + lineText.slice(toCh));
 				this.isDispatchingKill = false;
 				// Defer cursor restore until after Obsidian's table editor re-dispatch settles,
 				// then set isKillChaining so the chain isn't broken by that re-dispatch.
 				activeWindow.setTimeout(() => {
+					if (scrollEl1 && savedScroll1 !== undefined) scrollEl1.scrollTop = savedScroll1;
 					this.isDispatchingKill = true;
 					this.setCursorViaCm(editor, targetLine, targetCh);
 					this.isDispatchingKill = false;
@@ -1597,14 +1603,17 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if ((info.lineType === 'middle' || info.lineType === 'last') && cursor.ch === info.startOfInCellLine) {
 			const brMatch = lineText.slice(0, cursor.ch).match(/<[bB][rR]>([ \t]*)$/);
 			if (brMatch) {
-				const brStart = cursor.ch - brMatch[0].length;
-				const targetLine = cursor.line;
+				const brStart     = cursor.ch - brMatch[0].length;
+				const targetLine  = cursor.line;
 				this.updateKillCache('\n');
 				navigator.clipboard.writeText(this.killCache).catch(() => {});
 				this.isDispatchingKill = true;
+				const scrollEl2    = editor.cm?.scrollDOM;
+				const savedScroll2 = scrollEl2?.scrollTop;
 				editor.setLine(targetLine, lineText.slice(0, brStart) + lineText.slice(cursor.ch));
 				this.isDispatchingKill = false;
 				activeWindow.setTimeout(() => {
+					if (scrollEl2 && savedScroll2 !== undefined) scrollEl2.scrollTop = savedScroll2;
 					this.isDispatchingKill = true;
 					this.setCursorViaCm(editor, targetLine, brStart);
 					this.isDispatchingKill = false;
@@ -1679,9 +1688,12 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 					if (!cellContentAfter) prefix = prefix.replace(/<[bB][rR]>$/, '');
 				}
 			}
-			const targetLine = from.line;
+			const targetLine  = from.line;
+			const scrollEl    = editor.cm?.scrollDOM;
+			const savedScroll = scrollEl?.scrollTop;
 			editor.setLine(targetLine, prefix + suffix);
 			activeWindow.setTimeout(() => {
+				if (scrollEl && savedScroll !== undefined) scrollEl.scrollTop = savedScroll;
 				this.setCursorViaCm(editor, targetLine, prefix.length);
 			}, 0);
 		} else {
@@ -1725,8 +1737,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			// to avoid landing at brEnd = close pipe on cells with no trailing space.
 			const textForCursor = text.replace(/<[bB][rR]>$/, '');
 			const targetCh      = prefix.length + textForCursor.length;
+			const scrollEl      = editor.cm?.scrollDOM;
+			const savedScroll   = scrollEl?.scrollTop;
 			editor.setLine(targetLine, prefix + text + suffix);
 			activeWindow.setTimeout(() => {
+				if (scrollEl && savedScroll !== undefined) scrollEl.scrollTop = savedScroll;
 				this.setCursorViaCm(editor, targetLine, targetCh);
 			}, 0);
 		} else {
