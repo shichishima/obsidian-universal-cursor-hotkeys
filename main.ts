@@ -108,10 +108,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: "select-all",
 			name: "Select all",
 			editorCallback: (editor: Editor) => {
-				editor.setSelection(
-					{ line: 0, ch: 0 },
-					{ line: editor.lastLine(), ch: editor.getLine(editor.lastLine()).length }
-				);
+				this.selectAll(editor);
 			},
 		});
 
@@ -1419,6 +1416,31 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private isTableLineSourceMode(line: string): boolean {
 		const trimmed = line.trimEnd();
 		return trimmed.startsWith('|') && trimmed.endsWith('|');
+	}
+
+
+	//===========================================================================
+	// Select all
+	//===========================================================================
+
+	private selectAll(editor: Editor) {
+		const cursor   = editor.getCursor();
+		const line     = editor.getLine(cursor.line);
+		const inTable  = (this.isLivePreviewMode() && this.isPositionInTable(editor))
+		              || (!this.isLivePreviewMode() && this.isTableLineSourceMode(line));
+
+		if (inTable) {
+			const start = this.getStartOfCellContent(line, cursor.ch);
+			const end   = this.getEndOfCellContent(line, cursor.ch);
+			if (start === end) return;
+			editor.setSelection({ line: cursor.line, ch: start }, { line: cursor.line, ch: end });
+			return;
+		}
+
+		editor.setSelection(
+			{ line: 0, ch: 0 },
+			{ line: editor.lastLine(), ch: editor.getLine(editor.lastLine()).length }
+		);
 	}
 
 
