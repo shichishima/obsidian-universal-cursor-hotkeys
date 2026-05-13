@@ -38,7 +38,7 @@ describe('deleteCharInTableLP', () => {
 		plugin.settings = { smartHomeStandard: true, smartHomeAdvanced: true, visualLineMovement: true, crossRowNavigation: true }
 		plugin.setCursorViaCm = vi.fn()
 		vi.mocked(deleteCharForward).mockClear()
-		vi.stubGlobal('activeWindow', globalThis)
+		vi.stubGlobal('window', globalThis)
 	})
 
 	afterEach(() => {

@@ -1219,7 +1219,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Schedules moveToBottomVisualLineOfCell for the next event loop tick.
 	// Used after synchronous cursor placement to let the DOM settle first.
 	private scheduleBottomVisualLine(editor: Editor) {
-		activeWindow.setTimeout(() => {
+		window.setTimeout(() => {
 			if (this.isPositionInTable(editor)) {
 				this.moveToBottomVisualLineOfCell(editor);
 			}
@@ -1273,7 +1273,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}
 
 		if (breakReason === 'endOfCell') {
-			activeWindow.setTimeout(() => { this.setCursorViaCm(editor, lastPos.line, lastPos.ch); }, 0);
+			window.setTimeout(() => { this.setCursorViaCm(editor, lastPos.line, lastPos.ch); }, 0);
 			return;
 		}
 
@@ -1468,7 +1468,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				const brEnd = info.endOfInCellLine + brMatch[0].length;
 				const targetLine = cursor.line;
 				editor.setLine(targetLine, lineText.slice(0, info.endOfInCellLine) + lineText.slice(brEnd));
-				activeWindow.setTimeout(() => {
+				window.setTimeout(() => {
 					this.setCursorViaCm(editor, targetLine, info.endOfInCellLine);
 				}, 0);
 			}
@@ -1582,7 +1582,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				this.isDispatchingKill = false;
 				// Defer cursor restore until after Obsidian's table editor re-dispatch settles,
 				// then set isKillChaining so the chain isn't broken by that re-dispatch.
-				activeWindow.setTimeout(() => {
+				window.setTimeout(() => {
 					this.isDispatchingKill = true;
 					this.setCursorViaCm(editor, targetLine, targetCh);
 					this.isDispatchingKill = false;
@@ -1604,7 +1604,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				this.isDispatchingKill = true;
 				editor.setLine(targetLine, lineText.slice(0, brStart) + lineText.slice(cursor.ch));
 				this.isDispatchingKill = false;
-				activeWindow.setTimeout(() => {
+				window.setTimeout(() => {
 					this.isDispatchingKill = true;
 					this.setCursorViaCm(editor, targetLine, brStart);
 					this.isDispatchingKill = false;
@@ -1681,7 +1681,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			}
 			const targetLine = from.line;
 			editor.setLine(targetLine, prefix + suffix);
-			activeWindow.setTimeout(() => {
+			window.setTimeout(() => {
 				this.setCursorViaCm(editor, targetLine, prefix.length);
 			}, 0);
 		} else {
@@ -1725,7 +1725,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			const textForCursor = text.replace(/<[bB][rR]>$/, '');
 			const targetCh      = prefix.length + textForCursor.length;
 			editor.setLine(targetLine, prefix + text + suffix);
-			activeWindow.setTimeout(() => {
+			window.setTimeout(() => {
 				this.setCursorViaCm(editor, targetLine, targetCh);
 			}, 0);
 		} else {
