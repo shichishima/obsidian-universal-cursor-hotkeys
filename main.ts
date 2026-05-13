@@ -2,7 +2,7 @@ import { App, Editor, Plugin, PluginSettingTab, Setting, MarkdownView, ToggleCom
 import { syntaxTree } from '@codemirror/language';
 import { EditorView } from "@codemirror/view";
 import { EditorSelection, Transaction } from '@codemirror/state';
-import { cursorPageDown, cursorPageUp, deleteCharForward } from '@codemirror/commands';
+import { /* cursorPageDown, cursorPageUp, */ deleteCharForward } from '@codemirror/commands';
 
 // Extend the Obsidian Editor interface to include the internal CodeMirror 6 instance (EditorView)
 declare module "obsidian" {
@@ -115,22 +115,22 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			},
 		});
 
-		this.addCommand({
-			id: 'delete-char',
-			name: 'Delete char',
-			repeatable: true,
-			editorCallback: (editor: Editor) => {
-				this.deleteChar(editor);
-			}
-		});
+		// this.addCommand({
+		// 	id: 'delete-char',
+		// 	name: 'Delete char',
+		// 	repeatable: true,
+		// 	editorCallback: (editor: Editor) => {
+		// 		this.deleteChar(editor);
+		// 	}
+		// });
 
-		this.addCommand({
-			id: 'kill-region',
-			name: 'Kill region',
-			editorCallback: (editor: Editor) => {
-				this.killRegion(editor);
-			}
-		});
+		// this.addCommand({
+		// 	id: 'kill-region',
+		// 	name: 'Kill region',
+		// 	editorCallback: (editor: Editor) => {
+		// 		this.killRegion(editor);
+		// 	}
+		// });
 
 		this.addCommand({
 			id: 'kill-line',
@@ -150,33 +150,33 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			}
 		});
 
-		this.addCommand({
-			id: 'page-down',
-			name: 'Page down',
-			repeatable: true,
-			editorCallback: (editor: Editor) => {
-				const cm = editor.cm;
-				if (cm) cursorPageDown(cm);
-			}
-		});
+		// this.addCommand({
+		// 	id: 'page-down',
+		// 	name: 'Page down',
+		// 	repeatable: true,
+		// 	editorCallback: (editor: Editor) => {
+		// 		const cm = editor.cm;
+		// 		if (cm) cursorPageDown(cm);
+		// 	}
+		// });
 
-		this.addCommand({
-			id: 'page-up',
-			name: 'Page up',
-			repeatable: true,
-			editorCallback: (editor: Editor) => {
-				const cm = editor.cm;
-				if (cm) cursorPageUp(cm);
-			}
-		});
+		// this.addCommand({
+		// 	id: 'page-up',
+		// 	name: 'Page up',
+		// 	repeatable: true,
+		// 	editorCallback: (editor: Editor) => {
+		// 		const cm = editor.cm;
+		// 		if (cm) cursorPageUp(cm);
+		// 	}
+		// });
 
-		this.addCommand({
-			id: 'recenter',
-			name: 'Recenter',
-			editorCallback: (editor: Editor) => {
-				this.recenter(editor);
-			}
-		});
+		// this.addCommand({
+		// 	id: 'recenter',
+		// 	name: 'Recenter',
+		// 	editorCallback: (editor: Editor) => {
+		// 		this.recenter(editor);
+		// 	}
+		// });
 
 		this.registerEditorExtension(
 			EditorView.updateListener.of((update) => {
