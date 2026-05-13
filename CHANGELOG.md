@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.4.2] - 2026-05-13
+
+### Changed
+- Addressed Obsidian plugin review feedback.
+
 ## [0.4.1] - 2026-05-09
 
 ### Fixed
