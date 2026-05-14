@@ -8,6 +8,11 @@
 - **Recenter (Ctrl+L):** Scrolls the view so the cursor line is centered on screen. Works in plain text and inside table cells.
 - **Page down / Page up:** Scrolls down or up one page, moving the cursor with it.
 
+## [0.4.2] - 2026-05-13
+
+### Changed
+- Addressed Obsidian plugin review feedback.
+
 ## [0.4.1] - 2026-05-09
 
 ### Fixed

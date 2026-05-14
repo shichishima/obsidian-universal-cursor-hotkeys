@@ -63,7 +63,7 @@ describe('killRegion', () => {
 		vi.stubGlobal('navigator', {
 			clipboard: { writeText: vi.fn().mockResolvedValue(undefined) },
 		})
-		vi.stubGlobal('activeWindow', globalThis)
+		vi.stubGlobal('window', globalThis)
 	})
 
 	afterEach(() => {

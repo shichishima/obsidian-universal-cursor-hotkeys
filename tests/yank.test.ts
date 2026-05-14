@@ -142,7 +142,7 @@ describe('yank', () => {
 	describe('LP table — <br> in pasted text (deferred cursor)', () => {
 		beforeEach(() => {
 			vi.useFakeTimers()
-			vi.stubGlobal('activeWindow', globalThis)
+			vi.stubGlobal('window', globalThis)
 			plugin.isLivePreviewMode.mockReturnValue(true)
 			plugin.isPositionInTable.mockReturnValue(true)
 		})
