@@ -92,11 +92,11 @@ describe('killLine', () => {
 
 	describe('killLineNonTable — cursor at line end', () => {
 		describe('smartHomeStandard: ON (default) — trims leading whitespace', () => {
-			it('joins next line, killing newline + leading whitespace', () => {
+			it('joins next line, stripping leading whitespace (not cached)', () => {
 				const editor = makeEditor(['hello', '  world'], 0, 5)
 				plugin.killLineNonTable(editor)
 				expect(editor._buf[0]).toBe('helloworld')
-				expect(plugin.killCache).toBe('\n  ')
+				expect(plugin.killCache).toBe('\n')
 				expect(plugin.isKillChaining).toBe(true)
 			})
 

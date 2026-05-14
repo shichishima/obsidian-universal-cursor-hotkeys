@@ -1566,10 +1566,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (cursor.line >= editor.lineCount() - 1) return;
 
 		const nextLineText = editor.getLine(cursor.line + 1);
-		const leadingWs = this.settings.smartHomeStandard
+		const leadingWs = (this.settings.smartHomeStandard && lineText.length > 0)
 			? (nextLineText.match(/^[ \t]*/)?.[0] ?? '')
 			: '';
-		this.updateKillCache('\n' + leadingWs);
+		this.updateKillCache('\n');
 		navigator.clipboard.writeText(this.killCache).catch(() => {});
 		this.isDispatchingKill = true;
 		editor.replaceRange('', { line: cursor.line, ch: lineText.length }, { line: cursor.line + 1, ch: leadingWs.length });

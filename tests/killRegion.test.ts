@@ -15,6 +15,10 @@ function makeEditor(
 	const sel = (from.line === to.line)
 		? (buf[from.line] ?? '').slice(from.ch, to.ch)
 		: ''
+	const lineStarts = lines.reduce((acc, _, i) => {
+		acc.push(i === 0 ? 0 : acc[i - 1] + lines[i - 1].length + 1)
+		return acc
+	}, [] as number[])
 	return {
 		getCursor:    vi.fn((s?: string) => s === 'to' ? { ...to } : { ...from }),
 		getLine:      vi.fn((n: number) => buf[n] ?? ''),
@@ -22,6 +26,20 @@ function makeEditor(
 		replaceRange: vi.fn(),
 		setLine:      vi.fn(),
 		_buf: buf,
+		cm: {
+			state: {
+				doc: {
+					line: vi.fn((n: number) => {
+						const idx  = n - 1
+						const from = lineStarts[idx] ?? 0
+						return { from, to: from + (lines[idx]?.length ?? 0) }
+					}),
+				},
+			},
+			scrollDOM: { scrollTop: 0 },
+			dispatch:  vi.fn(),
+			focus:     vi.fn(),
+		},
 	}
 }
 
@@ -171,23 +189,24 @@ describe('killRegion', () => {
 			plugin.isPositionInTable.mockReturnValue(true)
 		})
 
-		it('calls setLine with prefix + suffix', () => {
+		it('dispatches changes with prefix + suffix', () => {
 			// '| hello world |' — delete 'hello ' (ch=2..8) → '| world |'
 			const line = '| hello world |'
 			const editor = makeEditor([line], { line: 0, ch: 2 }, { line: 0, ch: 8 })
 			plugin.killRegion(editor)
-			expect(editor.setLine).toHaveBeenCalledWith(0, '| world |')
+			expect(editor.cm.dispatch).toHaveBeenCalledWith({
+				changes:   { from: 0, to: line.length, insert: '| world |' },
+				selection: { anchor: 2 },
+			})
 			expect(editor.replaceRange).not.toHaveBeenCalled()
 		})
 
-		it('defers setCursorViaCm to prefix.length after setLine', () => {
-			vi.useFakeTimers()
+		it('dispatches selection anchor at prefix.length', () => {
 			const line = '| hello world |'
 			const editor = makeEditor([line], { line: 0, ch: 2 }, { line: 0, ch: 8 })
 			plugin.killRegion(editor)
-			expect(plugin.setCursorViaCm).not.toHaveBeenCalled()
-			vi.runAllTimers()
-			expect(plugin.setCursorViaCm).toHaveBeenCalledWith(editor, 0, 2)
+			const call = editor.cm.dispatch.mock.calls[0][0]
+			expect(call.selection.anchor).toBe(2)
 		})
 
 		it('applies normalizeKillText: <br> → \\n in killCache', () => {
@@ -239,12 +258,12 @@ describe('killRegion', () => {
 			plugin.isPositionInTable.mockReturnValue(true)
 		})
 
-		it('selection spanning <br>: <br> absent from setLine result', () => {
+		it('selection spanning <br>: <br> absent from dispatch result', () => {
 			// from=3 (within 'first'), to=14 (within 'second' past brEnd=11)
 			// prefix='| f', suffix='ond |' → '| fond |'
 			const editor = makeEditor([LINE], { line: 0, ch: 3 }, { line: 0, ch: 14 })
 			plugin.killRegion(editor)
-			expect(editor.setLine).toHaveBeenCalledWith(0, '| fond |')
+			expect(editor.cm.dispatch.mock.calls[0][0].changes.insert).toBe('| fond |')
 		})
 
 		it('to.ch = brStart, prefix has no cell content → strip <br> from suffix', () => {
@@ -253,7 +272,7 @@ describe('killRegion', () => {
 			// prefix='| ', suffix='second |' → '| second |'
 			const editor = makeEditor([LINE], { line: 0, ch: 2 }, { line: 0, ch: 7 })
 			plugin.killRegion(editor)
-			expect(editor.setLine).toHaveBeenCalledWith(0, '| second |')
+			expect(editor.cm.dispatch.mock.calls[0][0].changes.insert).toBe('| second |')
 		})
 
 		it('to.ch = brStart, prefix HAS cell content → keep <br> in suffix', () => {
@@ -262,7 +281,7 @@ describe('killRegion', () => {
 			// prefix='| f', suffix='<br>second |' → '| f<br>second |'
 			const editor = makeEditor([LINE], { line: 0, ch: 3 }, { line: 0, ch: 7 })
 			plugin.killRegion(editor)
-			expect(editor.setLine).toHaveBeenCalledWith(0, '| f<br>second |')
+			expect(editor.cm.dispatch.mock.calls[0][0].changes.insert).toBe('| f<br>second |')
 		})
 
 		it('from.ch = brEnd, suffix has no cell content → strip <br> from prefix', () => {
@@ -271,7 +290,7 @@ describe('killRegion', () => {
 			// prefix='| first' (after strip), suffix=' |' → '| first |'
 			const editor = makeEditor([LINE], { line: 0, ch: 11 }, { line: 0, ch: 17 })
 			plugin.killRegion(editor)
-			expect(editor.setLine).toHaveBeenCalledWith(0, '| first |')
+			expect(editor.cm.dispatch.mock.calls[0][0].changes.insert).toBe('| first |')
 		})
 
 		it('from.ch = brEnd, suffix HAS cell content → keep <br> in prefix', () => {
@@ -280,7 +299,7 @@ describe('killRegion', () => {
 			// prefix='| first<br>', suffix='ond |' → '| first<br>ond |'
 			const editor = makeEditor([LINE], { line: 0, ch: 11 }, { line: 0, ch: 14 })
 			plugin.killRegion(editor)
-			expect(editor.setLine).toHaveBeenCalledWith(0, '| first<br>ond |')
+			expect(editor.cm.dispatch.mock.calls[0][0].changes.insert).toBe('| first<br>ond |')
 		})
 	})
 
