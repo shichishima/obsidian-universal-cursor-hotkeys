@@ -7,6 +7,10 @@
 - **Delete Char (Ctrl+D):** Forward-deletes one character. In Live Preview table cells, stops at the cell boundary and joins in-cell sub-lines by removing the `<br>` tag when at the end of a non-last sub-line.
 - **Recenter (Ctrl+L):** Scrolls the view so the cursor line is centered on screen. Works in plain text and inside table cells.
 - **Page down / Page up:** Scrolls down or up one page, moving the cursor with it.
+- **Select all (table-aware):** When the cursor is inside a table cell, selects only the content of that cell rather than the entire document.
+
+### Changed
+- **Kill Line join behavior (Smart home standard ON):** Leading whitespace of the next line is now stripped but not added to the kill cache. When the entire logical line is killed from its beginning, joining preserves the next line's indentation.
 
 ## [0.4.2] - 2026-05-13
 

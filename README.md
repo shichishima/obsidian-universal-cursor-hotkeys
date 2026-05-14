@@ -66,7 +66,7 @@ For detailed behavior of each command, see [Command Details](#command-details) b
 | Setting | Default | Description |
 | ------- | :-----: | ----------- |
 | Visual line movement | ON | **ON:** the first HOME / END moves to the visual line edge.<br>**OFF:** moves directly to the logical line start / end. |
-| Smart home (standard) | ON | **ON:** HOME jumps past leading Markdown syntax (lists, ordered lists, checkboxes, indents, blockquotes). Kill Line also trims leading whitespace when joining lines.<br>**OFF:** moves directly to the start of the line. Kill Line joins lines as-is, preserving leading whitespace. |
+| Smart home (standard) | ON | **ON:** HOME jumps past leading Markdown syntax (lists, ordered lists, checkboxes, indents, blockquotes). Kill Line trims the next line's leading whitespace when joining (not cached); if the line was killed entirely from the beginning of the logical line, the next line's indentation is preserved instead.<br>**OFF:** moves directly to the start of the line. Kill Line joins lines as-is, preserving leading whitespace. |
 | Smart home (advanced) | ON | **ON:** also skips past headings (`# `) and footnotes (`[^1]: `). Requires Smart home (standard) to be ON. |
 | Cross-row navigation | ON | **ON:** LEFT / HOME at the first cell and RIGHT / END at the last cell wrap to the adjacent row.<br>**OFF:** stops at the boundary. |
 
@@ -167,7 +167,7 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 
 - **Outside a table:**
   - **Cursor not at line end:** Kills from the cursor to the end of the logical line. The killed text is copied to the kill cache and the system clipboard.
-  - **Cursor at line end:** Kills the newline and joins with the next line. When **Smart home (standard)** is ON, any leading whitespace at the start of the next line is also killed.
+  - **Cursor at line end:** Kills the newline and joins with the next line. When **Smart home (standard)** is ON, the next line's leading whitespace is stripped on join (not added to the kill cache) — except when the preceding kill cleared the line from the beginning of the logical line, in which case the next line's indentation is left intact.
   - **At end of file:** No operation.
 - **Within a table cell (Live Preview or Source Mode):**
   - **Cursor not at in-cell line end:** Kills from the cursor to the end of the current in-cell line (up to `<br>` or `|`).
