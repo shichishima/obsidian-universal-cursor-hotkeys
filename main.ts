@@ -1374,37 +1374,30 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return 0;
 		}
 
-		let result = null
+		// Strip blockquote prefix so the downstream pattern checks run on the content.
+		// bqEnd is 0 for non-blockquote lines and added back to every return value.
+		let bqEnd = 0;
+		const bqMatch = line.match(/^(\s*>)+\s*/);
+		if (bqMatch) {
+			bqEnd = bqMatch[0].length;
+			line = line.slice(bqEnd);
+			ch -= bqEnd;
+		}
+
+		let result: RegExpMatchArray | null = null;
 		if (this.settings.smartHomeAdvanced) {
 			// Headings in an unordered list (Adv.)
 			// `- # heading-text`, 1st after `# `, 2nd after `- `
 			result = line.match(/^(\s*[-+*]\s)?#+\s/);
-			if (result !== null && result[0].length < ch) {
-				return result[0].length;
-			}
-
+			if (result !== null && result[0].length < ch) return bqEnd + result[0].length;
 			result = line.match(/^#{1,6}\s/); // Headings (Adv.)
+			if (result === null) result = line.match(/^\[\^.+\]:\s*/); // Footnotes (Adv.)
+		}
+		if (result === null) result = line.match(/^\s*\d+[.)]\s/); // Ordered lists
+		if (result === null) result = line.match(/^\s*([-+*]\s(\[.\]\s)?)?/); // Indents, Unordered lists, Task lists
 
-			if (result === null) {
-				result = line.match(/^\[\^.+\]:\s*/); // Footnotes (Adv.)
-			}
-		}
-		if (result === null) {
-			result = line.match(/^\s*\d+[.)]\s/); // Ordered lists
-		}
-		if (result === null) {
-			result = line.match(/^\s*>\s*/); // Quotes
-		}
-		if (result === null) {
-			// Indents, Unordered lists, Task lists
-			result = line.match(/^\s*([-+*]\s(\[.\]\s)?)?/);
-		}
-
-		if (result !== null && result[0].length < ch) {
-			return result[0].length;
-		} else {
-			return 0;
-		}
+		if (result !== null && result[0].length < ch) return bqEnd + result[0].length;
+		return 0;
 	}
 
 
