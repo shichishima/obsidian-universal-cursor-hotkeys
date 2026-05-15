@@ -1806,7 +1806,7 @@ class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName('Smart home (standard)')
 			.then(setting => this.setHtmlDesc(setting, '' +
-				'<b>ON:</b> HOME moves to the content start, after leading Markdown syntax (lists, checkboxes, indents, etc.). Kill Line trims the next line\'s leading whitespace when joining (not cached); if the line was killed entirely from the beginning of the logical line, the next line\'s indentation is preserved instead.<br>' +
+				'<b>ON:</b> HOME skips leading Markdown syntax (lists, checkboxes, indents, etc.) to reach content start. Kill Line strips leading whitespace on join (not cached), except when killing from the logical line start.<br>' +
 				'<b>OFF:</b> Moves directly to the start of the line. Kill Line joins lines as-is, preserving leading whitespace.'))
 			.addToggle(toggle => toggle
 				.setValue(this.plugin.settings.smartHomeStandard)
