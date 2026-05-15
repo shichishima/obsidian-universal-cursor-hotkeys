@@ -8,6 +8,7 @@
 - **Recenter (Ctrl+L):** Scrolls the view so the cursor line is centered on screen. Works in plain text and inside table cells.
 - **Page down / Page up:** Scrolls down or up one page, moving the cursor with it.
 - **Select all (table-aware):** When the cursor is inside a table cell, selects only the content of that cell rather than the entire document.
+- **Smart Home in nested blockquotes:** HOME now navigates inside nested blockquotes (`>>`, `> > >`, etc.), recognizing inner markup (headings, lists, task lists, ordered lists, footnotes) in the same way as regular lines.
 
 ### Changed
 - **Kill Line join behavior (Smart home standard ON):** Leading whitespace of the next line is now stripped but not added to the kill cache. When the entire logical line is killed from its beginning, joining preserves the next line's indentation.
