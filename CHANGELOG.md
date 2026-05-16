@@ -9,9 +9,10 @@
 - **Page down / Page up:** Scrolls down or up one page, moving the cursor with it.
 - **Select all (table-aware):** When the cursor is inside a table cell, selects only the content of that cell rather than the entire document.
 - **Smart Home in nested blockquotes:** HOME now navigates inside nested blockquotes (`>>`, `> > >`, etc.), recognizing inner markup (headings, lists, task lists, ordered lists, footnotes) in the same way as regular lines.
+- **Smart join (default OFF):** When Kill Line joins the next line, strips everything to the left of the next line's content start — blockquote markers, list markers, indentation, and (with Smart home (advanced) ON) headings and footnotes. Controlled independently of Smart home; disabled when Smart home (standard) is OFF.
 
 ### Changed
-- **Kill Line join behavior (Smart home standard ON):** Leading whitespace of the next line is now stripped but not added to the kill cache. When the entire logical line is killed from its beginning, joining preserves the next line's indentation.
+- **Smart home (standard):** Kill Line join behavior is no longer tied to this setting. Description updated to clarify the Windows Home / macOS Cmd+← analogy.
 
 ## [0.4.2] - 2026-05-13
 

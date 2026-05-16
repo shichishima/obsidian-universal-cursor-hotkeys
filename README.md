@@ -66,8 +66,9 @@ For detailed behavior of each command, see [Command Details](#command-details) b
 | Setting | Default | Description |
 | ------- | :-----: | ----------- |
 | Visual line movement | ON | **ON:** the first HOME / END moves to the visual line edge.<br>**OFF:** moves directly to the logical line start / end. |
-| Smart home (standard) | ON | **ON:** HOME jumps past leading Markdown syntax (lists, ordered lists, checkboxes, indents, blockquotes). Kill Line trims the next line's leading whitespace when joining (not cached); if the line was killed entirely from the beginning of the logical line, the next line's indentation is preserved instead.<br>**OFF:** moves directly to the start of the line. Kill Line joins lines as-is, preserving leading whitespace. |
+| Smart home (standard) | ON | **ON:** HOME skips leading Markdown syntax (lists, ordered lists, checkboxes, indents, blockquotes) to reach content start — Windows Home / macOS Cmd+← style.<br>**OFF:** HOME moves directly to the start of the line — macOS / Emacs Ctrl+A style. |
 | Smart home (advanced) | ON | **ON:** also skips past headings (`# `) and footnotes (`[^1]: `). Requires Smart home (standard) to be ON. |
+| Smart join | OFF | **ON:** Kill Line join lands at the next line's content start, removing blockquote markers, list markers, and indentation. Pairs with Smart home (advanced) for headings and footnotes. Requires Smart home (standard) to be ON.<br>**OFF:** joins the next line as-is. |
 | Cross-row navigation | ON | **ON:** LEFT / HOME at the first cell and RIGHT / END at the last cell wrap to the adjacent row.<br>**OFF:** stops at the boundary. |
 
 
@@ -167,11 +168,11 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 
 - **Outside a table:**
   - **Cursor not at line end:** Kills from the cursor to the end of the logical line. The killed text is copied to the kill cache and the system clipboard.
-  - **Cursor at line end:** Kills the newline and joins with the next line. When **Smart home (standard)** is ON, the next line's leading whitespace is stripped on join (not added to the kill cache) — except when the preceding kill cleared the line from the beginning of the logical line, in which case the next line's indentation is left intact.
+  - **Cursor at line end:** Kills the newline and joins with the next line. When **Smart join** is ON, everything to the left of the next line's content start (blockquote markers, list markers, indentation, and with **Smart home (advanced)** ON, headings and footnotes) is removed on join. When **Smart join** is OFF, the next line is joined as-is.
   - **At end of file:** No operation.
 - **Within a table cell (Live Preview or Source Mode):**
   - **Cursor not at in-cell line end:** Kills from the cursor to the end of the current in-cell line (up to `<br>` or `|`).
-  - **At the end of an in-cell line (before `<br>`):** Deletes the `<br>` tag, joining the current in-cell line with the next.
+  - **At the end of an in-cell line (before `<br>`):** Deletes the `<br>` tag, joining the current in-cell line with the next. When **Smart join** is ON, trailing whitespace after `<br>` is also removed.
   - **At the end of the last in-cell line (cell boundary):** No operation.
 - **Consecutive kills:** Each successive Kill Line appends to the kill cache rather than replacing it. Any other editing action (cursor movement, typing, mouse click) resets the accumulation.
 - **Interaction with standard copy/cut:** Pressing Ctrl+C or Ctrl+X clears the kill cache, breaking the consecutive-kill chain.

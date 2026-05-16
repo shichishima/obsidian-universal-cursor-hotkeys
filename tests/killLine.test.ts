@@ -43,7 +43,7 @@ describe('killLine', () => {
 		plugin = Object.create(UniversalCursorHotkeysPlugin.prototype)
 		plugin.CELL_SEPARATOR_REGEX  = /(?<!\\)\|/g
 		plugin.TABLE_DELIMITER_REGEX = /^\s*\|?[:\s]*?-+[:\s-]*\|[:\s-|]*$/
-		plugin.settings = { smartHomeStandard: true, smartHomeAdvanced: true, visualLineMovement: true, crossRowNavigation: true }
+		plugin.settings = { smartHomeStandard: true, smartHomeAdvanced: true, smartJoin: false, visualLineMovement: true, crossRowNavigation: true }
 		plugin.isKillChaining = false
 		plugin.isDispatchingKill = false
 		plugin.killCache = ''
@@ -91,11 +91,11 @@ describe('killLine', () => {
 	// ===========================================================================
 
 	describe('killLineNonTable — cursor at line end', () => {
-		describe('smartHomeStandard: ON (default) — trims leading whitespace', () => {
-			it('joins next line, stripping leading whitespace (not cached)', () => {
+		describe('smartJoin: OFF (default) — preserves leading syntax', () => {
+			it('joins next line without trimming', () => {
 				const editor = makeEditor(['hello', '  world'], 0, 5)
 				plugin.killLineNonTable(editor)
-				expect(editor._buf[0]).toBe('helloworld')
+				expect(editor._buf[0]).toBe('hello  world')
 				expect(plugin.killCache).toBe('\n')
 				expect(plugin.isKillChaining).toBe(true)
 			})
@@ -108,20 +108,27 @@ describe('killLine', () => {
 			})
 		})
 
-		describe('smartHomeStandard: OFF — preserves leading whitespace', () => {
+		describe('smartJoin: ON — trims to smart home position', () => {
 			beforeEach(() => {
-				plugin.settings = { ...plugin.settings, smartHomeStandard: false }
+				plugin.settings = { ...plugin.settings, smartJoin: true }
 			})
 
-			it('joins next line without trimming leading whitespace', () => {
+			it('joins next line, stripping leading whitespace to content start', () => {
 				const editor = makeEditor(['hello', '  world'], 0, 5)
 				plugin.killLineNonTable(editor)
-				expect(editor._buf[0]).toBe('hello  world')
+				expect(editor._buf[0]).toBe('helloworld')
 				expect(plugin.killCache).toBe('\n')
 				expect(plugin.isKillChaining).toBe(true)
 			})
 
-			it('joins next line with no leading whitespace — same as ON', () => {
+			it('joins next line with list marker stripped', () => {
+				const editor = makeEditor(['hello', '- item'], 0, 5)
+				plugin.killLineNonTable(editor)
+				expect(editor._buf[0]).toBe('helloitem')
+				expect(plugin.killCache).toBe('\n')
+			})
+
+			it('joins next line with no leading syntax — unchanged', () => {
 				const editor = makeEditor(['hello', 'world'], 0, 5)
 				plugin.killLineNonTable(editor)
 				expect(editor._buf[0]).toBe('helloworld')
@@ -220,10 +227,26 @@ describe('killLine', () => {
 			expect(plugin.isKillChaining).toBe(true)
 		})
 
-		it('removes <br> with trailing spaces', () => {
+		it('removes <br> but keeps trailing spaces when smartJoin is OFF', () => {
 			vi.useFakeTimers()
 			// '| a<br>   b |'
-			// pipes at 0 and 12
+			const lineText = '| a<br>   b |'
+			const editor = makeEditor([lineText], 0, 3)
+			const info = plugin.getInCellLineInfo(lineText, 3)
+			expect(info?.lineType).toBe('first')
+
+			plugin.killLineInCellContext(editor, info)
+			// only <br> removed, trailing spaces preserved
+			expect(editor.setLine).toHaveBeenCalledWith(0, '| a   b |')
+
+			vi.runAllTimers()
+			expect(plugin.isKillChaining).toBe(true)
+		})
+
+		it('removes <br> with trailing spaces when smartJoin is ON', () => {
+			vi.useFakeTimers()
+			plugin.settings = { ...plugin.settings, smartJoin: true }
+			// '| a<br>   b |'
 			const lineText = '| a<br>   b |'
 			const editor = makeEditor([lineText], 0, 3)
 			const info = plugin.getInCellLineInfo(lineText, 3)
@@ -232,6 +255,23 @@ describe('killLine', () => {
 			plugin.killLineInCellContext(editor, info)
 			// <br> + '   ' (3 spaces) removed
 			expect(editor.setLine).toHaveBeenCalledWith(0, '| ab |')
+
+			vi.runAllTimers()
+			expect(plugin.isKillChaining).toBe(true)
+		})
+
+		it('removes <br> with list marker when smartJoin is ON', () => {
+			vi.useFakeTimers()
+			plugin.settings = { ...plugin.settings, smartJoin: true }
+			// '| a<br>   - item |'
+			const lineText = '| a<br>   - item |'
+			const editor = makeEditor([lineText], 0, 3)
+			const info = plugin.getInCellLineInfo(lineText, 3)
+			expect(info?.lineType).toBe('first')
+
+			plugin.killLineInCellContext(editor, info)
+			// <br> + '   - ' removed, content 'item' remains
+			expect(editor.setLine).toHaveBeenCalledWith(0, '| aitem |')
 
 			vi.runAllTimers()
 			expect(plugin.isKillChaining).toBe(true)

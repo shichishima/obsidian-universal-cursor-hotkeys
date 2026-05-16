@@ -15,6 +15,7 @@ declare module "obsidian" {
 interface UniversalCursorHotkeysSettings {
 	smartHomeStandard: boolean;
 	smartHomeAdvanced: boolean;
+	smartJoin: boolean;
 	visualLineMovement: boolean;
 	crossRowNavigation: boolean;
 }
@@ -22,6 +23,7 @@ interface UniversalCursorHotkeysSettings {
 const DEFAULT_SETTINGS: UniversalCursorHotkeysSettings = {
 	smartHomeStandard: true,
 	smartHomeAdvanced: true,
+	smartJoin: false,
 	visualLineMovement: true,
 	crossRowNavigation: true,
 };
@@ -1558,13 +1560,13 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (cursor.line >= editor.lineCount() - 1) return;
 
 		const nextLineText = editor.getLine(cursor.line + 1);
-		const leadingWs = (this.settings.smartHomeStandard && lineText.length > 0)
-			? (nextLineText.match(/^[ \t]*/)?.[0] ?? '')
-			: '';
+		const joinTrimLen = (this.settings.smartJoin && lineText.length > 0)
+			? this.getBeginningOfLinePosition(nextLineText, nextLineText.length || 1)
+			: 0;
 		this.updateKillCache('\n');
 		navigator.clipboard.writeText(this.killCache).catch(() => {});
 		this.isDispatchingKill = true;
-		editor.replaceRange('', { line: cursor.line, ch: lineText.length }, { line: cursor.line + 1, ch: leadingWs.length });
+		editor.replaceRange('', { line: cursor.line, ch: lineText.length }, { line: cursor.line + 1, ch: joinTrimLen });
 		this.isDispatchingKill = false;
 		this.isKillChaining = true;
 	}
@@ -1589,7 +1591,12 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (info.lineType === 'first' || info.lineType === 'middle') {
 			const brMatch = lineText.slice(info.endOfInCellLine).match(/^<[bB][rR]>([ \t]*)/);
 			if (brMatch) {
-				const toCh        = info.endOfInCellLine + brMatch[0].length;
+				const brLen       = '<br>'.length;
+				const afterBr     = lineText.slice(info.endOfInCellLine + brLen);
+				const trimLen     = this.settings.smartJoin
+					? this.getBeginningOfLinePosition(afterBr, afterBr.length || 1)
+					: 0;
+				const toCh        = info.endOfInCellLine + brLen + trimLen;
 				const targetCh    = info.endOfInCellLine;
 				const targetLine  = cursor.line;
 				this.updateKillCache('\n');
@@ -1793,12 +1800,21 @@ class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 
 		let advancedEl: HTMLElement;
 		let advancedToggle: ToggleComponent;
-		const setAdvancedDisabled = (disabled: boolean) => {
+		let smartJoinEl: HTMLElement;
+		let smartJoinToggle: ToggleComponent;
+		const setStandardDisabled = (disabled: boolean) => {
 			advancedEl.style.opacity       = disabled ? '0.4' : '';
 			advancedEl.style.pointerEvents = disabled ? 'none' : '';
+			smartJoinEl.style.opacity       = disabled ? '0.4' : '';
+			smartJoinEl.style.pointerEvents = disabled ? 'none' : '';
 			if (disabled && this.plugin.settings.smartHomeAdvanced) {
 				this.plugin.settings.smartHomeAdvanced = false;
 				advancedToggle.setValue(false);
+				void this.plugin.saveSettings();
+			}
+			if (disabled && this.plugin.settings.smartJoin) {
+				this.plugin.settings.smartJoin = false;
+				smartJoinToggle.setValue(false);
 				void this.plugin.saveSettings();
 			}
 		};
@@ -1806,13 +1822,13 @@ class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName('Smart home (standard)')
 			.then(setting => this.setHtmlDesc(setting, '' +
-				'<b>ON:</b> HOME skips leading Markdown syntax (lists, checkboxes, indents, etc.) to reach content start. Kill Line strips leading whitespace on join (not cached), except when killing from the logical line start.<br>' +
-				'<b>OFF:</b> Moves directly to the start of the line. Kill Line joins lines as-is, preserving leading whitespace.'))
+				'<b>ON:</b> HOME skips leading Markdown syntax (lists, checkboxes, indents, etc.) to reach content start — Windows Home / macOS Cmd+← style.<br>' +
+				'<b>OFF:</b> HOME moves directly to the start of the line — macOS / Emacs Ctrl+A style.'))
 			.addToggle(toggle => toggle
 				.setValue(this.plugin.settings.smartHomeStandard)
 				.onChange(async (value) => {
 					this.plugin.settings.smartHomeStandard = value;
-					setAdvancedDisabled(!value);
+					setStandardDisabled(!value);
 					await this.plugin.saveSettings();
 				}));
 
@@ -1831,7 +1847,23 @@ class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			})
 			.settingEl;
 
-		setAdvancedDisabled(!this.plugin.settings.smartHomeStandard);
+		smartJoinEl = new Setting(containerEl)
+			.setName('Smart join')
+			.then(setting => this.setHtmlDesc(setting, '' +
+				'<b>ON:</b> Kill Line join lands at the next line\'s content start, removing blockquote markers, list markers, and indentation. Pairs with Smart home (advanced) for headings and footnotes.<br>' +
+				'<b>OFF:</b> Joins the next line as-is.<br>' +
+				'<i>Requires <b>Smart home (standard)</b> to be enabled.</i>'))
+			.addToggle(toggle => {
+				smartJoinToggle = toggle;
+				toggle.setValue(this.plugin.settings.smartJoin)
+					.onChange(async (value) => {
+						this.plugin.settings.smartJoin = value;
+						await this.plugin.saveSettings();
+					});
+			})
+			.settingEl;
+
+		setStandardDisabled(!this.plugin.settings.smartHomeStandard);
 
 		new Setting(containerEl)
 			.setName('Cross-row navigation')
