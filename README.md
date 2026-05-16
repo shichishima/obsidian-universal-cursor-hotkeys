@@ -23,12 +23,11 @@ Kill & Yank (Ctrl+K / Ctrl+Y) and Kill Region (Ctrl+W) bring the full Emacs edit
 
 ## Install & Setup
 
-### Installation via BRAT (recommended)
+### Installation
 
-1. Install the [BRAT plugin](https://github.com/TfTHacker/obsidian42-brat) from Obsidian's community plugins.
-2. Open BRAT settings and click **Add Beta Plugin**.
-3. Enter the repository URL: `https://github.com/shichishima/obsidian-universal-cursor-hotkeys`
-4. Click **Add Plugin**, then enable "Universal Cursor Hotkeys" in your community plugins list.
+1. Open **Settings → Community plugins** and click **Browse**.
+2. Search for **Universal Cursor Hotkeys** and click **Install**.
+3. Click **Enable** to activate the plugin.
 
 ### Assign Hotkeys
 
