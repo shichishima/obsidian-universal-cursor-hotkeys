@@ -168,12 +168,13 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 
 - **Outside a table:**
   - **Cursor not at line end:** Kills from the cursor to the end of the logical line. The killed text is copied to the kill cache and the system clipboard.
-  - **Cursor at line end:** Kills the newline and joins with the next line. When **Smart join** is ON, everything to the left of the next line's content start (blockquote markers, list markers, indentation, and with **Smart home (advanced)** ON, headings and footnotes) is removed on join. When **Smart join** is OFF, the next line is joined as-is.
+  - **Cursor at line end:** Kills the newline and joins with the next line.
   - **At end of file:** No operation.
 - **Within a table cell (Live Preview or Source Mode):**
   - **Cursor not at in-cell line end:** Kills from the cursor to the end of the current in-cell line (up to `<br>` or `|`).
-  - **At the end of an in-cell line (before `<br>`):** Deletes the `<br>` tag, joining the current in-cell line with the next. When **Smart join** is ON, trailing whitespace after `<br>` is also removed.
+  - **At the end of an in-cell line (before `<br>`):** Deletes the `<br>` tag, joining the current in-cell line with the next.
   - **At the end of the last in-cell line (cell boundary):** No operation.
+- **Smart join:** When **Smart join** is ON, the join strips everything to the left of the next line's content start — blockquote markers, list markers, indentation, and (with **Smart home (advanced)** ON) headings and footnotes. Applies both outside tables and inside table cells (`<br>` joins).
 - **Consecutive kills:** Each successive Kill Line appends to the kill cache rather than replacing it. Any other editing action (cursor movement, typing, mouse click) resets the accumulation.
 - **Interaction with standard copy/cut:** Pressing Ctrl+C or Ctrl+X clears the kill cache, breaking the consecutive-kill chain.
 
