@@ -8,6 +8,10 @@ import { cursorPageDown, cursorPageUp, deleteCharForward } from '@codemirror/com
 declare module "obsidian" {
 	interface Editor {
 		cm: EditorView;
+		// Inner CM view active when cursor is in a Live Preview table cell.
+		// Points to editor.cm when no table cell is focused.
+		activeCM: EditorView;
+		inTableCell: boolean;
 	}
 }
 
@@ -319,11 +323,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const smartHomePos = info.startOfInCellLine + this.getBeginningOfLinePosition(cellContent, cursor.ch - info.startOfInCellLine);
 
 		if (cursor.ch > smartHomePos) {
-			this.setCursorViaCm(editor, cursor.line, smartHomePos);
+			this.navigateInTableToPos(editor, cursor.line, smartHomePos);
 			return;
 		}
 		// At or before smart home: step back to cell content start.
-		this.setCursorViaCm(editor, cursor.line, info.startOfInCellLine);
+		this.navigateInTableToPos(editor, cursor.line, info.startOfInCellLine);
 	}
 
 
@@ -374,7 +378,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 		// Middle or left position -> move to right edge of current in-cell line.
-		this.setCursorViaCm(editor, cursor.line, info.endOfInCellLine);
+		this.navigateInTableToPos(editor, cursor.line, info.endOfInCellLine);
 	}
 
 
@@ -554,7 +558,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			if (this.isPositionInTable(editor)) {
 				const targetCh = this.getChByCellIndex(editor.getLine(cursorAfter.line), cellIndex);
 				if (targetCh !== -1) {
-					this.setCursorViaCm(editor, cursorAfter.line, targetCh);
+					this.navigateInTableToPos(editor, cursorAfter.line, targetCh);
 				}
 			}
 			this.scheduleBottomVisualLine(editor);
@@ -1239,6 +1243,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const startLine  = editor.getCursor().line;
 		const originalPos = editor.getCursor();
 		const line = editor.getLine(startLine);
+		const endOfCellContent = this.getEndOfCellContent(line, originalPos.ch);
 
 		editor.exec('goRight');
 		if (editor.getCursor().line !== startLine) {
@@ -1247,7 +1252,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}
 		editor.exec('goLeft');
 
-		const endOfCellContent = this.getEndOfCellContent(line, originalPos.ch);
 		let lastPos = editor.getCursor();
 		let breakReason: 'endOfCell' | 'noMove' | 'exitedLine' = 'noMove';
 
@@ -1272,7 +1276,16 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}
 
 		if (breakReason === 'endOfCell') {
-			window.setTimeout(() => { this.setCursorViaCm(editor, lastPos.line, lastPos.ch); }, 0);
+			// Move back to lastPos using goLeft while the inner view is still active.
+			// Dispatching to the outer CM view (setCursorViaCm) would destroy the inner
+			// view, causing native-cursor to lose coordsAtPos and drop the cursor display.
+			let pos = editor.getCursor();
+			for (let step = 0; step < 64 && pos.ch > lastPos.ch; step++) {
+				editor.exec('goLeft');
+				const newP = editor.getCursor();
+				if (newP.ch >= pos.ch) break;
+				pos = newP;
+			}
 			return;
 		}
 
@@ -1350,10 +1363,53 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 
 	private setCursorViaCm(editor: Editor, line: number, ch: number) {
-		const cm  = editor.cm;
+		const targetInTable = this.isPositionInTable(editor, line, ch);
+		const cm = editor.cm;
 		const pos = editor.posToOffset({ line, ch });
 		cm.dispatch({ selection: { anchor: pos, head: pos }, userEvent: 'move' });
-		cm.focus();
+		if (!targetInTable) {
+			// Exiting the table: outer CM must receive keyboard events.
+			cm.focus();
+		} else {
+			// Navigating to a table cell: do NOT call cm.focus().
+			// Normally Obsidian auto-creates and auto-focuses the inner view when
+			// cm.dispatch places the cursor in a table cell.  However, if the outer
+			// CM already held DOM focus before the dispatch (e.g. after editor.setLine
+			// in Kill Line), Obsidian skips auto-focus.  Transfer focus explicitly in
+			// the next frame to cover that case without risking destroying the inner view.
+			window.requestAnimationFrame(() => {
+				const inner = editor.activeCM;
+				if (inner && inner !== cm && !inner.hasFocus) {
+					inner.focus();
+				}
+			});
+		}
+	}
+
+
+	// Navigate to (targetLine, targetCh) via editor.exec goLeft/goRight, keeping the
+	// inner CM view active. Dispatching to the outer CM view (setCursorViaCm) causes
+	// Obsidian to destroy and recreate the inner view, which breaks native-cursor's
+	// coordsAtPos. Falls back to setCursorViaCm if the loop cannot reach the target.
+	private navigateInTableToPos(editor: Editor, targetLine: number, targetCh: number): void {
+		let pos = editor.getCursor();
+		if (pos.line === targetLine && pos.ch === targetCh) return;
+		const goingLeft = targetLine < pos.line || (targetLine === pos.line && targetCh < pos.ch);
+		const cmd = goingLeft ? 'goLeft' : 'goRight';
+		for (let step = 0; step < 256; step++) {
+			if (pos.line === targetLine && pos.ch === targetCh) return;
+			const overshot = goingLeft
+				? pos.line < targetLine || (pos.line === targetLine && pos.ch < targetCh)
+				: pos.line > targetLine || (pos.line === targetLine && pos.ch > targetCh);
+			if (overshot) break;
+			editor.exec(cmd);
+			const newP = editor.getCursor();
+			if (newP.line === pos.line && newP.ch === pos.ch) break;
+			pos = newP;
+		}
+		if (pos.line !== targetLine || pos.ch !== targetCh) {
+			this.setCursorViaCm(editor, targetLine, targetCh);
+		}
 	}
 
 
@@ -1482,14 +1538,22 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if ((info.lineType === 'first' || info.lineType === 'middle') && cursor.ch >= info.endOfInCellLine) {
 			const brMatch = lineText.slice(info.endOfInCellLine).match(/^<[bB][rR]>([ \t]*)/);
 			if (brMatch) {
-				const brEnd       = info.endOfInCellLine + brMatch[0].length;
-				const targetLine  = cursor.line;
-				const scrollEl    = editor.cm?.scrollDOM;
-				const savedScroll = scrollEl?.scrollTop;
-				editor.setLine(targetLine, lineText.slice(0, info.endOfInCellLine) + lineText.slice(brEnd));
-				window.setTimeout(() => {
-					this.setCursorViaCm(editor, targetLine, info.endOfInCellLine);
-				}, 0);
+				const brEnd = info.endOfInCellLine + brMatch[0].length;
+				const inner = editor.activeCM;
+				if (inner && inner !== editor.cm) {
+					const innerDoc    = inner.state.doc.toString();
+					const cursorInner = inner.state.selection.main.head;
+					// Inner view uses \n (not <br>) for in-cell line breaks
+					let nlPos = -1;
+					if (innerDoc[cursorInner] === '\n')          nlPos = cursorInner;
+					else if (innerDoc[cursorInner - 1] === '\n') nlPos = cursorInner - 1;
+					if (nlPos >= 0) {
+						inner.dispatch({ changes: { from: nlPos, to: nlPos + 1, insert: '' }, selection: { anchor: nlPos }, userEvent: 'delete' });
+					}
+				} else {
+					editor.setLine(cursor.line, lineText.slice(0, info.endOfInCellLine) + lineText.slice(brEnd));
+					window.setTimeout(() => { this.setCursorViaCm(editor, cursor.line, info.endOfInCellLine); }, 0);
+				}
 			}
 			return;
 		}
@@ -1601,19 +1665,35 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				const targetLine  = cursor.line;
 				this.updateKillCache('\n');
 				navigator.clipboard.writeText(this.killCache).catch(() => {});
-				this.isDispatchingKill = true;
-				const scrollEl1    = editor.cm?.scrollDOM;
-				const savedScroll1 = scrollEl1?.scrollTop;
-				editor.setLine(targetLine, lineText.slice(0, targetCh) + lineText.slice(toCh));
-				this.isDispatchingKill = false;
-				// Defer cursor restore until after Obsidian's table editor re-dispatch settles,
-				// then set isKillChaining so the chain isn't broken by that re-dispatch.
-				window.setTimeout(() => {
+				const inner1 = editor.activeCM;
+				if (inner1 && inner1 !== editor.cm) {
+					const innerDoc    = inner1.state.doc.toString();
+					const cursorInner = inner1.state.selection.main.head;
+					// Inner view uses \n (not <br>) for in-cell line breaks
+					let nlPos = -1;
+					if (innerDoc[cursorInner] === '\n')          nlPos = cursorInner;
+					else if (innerDoc[cursorInner - 1] === '\n') nlPos = cursorInner - 1;
+					if (nlPos >= 0) {
+						const afterNl      = innerDoc.slice(nlPos + 1);
+						const innerTrimLen = this.settings.smartJoin
+							? this.getBeginningOfLinePosition(afterNl, afterNl.length || 1)
+							: 0;
+						this.isDispatchingKill = true;
+						inner1.dispatch({ changes: { from: nlPos, to: nlPos + 1 + innerTrimLen, insert: '' }, selection: { anchor: nlPos }, userEvent: 'delete' });
+						this.isDispatchingKill = false;
+						this.isKillChaining = true;
+					}
+				} else {
 					this.isDispatchingKill = true;
-					this.setCursorViaCm(editor, targetLine, targetCh);
+					editor.setLine(targetLine, lineText.slice(0, targetCh) + lineText.slice(toCh));
 					this.isDispatchingKill = false;
-					this.isKillChaining = true;
-				}, 0);
+					window.setTimeout(() => {
+						this.isDispatchingKill = true;
+						this.setCursorViaCm(editor, targetLine, targetCh);
+						this.isDispatchingKill = false;
+						this.isKillChaining = true;
+					}, 0);
+				}
 				return;
 			}
 		}
@@ -1627,17 +1707,31 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				const targetLine  = cursor.line;
 				this.updateKillCache('\n');
 				navigator.clipboard.writeText(this.killCache).catch(() => {});
-				this.isDispatchingKill = true;
-				const scrollEl2    = editor.cm?.scrollDOM;
-				const savedScroll2 = scrollEl2?.scrollTop;
-				editor.setLine(targetLine, lineText.slice(0, brStart) + lineText.slice(cursor.ch));
-				this.isDispatchingKill = false;
-				window.setTimeout(() => {
+				const inner2 = editor.activeCM;
+				if (inner2 && inner2 !== editor.cm) {
+					const cursorInner = inner2.state.selection.main.head;
+					const innerDoc2   = inner2.state.doc.toString();
+					// Inner view uses \n (not <br>) for in-cell line breaks
+					let nlPos = -1;
+					if (cursorInner > 0 && innerDoc2[cursorInner - 1] === '\n') nlPos = cursorInner - 1;
+					else if (innerDoc2[cursorInner] === '\n')                    nlPos = cursorInner;
+					if (nlPos >= 0) {
+						this.isDispatchingKill = true;
+						inner2.dispatch({ changes: { from: nlPos, to: nlPos + 1, insert: '' }, selection: { anchor: nlPos }, userEvent: 'delete' });
+						this.isDispatchingKill = false;
+						this.isKillChaining = true;
+					}
+				} else {
 					this.isDispatchingKill = true;
-					this.setCursorViaCm(editor, targetLine, brStart);
+					editor.setLine(targetLine, lineText.slice(0, brStart) + lineText.slice(cursor.ch));
 					this.isDispatchingKill = false;
-					this.isKillChaining = true;
-				}, 0);
+					window.setTimeout(() => {
+						this.isDispatchingKill = true;
+						this.setCursorViaCm(editor, targetLine, brStart);
+						this.isDispatchingKill = false;
+						this.isKillChaining = true;
+					}, 0);
+				}
 				return;
 			}
 		}
@@ -1711,12 +1805,38 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			const cm          = editor.cm;
 			const lineObj     = cm.state.doc.line(targetLine + 1);
 			const savedScroll = cm.scrollDOM?.scrollTop;
-			cm.dispatch({
-				changes:   { from: lineObj.from, to: lineObj.to, insert: prefix + suffix },
-				selection: { anchor: lineObj.from + prefix.length },
-			});
+			const inner       = editor.activeCM;
+			if (inner && inner !== cm) {
+				const innerSel    = inner.state.selection.main;
+				const innerDoc    = inner.state.doc.toString();
+				let delFrom       = innerSel.from;
+				let delTo         = innerSel.to;
+				const innerSuffix = innerDoc.slice(innerSel.to);
+				const innerPrefix = innerDoc.slice(0, innerSel.from);
+				// Inner view uses \n (not <br>) for in-cell line breaks
+				if (innerSuffix.startsWith('\n')) {
+					if (!innerPrefix.trim()) {
+						const wsLen = innerSuffix.match(/^\n([ \t]*)/)?.[1].length ?? 0;
+						delTo += 1 + wsLen;
+					}
+				} else {
+					const trimmedPrefix = innerPrefix.trimEnd();
+					if (trimmedPrefix.endsWith('\n') && !innerSuffix.trim()) {
+						delFrom -= innerPrefix.length - trimmedPrefix.length + 1;
+					}
+				}
+				inner.dispatch({
+					changes:   { from: delFrom, to: delTo, insert: '' },
+					selection: { anchor: delFrom },
+				});
+			} else {
+				cm.dispatch({
+					changes:   { from: lineObj.from, to: lineObj.to, insert: prefix + suffix },
+					selection: { anchor: lineObj.from + prefix.length },
+				});
+				cm.focus();
+			}
 			if (savedScroll !== undefined) cm.scrollDOM.scrollTop = savedScroll;
-			cm.focus();
 		} else {
 			editor.replaceRange('', from, to);
 		}
@@ -1743,6 +1863,24 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const inLPTable = this.isLivePreviewMode() && this.isPositionInTable(editor);
 		const inTable = inLPTable || this.isTableLineSourceMode(lineText);
 
+		// LP table with active inner view: insert raw text directly.
+		// The inner view uses \n for in-cell line breaks — no <br> conversion needed.
+		if (inLPTable) {
+			const inner = editor.activeCM;
+			if (inner && inner !== editor.cm) {
+				const scrollEl    = editor.cm?.scrollDOM;
+				const savedScroll = scrollEl?.scrollTop;
+				const innerSel    = inner.state.selection.main;
+				inner.dispatch({
+					changes:   { from: innerSel.from, to: innerSel.to, insert: raw },
+					selection: { anchor: innerSel.from + raw.length },
+					userEvent: 'input',
+				});
+				if (scrollEl && savedScroll !== undefined) scrollEl.scrollTop = savedScroll;
+				return;
+			}
+		}
+
 		const text = inTable
 			? raw.replace(/\|/g, '\\|').replace(/\n/g, '<br>')
 			: raw;
@@ -1754,8 +1892,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			const prefix      = currentLine.slice(0, from.ch);
 			const suffix      = currentLine.slice(to.ch);
 			const targetLine  = from.line;
-			// When text ends with <br>, place cursor at brStart (end of last meaningful content)
-			// to avoid landing at brEnd = close pipe on cells with no trailing space.
 			const textForCursor = text.replace(/<[bB][rR]>$/, '');
 			const targetCh      = prefix.length + textForCursor.length;
 			const scrollEl      = editor.cm?.scrollDOM;
