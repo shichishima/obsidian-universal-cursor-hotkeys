@@ -3,11 +3,12 @@ macOS/Emacs-style navigation and Kill & Yank — seamlessly across Markdown tabl
 
 <table>
   <tr>
-    <td align="center"><img width="375" height="375" alt="Image" src="https://github.com/user-attachments/assets/b89fe375-5754-422d-bca2-4ae674077788" /></td>
-    <td align="center"><img width="375" height="375" alt="Image" src="https://github.com/user-attachments/assets/8d773e0a-c9c9-4e18-8665-19c4cf32a141" /></td>
+    <td align="center"><img width="350" height="270" alt="Enter and Exit tables" src="https://github.com/user-attachments/assets/6660fba8-a083-44d1-b1de-7f4753c8b5d9" /></td>
+    <td align="center"><img width="350" height="270" alt="Smart home" src="https://github.com/user-attachments/assets/eaf49a42-396c-4676-a7fa-5c21cc1524fc" /></td>
   </tr>
   <tr>
-    <td align="center"><img width="375" height="375" alt="Image" src="https://github.com/user-attachments/assets/4c38d0a4-4e9d-4645-af92-26265be68135" /></td>
+    <td align="center"><img width="350" height="270" alt="Kill & Yank" src="https://github.com/user-attachments/assets/5b8d0de7-b6d2-42f4-a785-5b888fe7f1bf" /></td>
+    <td align="center"><img width="350" height="270" alt="Smart join" src="https://github.com/user-attachments/assets/5a32e993-10a0-4ad8-b9f6-d6f71e0b8b86" /></td>
   </tr>
 </table>
 
