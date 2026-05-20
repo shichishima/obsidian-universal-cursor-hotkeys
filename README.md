@@ -43,22 +43,22 @@ Go to **Settings → Hotkeys**, search for "Universal Cursor Hotkeys", and assig
 
 For detailed behavior of each command, see [Command Details](#command-details) below.
 
-| Command Name | Recommended<br>Hotkey | Function Summary |
-| :--------: | :----------------: | ---------------- |
-| UP    | Ctrl + P           | Smart UP: Text/Cell movement and Table entry (from bottom) & exit (from top). |
-| DOWN  | Ctrl + N           | Smart DOWN: Text/Cell movement and Table entry (from top) & exit (from bottom). |
-| LEFT  | Ctrl + B           | Smart LEFT: Move by character or jump to the previous cell. |
-| RIGHT | Ctrl + F           | Smart RIGHT: Move by character or jump to the next cell. |
-| HOME  | Ctrl + A           | Smart HOME: Visual-line-aware; jumps to content start (skips markers) or previous cell. |
-| END   | Ctrl + E           | Smart END: Visual-line-aware; jumps to end of visual/logical line or next cell. |
-| Kill line | Ctrl + K      | Kill from cursor to line end. Consecutive kills accumulate in the kill cache and clipboard. |
-| Kill region | Ctrl + W    | Cut the selected region to the kill cache. Table-aware: single-cell only; no-op for multi-row or cross-cell selections. |
-| Yank | Ctrl + Y           | Paste from the OS clipboard. Table-aware: converts newlines and pipes automatically. |
-| Delete char | Ctrl + D   | Forward-delete one character. Stops at cell boundary; joins sub-lines at `<br>` in Live Preview. |
-| Recenter | Ctrl + L      | Scroll the view so the cursor line is centered on screen. |
-| Page down | (None)        | Scroll down one page, moving the cursor with it. ⚠️ Assigning Ctrl+V breaks paste in non-editor plugin views (e.g., Excalidraw) (Windows). |
-| Page up | (None)        | Scroll up one page, moving the cursor with it. ⚠️ Assigning Cmd+V breaks paste in non-editor plugin views (macOS). |
-| Select all | (None)        | For Windows users: Restores "Select all" functionality if Ctrl+A is reassigned to HOME. Assign a custom key or run from the command palette. |
+| Command Name | Recommended<br>Hotkey | Function Summary | Key<br>Repeat |
+| :--------: | :----------------: | ---------------- | :---: |
+| UP    | Ctrl + P           | Smart UP: Text/Cell movement and Table entry (from bottom) & exit (from top). | ✓ |
+| DOWN  | Ctrl + N           | Smart DOWN: Text/Cell movement and Table entry (from top) & exit (from bottom). | ✓ |
+| LEFT  | Ctrl + B           | Smart LEFT: Move by character or jump to the previous cell. | ✓ |
+| RIGHT | Ctrl + F           | Smart RIGHT: Move by character or jump to the next cell. | ✓ |
+| HOME  | Ctrl + A           | Smart HOME: Visual-line-aware; jumps to content start (skips markers) or previous cell. | ✓ |
+| END   | Ctrl + E           | Smart END: Visual-line-aware; jumps to end of visual/logical line or next cell. | ✓ |
+| Kill line | Ctrl + K      | Kill from cursor to line end. Consecutive kills accumulate in the kill cache and clipboard. | ✓ |
+| Kill region | Ctrl + W    | Cut the selected region to the kill cache. Table-aware: single-cell only; no-op for multi-row or cross-cell selections. | — |
+| Yank | Ctrl + Y           | Paste from the OS clipboard. Table-aware: converts newlines and pipes automatically. | ✓ |
+| Delete char | Ctrl + D   | Forward-delete one character. Stops at cell boundary; joins sub-lines at `<br>` in Live Preview. | ✓ |
+| Recenter | Ctrl + L      | Scroll the view so the cursor line is centered on screen. | — |
+| Page down | (None)        | Scroll down one page, moving the cursor with it. ⚠️ Assigning Ctrl+V breaks paste in non-editor plugin views (e.g., Excalidraw) (Windows). | ✓ |
+| Page up | (None)        | Scroll up one page, moving the cursor with it. ⚠️ Assigning Cmd+V breaks paste in non-editor plugin views (macOS). | ✓ |
+| Select all | (None)        | For Windows users: Restores "Select all" functionality if Ctrl+A is reassigned to HOME. Assign a custom key or run from the command palette. | — |
 
 
 ## Settings
