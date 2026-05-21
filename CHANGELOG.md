@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.5.0] - 2026-05-xx
+## [0.5.0] - 2026-05-21
 
 ### Added
 - **Kill Region (Ctrl+W):** Cuts the selected region to the kill cache and system clipboard. Table-aware: single-cell only; no-op for multi-row or cross-cell selections. Selecting text that spans a `<br>` separator in Live Preview removes the separator along with the selected text.
