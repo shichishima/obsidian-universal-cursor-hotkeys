@@ -2,12 +2,16 @@ import { App, Editor, Plugin, PluginSettingTab, Setting, MarkdownView, ToggleCom
 import { syntaxTree } from '@codemirror/language';
 import { EditorView } from "@codemirror/view";
 import { EditorSelection, Transaction } from '@codemirror/state';
-import { /* cursorPageDown, cursorPageUp, */ deleteCharForward } from '@codemirror/commands';
+import { cursorPageDown, cursorPageUp, deleteCharForward } from '@codemirror/commands';
 
 // Extend the Obsidian Editor interface to include the internal CodeMirror 6 instance (EditorView)
 declare module "obsidian" {
 	interface Editor {
 		cm: EditorView;
+		// Inner CM view active when cursor is in a Live Preview table cell.
+		// Points to editor.cm when no table cell is focused.
+		activeCM: EditorView;
+		inTableCell: boolean;
 	}
 }
 
@@ -15,6 +19,7 @@ declare module "obsidian" {
 interface UniversalCursorHotkeysSettings {
 	smartHomeStandard: boolean;
 	smartHomeAdvanced: boolean;
+	smartJoin: boolean;
 	visualLineMovement: boolean;
 	crossRowNavigation: boolean;
 }
@@ -22,6 +27,7 @@ interface UniversalCursorHotkeysSettings {
 const DEFAULT_SETTINGS: UniversalCursorHotkeysSettings = {
 	smartHomeStandard: true,
 	smartHomeAdvanced: true,
+	smartJoin: false,
 	visualLineMovement: true,
 	crossRowNavigation: true,
 };
@@ -108,29 +114,26 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: "select-all",
 			name: "Select all",
 			editorCallback: (editor: Editor) => {
-				editor.setSelection(
-					{ line: 0, ch: 0 },
-					{ line: editor.lastLine(), ch: editor.getLine(editor.lastLine()).length }
-				);
+				this.selectAll(editor);
 			},
 		});
 
-		// this.addCommand({
-		// 	id: 'delete-char',
-		// 	name: 'Delete char',
-		// 	repeatable: true,
-		// 	editorCallback: (editor: Editor) => {
-		// 		this.deleteChar(editor);
-		// 	}
-		// });
+		this.addCommand({
+			id: 'delete-char',
+			name: 'Delete char',
+			repeatable: true,
+			editorCallback: (editor: Editor) => {
+				this.deleteChar(editor);
+			}
+		});
 
-		// this.addCommand({
-		// 	id: 'kill-region',
-		// 	name: 'Kill region',
-		// 	editorCallback: (editor: Editor) => {
-		// 		this.killRegion(editor);
-		// 	}
-		// });
+		this.addCommand({
+			id: 'kill-region',
+			name: 'Kill region',
+			editorCallback: (editor: Editor) => {
+				this.killRegion(editor);
+			}
+		});
 
 		this.addCommand({
 			id: 'kill-line',
@@ -150,33 +153,33 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			}
 		});
 
-		// this.addCommand({
-		// 	id: 'page-down',
-		// 	name: 'Page down',
-		// 	repeatable: true,
-		// 	editorCallback: (editor: Editor) => {
-		// 		const cm = editor.cm;
-		// 		if (cm) cursorPageDown(cm);
-		// 	}
-		// });
+		this.addCommand({
+			id: 'page-down',
+			name: 'Page down',
+			repeatable: true,
+			editorCallback: (editor: Editor) => {
+				const cm = editor.cm;
+				if (cm) cursorPageDown(cm);
+			}
+		});
 
-		// this.addCommand({
-		// 	id: 'page-up',
-		// 	name: 'Page up',
-		// 	repeatable: true,
-		// 	editorCallback: (editor: Editor) => {
-		// 		const cm = editor.cm;
-		// 		if (cm) cursorPageUp(cm);
-		// 	}
-		// });
+		this.addCommand({
+			id: 'page-up',
+			name: 'Page up',
+			repeatable: true,
+			editorCallback: (editor: Editor) => {
+				const cm = editor.cm;
+				if (cm) cursorPageUp(cm);
+			}
+		});
 
-		// this.addCommand({
-		// 	id: 'recenter',
-		// 	name: 'Recenter',
-		// 	editorCallback: (editor: Editor) => {
-		// 		this.recenter(editor);
-		// 	}
-		// });
+		this.addCommand({
+			id: 'recenter',
+			name: 'Recenter',
+			editorCallback: (editor: Editor) => {
+				this.recenter(editor);
+			}
+		});
 
 		this.registerEditorExtension(
 			EditorView.updateListener.of((update) => {
@@ -320,11 +323,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const smartHomePos = info.startOfInCellLine + this.getBeginningOfLinePosition(cellContent, cursor.ch - info.startOfInCellLine);
 
 		if (cursor.ch > smartHomePos) {
-			this.setCursorViaCm(editor, cursor.line, smartHomePos);
+			this.navigateInTableToPos(editor, cursor.line, smartHomePos);
 			return;
 		}
 		// At or before smart home: step back to cell content start.
-		this.setCursorViaCm(editor, cursor.line, info.startOfInCellLine);
+		this.navigateInTableToPos(editor, cursor.line, info.startOfInCellLine);
 	}
 
 
@@ -375,7 +378,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 		// Middle or left position -> move to right edge of current in-cell line.
-		this.setCursorViaCm(editor, cursor.line, info.endOfInCellLine);
+		this.navigateInTableToPos(editor, cursor.line, info.endOfInCellLine);
 	}
 
 
@@ -555,7 +558,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			if (this.isPositionInTable(editor)) {
 				const targetCh = this.getChByCellIndex(editor.getLine(cursorAfter.line), cellIndex);
 				if (targetCh !== -1) {
-					this.setCursorViaCm(editor, cursorAfter.line, targetCh);
+					this.navigateInTableToPos(editor, cursorAfter.line, targetCh);
 				}
 			}
 			this.scheduleBottomVisualLine(editor);
@@ -1240,6 +1243,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const startLine  = editor.getCursor().line;
 		const originalPos = editor.getCursor();
 		const line = editor.getLine(startLine);
+		const endOfCellContent = this.getEndOfCellContent(line, originalPos.ch);
 
 		editor.exec('goRight');
 		if (editor.getCursor().line !== startLine) {
@@ -1248,7 +1252,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}
 		editor.exec('goLeft');
 
-		const endOfCellContent = this.getEndOfCellContent(line, originalPos.ch);
 		let lastPos = editor.getCursor();
 		let breakReason: 'endOfCell' | 'noMove' | 'exitedLine' = 'noMove';
 
@@ -1273,7 +1276,16 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}
 
 		if (breakReason === 'endOfCell') {
-			window.setTimeout(() => { this.setCursorViaCm(editor, lastPos.line, lastPos.ch); }, 0);
+			// Move back to lastPos using goLeft while the inner view is still active.
+			// Dispatching to the outer CM view (setCursorViaCm) would destroy the inner
+			// view, causing native-cursor to lose coordsAtPos and drop the cursor display.
+			let pos = editor.getCursor();
+			for (let step = 0; step < 64 && pos.ch > lastPos.ch; step++) {
+				editor.exec('goLeft');
+				const newP = editor.getCursor();
+				if (newP.ch >= pos.ch) break;
+				pos = newP;
+			}
 			return;
 		}
 
@@ -1351,10 +1363,53 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 
 	private setCursorViaCm(editor: Editor, line: number, ch: number) {
-		const cm  = editor.cm;
+		const targetInTable = this.isPositionInTable(editor, line, ch);
+		const cm = editor.cm;
 		const pos = editor.posToOffset({ line, ch });
-		cm.dispatch({ selection: { anchor: pos, head: pos } });
-		cm.focus();
+		cm.dispatch({ selection: { anchor: pos, head: pos }, userEvent: 'move' });
+		if (!targetInTable) {
+			// Exiting the table: outer CM must receive keyboard events.
+			cm.focus();
+		} else {
+			// Navigating to a table cell: do NOT call cm.focus().
+			// Normally Obsidian auto-creates and auto-focuses the inner view when
+			// cm.dispatch places the cursor in a table cell.  However, if the outer
+			// CM already held DOM focus before the dispatch (e.g. after editor.setLine
+			// in Kill Line), Obsidian skips auto-focus.  Transfer focus explicitly in
+			// the next frame to cover that case without risking destroying the inner view.
+			window.requestAnimationFrame(() => {
+				const inner = editor.activeCM;
+				if (inner && inner !== cm && !inner.hasFocus) {
+					inner.focus();
+				}
+			});
+		}
+	}
+
+
+	// Navigate to (targetLine, targetCh) via editor.exec goLeft/goRight, keeping the
+	// inner CM view active. Dispatching to the outer CM view (setCursorViaCm) causes
+	// Obsidian to destroy and recreate the inner view, which breaks native-cursor's
+	// coordsAtPos. Falls back to setCursorViaCm if the loop cannot reach the target.
+	private navigateInTableToPos(editor: Editor, targetLine: number, targetCh: number): void {
+		let pos = editor.getCursor();
+		if (pos.line === targetLine && pos.ch === targetCh) return;
+		const goingLeft = targetLine < pos.line || (targetLine === pos.line && targetCh < pos.ch);
+		const cmd = goingLeft ? 'goLeft' : 'goRight';
+		for (let step = 0; step < 256; step++) {
+			if (pos.line === targetLine && pos.ch === targetCh) return;
+			const overshot = goingLeft
+				? pos.line < targetLine || (pos.line === targetLine && pos.ch < targetCh)
+				: pos.line > targetLine || (pos.line === targetLine && pos.ch > targetCh);
+			if (overshot) break;
+			editor.exec(cmd);
+			const newP = editor.getCursor();
+			if (newP.line === pos.line && newP.ch === pos.ch) break;
+			pos = newP;
+		}
+		if (pos.line !== targetLine || pos.ch !== targetCh) {
+			this.setCursorViaCm(editor, targetLine, targetCh);
+		}
 	}
 
 
@@ -1377,37 +1432,30 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return 0;
 		}
 
-		let result = null
+		// Strip blockquote prefix so the downstream pattern checks run on the content.
+		// bqEnd is 0 for non-blockquote lines and added back to every return value.
+		let bqEnd = 0;
+		const bqMatch = line.match(/^(\s*>)+\s*/);
+		if (bqMatch) {
+			bqEnd = bqMatch[0].length;
+			line = line.slice(bqEnd);
+			ch -= bqEnd;
+		}
+
+		let result: RegExpMatchArray | null = null;
 		if (this.settings.smartHomeAdvanced) {
 			// Headings in an unordered list (Adv.)
 			// `- # heading-text`, 1st after `# `, 2nd after `- `
 			result = line.match(/^(\s*[-+*]\s)?#+\s/);
-			if (result !== null && result[0].length < ch) {
-				return result[0].length;
-			}
-
+			if (result !== null && result[0].length < ch) return bqEnd + result[0].length;
 			result = line.match(/^#{1,6}\s/); // Headings (Adv.)
+			if (result === null) result = line.match(/^\[\^.+\]:\s*/); // Footnotes (Adv.)
+		}
+		if (result === null) result = line.match(/^\s*\d+[.)]\s/); // Ordered lists
+		if (result === null) result = line.match(/^\s*([-+*]\s(\[.\]\s)?)?/); // Indents, Unordered lists, Task lists
 
-			if (result === null) {
-				result = line.match(/^\[\^.+\]:\s*/); // Footnotes (Adv.)
-			}
-		}
-		if (result === null) {
-			result = line.match(/^\s*\d+[.)]\s/); // Ordered lists
-		}
-		if (result === null) {
-			result = line.match(/^\s*>\s*/); // Quotes
-		}
-		if (result === null) {
-			// Indents, Unordered lists, Task lists
-			result = line.match(/^\s*([-+*]\s(\[.\]\s)?)?/);
-		}
-
-		if (result !== null && result[0].length < ch) {
-			return result[0].length;
-		} else {
-			return 0;
-		}
+		if (result !== null && result[0].length < ch) return bqEnd + result[0].length;
+		return 0;
 	}
 
 
@@ -1419,6 +1467,31 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private isTableLineSourceMode(line: string): boolean {
 		const trimmed = line.trimEnd();
 		return trimmed.startsWith('|') && trimmed.endsWith('|');
+	}
+
+
+	//===========================================================================
+	// Select all
+	//===========================================================================
+
+	private selectAll(editor: Editor) {
+		const cursor   = editor.getCursor();
+		const line     = editor.getLine(cursor.line);
+		const inTable  = (this.isLivePreviewMode() && this.isPositionInTable(editor))
+		              || (!this.isLivePreviewMode() && this.isTableLineSourceMode(line));
+
+		if (inTable) {
+			const start = this.getStartOfCellContent(line, cursor.ch);
+			const end   = this.getEndOfCellContent(line, cursor.ch);
+			if (start === end) return;
+			editor.setSelection({ line: cursor.line, ch: start }, { line: cursor.line, ch: end });
+			return;
+		}
+
+		editor.setSelection(
+			{ line: 0, ch: 0 },
+			{ line: editor.lastLine(), ch: editor.getLine(editor.lastLine()).length }
+		);
 	}
 
 
@@ -1466,11 +1539,21 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			const brMatch = lineText.slice(info.endOfInCellLine).match(/^<[bB][rR]>([ \t]*)/);
 			if (brMatch) {
 				const brEnd = info.endOfInCellLine + brMatch[0].length;
-				const targetLine = cursor.line;
-				editor.setLine(targetLine, lineText.slice(0, info.endOfInCellLine) + lineText.slice(brEnd));
-				window.setTimeout(() => {
-					this.setCursorViaCm(editor, targetLine, info.endOfInCellLine);
-				}, 0);
+				const inner = editor.activeCM;
+				if (inner && inner !== editor.cm) {
+					const innerDoc    = inner.state.doc.toString();
+					const cursorInner = inner.state.selection.main.head;
+					// Inner view uses \n (not <br>) for in-cell line breaks
+					let nlPos = -1;
+					if (innerDoc[cursorInner] === '\n')          nlPos = cursorInner;
+					else if (innerDoc[cursorInner - 1] === '\n') nlPos = cursorInner - 1;
+					if (nlPos >= 0) {
+						inner.dispatch({ changes: { from: nlPos, to: nlPos + 1, insert: '' }, selection: { anchor: nlPos }, userEvent: 'delete' });
+					}
+				} else {
+					editor.setLine(cursor.line, lineText.slice(0, info.endOfInCellLine) + lineText.slice(brEnd));
+					window.setTimeout(() => { this.setCursorViaCm(editor, cursor.line, info.endOfInCellLine); }, 0);
+				}
 			}
 			return;
 		}
@@ -1541,13 +1624,13 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (cursor.line >= editor.lineCount() - 1) return;
 
 		const nextLineText = editor.getLine(cursor.line + 1);
-		const leadingWs = this.settings.smartHomeStandard
-			? (nextLineText.match(/^[ \t]*/)?.[0] ?? '')
-			: '';
-		this.updateKillCache('\n' + leadingWs);
+		const joinTrimLen = (this.settings.smartJoin && lineText.length > 0)
+			? this.getBeginningOfLinePosition(nextLineText, nextLineText.length || 1)
+			: 0;
+		this.updateKillCache('\n');
 		navigator.clipboard.writeText(this.killCache).catch(() => {});
 		this.isDispatchingKill = true;
-		editor.replaceRange('', { line: cursor.line, ch: lineText.length }, { line: cursor.line + 1, ch: leadingWs.length });
+		editor.replaceRange('', { line: cursor.line, ch: lineText.length }, { line: cursor.line + 1, ch: joinTrimLen });
 		this.isDispatchingKill = false;
 		this.isKillChaining = true;
 	}
@@ -1572,22 +1655,45 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (info.lineType === 'first' || info.lineType === 'middle') {
 			const brMatch = lineText.slice(info.endOfInCellLine).match(/^<[bB][rR]>([ \t]*)/);
 			if (brMatch) {
-				const toCh = info.endOfInCellLine + brMatch[0].length;
-				const targetCh = info.endOfInCellLine;
-				const targetLine = cursor.line;
+				const brLen       = '<br>'.length;
+				const afterBr     = lineText.slice(info.endOfInCellLine + brLen);
+				const trimLen     = this.settings.smartJoin
+					? this.getBeginningOfLinePosition(afterBr, afterBr.length || 1)
+					: 0;
+				const toCh        = info.endOfInCellLine + brLen + trimLen;
+				const targetCh    = info.endOfInCellLine;
+				const targetLine  = cursor.line;
 				this.updateKillCache('\n');
 				navigator.clipboard.writeText(this.killCache).catch(() => {});
-				this.isDispatchingKill = true;
-				editor.setLine(targetLine, lineText.slice(0, targetCh) + lineText.slice(toCh));
-				this.isDispatchingKill = false;
-				// Defer cursor restore until after Obsidian's table editor re-dispatch settles,
-				// then set isKillChaining so the chain isn't broken by that re-dispatch.
-				window.setTimeout(() => {
+				const inner1 = editor.activeCM;
+				if (inner1 && inner1 !== editor.cm) {
+					const innerDoc    = inner1.state.doc.toString();
+					const cursorInner = inner1.state.selection.main.head;
+					// Inner view uses \n (not <br>) for in-cell line breaks
+					let nlPos = -1;
+					if (innerDoc[cursorInner] === '\n')          nlPos = cursorInner;
+					else if (innerDoc[cursorInner - 1] === '\n') nlPos = cursorInner - 1;
+					if (nlPos >= 0) {
+						const afterNl      = innerDoc.slice(nlPos + 1);
+						const innerTrimLen = this.settings.smartJoin
+							? this.getBeginningOfLinePosition(afterNl, afterNl.length || 1)
+							: 0;
+						this.isDispatchingKill = true;
+						inner1.dispatch({ changes: { from: nlPos, to: nlPos + 1 + innerTrimLen, insert: '' }, selection: { anchor: nlPos }, userEvent: 'delete' });
+						this.isDispatchingKill = false;
+						this.isKillChaining = true;
+					}
+				} else {
 					this.isDispatchingKill = true;
-					this.setCursorViaCm(editor, targetLine, targetCh);
+					editor.setLine(targetLine, lineText.slice(0, targetCh) + lineText.slice(toCh));
 					this.isDispatchingKill = false;
-					this.isKillChaining = true;
-				}, 0);
+					window.setTimeout(() => {
+						this.isDispatchingKill = true;
+						this.setCursorViaCm(editor, targetLine, targetCh);
+						this.isDispatchingKill = false;
+						this.isKillChaining = true;
+					}, 0);
+				}
 				return;
 			}
 		}
@@ -1597,19 +1703,35 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if ((info.lineType === 'middle' || info.lineType === 'last') && cursor.ch === info.startOfInCellLine) {
 			const brMatch = lineText.slice(0, cursor.ch).match(/<[bB][rR]>([ \t]*)$/);
 			if (brMatch) {
-				const brStart = cursor.ch - brMatch[0].length;
-				const targetLine = cursor.line;
+				const brStart     = cursor.ch - brMatch[0].length;
+				const targetLine  = cursor.line;
 				this.updateKillCache('\n');
 				navigator.clipboard.writeText(this.killCache).catch(() => {});
-				this.isDispatchingKill = true;
-				editor.setLine(targetLine, lineText.slice(0, brStart) + lineText.slice(cursor.ch));
-				this.isDispatchingKill = false;
-				window.setTimeout(() => {
+				const inner2 = editor.activeCM;
+				if (inner2 && inner2 !== editor.cm) {
+					const cursorInner = inner2.state.selection.main.head;
+					const innerDoc2   = inner2.state.doc.toString();
+					// Inner view uses \n (not <br>) for in-cell line breaks
+					let nlPos = -1;
+					if (cursorInner > 0 && innerDoc2[cursorInner - 1] === '\n') nlPos = cursorInner - 1;
+					else if (innerDoc2[cursorInner] === '\n')                    nlPos = cursorInner;
+					if (nlPos >= 0) {
+						this.isDispatchingKill = true;
+						inner2.dispatch({ changes: { from: nlPos, to: nlPos + 1, insert: '' }, selection: { anchor: nlPos }, userEvent: 'delete' });
+						this.isDispatchingKill = false;
+						this.isKillChaining = true;
+					}
+				} else {
 					this.isDispatchingKill = true;
-					this.setCursorViaCm(editor, targetLine, brStart);
+					editor.setLine(targetLine, lineText.slice(0, brStart) + lineText.slice(cursor.ch));
 					this.isDispatchingKill = false;
-					this.isKillChaining = true;
-				}, 0);
+					window.setTimeout(() => {
+						this.isDispatchingKill = true;
+						this.setCursorViaCm(editor, targetLine, brStart);
+						this.isDispatchingKill = false;
+						this.isKillChaining = true;
+					}, 0);
+				}
 				return;
 			}
 		}
@@ -1679,11 +1801,42 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 					if (!cellContentAfter) prefix = prefix.replace(/<[bB][rR]>$/, '');
 				}
 			}
-			const targetLine = from.line;
-			editor.setLine(targetLine, prefix + suffix);
-			window.setTimeout(() => {
-				this.setCursorViaCm(editor, targetLine, prefix.length);
-			}, 0);
+			const targetLine  = from.line;
+			const cm          = editor.cm;
+			const lineObj     = cm.state.doc.line(targetLine + 1);
+			const savedScroll = cm.scrollDOM?.scrollTop;
+			const inner       = editor.activeCM;
+			if (inner && inner !== cm) {
+				const innerSel    = inner.state.selection.main;
+				const innerDoc    = inner.state.doc.toString();
+				let delFrom       = innerSel.from;
+				let delTo         = innerSel.to;
+				const innerSuffix = innerDoc.slice(innerSel.to);
+				const innerPrefix = innerDoc.slice(0, innerSel.from);
+				// Inner view uses \n (not <br>) for in-cell line breaks
+				if (innerSuffix.startsWith('\n')) {
+					if (!innerPrefix.trim()) {
+						const wsLen = innerSuffix.match(/^\n([ \t]*)/)?.[1].length ?? 0;
+						delTo += 1 + wsLen;
+					}
+				} else {
+					const trimmedPrefix = innerPrefix.trimEnd();
+					if (trimmedPrefix.endsWith('\n') && !innerSuffix.trim()) {
+						delFrom -= innerPrefix.length - trimmedPrefix.length + 1;
+					}
+				}
+				inner.dispatch({
+					changes:   { from: delFrom, to: delTo, insert: '' },
+					selection: { anchor: delFrom },
+				});
+			} else {
+				cm.dispatch({
+					changes:   { from: lineObj.from, to: lineObj.to, insert: prefix + suffix },
+					selection: { anchor: lineObj.from + prefix.length },
+				});
+				cm.focus();
+			}
+			if (savedScroll !== undefined) cm.scrollDOM.scrollTop = savedScroll;
 		} else {
 			editor.replaceRange('', from, to);
 		}
@@ -1697,6 +1850,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	//===========================================================================
 
 	private async yank(editor: Editor) {
+		this.isKillChaining = false;
 		let raw: string;
 		try {
 			raw = await navigator.clipboard.readText();
@@ -1709,6 +1863,24 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const inLPTable = this.isLivePreviewMode() && this.isPositionInTable(editor);
 		const inTable = inLPTable || this.isTableLineSourceMode(lineText);
 
+		// LP table with active inner view: insert raw text directly.
+		// The inner view uses \n for in-cell line breaks — no <br> conversion needed.
+		if (inLPTable) {
+			const inner = editor.activeCM;
+			if (inner && inner !== editor.cm) {
+				const scrollEl    = editor.cm?.scrollDOM;
+				const savedScroll = scrollEl?.scrollTop;
+				const innerSel    = inner.state.selection.main;
+				inner.dispatch({
+					changes:   { from: innerSel.from, to: innerSel.to, insert: raw },
+					selection: { anchor: innerSel.from + raw.length },
+					userEvent: 'input',
+				});
+				if (scrollEl && savedScroll !== undefined) scrollEl.scrollTop = savedScroll;
+				return;
+			}
+		}
+
 		const text = inTable
 			? raw.replace(/\|/g, '\\|').replace(/\n/g, '<br>')
 			: raw;
@@ -1720,12 +1892,13 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			const prefix      = currentLine.slice(0, from.ch);
 			const suffix      = currentLine.slice(to.ch);
 			const targetLine  = from.line;
-			// When text ends with <br>, place cursor at brStart (end of last meaningful content)
-			// to avoid landing at brEnd = close pipe on cells with no trailing space.
 			const textForCursor = text.replace(/<[bB][rR]>$/, '');
 			const targetCh      = prefix.length + textForCursor.length;
+			const scrollEl      = editor.cm?.scrollDOM;
+			const savedScroll   = scrollEl?.scrollTop;
 			editor.setLine(targetLine, prefix + text + suffix);
 			window.setTimeout(() => {
+				if (scrollEl && savedScroll !== undefined) scrollEl.scrollTop = savedScroll;
 				this.setCursorViaCm(editor, targetLine, targetCh);
 			}, 0);
 		} else {
@@ -1763,12 +1936,21 @@ class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 
 		let advancedEl: HTMLElement;
 		let advancedToggle: ToggleComponent;
-		const setAdvancedDisabled = (disabled: boolean) => {
+		let smartJoinEl: HTMLElement;
+		let smartJoinToggle: ToggleComponent;
+		const setStandardDisabled = (disabled: boolean) => {
 			advancedEl.style.opacity       = disabled ? '0.4' : '';
 			advancedEl.style.pointerEvents = disabled ? 'none' : '';
+			smartJoinEl.style.opacity       = disabled ? '0.4' : '';
+			smartJoinEl.style.pointerEvents = disabled ? 'none' : '';
 			if (disabled && this.plugin.settings.smartHomeAdvanced) {
 				this.plugin.settings.smartHomeAdvanced = false;
 				advancedToggle.setValue(false);
+				void this.plugin.saveSettings();
+			}
+			if (disabled && this.plugin.settings.smartJoin) {
+				this.plugin.settings.smartJoin = false;
+				smartJoinToggle.setValue(false);
 				void this.plugin.saveSettings();
 			}
 		};
@@ -1776,13 +1958,13 @@ class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName('Smart home (standard)')
 			.then(setting => this.setHtmlDesc(setting, '' +
-				'<b>ON:</b> HOME moves to the content start, after leading Markdown syntax (lists, checkboxes, indents, etc.). Kill Line also trims leading whitespace when joining lines.<br>' +
-				'<b>OFF:</b> Moves directly to the start of the line. Kill Line joins lines as-is, preserving leading whitespace.'))
+				'<b>ON:</b> HOME skips leading Markdown syntax (lists, checkboxes, indents, etc.) to reach content start — Windows Home / macOS Cmd+← style.<br>' +
+				'<b>OFF:</b> HOME moves directly to the start of the line — macOS / Emacs Ctrl+A style.'))
 			.addToggle(toggle => toggle
 				.setValue(this.plugin.settings.smartHomeStandard)
 				.onChange(async (value) => {
 					this.plugin.settings.smartHomeStandard = value;
-					setAdvancedDisabled(!value);
+					setStandardDisabled(!value);
 					await this.plugin.saveSettings();
 				}));
 
@@ -1801,7 +1983,23 @@ class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			})
 			.settingEl;
 
-		setAdvancedDisabled(!this.plugin.settings.smartHomeStandard);
+		smartJoinEl = new Setting(containerEl)
+			.setName('Smart join')
+			.then(setting => this.setHtmlDesc(setting, '' +
+				'<b>ON:</b> Kill Line join lands at the next line\'s content start, removing blockquote markers, list markers, and indentation. Pairs with Smart home (advanced) for headings and footnotes.<br>' +
+				'<b>OFF:</b> Joins the next line as-is.<br>' +
+				'<i>Requires <b>Smart home (standard)</b> to be enabled.</i>'))
+			.addToggle(toggle => {
+				smartJoinToggle = toggle;
+				toggle.setValue(this.plugin.settings.smartJoin)
+					.onChange(async (value) => {
+						this.plugin.settings.smartJoin = value;
+						await this.plugin.saveSettings();
+					});
+			})
+			.settingEl;
+
+		setStandardDisabled(!this.plugin.settings.smartHomeStandard);
 
 		new Setting(containerEl)
 			.setName('Cross-row navigation')

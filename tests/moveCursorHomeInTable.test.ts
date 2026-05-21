@@ -72,6 +72,7 @@ describe('moveCursorHomeInTable', () => {
 	const makeEditor = (ch: number, lineText: string) => ({
 		getCursor: () => ({ line: 1, ch }),
 		getLine:   () => lineText,
+		exec:      () => {},
 	})
 
 	beforeEach(() => {

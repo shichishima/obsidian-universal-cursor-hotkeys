@@ -64,6 +64,30 @@ const categories: { name: string; skipAutoStep2?: boolean; rows: TestRow[] }[] =
 		],
 	},
 	{
+		name: 'Nested blockquotes',
+		rows: [
+			['>> text',            6,    3,    3,     0],
+			['>>>text',            5,    3,    3,     0],
+			['> > > text',         9,    6,    6,     0],
+			['>> - item',          8,    5,    5,     0],
+			['> - [ ] task',      11,    8,    8,     0],
+			['> 1. item',          8,    5,    5,     0],
+		],
+	},
+	{
+		name: '(Advanced) Nested blockquote headings and footnotes',
+		rows: [
+			// Adv: contentPos=4 (past "> # "); Std: contentPos=2 (past "> ")
+			['> # heading',        9,    4,    2,     0],
+			// ch=4: Adv 2nd step → 0; Std 1st step → 2
+			['> # heading',        4,    0,    2,     0],
+			['>> ## sub',          8,    6,    3,     0],
+			// ch=6: Adv 2nd step → 0; Std 1st step → 3
+			['>> ## sub',          6,    0,    3,     0],
+			['> [^1]: note',      11,    8,    2,     0],
+		],
+	},
+	{
 		name: 'Plain text and edge cases',
 		rows: [ //0 2 45
 			['hello world',        5,    0,    0,     0],
