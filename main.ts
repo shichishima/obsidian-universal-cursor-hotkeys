@@ -573,7 +573,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			if (this.isPositionInTable(editor)) {
 				const targetCh = this.getChByCellIndex(editor.getLine(cursorAfter.line), cellIndex);
 				if (targetCh !== -1) {
-					this.navigateInTableToPos(editor, cursorAfter.line, targetCh);
+					this.setCursorViaCm(editor, cursorAfter.line, targetCh);
 				}
 			}
 			this.scheduleBottomVisualLine(editor);
@@ -1406,27 +1406,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// inner CM view active. Dispatching to the outer CM view (setCursorViaCm) causes
 	// Obsidian to destroy and recreate the inner view, which breaks native-cursor's
 	// coordsAtPos. Falls back to setCursorViaCm if the loop cannot reach the target.
-	private navigateInTableToPos(editor: Editor, targetLine: number, targetCh: number): void {
-		let pos = editor.getCursor();
-		if (pos.line === targetLine && pos.ch === targetCh) return;
-		const goingLeft = targetLine < pos.line || (targetLine === pos.line && targetCh < pos.ch);
-		const cmd = goingLeft ? 'goLeft' : 'goRight';
-		for (let step = 0; step < 256; step++) {
-			if (pos.line === targetLine && pos.ch === targetCh) return;
-			const overshot = goingLeft
-				? pos.line < targetLine || (pos.line === targetLine && pos.ch < targetCh)
-				: pos.line > targetLine || (pos.line === targetLine && pos.ch > targetCh);
-			if (overshot) break;
-			editor.exec(cmd);
-			const newP = editor.getCursor();
-			if (newP.line === pos.line && newP.ch === pos.ch) break;
-			pos = newP;
-		}
-		if (pos.line !== targetLine || pos.ch !== targetCh) {
-			this.setCursorViaCm(editor, targetLine, targetCh);
-		}
-	}
-
 
 	private isLivePreviewMode(): boolean {
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
