@@ -631,8 +631,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const line = editor.getLine(cursor.line);
 		const cellIndex = this.getCellIndex(line, cursor.ch);
 		const eoc = this.getEndOfCellContent(line, cursor.ch);
-		const inCellInfo = this.getInCellLineInfo(line, cursor.ch);
-		const type = inCellInfo?.lineType ?? 'single';
 
 		// Empty cell: goDown is unreliable when the cursor was placed via cm.dispatch
 		// (not registered inside the widget).  Detect by string analysis alone and
@@ -642,11 +640,16 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 
-		// <br> cells with more in-cell lines below (first/middle): goDown navigates
+		// Not on the last sub-line (inner doc has more lines below) → goDown navigates
 		// within the cell.  No post-check needed — we never exit the row here.
-		if (type === 'first' || type === 'middle') {
-			editor.exec('goDown');
-			return;
+		const inner = editor.activeCM;
+		if (inner && inner !== editor.cm) {
+			const head = inner.state.selection.main.head;
+			const subLine = inner.state.doc.lineAt(head);
+			if (subLine.number < inner.state.doc.lines) {
+				editor.exec('goDown');
+				return;
+			}
 		}
 
 		// type is 'single' or 'last'.
