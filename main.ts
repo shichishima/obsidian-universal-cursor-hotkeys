@@ -368,20 +368,24 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	// In-cell End: every in-cell line, no 2-step End.
 	private moveCursorEndInTable(editor: Editor) {
-		const cursor = editor.getCursor();
-		const line = editor.getLine(cursor.line);
-		const info = this.getInCellLineInfo(line, cursor.ch);
-		if (!info) return;
+		const inner = editor.activeCM;
+		if (!inner || inner === editor.cm) return;
 
-		if (info.isEmpty || cursor.ch >= info.endOfInCellLine) {
-			if (info.lineType === 'single' || info.lineType === 'last') {
-				this.moveToRightCellStart(editor);
-			}
-			// 'first' or 'middle': do nothing.
+		const head    = inner.state.selection.main.head;
+		const subLine = inner.state.doc.lineAt(head);
+
+		// Last sub-line: trim trailing whitespace; non-last: end is at \n boundary.
+		const isLastSubLine = subLine.number === inner.state.doc.lines;
+		const endOfSubLine  = isLastSubLine
+			? subLine.from + subLine.text.trimEnd().length
+			: subLine.to;
+
+		if (head >= endOfSubLine) {
+			if (isLastSubLine) this.moveToRightCellStart(editor);
+			// first/middle at end: no-op
 			return;
 		}
-		// Middle or left position -> move to right edge of current in-cell line.
-		this.navigateInTableToPos(editor, cursor.line, info.endOfInCellLine);
+		inner.dispatch({ selection: { anchor: endOfSubLine }, userEvent: 'move' });
 	}
 
 
