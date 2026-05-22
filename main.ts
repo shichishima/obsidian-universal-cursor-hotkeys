@@ -304,30 +304,33 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	// In-cell Home: every in-cell line, no 2-step Home.
 	private moveCursorHomeInTable(editor: Editor) {
-		const cursor = editor.getCursor();
-		const line = editor.getLine(cursor.line);
-		const info = this.getInCellLineInfo(line, cursor.ch);
-		if (!info) return;
+		const inner = editor.activeCM;
+		if (!inner || inner === editor.cm) return;
 
-		if (info.isEmpty || cursor.ch <= info.startOfInCellLine) {
-			if (info.lineType === 'single' || info.lineType === 'first') {
-				this.moveToLeftCellEnd(editor);
-			}
+		const head    = inner.state.selection.main.head;
+		const subLine = inner.state.doc.lineAt(head);
+
+		// First sub-line: skip leading whitespace to reach content start.
+		// Middle/last sub-lines: content starts right after the \n boundary.
+		const isFirstSubLine = subLine.number === 1;
+		const startOfSubLine = isFirstSubLine
+			? subLine.from + subLine.text.search(/\S|$/)
+			: subLine.from;
+
+		if (head <= startOfSubLine) {
+			if (subLine.number === 1) this.moveToLeftCellEnd(editor);
 			return;
 		}
 
-		// Smart home within cell: apply Standard/Advanced prefix detection on cell content.
-		const bounds = this.getCellBounds(line, cursor.ch);
-		if (!bounds) return;
-		const cellContent = line.slice(info.startOfInCellLine, bounds.close);
-		const smartHomePos = info.startOfInCellLine + this.getBeginningOfLinePosition(cellContent, cursor.ch - info.startOfInCellLine);
+		// Smart home: apply prefix detection on content slice (from startOfSubLine).
+		const contentText    = subLine.text.slice(startOfSubLine - subLine.from);
+		const smartHomeInner = startOfSubLine + this.getBeginningOfLinePosition(contentText, head - startOfSubLine);
 
-		if (cursor.ch > smartHomePos) {
-			this.navigateInTableToPos(editor, cursor.line, smartHomePos);
+		if (head > smartHomeInner) {
+			inner.dispatch({ selection: { anchor: smartHomeInner }, userEvent: 'move' });
 			return;
 		}
-		// At or before smart home: step back to cell content start.
-		this.navigateInTableToPos(editor, cursor.line, info.startOfInCellLine);
+		inner.dispatch({ selection: { anchor: startOfSubLine }, userEvent: 'move' });
 	}
 
 
