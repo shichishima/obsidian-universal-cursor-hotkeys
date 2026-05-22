@@ -1590,7 +1590,12 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const inLPTable = this.isLivePreviewMode() && this.isPositionInTable(editor);
 		const inSourceTable = !this.isLivePreviewMode() && this.isTableLineSourceMode(lineText);
 
-		if (inLPTable || inSourceTable) {
+		if (inLPTable) {
+			this.killLineInTableLP(editor);
+			return;
+		}
+
+		if (inSourceTable) {
 			const info = this.getInCellLineInfo(lineText, editor.getCursor().ch);
 			if (info) {
 				this.killLineInCellContext(editor, info);
@@ -1599,6 +1604,48 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}
 
 		this.killLineNonTable(editor);
+	}
+
+
+	private killLineInTableLP(editor: Editor) {
+		const inner = editor.activeCM;
+		if (!inner || inner === editor.cm) {
+			// Fallback: no-op if inner view is unavailable (cursor not in LP table cell).
+			return;
+		}
+
+		// Inner view path: use sub-line boundaries directly.
+		const head          = inner.state.selection.main.head;
+		const subLine       = inner.state.doc.lineAt(head);
+		const isLastSubLine = subLine.number === inner.state.doc.lines;
+		const endOfSubLine  = isLastSubLine
+			? subLine.from + subLine.text.trimEnd().length
+			: subLine.to;
+
+		if (head < endOfSubLine) {
+			const text = inner.state.doc.sliceString(head, endOfSubLine);
+			this.updateKillCache(text);
+			navigator.clipboard.writeText(this.killCache).catch(() => {});
+			this.isDispatchingKill = true;
+			inner.dispatch({ changes: { from: head, to: endOfSubLine, insert: '' }, selection: { anchor: head }, userEvent: 'delete' });
+			this.isDispatchingKill = false;
+			this.isKillChaining = true;
+			return;
+		}
+
+		if (!isLastSubLine) {
+			const afterNl = inner.state.doc.sliceString(subLine.to + 1);
+			const trimLen = this.settings.smartJoin
+				? this.getBeginningOfLinePosition(afterNl, afterNl.length || 1)
+				: 0;
+			this.updateKillCache('\n');
+			navigator.clipboard.writeText(this.killCache).catch(() => {});
+			this.isDispatchingKill = true;
+			inner.dispatch({ changes: { from: subLine.to, to: subLine.to + 1 + trimLen, insert: '' }, selection: { anchor: subLine.to }, userEvent: 'delete' });
+			this.isDispatchingKill = false;
+			this.isKillChaining = true;
+			return;
+		}
 	}
 
 
