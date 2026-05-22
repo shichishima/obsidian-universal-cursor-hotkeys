@@ -305,8 +305,12 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// In-cell Home: every in-cell line, no 2-step Home.
 	private moveCursorHomeInTable(editor: Editor) {
 		const inner = editor.activeCM;
-		if (!inner || inner === editor.cm) return;
+		if (!inner || inner === editor.cm) {
+			// Fallback: no-op if inner view is unavailable (cursor not in LP table cell).
+			return;
+		}
 
+		// Inner view path: use sub-line boundaries directly.
 		const head    = inner.state.selection.main.head;
 		const subLine = inner.state.doc.lineAt(head);
 
@@ -369,8 +373,12 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// In-cell End: every in-cell line, no 2-step End.
 	private moveCursorEndInTable(editor: Editor) {
 		const inner = editor.activeCM;
-		if (!inner || inner === editor.cm) return;
+		if (!inner || inner === editor.cm) {
+			// Fallback: no-op if inner view is unavailable (cursor not in LP table cell).
+			return;
+		}
 
+		// Inner view path: use sub-line boundaries directly.
 		const head    = inner.state.selection.main.head;
 		const subLine = inner.state.doc.lineAt(head);
 
@@ -1527,45 +1535,26 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 
 	private deleteCharInTableLP(editor: Editor) {
-		const cursor = editor.getCursor();
-		const lineText = editor.getLine(cursor.line);
-		const info = this.getInCellLineInfo(lineText, cursor.ch);
-		if (!info) {
-			const cm = editor.cm;
-			if (cm) deleteCharForward(cm);
+		const inner = editor.activeCM;
+		if (!inner || inner === editor.cm) {
+			// Fallback: no-op if inner view is unavailable (cursor not in LP table cell).
 			return;
 		}
 
-		// At the last in-cell line's right edge: no-op (cell boundary)
-		if ((info.lineType === 'single' || info.lineType === 'last') && cursor.ch >= info.endOfInCellLine) {
+		// Inner view path: use sub-line boundaries directly.
+		const head    = inner.state.selection.main.head;
+		const subLine = inner.state.doc.lineAt(head);
+		const isLastSubLine = subLine.number === inner.state.doc.lines;
+
+		if (isLastSubLine) {
+			const endOfSubLine = subLine.from + subLine.text.trimEnd().length;
+			if (head >= endOfSubLine) return;  // cell boundary: no-op
+		} else if (head >= subLine.to) {
+			// At \n boundary: delete the \n to join sub-lines.
+			inner.dispatch({ changes: { from: subLine.to, to: subLine.to + 1, insert: '' }, selection: { anchor: subLine.to }, userEvent: 'delete' });
 			return;
 		}
 
-		// At the end of a non-last in-cell line: delete the <br> tag to join sub-lines
-		if ((info.lineType === 'first' || info.lineType === 'middle') && cursor.ch >= info.endOfInCellLine) {
-			const brMatch = lineText.slice(info.endOfInCellLine).match(/^<[bB][rR]>([ \t]*)/);
-			if (brMatch) {
-				const brEnd = info.endOfInCellLine + brMatch[0].length;
-				const inner = editor.activeCM;
-				if (inner && inner !== editor.cm) {
-					const innerDoc    = inner.state.doc.toString();
-					const cursorInner = inner.state.selection.main.head;
-					// Inner view uses \n (not <br>) for in-cell line breaks
-					let nlPos = -1;
-					if (innerDoc[cursorInner] === '\n')          nlPos = cursorInner;
-					else if (innerDoc[cursorInner - 1] === '\n') nlPos = cursorInner - 1;
-					if (nlPos >= 0) {
-						inner.dispatch({ changes: { from: nlPos, to: nlPos + 1, insert: '' }, selection: { anchor: nlPos }, userEvent: 'delete' });
-					}
-				} else {
-					editor.setLine(cursor.line, lineText.slice(0, info.endOfInCellLine) + lineText.slice(brEnd));
-					window.setTimeout(() => { this.setCursorViaCm(editor, cursor.line, info.endOfInCellLine); }, 0);
-				}
-			}
-			return;
-		}
-
-		// Within cell content: delete one character forward
 		const cm = editor.cm;
 		if (cm) deleteCharForward(cm);
 	}
