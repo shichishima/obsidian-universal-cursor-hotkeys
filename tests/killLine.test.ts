@@ -168,10 +168,10 @@ describe('killLine', () => {
 	})
 
 	// ===========================================================================
-	// killLineInCellContext — cursor before in-cell line end
+	// killLineInTableSourceMode — cursor before in-cell line end
 	// ===========================================================================
 
-	describe('killLineInCellContext — cursor before in-cell line end', () => {
+	describe('killLineInTableSourceMode — cursor before in-cell line end', () => {
 		// Line: '| hello |'  pipes at 0, 8  cellStart=1, cellEnd=8
 		// startOfInCellLine=2  endOfInCellLine=7
 		// [lineText, cursorCh, expectedLineAfter, expectedKillCacheNormalized]
@@ -190,7 +190,7 @@ describe('killLine', () => {
 			it(`"${lineText}" ch=${ch} → "${expectedLine}", normalized cache="${expectedNormCache}"`, () => {
 				const editor = makeEditor([lineText], 0, ch)
 				const info = plugin.getInCellLineInfo(lineText, ch)
-				plugin.killLineInCellContext(editor, info)
+				plugin.killLineInTableSourceMode(editor, info)
 				expect(editor._buf[0]).toBe(expectedLine)
 				expect(plugin.normalizeKillText(plugin.killCache)).toBe(expectedNormCache)
 				expect(plugin.isKillChaining).toBe(true)
@@ -199,10 +199,10 @@ describe('killLine', () => {
 	})
 
 	// ===========================================================================
-	// killLineInCellContext — cursor at in-cell line end (kill <br>)
+	// killLineInTableSourceMode — cursor at in-cell line end (kill <br>)
 	// ===========================================================================
 
-	describe('killLineInCellContext — kill <br> at in-cell line end', () => {
+	describe('killLineInTableSourceMode — kill <br> at in-cell line end', () => {
 		it('removes <br> synchronously and defers cursor restore', () => {
 			vi.useFakeTimers()
 			// '| line1<br>line2 |'
@@ -214,7 +214,7 @@ describe('killLine', () => {
 			const info = plugin.getInCellLineInfo(lineText, 7)
 			expect(info?.lineType).toBe('first')
 
-			plugin.killLineInCellContext(editor, info)
+			plugin.killLineInTableSourceMode(editor, info)
 
 			// setLine called synchronously with <br> removed
 			expect(editor.setLine).toHaveBeenCalledWith(0, '| line1line2 |')
@@ -235,7 +235,7 @@ describe('killLine', () => {
 			const info = plugin.getInCellLineInfo(lineText, 3)
 			expect(info?.lineType).toBe('first')
 
-			plugin.killLineInCellContext(editor, info)
+			plugin.killLineInTableSourceMode(editor, info)
 			// only <br> removed, trailing spaces preserved
 			expect(editor.setLine).toHaveBeenCalledWith(0, '| a   b |')
 
@@ -252,7 +252,7 @@ describe('killLine', () => {
 			const info = plugin.getInCellLineInfo(lineText, 3)
 			expect(info?.lineType).toBe('first')
 
-			plugin.killLineInCellContext(editor, info)
+			plugin.killLineInTableSourceMode(editor, info)
 			// <br> + '   ' (3 spaces) removed
 			expect(editor.setLine).toHaveBeenCalledWith(0, '| ab |')
 
@@ -269,7 +269,7 @@ describe('killLine', () => {
 			const info = plugin.getInCellLineInfo(lineText, 3)
 			expect(info?.lineType).toBe('first')
 
-			plugin.killLineInCellContext(editor, info)
+			plugin.killLineInTableSourceMode(editor, info)
 			// <br> + '   - ' removed, content 'item' remains
 			expect(editor.setLine).toHaveBeenCalledWith(0, '| aitem |')
 
@@ -279,10 +279,10 @@ describe('killLine', () => {
 	})
 
 	// ===========================================================================
-	// killLineInCellContext — no-op at cell/in-cell-line boundary
+	// killLineInTableSourceMode — no-op at cell/in-cell-line boundary
 	// ===========================================================================
 
-	describe('killLineInCellContext — no-op cases', () => {
+	describe('killLineInTableSourceMode — no-op cases', () => {
 		it('no-op at last in-cell line end (cell boundary, lineType last)', () => {
 			// cursor at endOfInCellLine of 'last' segment → no matching branch
 			const lineText = '| line1<br>line2 |'
@@ -290,7 +290,7 @@ describe('killLine', () => {
 			const info = plugin.getInCellLineInfo(lineText, 16)
 			expect(info?.lineType).toBe('last')
 
-			plugin.killLineInCellContext(editor, info)
+			plugin.killLineInTableSourceMode(editor, info)
 			expect(editor.replaceRange).not.toHaveBeenCalled()
 			expect(editor.setLine).not.toHaveBeenCalled()
 			expect(plugin.isKillChaining).toBe(false)
@@ -302,7 +302,7 @@ describe('killLine', () => {
 			const info = plugin.getInCellLineInfo(lineText, 7)
 			expect(info?.lineType).toBe('single')
 
-			plugin.killLineInCellContext(editor, info)
+			plugin.killLineInTableSourceMode(editor, info)
 			expect(editor.replaceRange).not.toHaveBeenCalled()
 			expect(editor.setLine).not.toHaveBeenCalled()
 		})

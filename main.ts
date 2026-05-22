@@ -1598,7 +1598,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (inSourceTable) {
 			const info = this.getInCellLineInfo(lineText, editor.getCursor().ch);
 			if (info) {
-				this.killLineInCellContext(editor, info);
+				this.killLineInTableSourceMode(editor, info);
 				return;
 			}
 		}
@@ -1679,7 +1679,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 
-	private killLineInCellContext(editor: Editor, info: InCellLineInfo) {
+	private killLineInTableSourceMode(editor: Editor, info: InCellLineInfo) {
 		const cursor = editor.getCursor();
 		const lineText = editor.getLine(cursor.line);
 
@@ -1694,89 +1694,49 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 
-		// lineType 'first'/'middle': kill <br> forward from endOfInCellLine
-		if (info.lineType === 'first' || info.lineType === 'middle') {
-			const brMatch = lineText.slice(info.endOfInCellLine).match(/^<[bB][rR]>([ \t]*)/);
-			if (brMatch) {
-				const brLen       = '<br>'.length;
-				const afterBr     = lineText.slice(info.endOfInCellLine + brLen);
-				const trimLen     = this.settings.smartJoin
-					? this.getBeginningOfLinePosition(afterBr, afterBr.length || 1)
-					: 0;
-				const toCh        = info.endOfInCellLine + brLen + trimLen;
-				const targetCh    = info.endOfInCellLine;
-				const targetLine  = cursor.line;
-				this.updateKillCache('\n');
-				navigator.clipboard.writeText(this.killCache).catch(() => {});
-				const inner1 = editor.activeCM;
-				if (inner1 && inner1 !== editor.cm) {
-					const innerDoc    = inner1.state.doc.toString();
-					const cursorInner = inner1.state.selection.main.head;
-					// Inner view uses \n (not <br>) for in-cell line breaks
-					let nlPos = -1;
-					if (innerDoc[cursorInner] === '\n')          nlPos = cursorInner;
-					else if (innerDoc[cursorInner - 1] === '\n') nlPos = cursorInner - 1;
-					if (nlPos >= 0) {
-						const afterNl      = innerDoc.slice(nlPos + 1);
-						const innerTrimLen = this.settings.smartJoin
-							? this.getBeginningOfLinePosition(afterNl, afterNl.length || 1)
-							: 0;
-						this.isDispatchingKill = true;
-						inner1.dispatch({ changes: { from: nlPos, to: nlPos + 1 + innerTrimLen, insert: '' }, selection: { anchor: nlPos }, userEvent: 'delete' });
-						this.isDispatchingKill = false;
-						this.isKillChaining = true;
-					}
-				} else {
-					this.isDispatchingKill = true;
-					editor.setLine(targetLine, lineText.slice(0, targetCh) + lineText.slice(toCh));
-					this.isDispatchingKill = false;
-					window.setTimeout(() => {
-						this.isDispatchingKill = true;
-						this.setCursorViaCm(editor, targetLine, targetCh);
-						this.isDispatchingKill = false;
-						this.isKillChaining = true;
-					}, 0);
-				}
-				return;
-			}
+		// kill <br> forward from endOfInCellLine (only possible when lineType is 'first'/'middle')
+		const brMatch = lineText.slice(info.endOfInCellLine).match(/^<[bB][rR]>([ \t]*)/);
+		if (brMatch) {
+			const brLen      = '<br>'.length;
+			const afterBr    = lineText.slice(info.endOfInCellLine + brLen);
+			const trimLen    = this.settings.smartJoin
+				? this.getBeginningOfLinePosition(afterBr, afterBr.length || 1)
+				: 0;
+			const toCh       = info.endOfInCellLine + brLen + trimLen;
+			const targetCh   = info.endOfInCellLine;
+			const targetLine = cursor.line;
+			this.updateKillCache('\n');
+			navigator.clipboard.writeText(this.killCache).catch(() => {});
+			this.isDispatchingKill = true;
+			editor.setLine(targetLine, lineText.slice(0, targetCh) + lineText.slice(toCh));
+			this.isDispatchingKill = false;
+			window.setTimeout(() => {
+				this.isDispatchingKill = true;
+				this.setCursorViaCm(editor, targetLine, targetCh);
+				this.isDispatchingKill = false;
+				this.isKillChaining = true;
+			}, 0);
+			return;
 		}
 
-		// LP cursor snap: cursor may land at br.end (= startOfInCellLine of 'middle'/'last')
+		// cursor snap: cursor may land at br.end (= startOfInCellLine of 'middle'/'last')
 		// rather than br.start. Kill the <br> that ends at cursor.ch.
-		if ((info.lineType === 'middle' || info.lineType === 'last') && cursor.ch === info.startOfInCellLine) {
-			const brMatch = lineText.slice(0, cursor.ch).match(/<[bB][rR]>([ \t]*)$/);
-			if (brMatch) {
-				const brStart     = cursor.ch - brMatch[0].length;
-				const targetLine  = cursor.line;
-				this.updateKillCache('\n');
-				navigator.clipboard.writeText(this.killCache).catch(() => {});
-				const inner2 = editor.activeCM;
-				if (inner2 && inner2 !== editor.cm) {
-					const cursorInner = inner2.state.selection.main.head;
-					const innerDoc2   = inner2.state.doc.toString();
-					// Inner view uses \n (not <br>) for in-cell line breaks
-					let nlPos = -1;
-					if (cursorInner > 0 && innerDoc2[cursorInner - 1] === '\n') nlPos = cursorInner - 1;
-					else if (innerDoc2[cursorInner] === '\n')                    nlPos = cursorInner;
-					if (nlPos >= 0) {
-						this.isDispatchingKill = true;
-						inner2.dispatch({ changes: { from: nlPos, to: nlPos + 1, insert: '' }, selection: { anchor: nlPos }, userEvent: 'delete' });
-						this.isDispatchingKill = false;
-						this.isKillChaining = true;
-					}
-				} else {
-					this.isDispatchingKill = true;
-					editor.setLine(targetLine, lineText.slice(0, brStart) + lineText.slice(cursor.ch));
-					this.isDispatchingKill = false;
-					window.setTimeout(() => {
-						this.isDispatchingKill = true;
-						this.setCursorViaCm(editor, targetLine, brStart);
-						this.isDispatchingKill = false;
-						this.isKillChaining = true;
-					}, 0);
-				}
-				return;
-			}
+		const brSnapMatch = lineText.slice(0, cursor.ch).match(/<[bB][rR]>([ \t]*)$/);
+		if (brSnapMatch && cursor.ch === info.startOfInCellLine) {
+			const brStart    = cursor.ch - brSnapMatch[0].length;
+			const targetLine = cursor.line;
+			this.updateKillCache('\n');
+			navigator.clipboard.writeText(this.killCache).catch(() => {});
+			this.isDispatchingKill = true;
+			editor.setLine(targetLine, lineText.slice(0, brStart) + lineText.slice(cursor.ch));
+			this.isDispatchingKill = false;
+			window.setTimeout(() => {
+				this.isDispatchingKill = true;
+				this.setCursorViaCm(editor, targetLine, brStart);
+				this.isDispatchingKill = false;
+				this.isKillChaining = true;
+			}, 0);
+			return;
 		}
 	}
 
