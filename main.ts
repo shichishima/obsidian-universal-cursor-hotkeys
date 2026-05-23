@@ -669,6 +669,24 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 
+		// Determine whether the cursor is already on the last visual line (VL_N).
+		// Used below to resolve the VL_N-1 vs VL_N clip ambiguity after goDown:
+		//   VL_N-1 clip → goDown moved into VL_N and clipped to eoc → stay in cell.
+		//   VL_N   clip → goDown could not move further → exit to next row.
+		// Default true: safe fallback to old clip→exit when inner view is unavailable.
+		let isOnLastVL = true;
+		if (inner && inner !== editor.cm) {
+			const head = inner.state.selection.main.head;
+			const lastSubLine = inner.state.doc.line(inner.state.doc.lines);
+			const contentEnd = lastSubLine.from + lastSubLine.text.trimEnd().length;
+			const headCoords = inner.coordsAtPos(head);
+			const endCoords  = inner.coordsAtPos(contentEnd);
+			if (headCoords && endCoords) {
+				// 4 px: same-VL diff is always 0.0; adjacent-VL diff is ≥ line-height (~18 px).
+				isOnLastVL = Math.abs(headCoords.top - endCoords.top) < 4;
+			}
+		}
+
 		// Call goDown once and inspect where the cursor lands.
 		editor.exec('goDown');
 		const after = editor.getCursor();
@@ -691,9 +709,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 		const eocAfter = this.getEndOfCellContent(line, after.ch);
 		if (after.ch >= eocAfter) {
-			// goDown stayed on the same line and ch reached/passed eoc.
-			// This means we are on VL_N (last visual line) — exit to next row.
-			this.setCursorToNextRow(editor, cellIndex);
+			if (isOnLastVL) {
+				// Was already on VL_N: goDown clipped in place → exit to next row.
+				this.setCursorToNextRow(editor, cellIndex);
+			}
+			// Was on VL_N-1: goDown moved to VL_N and clipped to eoc → VL advance, stay.
 			return;
 		}
 

@@ -68,12 +68,27 @@ describe('moveCursorDownInTable', () => {
 	// Build a minimal inner view mock.
 	// docText uses '\n' as sub-line separator (mirrors LP inner doc).
 	// head: cursor position in inner doc.
-	function makeInner(docText: string, head: number) {
+	// headTop / endTop: optional y-coords for coordsAtPos (enables VL clip tests).
+	//   coordsAtPos(head) returns headTop; all other positions return endTop.
+	//   When omitted, coordsAtPos returns null (isOnLastVL falls back to true).
+	function makeInner(docText: string, head: number, headTop?: number, endTop?: number) {
 		const parts = docText.split('\n')
+		const lineByNumber = (n: number) => {
+			let offset = 0
+			for (let i = 0; i < n - 1; i++) offset += parts[i].length + 1
+			return { number: n, from: offset, to: offset + parts[n - 1].length, text: parts[n - 1] }
+		}
+		const coordsAtPos = headTop !== undefined && endTop !== undefined
+			? vi.fn((pos: number) => {
+				const top = pos === head ? headTop : endTop
+				return { top, bottom: top + 18, left: 100, right: 200 }
+			})
+			: vi.fn(() => null)
 		return {
 			state: {
 				doc: {
 					lines: parts.length,
+					line: lineByNumber,
 					lineAt: (pos: number) => {
 						let offset = 0
 						for (let i = 0; i < parts.length; i++) {
@@ -87,6 +102,7 @@ describe('moveCursorDownInTable', () => {
 				},
 				selection: { main: { head } },
 			},
+			coordsAtPos,
 		}
 	}
 
@@ -283,6 +299,32 @@ describe('moveCursorDownInTable', () => {
 	it('clip: ch > eoc after goDown → setCursorToNextRow called', () => {
 		// after goDown: ch=10 > eoc=9 for LINE_SINGLE
 		const editor = makeEditor(LINE_SINGLE, 3, true, 10)
+		plugin.moveCursorDownInTable(editor)
+		expect(editor.exec).toHaveBeenCalledTimes(1)
+		expect(plugin.setCursorToNextRow).toHaveBeenCalled()
+	})
+
+	// ===========================================================================
+	// coordsAtPos VL disambiguation — VL_N-1 clip stays, VL_N clip exits
+	//
+	// LINE_SINGLE = '| content |'  eoc=9
+	// inner doc = ' content' (trimEnd len=8, contentEnd=8), head=3
+	// goDown: same line, afterCh=9 >= eoc=9 (clip)
+	// ===========================================================================
+
+	it('clip from VL_N-1 (headTop < endTop) → stays in cell', () => {
+		// head.top=100, end.top=120 → diff=20 → not last VL → stay
+		const inner  = makeInner(' content', 3, 100, 120)
+		const editor = withInner(makeEditor(LINE_SINGLE, 3, true, 9), inner)
+		plugin.moveCursorDownInTable(editor)
+		expect(editor.exec).toHaveBeenCalledTimes(1)
+		expect(plugin.setCursorToNextRow).not.toHaveBeenCalled()
+	})
+
+	it('clip from VL_N (headTop === endTop) → exits to next row', () => {
+		// head.top=120, end.top=120 → diff=0 → last VL → exit
+		const inner  = makeInner(' content', 3, 120, 120)
+		const editor = withInner(makeEditor(LINE_SINGLE, 3, true, 9), inner)
 		plugin.moveCursorDownInTable(editor)
 		expect(editor.exec).toHaveBeenCalledTimes(1)
 		expect(plugin.setCursorToNextRow).toHaveBeenCalled()
