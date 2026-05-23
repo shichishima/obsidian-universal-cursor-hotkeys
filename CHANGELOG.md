@@ -12,6 +12,13 @@
 - **Internal refactor: Live Preview table cell editing now uses the inner EditorView directly.**
   All cursor operations inside LP table cells (HOME, END, Kill Line, Delete Char, Ctrl-N/P) previously worked by parsing the outer Markdown string for `<br>` tags and computing character positions indirectly. They now read and write the inner EditorView (`editor.activeCM`) directly, which is more accurate and eliminates several layers of workaround logic.
   No user-facing behavior change is intended; this is groundwork for further improvements.
+- **Internal refactor: cursor probe operations replaced with `coordsAtPos` coordinate comparisons.**
+  Four internal sequences that used cursor movement commands to infer visual-line position have been replaced with direct y-coordinate lookups via the inner EditorView's `coordsAtPos` API:
+  - `moveToBottomVisualLineOfCell`: the `goDown` exploration loop is replaced by `coordsAtPos` + `posAtCoords` to locate the bottom visual line directly.
+  - `placeAtBottomVL`: now attempts synchronous bottom-VL placement when the inner view is already mounted, falling back to a deferred call only when needed.
+  - `handleCellStartSnap`: the `goDown` probe used to distinguish VL1 from VL2+ is replaced by a y-coordinate comparison; the probe is retained as a fallback.
+  - `moveCursorUpInTable`: the `goRight`+`goLeft` preamble used to fix cursor association before `goUp` is removed.
+  No user-facing behavior change is intended.
 
 ## [0.5.0] - 2026-05-21
 
