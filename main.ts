@@ -577,7 +577,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const cursorAfter = editor.getCursor();
 		if (cursorAfter.line !== cursor.line) {
 			// goUp moved to a different logical line (previous table row or outside table).
-			// Re-place cursor at cell start so moveToBottomVisualLineOfCell can navigate down properly.
 			if (this.isPositionInTable(editor)) {
 				const targetCh = this.getChByCellIndex(editor.getLine(cursorAfter.line), cellIndex);
 				if (targetCh !== -1) {
