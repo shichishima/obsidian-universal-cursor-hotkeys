@@ -564,21 +564,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 
-		// Capture inner head before the goRight+goLeft+goUp sequence for use in
-		// handleCellStartSnap: comparing y-coordinates to distinguish VL1 vs VL2+.
 		const innerBeforeGoUp = editor.activeCM;
 		const innerHeadBeforeGoUp = (innerBeforeGoUp && innerBeforeGoUp !== editor.cm)
 			? innerBeforeGoUp.state.selection.main.head
 			: undefined;
 
-		// goRight+goLeft: CM6 internally tracks which VL the cursor belongs to.
-		// By stepping right then left, goLeft returns to the same ch but with the
-		// correct assoc for the current VL (-1 if on VL_1 trailing edge, +1 if on
-		// VL_2+ leading edge). This disambiguates the VL_1/VL_2 boundary where both
-		// sides share the same ch value, and also registers the cursor inside the
-		// table widget so subsequent goUp navigates visual lines correctly.
-		editor.exec('goRight');
-		editor.exec('goLeft');
 		editor.exec('goUp');
 
 		const cursorAfter = editor.getCursor();
