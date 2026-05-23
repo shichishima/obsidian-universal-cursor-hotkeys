@@ -560,9 +560,16 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// Detect by string analysis alone and navigate to the previous row directly.
 		if (startOfCellContent === this.getEndOfCellContent(line, cursor.ch)) {
 			this.setCursorToPrevRow(editor, cellIndex);
-			this.scheduleBottomVisualLine(editor);
+			this.placeAtBottomVL(editor);
 			return;
 		}
+
+		// Capture inner head before the goRight+goLeft+goUp sequence for use in
+		// handleCellStartSnap: comparing y-coordinates to distinguish VL1 vs VL2+.
+		const innerBeforeGoUp = editor.activeCM;
+		const innerHeadBeforeGoUp = (innerBeforeGoUp && innerBeforeGoUp !== editor.cm)
+			? innerBeforeGoUp.state.selection.main.head
+			: undefined;
 
 		// goRight+goLeft: CM6 internally tracks which VL the cursor belongs to.
 		// By stepping right then left, goLeft returns to the same ch but with the
@@ -577,14 +584,13 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const cursorAfter = editor.getCursor();
 		if (cursorAfter.line !== cursor.line) {
 			// goUp moved to a different logical line (previous table row or outside table).
-			// Re-place cursor at cell start so moveToBottomVisualLineOfCell can navigate down properly.
 			if (this.isPositionInTable(editor)) {
 				const targetCh = this.getChByCellIndex(editor.getLine(cursorAfter.line), cellIndex);
 				if (targetCh !== -1) {
 					this.setCursorViaCm(editor, cursorAfter.line, targetCh);
 				}
 			}
-			this.scheduleBottomVisualLine(editor);
+			this.placeAtBottomVL(editor);
 			return;
 		}
 
@@ -592,7 +598,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (cursor.ch <= startOfCellContent) {
 			// Was at cell start -> go to previous row.
 			this.setCursorToPrevRow(editor, cellIndex);
-			this.scheduleBottomVisualLine(editor);
+			this.placeAtBottomVL(editor);
 			return;
 		}
 
@@ -605,9 +611,9 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			if (cursor.ch >= endOfCellContent) {
 				// VL1 end of non-wrapped cell -> go to previous row.
 				this.setCursorToPrevRow(editor, cellIndex);
-				this.scheduleBottomVisualLine(editor);
+				this.placeAtBottomVL(editor);
 			} else {
-				this.handleCellStartSnap(editor, cursor.line, cursor.ch, cellIndex);
+				this.handleCellStartSnap(editor, cursor.line, cursor.ch, cellIndex, innerHeadBeforeGoUp);
 			}
 		}
 		// else: goUp moved within the cell to the visual line above - done.
@@ -629,7 +635,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (targetCh !== -1) {
 			editor.setCursor({ line: targetLine, ch: targetCh });
 		}
-		this.scheduleBottomVisualLine(editor);
+		this.placeAtBottomVL(editor);
 	}
 
 
@@ -1249,19 +1255,64 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	//===========================================================================
 
 	// Called when goUp snapped the cursor to startOfCellContent.
-	// Probes with goDown to distinguish VL1-middle from VL2+ left edge.
-	private handleCellStartSnap(editor: Editor, originalLine: number, originalCh: number, cellIndex: number) {
+	// Distinguishes VL1-middle (→ go to previous row) from VL2+ left edge (→ stay).
+	//
+	// Primary: compare y-coordinates via coordsAtPos — no cursor side-effects.
+	//   originalHead was on VL2+  →  its y > VL1-start y  →  stay
+	//   originalHead was on VL1   →  its y ≈ VL1-start y  →  previous row
+	//
+	// Fallback: goDown probe using CM6's goal-column memory.
+	private handleCellStartSnap(
+		editor: Editor,
+		originalLine: number,
+		originalCh: number,
+		cellIndex: number,
+		innerHeadBeforeGoUp?: number,
+	) {
+		const inner = editor.activeCM;
+		if (innerHeadBeforeGoUp !== undefined && inner && inner !== editor.cm) {
+			const vl1Coords      = inner.coordsAtPos(inner.state.selection.main.head);
+			const originalCoords = inner.coordsAtPos(innerHeadBeforeGoUp);
+			if (vl1Coords && originalCoords) {
+				if (originalCoords.top > vl1Coords.top + 2) {
+					// VL2+ left edge: cursor already at VL1 start — nothing to do.
+					return;
+				}
+				// VL1 middle: go to previous row.
+				this.setCursorToPrevRow(editor, cellIndex);
+				this.placeAtBottomVL(editor);
+				return;
+			}
+		}
+
+		// Fallback: goDown probe (exploits CM6 goal-column to tell VL1 from VL2+).
 		editor.exec('goDown');
 		const backTest = editor.getCursor();
 		if (backTest.line === originalLine && backTest.ch === originalCh) {
-			// VL2+ left edge: stay at VL1 start
+			// VL2+ left edge: undo probe, stay at VL1 start.
 			editor.exec('goUp');
 		} else {
-			// VL1 middle: go to previous row
+			// VL1 middle: undo probe, go to previous row.
 			editor.exec('goUp');
 			this.setCursorToPrevRow(editor, cellIndex);
-			this.scheduleBottomVisualLine(editor);
+			this.placeAtBottomVL(editor);
 		}
+	}
+
+
+	// Move to the bottom visual line synchronously if the inner view is already
+	// mounted, otherwise defer via scheduleBottomVisualLine.
+	private placeAtBottomVL(editor: Editor) {
+		const inner = editor.activeCM;
+		if (inner && inner !== editor.cm) {
+			const lastSubLine = inner.state.doc.line(inner.state.doc.lines);
+			const contentEnd  = lastSubLine.from + lastSubLine.text.trimEnd().length;
+			if (inner.coordsAtPos(contentEnd)) {
+				this.moveToBottomVisualLineOfCell(editor);
+				return;
+			}
+		}
+		this.scheduleBottomVisualLine(editor);
 	}
 
 
@@ -1277,23 +1328,36 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 
 	// Move to the bottom visual line of the current table cell.
-	// Strategy:
-	//   1. goRight: works around a Live Preview issue where goDown from the leftmost
-	//      cell position (placed by cm.dispatch) exits the table immediately.
-	//   2. goDown loop: navigates visual lines until no further movement or line change.
-	//      lastPos ends up at the bottom visual line or at cell end (non-wrapped).
-	//   3. Determine landing position:
-	//      - lastPos within cell content: on bottom visual line -> stay at lastPos.
-	//      - lastPos at/past cell content end: non-wrapped cell -> restore to cell start.
+	// Primary: use coordsAtPos + posAtCoords on the inner EditorView to jump directly.
+	// Fallback: goDown loop for cases where the inner view or coordinates are unavailable.
 	private moveToBottomVisualLineOfCell(editor: Editor) {
-		const startLine  = editor.getCursor().line;
-		const originalPos = editor.getCursor();
+		const cursor = editor.getCursor();
+		const startLine = cursor.line;
 		const line = editor.getLine(startLine);
-		const endOfCellContent = this.getEndOfCellContent(line, originalPos.ch);
+		const endOfCellContent = this.getEndOfCellContent(line, cursor.ch);
 
+		const inner = editor.activeCM;
+		if (inner && inner !== editor.cm) {
+			const lastSubLine = inner.state.doc.line(inner.state.doc.lines);
+			const contentEnd  = lastSubLine.from + lastSubLine.text.trimEnd().length;
+			const endCoords   = inner.coordsAtPos(contentEnd);
+			if (endCoords) {
+				// x=0 is left of all inner-view content; posAtCoords snaps to the leftmost
+				// character on the bottom visual line. y = midpoint of that line (height ≈ 18 px).
+				const pos = inner.posAtCoords({ x: 0, y: endCoords.top + 9 }, false);
+				if (pos !== null) {
+					inner.dispatch({ selection: { anchor: pos } });
+					return;
+				}
+			}
+		}
+
+		// Fallback: goDown loop.
+		// goRight works around a Live Preview issue where goDown from the leftmost
+		// cell position (placed by cm.dispatch) exits the table immediately.
 		editor.exec('goRight');
 		if (editor.getCursor().line !== startLine) {
-			editor.setCursor(originalPos);
+			editor.setCursor(cursor);
 			return;
 		}
 		editor.exec('goLeft');
