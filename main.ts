@@ -299,7 +299,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 
 	//===========================================================================
-	// Ctrl-A/E table helpers
+	// Ctrl-A — Home helpers
 	//===========================================================================
 
 	// In-cell Home: every in-cell line, no 2-step Home.
@@ -338,6 +338,32 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 
+	private moveCursorHomeInTableSourceMode(editor: Editor) {
+		const cursor = editor.getCursor();
+		const line = editor.getLine(cursor.line);
+		const info = this.getInCellLineInfo(line, cursor.ch);
+		if (!info) return;
+
+		if (info.isEmpty || cursor.ch <= info.startOfInCellLine) {
+			if (info.lineType === 'single' || info.lineType === 'first') {
+				this.moveToLeftCellEndSourceMode(editor);
+			}
+			return;
+		}
+
+		const bounds = this.getCellBounds(line, cursor.ch);
+		if (!bounds) return;
+		const cellContent = line.slice(info.startOfInCellLine, bounds.close);
+		const smartHomePos = info.startOfInCellLine + this.getBeginningOfLinePosition(cellContent, cursor.ch - info.startOfInCellLine);
+
+		if (cursor.ch > smartHomePos) {
+			editor.setCursor({ line: cursor.line, ch: smartHomePos });
+			return;
+		}
+		editor.setCursor({ line: cursor.line, ch: info.startOfInCellLine });
+	}
+
+
 	// Non-table Home: visual-line-aware 2-step home, markdown-aware smart home.
 	private moveCursorHomeNonTable(editor: Editor) {
 		const cursor = editor.getCursor();
@@ -370,6 +396,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 
+	//===========================================================================
+	// Ctrl-E — End helpers
+	//===========================================================================
+
 	// In-cell End: every in-cell line, no 2-step End.
 	private moveCursorEndInTable(editor: Editor) {
 		const inner = editor.activeCM;
@@ -394,63 +424,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 		inner.dispatch({ selection: { anchor: endOfSubLine }, userEvent: 'move' });
-	}
-
-
-	// Non-table End: visual-line-aware 2-step end.
-	private moveCursorEndNonTable(editor: Editor) {
-		const cm = editor.cm;
-		if (cm && this.settings.visualLineMovement) {
-			const currentHead = cm.state.selection.main.head;
-			const vlEnd = cm.moveToLineBoundary(cm.state.selection.main, true, true);
-
-			if (vlEnd.head !== currentHead) {
-				// Not yet at VL end: move to VL end.
-				cm.dispatch({
-					selection: EditorSelection.create([EditorSelection.cursor(vlEnd.head, vlEnd.assoc)]),
-					scrollIntoView: true,
-					userEvent: 'move',
-				});
-				return;
-			}
-			// Fell through: already at VL end.
-		}
-		// visualLineMovement OFF, no cm, or already at VL end -> move to logical line end.
-		const cursor = editor.getCursor();
-		const line = editor.getLine(cursor.line);
-		if (cursor.ch !== line.length) {
-			editor.setCursor({ line: cursor.line, ch: line.length });
-		}
-	}
-
-
-	//===========================================================================
-	// Ctrl-A/E table helpers — Source Mode
-	//===========================================================================
-
-	private moveCursorHomeInTableSourceMode(editor: Editor) {
-		const cursor = editor.getCursor();
-		const line = editor.getLine(cursor.line);
-		const info = this.getInCellLineInfo(line, cursor.ch);
-		if (!info) return;
-
-		if (info.isEmpty || cursor.ch <= info.startOfInCellLine) {
-			if (info.lineType === 'single' || info.lineType === 'first') {
-				this.moveToLeftCellEndSourceMode(editor);
-			}
-			return;
-		}
-
-		const bounds = this.getCellBounds(line, cursor.ch);
-		if (!bounds) return;
-		const cellContent = line.slice(info.startOfInCellLine, bounds.close);
-		const smartHomePos = info.startOfInCellLine + this.getBeginningOfLinePosition(cellContent, cursor.ch - info.startOfInCellLine);
-
-		if (cursor.ch > smartHomePos) {
-			editor.setCursor({ line: cursor.line, ch: smartHomePos });
-			return;
-		}
-		editor.setCursor({ line: cursor.line, ch: info.startOfInCellLine });
 	}
 
 
@@ -483,6 +456,33 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 		editor.setCursor({ line: cursor.line, ch: info.endOfInCellLine });
+	}
+
+
+	// Non-table End: visual-line-aware 2-step end.
+	private moveCursorEndNonTable(editor: Editor) {
+		const cm = editor.cm;
+		if (cm && this.settings.visualLineMovement) {
+			const currentHead = cm.state.selection.main.head;
+			const vlEnd = cm.moveToLineBoundary(cm.state.selection.main, true, true);
+
+			if (vlEnd.head !== currentHead) {
+				// Not yet at VL end: move to VL end.
+				cm.dispatch({
+					selection: EditorSelection.create([EditorSelection.cursor(vlEnd.head, vlEnd.assoc)]),
+					scrollIntoView: true,
+					userEvent: 'move',
+				});
+				return;
+			}
+			// Fell through: already at VL end.
+		}
+		// visualLineMovement OFF, no cm, or already at VL end -> move to logical line end.
+		const cursor = editor.getCursor();
+		const line = editor.getLine(cursor.line);
+		if (cursor.ch !== line.length) {
+			editor.setCursor({ line: cursor.line, ch: line.length });
+		}
 	}
 
 
@@ -1631,36 +1631,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 
-	private killLineNonTable(editor: Editor) {
-		const cursor = editor.getCursor();
-		const lineText = editor.getLine(cursor.line);
-
-		if (cursor.ch < lineText.length) {
-			const text = lineText.slice(cursor.ch);
-			this.updateKillCache(text);
-			navigator.clipboard.writeText(this.killCache).catch(() => {});
-			this.isDispatchingKill = true;
-			editor.replaceRange('', cursor, { line: cursor.line, ch: lineText.length });
-			this.isDispatchingKill = false;
-			this.isKillChaining = true;
-			return;
-		}
-
-		if (cursor.line >= editor.lineCount() - 1) return;
-
-		const nextLineText = editor.getLine(cursor.line + 1);
-		const joinTrimLen = (this.settings.smartJoin && lineText.length > 0)
-			? this.getBeginningOfLinePosition(nextLineText, nextLineText.length || 1)
-			: 0;
-		this.updateKillCache('\n');
-		navigator.clipboard.writeText(this.killCache).catch(() => {});
-		this.isDispatchingKill = true;
-		editor.replaceRange('', { line: cursor.line, ch: lineText.length }, { line: cursor.line + 1, ch: joinTrimLen });
-		this.isDispatchingKill = false;
-		this.isKillChaining = true;
-	}
-
-
 	private killLineInTableSourceMode(editor: Editor, info: InCellLineInfo) {
 		const cursor = editor.getCursor();
 		const lineText = editor.getLine(cursor.line);
@@ -1720,6 +1690,36 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			}, 0);
 			return;
 		}
+	}
+
+
+	private killLineNonTable(editor: Editor) {
+		const cursor = editor.getCursor();
+		const lineText = editor.getLine(cursor.line);
+
+		if (cursor.ch < lineText.length) {
+			const text = lineText.slice(cursor.ch);
+			this.updateKillCache(text);
+			navigator.clipboard.writeText(this.killCache).catch(() => {});
+			this.isDispatchingKill = true;
+			editor.replaceRange('', cursor, { line: cursor.line, ch: lineText.length });
+			this.isDispatchingKill = false;
+			this.isKillChaining = true;
+			return;
+		}
+
+		if (cursor.line >= editor.lineCount() - 1) return;
+
+		const nextLineText = editor.getLine(cursor.line + 1);
+		const joinTrimLen = (this.settings.smartJoin && lineText.length > 0)
+			? this.getBeginningOfLinePosition(nextLineText, nextLineText.length || 1)
+			: 0;
+		this.updateKillCache('\n');
+		navigator.clipboard.writeText(this.killCache).catch(() => {});
+		this.isDispatchingKill = true;
+		editor.replaceRange('', { line: cursor.line, ch: lineText.length }, { line: cursor.line + 1, ch: joinTrimLen });
+		this.isDispatchingKill = false;
+		this.isKillChaining = true;
 	}
 
 
