@@ -181,6 +181,14 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			}
 		});
 
+		this.addCommand({
+			id: 'debug-coords-at-pos',
+			name: '[DEBUG] coordsAtPos probe',
+			editorCallback: (editor: Editor) => {
+				this.debugCoordsAtPos(editor);
+			}
+		});
+
 		this.registerEditorExtension(
 			EditorView.updateListener.of((update) => {
 				if (!this.isKillChaining) return;
@@ -661,6 +669,24 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 
+		// Determine whether the cursor is already on the last visual line (VL_N).
+		// Used below to resolve the VL_N-1 vs VL_N clip ambiguity after goDown:
+		//   VL_N-1 clip → goDown moved into VL_N and clipped to eoc → stay in cell.
+		//   VL_N   clip → goDown could not move further → exit to next row.
+		// Default true: safe fallback to old clip→exit when inner view is unavailable.
+		let isOnLastVL = true;
+		if (inner && inner !== editor.cm) {
+			const head = inner.state.selection.main.head;
+			const lastSubLine = inner.state.doc.line(inner.state.doc.lines);
+			const contentEnd = lastSubLine.from + lastSubLine.text.trimEnd().length;
+			const headCoords = inner.coordsAtPos(head);
+			const endCoords  = inner.coordsAtPos(contentEnd);
+			if (headCoords && endCoords) {
+				// 4 px: same-VL diff is always 0.0; adjacent-VL diff is ≥ line-height (~18 px).
+				isOnLastVL = Math.abs(headCoords.top - endCoords.top) < 4;
+			}
+		}
+
 		// Call goDown once and inspect where the cursor lands.
 		editor.exec('goDown');
 		const after = editor.getCursor();
@@ -683,9 +709,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 		const eocAfter = this.getEndOfCellContent(line, after.ch);
 		if (after.ch >= eocAfter) {
-			// goDown stayed on the same line and ch reached/passed eoc.
-			// This means we are on VL_N (last visual line) — exit to next row.
-			this.setCursorToNextRow(editor, cellIndex);
+			if (isOnLastVL) {
+				// Was already on VL_N: goDown clipped in place → exit to next row.
+				this.setCursorToNextRow(editor, cellIndex);
+			}
+			// Was on VL_N-1: goDown moved to VL_N and clipped to eoc → VL advance, stay.
 			return;
 		}
 
@@ -1409,6 +1437,67 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// inner CM view active. Dispatching to the outer CM view (setCursorViaCm) causes
 	// Obsidian to destroy and recreate the inner view, which breaks native-cursor's
 	// coordsAtPos. Falls back to setCursorViaCm if the loop cannot reach the target.
+
+	private debugCoordsAtPos(editor: Editor) {
+		const L = (msg: string) => console.log(`[UCH-coords] ${msg}`);
+
+		const inner = editor.activeCM;
+		if (!inner || inner === editor.cm) {
+			L('No inner view — cursor is not inside an LP table cell.');
+			return;
+		}
+
+		const state   = inner.state;
+		const head    = state.selection.main.head;
+		const docLen  = state.doc.length;
+		const docText = state.doc.toString().replace(/\n/g, '\\n');
+
+		L('=== coordsAtPos probe ===');
+		L(`inner doc: "${docText}"  len=${docLen}  lines=${state.doc.lines}`);
+		L(`cursor head=${head}`);
+
+		// --- coordsAtPos at key positions ---
+		const fmt = (r: { left: number; right: number; top: number; bottom: number } | null) =>
+			r ? `top=${r.top.toFixed(1)} bottom=${r.bottom.toFixed(1)} left=${r.left.toFixed(1)}` : 'null';
+
+		L(`coordsAtPos(0):         ${fmt(inner.coordsAtPos(0))}`);
+		L(`coordsAtPos(head):      ${fmt(inner.coordsAtPos(head))}`);
+		L(`coordsAtPos(docLen):    ${fmt(inner.coordsAtPos(docLen))}`);
+		L(`coordsAtPos(head, -1):  ${fmt(inner.coordsAtPos(head, -1))}`);
+		L(`coordsAtPos(head, +1):  ${fmt(inner.coordsAtPos(head, +1))}`);
+
+		// --- per sub-line breakdown ---
+		for (let i = 1; i <= state.doc.lines; i++) {
+			const sl          = state.doc.line(i);
+			const contentEnd  = sl.from + sl.text.trimEnd().length;
+			L(`sub-line ${i}: from=${sl.from} to=${sl.to} contentEnd=${contentEnd} text="${sl.text}"`);
+			L(`  coordsAtPos(from):       ${fmt(inner.coordsAtPos(sl.from))}`);
+			L(`  coordsAtPos(contentEnd): ${fmt(inner.coordsAtPos(contentEnd))}`);
+			L(`  coordsAtPos(to):         ${fmt(inner.coordsAtPos(sl.to))}`);
+		}
+
+		// --- VL_N-1 / VL_N distinction ---
+		const headCoords = inner.coordsAtPos(head);
+		const endCoords  = inner.coordsAtPos(docLen);
+		if (headCoords && endCoords) {
+			const diff = Math.abs(headCoords.top - endCoords.top);
+			L(`VL check: head.top=${headCoords.top.toFixed(1)}  end.top=${endCoords.top.toFixed(1)}  diff=${diff.toFixed(1)}`);
+			L(`Cursor on same VL as doc end? ${diff < 4}`);
+		}
+
+		// --- posAtCoords (reverse mapping) ---
+		if (endCoords) {
+			const posAtEnd = inner.posAtCoords({ x: endCoords.left, y: endCoords.top });
+			L(`posAtCoords({x=end.left, y=end.top}): ${posAtEnd}`);
+		}
+		if (headCoords) {
+			const posAtHead = inner.posAtCoords({ x: headCoords.left, y: headCoords.top });
+			L(`posAtCoords({x=head.left, y=head.top}): ${posAtHead}`);
+		}
+
+		L('=== probe end ===');
+	}
+
 
 	private isLivePreviewMode(): boolean {
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
