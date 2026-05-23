@@ -1277,23 +1277,36 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 
 	// Move to the bottom visual line of the current table cell.
-	// Strategy:
-	//   1. goRight: works around a Live Preview issue where goDown from the leftmost
-	//      cell position (placed by cm.dispatch) exits the table immediately.
-	//   2. goDown loop: navigates visual lines until no further movement or line change.
-	//      lastPos ends up at the bottom visual line or at cell end (non-wrapped).
-	//   3. Determine landing position:
-	//      - lastPos within cell content: on bottom visual line -> stay at lastPos.
-	//      - lastPos at/past cell content end: non-wrapped cell -> restore to cell start.
+	// Primary: use coordsAtPos + posAtCoords on the inner EditorView to jump directly.
+	// Fallback: goDown loop for cases where the inner view or coordinates are unavailable.
 	private moveToBottomVisualLineOfCell(editor: Editor) {
-		const startLine  = editor.getCursor().line;
-		const originalPos = editor.getCursor();
+		const cursor = editor.getCursor();
+		const startLine = cursor.line;
 		const line = editor.getLine(startLine);
-		const endOfCellContent = this.getEndOfCellContent(line, originalPos.ch);
+		const endOfCellContent = this.getEndOfCellContent(line, cursor.ch);
 
+		const inner = editor.activeCM;
+		if (inner && inner !== editor.cm) {
+			const lastSubLine = inner.state.doc.line(inner.state.doc.lines);
+			const contentEnd  = lastSubLine.from + lastSubLine.text.trimEnd().length;
+			const endCoords   = inner.coordsAtPos(contentEnd);
+			if (endCoords) {
+				// x=0 is left of all inner-view content; posAtCoords snaps to the leftmost
+				// character on the bottom visual line. y = midpoint of that line (height ≈ 18 px).
+				const pos = inner.posAtCoords({ x: 0, y: endCoords.top + 9 }, false);
+				if (pos !== null) {
+					inner.dispatch({ selection: { anchor: pos } });
+					return;
+				}
+			}
+		}
+
+		// Fallback: goDown loop.
+		// goRight works around a Live Preview issue where goDown from the leftmost
+		// cell position (placed by cm.dispatch) exits the table immediately.
 		editor.exec('goRight');
 		if (editor.getCursor().line !== startLine) {
-			editor.setCursor(originalPos);
+			editor.setCursor(cursor);
 			return;
 		}
 		editor.exec('goLeft');
