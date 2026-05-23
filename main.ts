@@ -564,6 +564,13 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 
+		// Capture inner head before the goRight+goLeft+goUp sequence for use in
+		// handleCellStartSnap: comparing y-coordinates to distinguish VL1 vs VL2+.
+		const innerBeforeGoUp = editor.activeCM;
+		const innerHeadBeforeGoUp = (innerBeforeGoUp && innerBeforeGoUp !== editor.cm)
+			? innerBeforeGoUp.state.selection.main.head
+			: undefined;
+
 		// goRight+goLeft: CM6 internally tracks which VL the cursor belongs to.
 		// By stepping right then left, goLeft returns to the same ch but with the
 		// correct assoc for the current VL (-1 if on VL_1 trailing edge, +1 if on
@@ -606,7 +613,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				this.setCursorToPrevRow(editor, cellIndex);
 				this.placeAtBottomVL(editor);
 			} else {
-				this.handleCellStartSnap(editor, cursor.line, cursor.ch, cellIndex);
+				this.handleCellStartSnap(editor, cursor.line, cursor.ch, cellIndex, innerHeadBeforeGoUp);
 			}
 		}
 		// else: goUp moved within the cell to the visual line above - done.
@@ -1248,15 +1255,44 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	//===========================================================================
 
 	// Called when goUp snapped the cursor to startOfCellContent.
-	// Probes with goDown to distinguish VL1-middle from VL2+ left edge.
-	private handleCellStartSnap(editor: Editor, originalLine: number, originalCh: number, cellIndex: number) {
+	// Distinguishes VL1-middle (→ go to previous row) from VL2+ left edge (→ stay).
+	//
+	// Primary: compare y-coordinates via coordsAtPos — no cursor side-effects.
+	//   originalHead was on VL2+  →  its y > VL1-start y  →  stay
+	//   originalHead was on VL1   →  its y ≈ VL1-start y  →  previous row
+	//
+	// Fallback: goDown probe using CM6's goal-column memory.
+	private handleCellStartSnap(
+		editor: Editor,
+		originalLine: number,
+		originalCh: number,
+		cellIndex: number,
+		innerHeadBeforeGoUp?: number,
+	) {
+		const inner = editor.activeCM;
+		if (innerHeadBeforeGoUp !== undefined && inner && inner !== editor.cm) {
+			const vl1Coords      = inner.coordsAtPos(inner.state.selection.main.head);
+			const originalCoords = inner.coordsAtPos(innerHeadBeforeGoUp);
+			if (vl1Coords && originalCoords) {
+				if (originalCoords.top > vl1Coords.top + 2) {
+					// VL2+ left edge: cursor already at VL1 start — nothing to do.
+					return;
+				}
+				// VL1 middle: go to previous row.
+				this.setCursorToPrevRow(editor, cellIndex);
+				this.placeAtBottomVL(editor);
+				return;
+			}
+		}
+
+		// Fallback: goDown probe (exploits CM6 goal-column to tell VL1 from VL2+).
 		editor.exec('goDown');
 		const backTest = editor.getCursor();
 		if (backTest.line === originalLine && backTest.ch === originalCh) {
-			// VL2+ left edge: stay at VL1 start
+			// VL2+ left edge: undo probe, stay at VL1 start.
 			editor.exec('goUp');
 		} else {
-			// VL1 middle: go to previous row
+			// VL1 middle: undo probe, go to previous row.
 			editor.exec('goUp');
 			this.setCursorToPrevRow(editor, cellIndex);
 			this.placeAtBottomVL(editor);
