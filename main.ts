@@ -560,7 +560,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// Detect by string analysis alone and navigate to the previous row directly.
 		if (startOfCellContent === this.getEndOfCellContent(line, cursor.ch)) {
 			this.setCursorToPrevRow(editor, cellIndex);
-			this.scheduleBottomVisualLine(editor);
+			this.placeAtBottomVL(editor);
 			return;
 		}
 
@@ -584,7 +584,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 					this.setCursorViaCm(editor, cursorAfter.line, targetCh);
 				}
 			}
-			this.scheduleBottomVisualLine(editor);
+			this.placeAtBottomVL(editor);
 			return;
 		}
 
@@ -592,7 +592,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (cursor.ch <= startOfCellContent) {
 			// Was at cell start -> go to previous row.
 			this.setCursorToPrevRow(editor, cellIndex);
-			this.scheduleBottomVisualLine(editor);
+			this.placeAtBottomVL(editor);
 			return;
 		}
 
@@ -605,7 +605,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			if (cursor.ch >= endOfCellContent) {
 				// VL1 end of non-wrapped cell -> go to previous row.
 				this.setCursorToPrevRow(editor, cellIndex);
-				this.scheduleBottomVisualLine(editor);
+				this.placeAtBottomVL(editor);
 			} else {
 				this.handleCellStartSnap(editor, cursor.line, cursor.ch, cellIndex);
 			}
@@ -629,7 +629,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (targetCh !== -1) {
 			editor.setCursor({ line: targetLine, ch: targetCh });
 		}
-		this.scheduleBottomVisualLine(editor);
+		this.placeAtBottomVL(editor);
 	}
 
 
@@ -1260,8 +1260,24 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			// VL1 middle: go to previous row
 			editor.exec('goUp');
 			this.setCursorToPrevRow(editor, cellIndex);
-			this.scheduleBottomVisualLine(editor);
+			this.placeAtBottomVL(editor);
 		}
+	}
+
+
+	// Move to the bottom visual line synchronously if the inner view is already
+	// mounted, otherwise defer via scheduleBottomVisualLine.
+	private placeAtBottomVL(editor: Editor) {
+		const inner = editor.activeCM;
+		if (inner && inner !== editor.cm) {
+			const lastSubLine = inner.state.doc.line(inner.state.doc.lines);
+			const contentEnd  = lastSubLine.from + lastSubLine.text.trimEnd().length;
+			if (inner.coordsAtPos(contentEnd)) {
+				this.moveToBottomVisualLineOfCell(editor);
+				return;
+			}
+		}
+		this.scheduleBottomVisualLine(editor);
 	}
 
 
