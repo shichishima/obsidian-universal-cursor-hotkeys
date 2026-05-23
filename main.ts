@@ -299,11 +299,46 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 
 	//===========================================================================
-	// Ctrl-A/E table helpers
+	// Ctrl-A — Home helpers
 	//===========================================================================
 
 	// In-cell Home: every in-cell line, no 2-step Home.
 	private moveCursorHomeInTable(editor: Editor) {
+		const inner = editor.activeCM;
+		if (!inner || inner === editor.cm) {
+			// Fallback: no-op if inner view is unavailable (cursor not in LP table cell).
+			return;
+		}
+
+		// Inner view path: use sub-line boundaries directly.
+		const head    = inner.state.selection.main.head;
+		const subLine = inner.state.doc.lineAt(head);
+
+		// First sub-line: skip leading whitespace to reach content start.
+		// Middle/last sub-lines: content starts right after the \n boundary.
+		const isFirstSubLine = subLine.number === 1;
+		const startOfSubLine = isFirstSubLine
+			? subLine.from + subLine.text.search(/\S|$/)
+			: subLine.from;
+
+		if (head <= startOfSubLine) {
+			if (subLine.number === 1) this.moveToLeftCellEnd(editor);
+			return;
+		}
+
+		// Smart home: apply prefix detection on content slice (from startOfSubLine).
+		const contentText    = subLine.text.slice(startOfSubLine - subLine.from);
+		const smartHomeInner = startOfSubLine + this.getBeginningOfLinePosition(contentText, head - startOfSubLine);
+
+		if (head > smartHomeInner) {
+			inner.dispatch({ selection: { anchor: smartHomeInner }, userEvent: 'move' });
+			return;
+		}
+		inner.dispatch({ selection: { anchor: startOfSubLine }, userEvent: 'move' });
+	}
+
+
+	private moveCursorHomeInTableSourceMode(editor: Editor) {
 		const cursor = editor.getCursor();
 		const line = editor.getLine(cursor.line);
 		const info = this.getInCellLineInfo(line, cursor.ch);
@@ -311,23 +346,21 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 		if (info.isEmpty || cursor.ch <= info.startOfInCellLine) {
 			if (info.lineType === 'single' || info.lineType === 'first') {
-				this.moveToLeftCellEnd(editor);
+				this.moveToLeftCellEndSourceMode(editor);
 			}
 			return;
 		}
 
-		// Smart home within cell: apply Standard/Advanced prefix detection on cell content.
 		const bounds = this.getCellBounds(line, cursor.ch);
 		if (!bounds) return;
 		const cellContent = line.slice(info.startOfInCellLine, bounds.close);
 		const smartHomePos = info.startOfInCellLine + this.getBeginningOfLinePosition(cellContent, cursor.ch - info.startOfInCellLine);
 
 		if (cursor.ch > smartHomePos) {
-			this.navigateInTableToPos(editor, cursor.line, smartHomePos);
+			editor.setCursor({ line: cursor.line, ch: smartHomePos });
 			return;
 		}
-		// At or before smart home: step back to cell content start.
-		this.navigateInTableToPos(editor, cursor.line, info.startOfInCellLine);
+		editor.setCursor({ line: cursor.line, ch: info.startOfInCellLine });
 	}
 
 
@@ -363,79 +396,34 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 
+	//===========================================================================
+	// Ctrl-E — End helpers
+	//===========================================================================
+
 	// In-cell End: every in-cell line, no 2-step End.
 	private moveCursorEndInTable(editor: Editor) {
-		const cursor = editor.getCursor();
-		const line = editor.getLine(cursor.line);
-		const info = this.getInCellLineInfo(line, cursor.ch);
-		if (!info) return;
-
-		if (info.isEmpty || cursor.ch >= info.endOfInCellLine) {
-			if (info.lineType === 'single' || info.lineType === 'last') {
-				this.moveToRightCellStart(editor);
-			}
-			// 'first' or 'middle': do nothing.
-			return;
-		}
-		// Middle or left position -> move to right edge of current in-cell line.
-		this.navigateInTableToPos(editor, cursor.line, info.endOfInCellLine);
-	}
-
-
-	// Non-table End: visual-line-aware 2-step end.
-	private moveCursorEndNonTable(editor: Editor) {
-		const cm = editor.cm;
-		if (cm && this.settings.visualLineMovement) {
-			const currentHead = cm.state.selection.main.head;
-			const vlEnd = cm.moveToLineBoundary(cm.state.selection.main, true, true);
-
-			if (vlEnd.head !== currentHead) {
-				// Not yet at VL end: move to VL end.
-				cm.dispatch({
-					selection: EditorSelection.create([EditorSelection.cursor(vlEnd.head, vlEnd.assoc)]),
-					scrollIntoView: true,
-					userEvent: 'move',
-				});
-				return;
-			}
-			// Fell through: already at VL end.
-		}
-		// visualLineMovement OFF, no cm, or already at VL end -> move to logical line end.
-		const cursor = editor.getCursor();
-		const line = editor.getLine(cursor.line);
-		if (cursor.ch !== line.length) {
-			editor.setCursor({ line: cursor.line, ch: line.length });
-		}
-	}
-
-
-	//===========================================================================
-	// Ctrl-A/E table helpers — Source Mode
-	//===========================================================================
-
-	private moveCursorHomeInTableSourceMode(editor: Editor) {
-		const cursor = editor.getCursor();
-		const line = editor.getLine(cursor.line);
-		const info = this.getInCellLineInfo(line, cursor.ch);
-		if (!info) return;
-
-		if (info.isEmpty || cursor.ch <= info.startOfInCellLine) {
-			if (info.lineType === 'single' || info.lineType === 'first') {
-				this.moveToLeftCellEndSourceMode(editor);
-			}
+		const inner = editor.activeCM;
+		if (!inner || inner === editor.cm) {
+			// Fallback: no-op if inner view is unavailable (cursor not in LP table cell).
 			return;
 		}
 
-		const bounds = this.getCellBounds(line, cursor.ch);
-		if (!bounds) return;
-		const cellContent = line.slice(info.startOfInCellLine, bounds.close);
-		const smartHomePos = info.startOfInCellLine + this.getBeginningOfLinePosition(cellContent, cursor.ch - info.startOfInCellLine);
+		// Inner view path: use sub-line boundaries directly.
+		const head    = inner.state.selection.main.head;
+		const subLine = inner.state.doc.lineAt(head);
 
-		if (cursor.ch > smartHomePos) {
-			editor.setCursor({ line: cursor.line, ch: smartHomePos });
+		// Last sub-line: trim trailing whitespace; non-last: end is at \n boundary.
+		const isLastSubLine = subLine.number === inner.state.doc.lines;
+		const endOfSubLine  = isLastSubLine
+			? subLine.from + subLine.text.trimEnd().length
+			: subLine.to;
+
+		if (head >= endOfSubLine) {
+			if (isLastSubLine) this.moveToRightCellStart(editor);
+			// first/middle at end: no-op
 			return;
 		}
-		editor.setCursor({ line: cursor.line, ch: info.startOfInCellLine });
+		inner.dispatch({ selection: { anchor: endOfSubLine }, userEvent: 'move' });
 	}
 
 
@@ -468,6 +456,33 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 		editor.setCursor({ line: cursor.line, ch: info.endOfInCellLine });
+	}
+
+
+	// Non-table End: visual-line-aware 2-step end.
+	private moveCursorEndNonTable(editor: Editor) {
+		const cm = editor.cm;
+		if (cm && this.settings.visualLineMovement) {
+			const currentHead = cm.state.selection.main.head;
+			const vlEnd = cm.moveToLineBoundary(cm.state.selection.main, true, true);
+
+			if (vlEnd.head !== currentHead) {
+				// Not yet at VL end: move to VL end.
+				cm.dispatch({
+					selection: EditorSelection.create([EditorSelection.cursor(vlEnd.head, vlEnd.assoc)]),
+					scrollIntoView: true,
+					userEvent: 'move',
+				});
+				return;
+			}
+			// Fell through: already at VL end.
+		}
+		// visualLineMovement OFF, no cm, or already at VL end -> move to logical line end.
+		const cursor = editor.getCursor();
+		const line = editor.getLine(cursor.line);
+		if (cursor.ch !== line.length) {
+			editor.setCursor({ line: cursor.line, ch: line.length });
+		}
 	}
 
 
@@ -558,7 +573,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			if (this.isPositionInTable(editor)) {
 				const targetCh = this.getChByCellIndex(editor.getLine(cursorAfter.line), cellIndex);
 				if (targetCh !== -1) {
-					this.navigateInTableToPos(editor, cursorAfter.line, targetCh);
+					this.setCursorViaCm(editor, cursorAfter.line, targetCh);
 				}
 			}
 			this.scheduleBottomVisualLine(editor);
@@ -616,8 +631,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const line = editor.getLine(cursor.line);
 		const cellIndex = this.getCellIndex(line, cursor.ch);
 		const eoc = this.getEndOfCellContent(line, cursor.ch);
-		const inCellInfo = this.getInCellLineInfo(line, cursor.ch);
-		const type = inCellInfo?.lineType ?? 'single';
 
 		// Empty cell: goDown is unreliable when the cursor was placed via cm.dispatch
 		// (not registered inside the widget).  Detect by string analysis alone and
@@ -627,11 +640,16 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 
-		// <br> cells with more in-cell lines below (first/middle): goDown navigates
+		// Not on the last sub-line (inner doc has more lines below) → goDown navigates
 		// within the cell.  No post-check needed — we never exit the row here.
-		if (type === 'first' || type === 'middle') {
-			editor.exec('goDown');
-			return;
+		const inner = editor.activeCM;
+		if (inner && inner !== editor.cm) {
+			const head = inner.state.selection.main.head;
+			const subLine = inner.state.doc.lineAt(head);
+			if (subLine.number < inner.state.doc.lines) {
+				editor.exec('goDown');
+				return;
+			}
 		}
 
 		// type is 'single' or 'last'.
@@ -1391,27 +1409,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// inner CM view active. Dispatching to the outer CM view (setCursorViaCm) causes
 	// Obsidian to destroy and recreate the inner view, which breaks native-cursor's
 	// coordsAtPos. Falls back to setCursorViaCm if the loop cannot reach the target.
-	private navigateInTableToPos(editor: Editor, targetLine: number, targetCh: number): void {
-		let pos = editor.getCursor();
-		if (pos.line === targetLine && pos.ch === targetCh) return;
-		const goingLeft = targetLine < pos.line || (targetLine === pos.line && targetCh < pos.ch);
-		const cmd = goingLeft ? 'goLeft' : 'goRight';
-		for (let step = 0; step < 256; step++) {
-			if (pos.line === targetLine && pos.ch === targetCh) return;
-			const overshot = goingLeft
-				? pos.line < targetLine || (pos.line === targetLine && pos.ch < targetCh)
-				: pos.line > targetLine || (pos.line === targetLine && pos.ch > targetCh);
-			if (overshot) break;
-			editor.exec(cmd);
-			const newP = editor.getCursor();
-			if (newP.line === pos.line && newP.ch === pos.ch) break;
-			pos = newP;
-		}
-		if (pos.line !== targetLine || pos.ch !== targetCh) {
-			this.setCursorViaCm(editor, targetLine, targetCh);
-		}
-	}
-
 
 	private isLivePreviewMode(): boolean {
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
@@ -1520,45 +1517,26 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 
 	private deleteCharInTableLP(editor: Editor) {
-		const cursor = editor.getCursor();
-		const lineText = editor.getLine(cursor.line);
-		const info = this.getInCellLineInfo(lineText, cursor.ch);
-		if (!info) {
-			const cm = editor.cm;
-			if (cm) deleteCharForward(cm);
+		const inner = editor.activeCM;
+		if (!inner || inner === editor.cm) {
+			// Fallback: no-op if inner view is unavailable (cursor not in LP table cell).
 			return;
 		}
 
-		// At the last in-cell line's right edge: no-op (cell boundary)
-		if ((info.lineType === 'single' || info.lineType === 'last') && cursor.ch >= info.endOfInCellLine) {
+		// Inner view path: use sub-line boundaries directly.
+		const head    = inner.state.selection.main.head;
+		const subLine = inner.state.doc.lineAt(head);
+		const isLastSubLine = subLine.number === inner.state.doc.lines;
+
+		if (isLastSubLine) {
+			const endOfSubLine = subLine.from + subLine.text.trimEnd().length;
+			if (head >= endOfSubLine) return;  // cell boundary: no-op
+		} else if (head >= subLine.to) {
+			// At \n boundary: delete the \n to join sub-lines.
+			inner.dispatch({ changes: { from: subLine.to, to: subLine.to + 1, insert: '' }, selection: { anchor: subLine.to }, userEvent: 'delete' });
 			return;
 		}
 
-		// At the end of a non-last in-cell line: delete the <br> tag to join sub-lines
-		if ((info.lineType === 'first' || info.lineType === 'middle') && cursor.ch >= info.endOfInCellLine) {
-			const brMatch = lineText.slice(info.endOfInCellLine).match(/^<[bB][rR]>([ \t]*)/);
-			if (brMatch) {
-				const brEnd = info.endOfInCellLine + brMatch[0].length;
-				const inner = editor.activeCM;
-				if (inner && inner !== editor.cm) {
-					const innerDoc    = inner.state.doc.toString();
-					const cursorInner = inner.state.selection.main.head;
-					// Inner view uses \n (not <br>) for in-cell line breaks
-					let nlPos = -1;
-					if (innerDoc[cursorInner] === '\n')          nlPos = cursorInner;
-					else if (innerDoc[cursorInner - 1] === '\n') nlPos = cursorInner - 1;
-					if (nlPos >= 0) {
-						inner.dispatch({ changes: { from: nlPos, to: nlPos + 1, insert: '' }, selection: { anchor: nlPos }, userEvent: 'delete' });
-					}
-				} else {
-					editor.setLine(cursor.line, lineText.slice(0, info.endOfInCellLine) + lineText.slice(brEnd));
-					window.setTimeout(() => { this.setCursorViaCm(editor, cursor.line, info.endOfInCellLine); }, 0);
-				}
-			}
-			return;
-		}
-
-		// Within cell content: delete one character forward
 		const cm = editor.cm;
 		if (cm) deleteCharForward(cm);
 	}
@@ -1594,15 +1572,124 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const inLPTable = this.isLivePreviewMode() && this.isPositionInTable(editor);
 		const inSourceTable = !this.isLivePreviewMode() && this.isTableLineSourceMode(lineText);
 
-		if (inLPTable || inSourceTable) {
+		if (inLPTable) {
+			this.killLineInTableLP(editor);
+			return;
+		}
+
+		if (inSourceTable) {
 			const info = this.getInCellLineInfo(lineText, editor.getCursor().ch);
 			if (info) {
-				this.killLineInCellContext(editor, info);
+				this.killLineInTableSourceMode(editor, info);
 				return;
 			}
 		}
 
 		this.killLineNonTable(editor);
+	}
+
+
+	private killLineInTableLP(editor: Editor) {
+		const inner = editor.activeCM;
+		if (!inner || inner === editor.cm) {
+			// Fallback: no-op if inner view is unavailable (cursor not in LP table cell).
+			return;
+		}
+
+		// Inner view path: use sub-line boundaries directly.
+		const head          = inner.state.selection.main.head;
+		const subLine       = inner.state.doc.lineAt(head);
+		const isLastSubLine = subLine.number === inner.state.doc.lines;
+		const endOfSubLine  = isLastSubLine
+			? subLine.from + subLine.text.trimEnd().length
+			: subLine.to;
+
+		if (head < endOfSubLine) {
+			const text = inner.state.doc.sliceString(head, endOfSubLine);
+			this.updateKillCache(text);
+			navigator.clipboard.writeText(this.killCache).catch(() => {});
+			this.isDispatchingKill = true;
+			inner.dispatch({ changes: { from: head, to: endOfSubLine, insert: '' }, selection: { anchor: head }, userEvent: 'delete' });
+			this.isDispatchingKill = false;
+			this.isKillChaining = true;
+			return;
+		}
+
+		if (!isLastSubLine) {
+			const afterNl = inner.state.doc.sliceString(subLine.to + 1);
+			const trimLen = this.settings.smartJoin
+				? this.getBeginningOfLinePosition(afterNl, afterNl.length || 1)
+				: 0;
+			this.updateKillCache('\n');
+			navigator.clipboard.writeText(this.killCache).catch(() => {});
+			this.isDispatchingKill = true;
+			inner.dispatch({ changes: { from: subLine.to, to: subLine.to + 1 + trimLen, insert: '' }, selection: { anchor: subLine.to }, userEvent: 'delete' });
+			this.isDispatchingKill = false;
+			this.isKillChaining = true;
+			return;
+		}
+	}
+
+
+	private killLineInTableSourceMode(editor: Editor, info: InCellLineInfo) {
+		const cursor = editor.getCursor();
+		const lineText = editor.getLine(cursor.line);
+
+		if (cursor.ch < info.endOfInCellLine) {
+			const text = lineText.slice(cursor.ch, info.endOfInCellLine);
+			this.updateKillCache(this.normalizeKillText(text));
+			navigator.clipboard.writeText(this.killCache).catch(() => {});
+			this.isDispatchingKill = true;
+			editor.replaceRange('', cursor, { line: cursor.line, ch: info.endOfInCellLine });
+			this.isDispatchingKill = false;
+			this.isKillChaining = true;
+			return;
+		}
+
+		// kill <br> forward from endOfInCellLine (only possible when lineType is 'first'/'middle')
+		const brMatch = lineText.slice(info.endOfInCellLine).match(/^<[bB][rR]>([ \t]*)/);
+		if (brMatch) {
+			const brLen      = '<br>'.length;
+			const afterBr    = lineText.slice(info.endOfInCellLine + brLen);
+			const trimLen    = this.settings.smartJoin
+				? this.getBeginningOfLinePosition(afterBr, afterBr.length || 1)
+				: 0;
+			const toCh       = info.endOfInCellLine + brLen + trimLen;
+			const targetCh   = info.endOfInCellLine;
+			const targetLine = cursor.line;
+			this.updateKillCache('\n');
+			navigator.clipboard.writeText(this.killCache).catch(() => {});
+			this.isDispatchingKill = true;
+			editor.setLine(targetLine, lineText.slice(0, targetCh) + lineText.slice(toCh));
+			this.isDispatchingKill = false;
+			window.setTimeout(() => {
+				this.isDispatchingKill = true;
+				this.setCursorViaCm(editor, targetLine, targetCh);
+				this.isDispatchingKill = false;
+				this.isKillChaining = true;
+			}, 0);
+			return;
+		}
+
+		// cursor snap: cursor may land at br.end (= startOfInCellLine of 'middle'/'last')
+		// rather than br.start. Kill the <br> that ends at cursor.ch.
+		const brSnapMatch = lineText.slice(0, cursor.ch).match(/<[bB][rR]>([ \t]*)$/);
+		if (brSnapMatch && cursor.ch === info.startOfInCellLine) {
+			const brStart    = cursor.ch - brSnapMatch[0].length;
+			const targetLine = cursor.line;
+			this.updateKillCache('\n');
+			navigator.clipboard.writeText(this.killCache).catch(() => {});
+			this.isDispatchingKill = true;
+			editor.setLine(targetLine, lineText.slice(0, brStart) + lineText.slice(cursor.ch));
+			this.isDispatchingKill = false;
+			window.setTimeout(() => {
+				this.isDispatchingKill = true;
+				this.setCursorViaCm(editor, targetLine, brStart);
+				this.isDispatchingKill = false;
+				this.isKillChaining = true;
+			}, 0);
+			return;
+		}
 	}
 
 
@@ -1633,108 +1720,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		editor.replaceRange('', { line: cursor.line, ch: lineText.length }, { line: cursor.line + 1, ch: joinTrimLen });
 		this.isDispatchingKill = false;
 		this.isKillChaining = true;
-	}
-
-
-	private killLineInCellContext(editor: Editor, info: InCellLineInfo) {
-		const cursor = editor.getCursor();
-		const lineText = editor.getLine(cursor.line);
-
-		if (cursor.ch < info.endOfInCellLine) {
-			const text = lineText.slice(cursor.ch, info.endOfInCellLine);
-			this.updateKillCache(this.normalizeKillText(text));
-			navigator.clipboard.writeText(this.killCache).catch(() => {});
-			this.isDispatchingKill = true;
-			editor.replaceRange('', cursor, { line: cursor.line, ch: info.endOfInCellLine });
-			this.isDispatchingKill = false;
-			this.isKillChaining = true;
-			return;
-		}
-
-		// lineType 'first'/'middle': kill <br> forward from endOfInCellLine
-		if (info.lineType === 'first' || info.lineType === 'middle') {
-			const brMatch = lineText.slice(info.endOfInCellLine).match(/^<[bB][rR]>([ \t]*)/);
-			if (brMatch) {
-				const brLen       = '<br>'.length;
-				const afterBr     = lineText.slice(info.endOfInCellLine + brLen);
-				const trimLen     = this.settings.smartJoin
-					? this.getBeginningOfLinePosition(afterBr, afterBr.length || 1)
-					: 0;
-				const toCh        = info.endOfInCellLine + brLen + trimLen;
-				const targetCh    = info.endOfInCellLine;
-				const targetLine  = cursor.line;
-				this.updateKillCache('\n');
-				navigator.clipboard.writeText(this.killCache).catch(() => {});
-				const inner1 = editor.activeCM;
-				if (inner1 && inner1 !== editor.cm) {
-					const innerDoc    = inner1.state.doc.toString();
-					const cursorInner = inner1.state.selection.main.head;
-					// Inner view uses \n (not <br>) for in-cell line breaks
-					let nlPos = -1;
-					if (innerDoc[cursorInner] === '\n')          nlPos = cursorInner;
-					else if (innerDoc[cursorInner - 1] === '\n') nlPos = cursorInner - 1;
-					if (nlPos >= 0) {
-						const afterNl      = innerDoc.slice(nlPos + 1);
-						const innerTrimLen = this.settings.smartJoin
-							? this.getBeginningOfLinePosition(afterNl, afterNl.length || 1)
-							: 0;
-						this.isDispatchingKill = true;
-						inner1.dispatch({ changes: { from: nlPos, to: nlPos + 1 + innerTrimLen, insert: '' }, selection: { anchor: nlPos }, userEvent: 'delete' });
-						this.isDispatchingKill = false;
-						this.isKillChaining = true;
-					}
-				} else {
-					this.isDispatchingKill = true;
-					editor.setLine(targetLine, lineText.slice(0, targetCh) + lineText.slice(toCh));
-					this.isDispatchingKill = false;
-					window.setTimeout(() => {
-						this.isDispatchingKill = true;
-						this.setCursorViaCm(editor, targetLine, targetCh);
-						this.isDispatchingKill = false;
-						this.isKillChaining = true;
-					}, 0);
-				}
-				return;
-			}
-		}
-
-		// LP cursor snap: cursor may land at br.end (= startOfInCellLine of 'middle'/'last')
-		// rather than br.start. Kill the <br> that ends at cursor.ch.
-		if ((info.lineType === 'middle' || info.lineType === 'last') && cursor.ch === info.startOfInCellLine) {
-			const brMatch = lineText.slice(0, cursor.ch).match(/<[bB][rR]>([ \t]*)$/);
-			if (brMatch) {
-				const brStart     = cursor.ch - brMatch[0].length;
-				const targetLine  = cursor.line;
-				this.updateKillCache('\n');
-				navigator.clipboard.writeText(this.killCache).catch(() => {});
-				const inner2 = editor.activeCM;
-				if (inner2 && inner2 !== editor.cm) {
-					const cursorInner = inner2.state.selection.main.head;
-					const innerDoc2   = inner2.state.doc.toString();
-					// Inner view uses \n (not <br>) for in-cell line breaks
-					let nlPos = -1;
-					if (cursorInner > 0 && innerDoc2[cursorInner - 1] === '\n') nlPos = cursorInner - 1;
-					else if (innerDoc2[cursorInner] === '\n')                    nlPos = cursorInner;
-					if (nlPos >= 0) {
-						this.isDispatchingKill = true;
-						inner2.dispatch({ changes: { from: nlPos, to: nlPos + 1, insert: '' }, selection: { anchor: nlPos }, userEvent: 'delete' });
-						this.isDispatchingKill = false;
-						this.isKillChaining = true;
-					}
-				} else {
-					this.isDispatchingKill = true;
-					editor.setLine(targetLine, lineText.slice(0, brStart) + lineText.slice(cursor.ch));
-					this.isDispatchingKill = false;
-					window.setTimeout(() => {
-						this.isDispatchingKill = true;
-						this.setCursorViaCm(editor, targetLine, brStart);
-						this.isDispatchingKill = false;
-						this.isKillChaining = true;
-					}, 0);
-				}
-				return;
-			}
-		}
 	}
 
 

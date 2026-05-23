@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.0] - 2026-05-xx
+
+### Changed
+
+- **Internal refactor: Live Preview table cell editing now uses the inner EditorView directly.**
+  All cursor operations inside LP table cells (HOME, END, Kill Line, Delete Char, Ctrl-N/P) previously worked by parsing the outer Markdown string for `<br>` tags and computing character positions indirectly. They now read and write the inner EditorView (`editor.activeCM`) directly, which is more accurate and eliminates several layers of workaround logic.
+  No user-facing behavior change is intended; this is groundwork for further improvements.
+
 ## [0.5.0] - 2026-05-21
 
 ### Added
