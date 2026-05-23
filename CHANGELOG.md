@@ -2,6 +2,11 @@
 
 ## [0.6.0] - 2026-05-xx
 
+### Fixed
+
+- **Ctrl+N no longer exits a soft-wrapped table cell one visual line too early.**
+  When the cursor was on the second-to-last visual line (VL_N-1) of a soft-wrapped Live Preview table cell, Ctrl+N incorrectly jumped to the next row instead of advancing one visual line. The fix uses `coordsAtPos` on the inner EditorView to determine which visual line the cursor is on before calling `goDown`, resolving the previously indistinguishable clip result.
+
 ### Changed
 
 - **Internal refactor: Live Preview table cell editing now uses the inner EditorView directly.**
