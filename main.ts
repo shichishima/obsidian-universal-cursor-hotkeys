@@ -336,7 +336,12 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 		// VL step: when on VL2+ within a sub-line, move to the VL left edge first.
 		if (this.settings.visualLineMovement) {
-			const coords = inner.coordsAtPos(head);
+			// Use assoc to pick the correct side at wrap points: assoc=-1 means the cursor
+			// is visually at the right end of VL_N, so coordsAtPos with side=-1 returns VL_N
+			// coords. Without this, default side=1 would return VL_N+1 coords and make the
+			// VL step appear to be a no-op (vlStartPos === head).
+			const assoc = inner.state.selection.main.assoc;
+			const coords = inner.coordsAtPos(head, assoc < 0 ? -1 : 1);
 			if (coords) {
 				// x=0 is left of all inner-view content; posAtCoords snaps to the leftmost
 				// character on the current visual line. y = midpoint of that line (height ≈ 18 px).
@@ -596,6 +601,28 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			? innerBeforeGoUp.state.selection.main.head
 			: undefined;
 
+		// At VL wrap-point edges, assoc may misidentify which VL the cursor is on,
+		// causing goUp to skip an extra visual line. Fix assoc before goUp:
+		//   left edge  → assoc=1  (start of this VL, not end of the line above)
+		//   right edge → assoc=-1 (end of this VL, not start of the line below)
+		if (innerBeforeGoUp && innerBeforeGoUp !== editor.cm && innerHeadBeforeGoUp !== undefined) {
+			const h = innerHeadBeforeGoUp;
+			const currentAssoc = innerBeforeGoUp.state.selection.main.assoc;
+			const coords = innerBeforeGoUp.coordsAtPos(h);
+			// Fix only when assoc >= 0: assoc=-1 means the cursor is already correctly
+			// placed at the right edge of VL_N (end-of-VL), so goUp works as expected.
+			// Firing for assoc=-1 would incorrectly flip the cursor to the left edge of
+			// VL_N+1 and cause goUp to skip the wrong number of visual lines.
+			if (coords && currentAssoc >= 0) {
+				const vlStartPos = innerBeforeGoUp.posAtCoords({ x: 0, y: coords.top + 9 }, false);
+				if (vlStartPos !== null && vlStartPos === h) {
+					innerBeforeGoUp.dispatch({
+						selection: EditorSelection.create([EditorSelection.cursor(h, 1)]),
+					});
+				}
+			}
+		}
+
 		editor.exec('goUp');
 
 		const cursorAfter = editor.getCursor();
@@ -677,6 +704,21 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (inner && inner !== editor.cm) {
 			const head = inner.state.selection.main.head;
 			const subLine = inner.state.doc.lineAt(head);
+
+			// At VL wrap-point edges, assoc may misidentify which VL the cursor is on,
+			// causing goDown to skip an extra visual line. Fix assoc before any goDown:
+			//   left edge  → assoc=1  (start of this VL, not end of the line above)
+			//   right edge → assoc=-1 (end of this VL, not start of the line below)
+			const currentAssoc = inner.state.selection.main.assoc;
+			const coords = inner.coordsAtPos(head);
+			// Fix only when assoc >= 0 (same rationale as moveCursorUpInTable).
+			if (coords && currentAssoc >= 0) {
+				const vlStartPos = inner.posAtCoords({ x: 0, y: coords.top + 9 }, false);
+				if (vlStartPos !== null && vlStartPos === head) {
+					inner.dispatch({ selection: EditorSelection.create([EditorSelection.cursor(head, 1)]) });
+				}
+			}
+
 			if (subLine.number < inner.state.doc.lines) {
 				editor.exec('goDown');
 				return;
@@ -702,7 +744,12 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			const head = inner.state.selection.main.head;
 			const lastSubLine = inner.state.doc.line(inner.state.doc.lines);
 			const contentEnd = lastSubLine.from + lastSubLine.text.trimEnd().length;
-			const headCoords = inner.coordsAtPos(head);
+			// Use assoc to pick the correct side at wrap points: assoc=-1 means the cursor is
+			// visually at the right end of VL_N-1, so coordsAtPos with side=-1 returns VL_N-1
+			// coords. Without this, default side=1 returns VL_N coords (= same as contentEnd's
+			// VL), causing isOnLastVL to be true even when we are still on VL_N-1.
+			const assoc = inner.state.selection.main.assoc;
+			const headCoords = inner.coordsAtPos(head, assoc < 0 ? -1 : 1);
 			const endCoords  = inner.coordsAtPos(contentEnd);
 			if (headCoords && endCoords) {
 				// 4 px: same-VL diff is always 0.0; adjacent-VL diff is ≥ line-height (~18 px).
