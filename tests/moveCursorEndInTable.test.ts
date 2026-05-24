@@ -14,9 +14,10 @@ import UniversalCursorHotkeysPlugin from '../main.ts'
 //   others:        endOfSubLine = subLine.to  (position of the \n separator)
 //
 // Behavior:
-//   head < endOfSubLine  → dispatch to endOfSubLine
-//   head >= endOfSubLine, last sub-line  → moveToRightCellStart
-//   head >= endOfSubLine, non-last       → no-op
+//   head < endOfSubLine, VL step fires  → dispatch to vlEnd.head
+//   head < endOfSubLine, no VL step     → dispatch to endOfSubLine
+//   head >= endOfSubLine, last sub-line → moveToRightCellStart
+//   head >= endOfSubLine, non-last      → no-op
 
 // ---------------------------------------------------------------------------
 // Inner view mock helpers
@@ -55,6 +56,32 @@ function makeEditor(innerText: string, head: number) {
 		activeCM: inner,
 		cm: {},
 		_innerDispatch: dispatch,
+	}
+}
+
+// Editor mock with moveToLineBoundary for VL step tests.
+// vlEndHead: the head value returned by moveToLineBoundary (simulates VL right edge).
+// assoc=-1 means "end of VL1" (left-leaning), matching what moveToLineBoundary returns for END.
+function makeEditorWithVLBoundary(innerText: string, head: number, vlEndHead: number) {
+	const dispatch = vi.fn()
+	const moveToLineBoundary = vi.fn(() => ({ head: vlEndHead, assoc: -1 }))
+	const inner = {
+		state: {
+			doc: {
+				toString: () => innerText,
+				lineAt: makeLineAt(innerText),
+				lines: innerText.split('\n').length,
+			},
+			selection: { main: { head } },
+		},
+		dispatch,
+		moveToLineBoundary,
+	}
+	return {
+		activeCM: inner,
+		cm: {},
+		_innerDispatch: dispatch,
+		_moveToLineBoundary: moveToLineBoundary,
 	}
 }
 
@@ -113,6 +140,7 @@ describe('moveCursorEndInTable', () => {
 		plugin.CELL_SEPARATOR_REGEX  = /(?<!\\)\|/g
 		plugin.TABLE_DELIMITER_REGEX = /^\s*\|?[:\s]*?-+[:\s-]*\|[:\s-|]*$/
 		plugin.moveToRightCellStart  = vi.fn()
+		plugin.settings = { visualLineMovement: false }
 	})
 
 	for (const group of matrix) {
@@ -136,4 +164,66 @@ describe('moveCursorEndInTable', () => {
 			}
 		})
 	}
+})
+
+
+// ===========================================================================
+// VL step tests — visual-line-aware END inside LP table cells
+// ===========================================================================
+//
+// innerText: ' long content here' (18 chars), single sub-line
+//   endOfSubLine = 18 (trimEnd of last sub-line)
+// head=5, vlEndHead=10: VL right edge is before sub-line end → VL step fires.
+
+const VL_INNER = ' long content here'
+// endOfSubLine = 18
+
+describe('moveCursorEndInTable — VL step', () => {
+	let plugin: any
+
+	beforeEach(() => {
+		plugin = Object.create(UniversalCursorHotkeysPlugin.prototype)
+		plugin.CELL_SEPARATOR_REGEX  = /(?<!\\)\|/g
+		plugin.TABLE_DELIMITER_REGEX = /^\s*\|?[:\s]*?-+[:\s-]*\|[:\s-|]*$/
+		plugin.moveToRightCellStart  = vi.fn()
+	})
+
+	const vlOn  = { visualLineMovement: true  }
+	const vlOff = { visualLineMovement: false }
+
+	it('VL step: vlEndHead < endOfSubLine and head ≠ vlEndHead → dispatch with EditorSelection and assoc', () => {
+		plugin.settings = vlOn
+		// head=5, vlEndHead=10 < endOfSubLine=18 → VL step fires; assoc=-1 (end-of-VL1)
+		const editor = makeEditorWithVLBoundary(VL_INNER, 5, 10)
+		plugin.moveCursorEndInTable(editor)
+		const call = editor._innerDispatch.mock.calls[0][0]
+		expect(call.userEvent).toBe('move')
+		// selection must be an EditorSelection with head=10 and assoc=-1
+		expect(call.selection.main.head).toBe(10)
+		expect(call.selection.main.assoc).toBe(-1)
+	})
+
+	it('VL step: already at VL end (head === vlEndHead) → dispatch to endOfSubLine', () => {
+		plugin.settings = vlOn
+		// head=10 === vlEndHead=10 → head !== vlEndHead is false → skip VL step
+		const editor = makeEditorWithVLBoundary(VL_INNER, 10, 10)
+		plugin.moveCursorEndInTable(editor)
+		expect(editor._innerDispatch).toHaveBeenCalledWith({ selection: { anchor: 18 }, userEvent: 'move' })
+	})
+
+	it('VL step: last VL (vlEndHead === endOfSubLine) → dispatch to endOfSubLine', () => {
+		plugin.settings = vlOn
+		// head=5, vlEndHead=18 = endOfSubLine → vlEndHead < endOfSubLine is false → skip VL step
+		const editor = makeEditorWithVLBoundary(VL_INNER, 5, 18)
+		plugin.moveCursorEndInTable(editor)
+		expect(editor._innerDispatch).toHaveBeenCalledWith({ selection: { anchor: 18 }, userEvent: 'move' })
+	})
+
+	it('visualLineMovement OFF → skip VL step, dispatch to endOfSubLine', () => {
+		plugin.settings = vlOff
+		const editor = makeEditorWithVLBoundary(VL_INNER, 5, 10)
+		plugin.moveCursorEndInTable(editor)
+		expect(editor._innerDispatch).toHaveBeenCalledWith({ selection: { anchor: 18 }, userEvent: 'move' })
+		expect(editor._moveToLineBoundary).not.toHaveBeenCalled()
+	})
 })

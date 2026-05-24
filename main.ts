@@ -310,7 +310,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Ctrl-A — Home helpers
 	//===========================================================================
 
-	// In-cell Home: every in-cell line, no 2-step Home.
+	// In-cell Home: VL edge (if visualLineMovement) → smart home → sub-line start → left cell.
 	private moveCursorHomeInTable(editor: Editor) {
 		const inner = editor.activeCM;
 		if (!inner || inner === editor.cm) {
@@ -422,7 +422,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Ctrl-E — End helpers
 	//===========================================================================
 
-	// In-cell End: every in-cell line, no 2-step End.
+	// In-cell End: VL edge (if visualLineMovement) → sub-line end → right cell.
 	private moveCursorEndInTable(editor: Editor) {
 		const inner = editor.activeCM;
 		if (!inner || inner === editor.cm) {
@@ -445,6 +445,19 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			// first/middle at end: no-op
 			return;
 		}
+
+		// VL step: when on a non-last VL within the sub-line, move to the VL right edge first.
+		if (this.settings.visualLineMovement) {
+			const vlEnd = inner.moveToLineBoundary(inner.state.selection.main, true, true);
+			if (vlEnd.head !== head && vlEnd.head < endOfSubLine) {
+				inner.dispatch({
+					selection: EditorSelection.create([EditorSelection.cursor(vlEnd.head, vlEnd.assoc)]),
+					userEvent: 'move',
+				});
+				return;
+			}
+		}
+
 		inner.dispatch({ selection: { anchor: endOfSubLine }, userEvent: 'move' });
 	}
 
