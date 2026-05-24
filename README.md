@@ -118,8 +118,8 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 - **Within text:** Moves left by one character, equivalent to physical cursor keys.
 - **Within a table cell (*):** Moves left one character within the cell content.
 - **At the beginning of cell content (*):** Jumps to the end of the text in the cell on the left (same row).
-- **In the leftmost cell, at the cell start (data row) (*):** Jumps to the end of the rightmost cell in the row above. (→ **Cross-Row Navigation**)
-- **In the leftmost cell, at the cell start (header row) (*):** Exits the table to the line above. (→ **Cross-Row Navigation**)
+- **In the leftmost cell, at the cell start (data row) (*):** Jumps to the end of the rightmost cell in the row above. (→ **Cross-Row Navigation** setting)
+- **In the leftmost cell, at the cell start (header row) (*):** Exits the table to the line above. (→ **Cross-Row Navigation** setting)
 
 </details>
 
@@ -129,8 +129,8 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 - **Within text:** Moves right by one character, equivalent to physical cursor keys.
 - **Within a table cell (*):** Moves right one character within the cell content.
 - **At the end of cell content (*):** Jumps to the beginning of the text in the cell to the right (same row).
-- **In the rightmost cell, at the cell end (non-last row) (*):** Jumps to the beginning of the leftmost cell in the row below. (→ **Cross-Row Navigation**)
-- **In the rightmost cell, at the cell end (last row) (*):** Exits the table to the line below. (→ **Cross-Row Navigation**)
+- **In the rightmost cell, at the cell end (non-last row) (*):** Jumps to the beginning of the leftmost cell in the row below. (→ **Cross-Row Navigation** setting)
+- **In the rightmost cell, at the cell end (last row) (*):** Exits the table to the line below. (→ **Cross-Row Navigation** setting)
 
 </details>
 
@@ -144,7 +144,7 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 - **Within a table cell,** a further step applies:
   - At the start of a non-first in-cell line (after `<br>`): does not move further.
   - Jumps to the end of the text in the cell to the left (same row).
-  - In the leftmost column: jumps to the rightmost cell in the row above. (→ **Cross-Row Navigation**)
+  - In the leftmost column: jumps to the rightmost cell in the row above. (→ **Cross-Row Navigation** setting)
   - In the header row, leftmost cell: exits the table to the line above.
 
 </details>
@@ -158,7 +158,7 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 - **Within a table cell,** a further step applies:
   - At the right edge of a non-last in-cell line (before `<br>`): does not move further.
   - Jumps to the start of the text in the cell to the right (same row).
-  - In the rightmost column: jumps to the leftmost cell in the row below. (→ **Cross-Row Navigation**)
+  - In the rightmost column: jumps to the leftmost cell in the row below. (→ **Cross-Row Navigation** setting)
   - In the last row, rightmost cell: exits the table to the line below.
 - **Within a table cell (Source Mode):**
   - **Cursor inside a `<br>` tag:** Jumps to the right edge of the next in-cell line, skipping the `<br>` tag.
