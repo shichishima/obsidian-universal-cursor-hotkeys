@@ -334,6 +334,20 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 
+		// VL step: when on VL2+ within a sub-line, move to the VL left edge first.
+		if (this.settings.visualLineMovement) {
+			const coords = inner.coordsAtPos(head);
+			if (coords) {
+				// x=0 is left of all inner-view content; posAtCoords snaps to the leftmost
+				// character on the current visual line. y = midpoint of that line (height ≈ 18 px).
+				const vlStartPos = inner.posAtCoords({ x: 0, y: coords.top + 9 }, false);
+				if (vlStartPos !== null && vlStartPos > startOfSubLine && head > vlStartPos) {
+					inner.dispatch({ selection: { anchor: vlStartPos }, userEvent: 'move' });
+					return;
+				}
+			}
+		}
+
 		// Smart home: apply prefix detection on content slice (from startOfSubLine).
 		const contentText    = subLine.text.slice(startOfSubLine - subLine.from);
 		const smartHomeInner = startOfSubLine + this.getBeginningOfLinePosition(contentText, head - startOfSubLine);

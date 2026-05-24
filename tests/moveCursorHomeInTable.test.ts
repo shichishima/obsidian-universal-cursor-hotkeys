@@ -14,6 +14,7 @@ import UniversalCursorHotkeysPlugin from '../main.ts'
 //
 // 2-step (no prefix):  cursor → startOfSubLine → moveToLeftCellEnd
 // 3-step (prefix):     cursor → smartHomeInner → startOfSubLine → moveToLeftCellEnd
+// VL step (new):       when visualLineMovement ON and VL2+, cursor → VL left edge first
 //
 // startOfSubLine = subLine.from + subLine.text.search(/\S|$/)  (skip leading space on first sub-line)
 // smartHomeInner = startOfSubLine + getBeginningOfLinePosition(contentText, head - startOfSubLine)
@@ -53,6 +54,47 @@ function makeInnerView(innerText: string, innerHead: number) {
 		dispatch,
 	}
 	return { inner, dispatch }
+}
+
+// Inner view mock with coordsAtPos / posAtCoords for VL-step tests.
+function makeInnerViewWithCoords(
+	innerText: string,
+	innerHead: number,
+	coordsTop: number | null,
+	vlStartPos: number | null,
+) {
+	const { inner, dispatch } = makeInnerView(innerText, innerHead)
+	const coordsAtPos = vi.fn((pos: number) =>
+		pos === innerHead && coordsTop !== null
+			? { top: coordsTop, bottom: coordsTop + 18, left: 100, right: 200 }
+			: null
+	)
+	const posAtCoords = vi.fn(() => vlStartPos)
+	return { inner: { ...inner, coordsAtPos, posAtCoords }, dispatch, coordsAtPos, posAtCoords }
+}
+
+function makeEditorWithCoords(
+	ch: number,
+	lineText: string,
+	coordsTop: number | null,
+	vlStartPos: number | null,
+) {
+	const cellStart = 1
+	const cellEnd   = lineText.lastIndexOf('|')
+	const innerText = lineText.slice(cellStart, cellEnd)
+	const innerHead = ch - cellStart
+	const { inner, dispatch, coordsAtPos, posAtCoords } = makeInnerViewWithCoords(innerText, innerHead, coordsTop, vlStartPos)
+	const outerCm = {}
+	return {
+		getCursor: () => ({ line: 1, ch }),
+		getLine:   () => lineText,
+		exec:      () => {},
+		activeCM:  inner,
+		cm:        outerCm,
+		_innerDispatch: dispatch,
+		_coordsAtPos:   coordsAtPos,
+		_posAtCoords:   posAtCoords,
+	}
 }
 
 // For these test lines, all cells start at outer ch 1 (pipe at 0),
@@ -167,4 +209,80 @@ describe('moveCursorHomeInTable', () => {
 			}
 		})
 	}
+})
+
+
+// ===========================================================================
+// VL step tests — visual-line-aware home inside LP table cells
+// ===========================================================================
+//
+// Inner doc: ' long content' (length 13), startOfSubLine=1 ('l')
+// Tests use ch=10 → innerHead=9, which is to the right of startOfSubLine.
+// vlStartPos=5 represents the VL2+ left edge (> startOfSubLine=1).
+
+const VL_LINE = '| long content |'
+// innerText = ' long content ', startOfSubLine=1, smartHomeInner=1 (no prefix)
+
+describe('moveCursorHomeInTable — VL step', () => {
+	let plugin: any
+
+	beforeEach(() => {
+		plugin = Object.create(UniversalCursorHotkeysPlugin.prototype)
+		plugin.CELL_SEPARATOR_REGEX  = /(?<!\\)\|/g
+		plugin.TABLE_DELIMITER_REGEX = /^\s*\|?[:\s]*?-+[:\s-]*\|[:\s-|]*$/
+		plugin.moveToLeftCellEnd = vi.fn()
+	})
+
+	const vlOn  = { visualLineMovement: true,  smartHomeStandard: true, smartHomeAdvanced: false }
+	const vlOff = { visualLineMovement: false, smartHomeStandard: true, smartHomeAdvanced: false }
+
+	it('VL2+, not at VL edge → dispatch to vlStartPos', () => {
+		plugin.settings = vlOn
+		// head=9, vlStartPos=5 (> startOfSubLine=1, < head=9) → VL step fires
+		const editor = makeEditorWithCoords(10, VL_LINE, 100, 5)
+		plugin.moveCursorHomeInTable(editor)
+		expect(editor._innerDispatch).toHaveBeenCalledWith({ selection: { anchor: 5 }, userEvent: 'move' })
+	})
+
+	it('VL2+, already at VL edge (head === vlStartPos) → fall through to smart home', () => {
+		plugin.settings = vlOn
+		// head=5, vlStartPos=5 → head > vlStartPos is false → skip VL step
+		const editor = makeEditorWithCoords(6, VL_LINE, 100, 5)
+		plugin.moveCursorHomeInTable(editor)
+		// smart home: smartHomeInner=1 → dispatch(1)
+		expect(editor._innerDispatch).toHaveBeenCalledWith({ selection: { anchor: 1 }, userEvent: 'move' })
+	})
+
+	it('VL1 (vlStartPos <= startOfSubLine) → fall through to smart home', () => {
+		plugin.settings = vlOn
+		// head=9, vlStartPos=1 (= startOfSubLine) → vlStartPos > startOfSubLine is false → skip VL step
+		const editor = makeEditorWithCoords(10, VL_LINE, 100, 1)
+		plugin.moveCursorHomeInTable(editor)
+		expect(editor._innerDispatch).toHaveBeenCalledWith({ selection: { anchor: 1 }, userEvent: 'move' })
+	})
+
+	it('visualLineMovement OFF → skip VL step, fall through to smart home', () => {
+		plugin.settings = vlOff
+		const editor = makeEditorWithCoords(10, VL_LINE, 100, 5)
+		plugin.moveCursorHomeInTable(editor)
+		// VL step skipped → smart home: dispatch(1)
+		expect(editor._innerDispatch).toHaveBeenCalledWith({ selection: { anchor: 1 }, userEvent: 'move' })
+		expect(editor._coordsAtPos).not.toHaveBeenCalled()
+	})
+
+	it('coordsAtPos returns null → skip VL step, fall through to smart home', () => {
+		plugin.settings = vlOn
+		// coordsTop=null → coordsAtPos returns null → skip VL step
+		const editor = makeEditorWithCoords(10, VL_LINE, null, 5)
+		plugin.moveCursorHomeInTable(editor)
+		expect(editor._innerDispatch).toHaveBeenCalledWith({ selection: { anchor: 1 }, userEvent: 'move' })
+	})
+
+	it('posAtCoords returns null → skip VL step, fall through to smart home', () => {
+		plugin.settings = vlOn
+		// coordsTop=100 (non-null) but posAtCoords returns null → skip VL step
+		const editor = makeEditorWithCoords(10, VL_LINE, 100, null)
+		plugin.moveCursorHomeInTable(editor)
+		expect(editor._innerDispatch).toHaveBeenCalledWith({ selection: { anchor: 1 }, userEvent: 'move' })
+	})
 })
