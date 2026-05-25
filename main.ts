@@ -588,8 +588,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const startOfCellContent = this.getStartOfCellContent(line, cursor.ch);
 		const cellIndex = this.getCellIndex(line, cursor.ch);
 
-		// Empty cell: goRight/goLeft does not enter the widget, so goUp is unreliable.
-		// Detect by string analysis alone and navigate to the previous row directly.
+		// Empty cell: no navigable content, so go directly to the previous row.
 		if (startOfCellContent === this.getEndOfCellContent(line, cursor.ch)) {
 			this.setCursorToPrevRow(editor, cellIndex);
 			this.placeAtBottomVL(editor);
@@ -690,9 +689,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const cellIndex = this.getCellIndex(line, cursor.ch);
 		const eoc = this.getEndOfCellContent(line, cursor.ch);
 
-		// Empty cell: goDown is unreliable when the cursor was placed via cm.dispatch
-		// (not registered inside the widget).  Detect by string analysis alone and
-		// navigate to the next row directly, bypassing goDown entirely.
+		// Empty cell: no navigable content, so go directly to the next row.
 		if (this.getStartOfCellContent(line, cursor.ch) === eoc) {
 			this.setCursorToNextRow(editor, cellIndex);
 			return;
