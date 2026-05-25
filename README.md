@@ -49,8 +49,8 @@ For detailed behavior of each command, see [Command Details](#command-details) b
 | DOWN  | Ctrl + N           | Smart DOWN: Text/Cell movement and Table entry (from top) & exit (from bottom). | ✓ |
 | LEFT  | Ctrl + B           | Smart LEFT: Move by character or jump to the previous cell. | ✓ |
 | RIGHT | Ctrl + F           | Smart RIGHT: Move by character or jump to the next cell. | ✓ |
-| HOME  | Ctrl + A           | Smart HOME: Visual-line-aware; jumps to content start (skips markers) or previous cell. | ✓ |
-| END   | Ctrl + E           | Smart END: Visual-line-aware; jumps to end of visual/logical line or next cell. | ✓ |
+| HOME  | Ctrl + A           | Smart HOME: Moves to the visual line edge, content start, or line start in steps; jumps to the previous cell inside a table. | ✓ |
+| END   | Ctrl + E           | Smart END: Moves to the visual line edge or line end in steps; jumps to the next cell inside a table. | ✓ |
 | Kill line | Ctrl + K      | Kill from cursor to line end. Consecutive kills accumulate in the kill cache and clipboard. | ✓ |
 | Kill region | Ctrl + W    | Cut the selected region to the kill cache. Table-aware: single-cell only; no-op for multi-row or cross-cell selections. | — |
 | Yank | Ctrl + Y           | Paste from the OS clipboard. Table-aware: converts newlines and pipes automatically. | ✓ |
@@ -76,7 +76,6 @@ For detailed behavior of each command, see [Command Details](#command-details) b
 - **No Word-Level Navigation:** Movement by word (e.g., Option/Ctrl + Left/Right) is currently not supported.
 - **No Range Selection:** Shift+modifier combinations (e.g., Shift+Ctrl+P/N/B/F/A/E) for extending the selection are not supported. Use Shift+Arrow keys instead.
 - **Brief scroll flash when entering a tall wrapped cell in Live Preview (UP):** When pressing UP into a cell whose wrapped content exceeds the screen height, the view momentarily scrolls to the cell start before jumping to the bottom visual line. This is an inherent side effect of the two-step navigation used to locate the bottom visual line within Obsidian's Live Preview table widget.
-- **Ctrl+P/N do not preserve the horizontal goal column in soft-wrapped table cells:** After Ctrl+N moves the cursor to the last visual line (clipping to end-of-content), pressing Ctrl+P does not return to the original column position. The native ↑ key restores the pre-move column because CodeMirror tracks a goal column internally; Ctrl+P/N set the cursor position directly and do not carry that memory across moves.
 - **Multi-cell cut, copy, and paste are not supported (Kill Line / Kill Region / Yank):** Kill Line, Kill Region, and Yank are text-level operations; inside a table, they work on the text content within individual cells. Selecting multiple cells and attempting to cut or paste with these commands is not supported. For multi-cell cut, copy, and paste operations, use the right-click context menu instead.
 - **Source Mode table detection is heuristic:** In Source Mode, table rows are identified by a simple string check (line starts and ends with `|`). Unlike Live Preview mode, which uses the syntax tree, this approach may produce unexpected behavior on lines that coincidentally match the pattern but are not part of a Markdown table.
 - **Shortcut Conflicts**
@@ -118,8 +117,8 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 - **Within text:** Moves left by one character, equivalent to physical cursor keys.
 - **Within a table cell (*):** Moves left one character within the cell content.
 - **At the beginning of cell content (*):** Jumps to the end of the text in the cell on the left (same row).
-- **In the leftmost cell, at the cell start (data row) (*):** Jumps to the end of the rightmost cell in the row above. (→ **Cross-Row Navigation**)
-- **In the leftmost cell, at the cell start (header row) (*):** Exits the table to the line above. (→ **Cross-Row Navigation**)
+- **In the leftmost cell, at the cell start (data row) (*):** Jumps to the end of the rightmost cell in the row above. (→ **Cross-Row Navigation** setting)
+- **In the leftmost cell, at the cell start (header row) (*):** Exits the table to the line above. (→ **Cross-Row Navigation** setting)
 
 </details>
 
@@ -129,37 +128,40 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 - **Within text:** Moves right by one character, equivalent to physical cursor keys.
 - **Within a table cell (*):** Moves right one character within the cell content.
 - **At the end of cell content (*):** Jumps to the beginning of the text in the cell to the right (same row).
-- **In the rightmost cell, at the cell end (non-last row) (*):** Jumps to the beginning of the leftmost cell in the row below. (→ **Cross-Row Navigation**)
-- **In the rightmost cell, at the cell end (last row) (*):** Exits the table to the line below. (→ **Cross-Row Navigation**)
+- **In the rightmost cell, at the cell end (non-last row) (*):** Jumps to the beginning of the leftmost cell in the row below. (→ **Cross-Row Navigation** setting)
+- **In the rightmost cell, at the cell end (last row) (*):** Exits the table to the line below. (→ **Cross-Row Navigation** setting)
 
 </details>
 
 <details>
 <summary>Cursor HOME</summary>
 
-- **Within text:** Moves to the beginning of the line in **3 steps**.
-  - **Step 1:** Moves to the start of the current visual line (if wrapped). (→ **Visual Line Movement**)
-  - **Step 2:** Moves to the start of the actual content, skipping markers such as indentation, list markers (`- `, `* `, `+ `), checkboxes (`- [ ] `), ordered lists (`1. ` or `1) `), blockquotes (`>`), heading markers (`# `), and footnote indicators (`[^1]: `). (→ **Smart home** settings)
-  - **Step 3:** Moves to the absolute beginning of the logical line (ch=0).
-- **Within a table cell:** Moves to the beginning of the current in-cell line (the sub-line within a `<br>`-separated cell), respecting the **Smart home** settings.
-  - **At the beginning of a non-first in-cell line (after `<br>`):** Does not move any further.
-  - **At the beginning of the first in-cell line:** Jumps to the end of the text in the cell to the left, or to the previous row's rightmost cell if in the leftmost column. (→ **Cross-Row Navigation**)
-  - **In the header row, leftmost cell, at the cell start:** Exits the table to the line above. (→ **Cross-Row Navigation**)
+- Moves toward the beginning of the line in up to 3 steps.
+  - **Step 1:** Moves to the left edge of the current visual line (if the line wraps and the cursor is not on the first visual line). (→ **Visual Line Movement** setting)
+  - **Step 2:** Moves to the content start, skipping Markdown markers — indentation, list markers (`- `, `* `, `+ `), checkboxes (`- [ ] `), ordered lists (`1. ` or `1) `), blockquotes (`>`), heading markers (`# `), and footnote indicators (`[^1]: `). (→ **Smart home** settings)
+  - **Step 3:** Moves to the line start.
+- **Within a table cell,** a further step applies:
+  - At the start of a non-first in-cell line (after `<br>`): does not move further.
+  - Jumps to the end of the text in the cell to the left (same row).
+  - In the leftmost column: jumps to the rightmost cell in the row above. (→ **Cross-Row Navigation** setting)
+  - In the header row, leftmost cell: exits the table to the line above.
 
 </details>
 
 <details>
 <summary>Cursor END</summary>
 
-- **Within text:** Moves to the end of the line in **2 steps** (visual-line-aware).
-  - **Step 1:** Moves to the end of the current visual line (if wrapped). (→ **Visual Line Movement**)
-  - **Step 2:** Moves to the end of the logical line (the entire paragraph).
-- **Within a table cell:** Moves to the right edge of the current in-cell line (visual-line-**un**aware).
-  - **At the right edge of a non-last in-cell line (before `<br>`):** Does not move any further.
-  - **At the right edge of the last in-cell line:** Jumps to the beginning of the text in the cell to the right, or to the next row's leftmost cell if in the rightmost column. (→ **Cross-Row Navigation**)
-  - **In the last row, rightmost cell, at cell end:** Exits the table to the line below. (→ **Cross-Row Navigation**)
-  - **In Source Mode, cursor inside a `<br>` tag:** Jumps to the right edge of the next in-cell line, skipping the `<br>` tag.
-  - **In Source Mode, cursor before the first `|` (ch=0):** Snaps to the content start of the first cell.
+- Moves toward the end of the line in up to 2 steps.
+  - **Step 1:** Moves to the right edge of the current visual line (if the line wraps and the cursor is not on the last visual line). (→ **Visual Line Movement** setting)
+  - **Step 2:** Moves to the line end.
+- **Within a table cell,** a further step applies:
+  - At the right edge of a non-last in-cell line (before `<br>`): does not move further.
+  - Jumps to the start of the text in the cell to the right (same row).
+  - In the rightmost column: jumps to the leftmost cell in the row below. (→ **Cross-Row Navigation** setting)
+  - In the last row, rightmost cell: exits the table to the line below.
+- **Within a table cell (Source Mode):**
+  - **Cursor inside a `<br>` tag:** Jumps to the right edge of the next in-cell line, skipping the `<br>` tag.
+  - **Cursor before the first `|` (ch=0):** Snaps to the content start of the first cell.
 
 </details>
 

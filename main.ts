@@ -310,7 +310,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Ctrl-A — Home helpers
 	//===========================================================================
 
-	// In-cell Home: every in-cell line, no 2-step Home.
+	// In-cell Home: VL edge (if visualLineMovement) → smart home → sub-line start → left cell.
 	private moveCursorHomeInTable(editor: Editor) {
 		const inner = editor.activeCM;
 		if (!inner || inner === editor.cm) {
@@ -332,6 +332,25 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (head <= startOfSubLine) {
 			if (subLine.number === 1) this.moveToLeftCellEnd(editor);
 			return;
+		}
+
+		// VL step: when on VL2+ within a sub-line, move to the VL left edge first.
+		if (this.settings.visualLineMovement) {
+			// Use assoc to pick the correct side at wrap points: assoc=-1 means the cursor
+			// is visually at the right end of VL_N, so coordsAtPos with side=-1 returns VL_N
+			// coords. Without this, default side=1 would return VL_N+1 coords and make the
+			// VL step appear to be a no-op (vlStartPos === head).
+			const assoc = inner.state.selection.main.assoc;
+			const coords = inner.coordsAtPos(head, assoc < 0 ? -1 : 1);
+			if (coords) {
+				// x=0 is left of all inner-view content; posAtCoords snaps to the leftmost
+				// character on the current visual line. y = midpoint of that line (height ≈ 18 px).
+				const vlStartPos = inner.posAtCoords({ x: 0, y: coords.top + 9 }, false);
+				if (vlStartPos !== null && vlStartPos > startOfSubLine && head > vlStartPos) {
+					inner.dispatch({ selection: { anchor: vlStartPos }, userEvent: 'move' });
+					return;
+				}
+			}
 		}
 
 		// Smart home: apply prefix detection on content slice (from startOfSubLine).
@@ -408,7 +427,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Ctrl-E — End helpers
 	//===========================================================================
 
-	// In-cell End: every in-cell line, no 2-step End.
+	// In-cell End: VL edge (if visualLineMovement) → sub-line end → right cell.
 	private moveCursorEndInTable(editor: Editor) {
 		const inner = editor.activeCM;
 		if (!inner || inner === editor.cm) {
@@ -431,6 +450,19 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			// first/middle at end: no-op
 			return;
 		}
+
+		// VL step: when on a non-last VL within the sub-line, move to the VL right edge first.
+		if (this.settings.visualLineMovement) {
+			const vlEnd = inner.moveToLineBoundary(inner.state.selection.main, true, true);
+			if (vlEnd.head !== head && vlEnd.head < endOfSubLine) {
+				inner.dispatch({
+					selection: EditorSelection.create([EditorSelection.cursor(vlEnd.head, vlEnd.assoc)]),
+					userEvent: 'move',
+				});
+				return;
+			}
+		}
+
 		inner.dispatch({ selection: { anchor: endOfSubLine }, userEvent: 'move' });
 	}
 
@@ -556,8 +588,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const startOfCellContent = this.getStartOfCellContent(line, cursor.ch);
 		const cellIndex = this.getCellIndex(line, cursor.ch);
 
-		// Empty cell: goRight/goLeft does not enter the widget, so goUp is unreliable.
-		// Detect by string analysis alone and navigate to the previous row directly.
+		// Empty cell: no navigable content, so go directly to the previous row.
 		if (startOfCellContent === this.getEndOfCellContent(line, cursor.ch)) {
 			this.setCursorToPrevRow(editor, cellIndex);
 			this.placeAtBottomVL(editor);
@@ -568,6 +599,28 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const innerHeadBeforeGoUp = (innerBeforeGoUp && innerBeforeGoUp !== editor.cm)
 			? innerBeforeGoUp.state.selection.main.head
 			: undefined;
+
+		// At VL wrap-point edges, assoc may misidentify which VL the cursor is on,
+		// causing goUp to skip an extra visual line. Fix assoc before goUp:
+		//   left edge  → assoc=1  (start of this VL, not end of the line above)
+		//   right edge → assoc=-1 (end of this VL, not start of the line below)
+		if (innerBeforeGoUp && innerBeforeGoUp !== editor.cm && innerHeadBeforeGoUp !== undefined) {
+			const h = innerHeadBeforeGoUp;
+			const currentAssoc = innerBeforeGoUp.state.selection.main.assoc;
+			const coords = innerBeforeGoUp.coordsAtPos(h);
+			// Fix only when assoc >= 0: assoc=-1 means the cursor is already correctly
+			// placed at the right edge of VL_N (end-of-VL), so goUp works as expected.
+			// Firing for assoc=-1 would incorrectly flip the cursor to the left edge of
+			// VL_N+1 and cause goUp to skip the wrong number of visual lines.
+			if (coords && currentAssoc >= 0) {
+				const vlStartPos = innerBeforeGoUp.posAtCoords({ x: 0, y: coords.top + 9 }, false);
+				if (vlStartPos !== null && vlStartPos === h) {
+					innerBeforeGoUp.dispatch({
+						selection: EditorSelection.create([EditorSelection.cursor(h, 1)]),
+					});
+				}
+			}
+		}
 
 		editor.exec('goUp');
 
@@ -636,9 +689,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const cellIndex = this.getCellIndex(line, cursor.ch);
 		const eoc = this.getEndOfCellContent(line, cursor.ch);
 
-		// Empty cell: goDown is unreliable when the cursor was placed via cm.dispatch
-		// (not registered inside the widget).  Detect by string analysis alone and
-		// navigate to the next row directly, bypassing goDown entirely.
+		// Empty cell: no navigable content, so go directly to the next row.
 		if (this.getStartOfCellContent(line, cursor.ch) === eoc) {
 			this.setCursorToNextRow(editor, cellIndex);
 			return;
@@ -650,6 +701,21 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (inner && inner !== editor.cm) {
 			const head = inner.state.selection.main.head;
 			const subLine = inner.state.doc.lineAt(head);
+
+			// At VL wrap-point edges, assoc may misidentify which VL the cursor is on,
+			// causing goDown to skip an extra visual line. Fix assoc before any goDown:
+			//   left edge  → assoc=1  (start of this VL, not end of the line above)
+			//   right edge → assoc=-1 (end of this VL, not start of the line below)
+			const currentAssoc = inner.state.selection.main.assoc;
+			const coords = inner.coordsAtPos(head);
+			// Fix only when assoc >= 0 (same rationale as moveCursorUpInTable).
+			if (coords && currentAssoc >= 0) {
+				const vlStartPos = inner.posAtCoords({ x: 0, y: coords.top + 9 }, false);
+				if (vlStartPos !== null && vlStartPos === head) {
+					inner.dispatch({ selection: EditorSelection.create([EditorSelection.cursor(head, 1)]) });
+				}
+			}
+
 			if (subLine.number < inner.state.doc.lines) {
 				editor.exec('goDown');
 				return;
@@ -675,7 +741,12 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			const head = inner.state.selection.main.head;
 			const lastSubLine = inner.state.doc.line(inner.state.doc.lines);
 			const contentEnd = lastSubLine.from + lastSubLine.text.trimEnd().length;
-			const headCoords = inner.coordsAtPos(head);
+			// Use assoc to pick the correct side at wrap points: assoc=-1 means the cursor is
+			// visually at the right end of VL_N-1, so coordsAtPos with side=-1 returns VL_N-1
+			// coords. Without this, default side=1 returns VL_N coords (= same as contentEnd's
+			// VL), causing isOnLastVL to be true even when we are still on VL_N-1.
+			const assoc = inner.state.selection.main.assoc;
+			const headCoords = inner.coordsAtPos(head, assoc < 0 ? -1 : 1);
 			const endCoords  = inner.coordsAtPos(contentEnd);
 			if (headCoords && endCoords) {
 				// 4 px: same-VL diff is always 0.0; adjacent-VL diff is ≥ line-height (~18 px).

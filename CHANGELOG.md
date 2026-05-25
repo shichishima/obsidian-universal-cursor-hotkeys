@@ -2,23 +2,17 @@
 
 ## [0.6.0] - 2026-05-xx
 
+### Added
+
+- HOME and END are now visual-line-aware inside soft-wrapped Live Preview table cells. With Visual Line Movement ON, the first press moves to the visual line edge before proceeding to the content start or the adjacent cell.
+
 ### Fixed
 
-- **Ctrl+N no longer exits a soft-wrapped table cell one visual line too early.**
-  When the cursor was on the second-to-last visual line (VL_N-1) of a soft-wrapped Live Preview table cell, Ctrl+N incorrectly jumped to the next row instead of advancing one visual line. The fix uses `coordsAtPos` on the inner EditorView to determine which visual line the cursor is on before calling `goDown`, resolving the previously indistinguishable clip result.
+- Ctrl+N no longer exits a soft-wrapped table cell one visual line too early.
 
 ### Changed
 
-- **Internal refactor: Live Preview table cell editing now uses the inner EditorView directly.**
-  All cursor operations inside LP table cells (HOME, END, Kill Line, Delete Char, Ctrl-N/P) previously worked by parsing the outer Markdown string for `<br>` tags and computing character positions indirectly. They now read and write the inner EditorView (`editor.activeCM`) directly, which is more accurate and eliminates several layers of workaround logic.
-  No user-facing behavior change is intended; this is groundwork for further improvements.
-- **Internal refactor: cursor probe operations replaced with `coordsAtPos` coordinate comparisons.**
-  Four internal sequences that used cursor movement commands to infer visual-line position have been replaced with direct y-coordinate lookups via the inner EditorView's `coordsAtPos` API:
-  - `moveToBottomVisualLineOfCell`: the `goDown` exploration loop is replaced by `coordsAtPos` + `posAtCoords` to locate the bottom visual line directly.
-  - `placeAtBottomVL`: now attempts synchronous bottom-VL placement when the inner view is already mounted, falling back to a deferred call only when needed.
-  - `handleCellStartSnap`: the `goDown` probe used to distinguish VL1 from VL2+ is replaced by a y-coordinate comparison; the probe is retained as a fallback.
-  - `moveCursorUpInTable`: the `goRight`+`goLeft` preamble used to fix cursor association before `goUp` is removed.
-  No user-facing behavior change is intended.
+- Internal refactor: cursor operations inside Live Preview table cells now use the inner EditorView directly. No user-facing behavior change.
 
 ## [0.5.0] - 2026-05-21
 
