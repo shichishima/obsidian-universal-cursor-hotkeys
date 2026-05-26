@@ -121,6 +121,22 @@ const categories: { name: string; skipAutoStep2?: boolean; rows: TestRow[] }[] =
 			['- ## hello',         2,    0,    0,    0],  // 3rd step: ch=0
 		],
 	},
+	{
+		name: '(Advanced) Callout type markers',
+		skipAutoStep2: true,  // 3-step navigation: explicitly listed below
+		rows: [
+			// 1st step: Adv stops before title (past type marker); Std stops at bqEnd (past "> ")
+			// "  10  " = content start after "[!info] " (2 + 8 = 10)
+			['> [!info] Title',   14,   10,   2,    0],
+			['> [!tip]+ Note',    13,   10,   2,    0],  // + modifier: "[!tip]+ " = 8 chars
+			// 2nd step: cursor at content start; both Adv and Std return bqEnd
+			['> [!info] Title',   10,    2,   2,    0],
+			// 3rd step: cursor at bqEnd → ch=0
+			['> [!info] Title',    2,    0,   0,    0],
+			// No title: type marker fills all content — no extra step even with Adv
+			['> [!note]',          9,    2,   2,    0],
+		],
+	},
 ]
 
 describe('getBeginningOfLinePosition(line, ch)', () => {
