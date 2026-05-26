@@ -541,30 +541,30 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private moveCursorUp(editor: Editor) {
 		const cursor = editor.getCursor();
 
-		// Top of file: goUp is safe even inside a table.
-		if (cursor.line === 0) { editor.exec('goUp'); return; }
+		if (cursor.line === 0 || !this.isLivePreviewMode()) {
+			editor.exec('goUp');
+			return;
+		}
 
-		if (this.isLivePreviewMode()) {
-			if (this.isPositionInTable(editor)) {
-				this.moveCursorUpInTable(editor);
-				return;
-			}
-			if (this.isPositionInTable(editor, cursor.line - 1, 1)) {
-				this.moveCursorUpIntoTable(editor);
-				return;
-			}
-			// Enter a blockquote/callout from the empty line directly below it.
-			// goUp skips over the collapsed widget; setCursor triggers LP expansion (same mechanism as goLeft).
-			// Precondition: current line is empty or whitespace-only.
-			// Detection: syntax tree at end of prevLine has HyperMD-quote (covers > lines and lazy continuation).
-			if (editor.getLine(cursor.line).trim() === '') {
-				if (this.isLineInQuote(editor, cursor.line - 1)) {
-					const prevLine = cursor.line - 1;
-					const prevLen  = editor.getLine(prevLine).length;
-					editor.setCursor({ line: prevLine, ch: Math.min(cursor.ch, prevLen) });
-					return;
-				}
-			}
+		if (this.isPositionInTable(editor)) {
+			this.moveCursorUpInTable(editor);
+			return;
+		}
+		if (this.isPositionInTable(editor, cursor.line - 1, 1)) {
+			this.moveCursorUpIntoTable(editor);
+			return;
+		}
+
+		// Enter a blockquote/callout from the empty line directly below it.
+		// goUp skips over the collapsed widget; setCursor triggers LP expansion (same mechanism as goLeft).
+		// Precondition: current line is empty or whitespace-only.
+		// Detection: syntax tree at end of prevLine has HyperMD-quote (covers > lines and lazy continuation).
+		if (editor.getLine(cursor.line).trim() === '' &&
+			this.isLineInQuote(editor, cursor.line - 1)) {
+			const prevLine = cursor.line - 1;
+			const prevLen  = editor.getLine(prevLine).length;
+			editor.setCursor({ line: prevLine, ch: Math.min(cursor.ch, prevLen) });
+			return;
 		}
 
 		editor.exec('goUp');
@@ -574,33 +574,29 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private moveCursorDown(editor: Editor) {
 		const cursor = editor.getCursor();
 
-		if (this.isLivePreviewMode()) {
-			if (this.isPositionInTable(editor)) {
-				this.moveCursorDownInTable(editor);
-				return;
-			}
-			if (this.isPositionInTable(editor, cursor.line + 1, 1)) {
-				this.moveCursorDownIntoTable(editor);
-				return;
-			}
-			// Enter a callout from the line directly above it.
-			// goDown skips over the collapsed callout widget; setCursor triggers LP expansion.
-			// Plain blockquotes are already handled by goDown; only callout headers need this.
-			// Callout header pattern: > [!type], > [!type]+, > [!type]-, > [!type]+ Title, etc.
-			const nextIdx = cursor.line + 1;
-			if (nextIdx < editor.lineCount() &&
-				/^\s*>\s*\[![^\]]+\]([+-]?(\s|$))/.test(editor.getLine(nextIdx))) {
-				const nextLen = editor.getLine(nextIdx).length;
-				editor.setCursor({ line: nextIdx, ch: Math.min(cursor.ch, nextLen) });
-				return;
-			}
+		if (!this.isLivePreviewMode()) {
+			editor.exec('goDown');
+			return;
 		}
 
-		// Last content line: at the absolute last line, or at the line just before a trailing empty line.
-		const lastLine = editor.lineCount() - 1;
-		if (cursor.line === lastLine ||
-			(cursor.line === lastLine - 1 && editor.getLine(lastLine) === '')) {
-			editor.exec('goDown');
+		if (this.isPositionInTable(editor)) {
+			this.moveCursorDownInTable(editor);
+			return;
+		}
+		if (this.isPositionInTable(editor, cursor.line + 1, 1)) {
+			this.moveCursorDownIntoTable(editor);
+			return;
+		}
+
+		// Enter a callout from the line directly above it.
+		// goDown skips over the collapsed callout widget; setCursor triggers LP expansion.
+		// Plain blockquotes are already handled by goDown; only callout headers need this.
+		// Callout header pattern: > [!type], > [!type]+, > [!type]-, > [!type]+ Title, etc.
+		const nextIdx = cursor.line + 1;
+		if (nextIdx < editor.lineCount() &&
+			/^\s*>\s*\[![^\]]+\]([+-]?(\s|$))/.test(editor.getLine(nextIdx))) {
+			const nextLen = editor.getLine(nextIdx).length;
+			editor.setCursor({ line: nextIdx, ch: Math.min(cursor.ch, nextLen) });
 			return;
 		}
 
