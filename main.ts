@@ -583,6 +583,17 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				this.moveCursorDownIntoTable(editor);
 				return;
 			}
+			// Enter a callout from the line directly above it.
+			// goDown skips over the collapsed callout widget; setCursor triggers LP expansion.
+			// Plain blockquotes are already handled by goDown; only callout headers need this.
+			// Callout header pattern: > [!type], > [!type]+, > [!type]-, > [!type]+ Title, etc.
+			const nextIdx = cursor.line + 1;
+			if (nextIdx < editor.lineCount() &&
+				/^\s*>\s*\[![^\]]+\]([+-]?(\s|$))/.test(editor.getLine(nextIdx))) {
+				const nextLen = editor.getLine(nextIdx).length;
+				editor.setCursor({ line: nextIdx, ch: Math.min(cursor.ch, nextLen) });
+				return;
+			}
 		}
 
 		// Last content line: at the absolute last line, or at the line just before a trailing empty line.
