@@ -5,6 +5,8 @@
 ### Added
 
 - HOME and END are now visual-line-aware inside soft-wrapped Live Preview table cells. With Visual Line Movement ON, the first press moves to the visual line edge before proceeding to the content start or the adjacent cell.
+- Ctrl+P and Ctrl+N now enter callout blocks in Live Preview mode. Previously, these commands skipped over the callout entirely.
+- Smart home (Advanced): HOME inside a callout header line (`> [!type] Title`) now stops at the title start as an extra step before falling back to the blockquote prefix position.
 
 ### Fixed
 
