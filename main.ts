@@ -1744,6 +1744,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 		let result: RegExpMatchArray | null = null;
 		if (this.settings.smartHomeAdvanced) {
+			// Callout type marker: > [!type] Title → stop before Title (blockquote lines only)
+			if (bqEnd > 0) {
+				result = line.match(/^\[![^\]]+\][+-]?\s*/);
+				if (result !== null && result[0].length < ch) return bqEnd + result[0].length;
+			}
 			// Headings in an unordered list (Adv.)
 			// `- # heading-text`, 1st after `# `, 2nd after `- `
 			result = line.match(/^(\s*[-+*]\s)?#+\s/);
