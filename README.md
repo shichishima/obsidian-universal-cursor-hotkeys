@@ -45,8 +45,8 @@ For detailed behavior of each command, see [Command Details](#command-details) b
 
 | Command Name | Recommended<br>Hotkey | Function Summary | Key<br>Repeat |
 | :--------: | :----------------: | ---------------- | :---: |
-| UP    | Ctrl + P           | Smart UP: Text/Cell movement and Table entry (from bottom) & exit (from top). | ✓ |
-| DOWN  | Ctrl + N           | Smart DOWN: Text/Cell movement and Table entry (from top) & exit (from bottom). | ✓ |
+| UP    | Ctrl + P           | Smart UP: Text/Cell movement, Table & callout entry (from below) & exit (from top). | ✓ |
+| DOWN  | Ctrl + N           | Smart DOWN: Text/Cell movement, Table & callout entry (from above) & exit (from bottom). | ✓ |
 | LEFT  | Ctrl + B           | Smart LEFT: Move by character or jump to the previous cell. | ✓ |
 | RIGHT | Ctrl + F           | Smart RIGHT: Move by character or jump to the next cell. | ✓ |
 | HOME  | Ctrl + A           | Smart HOME: Moves to the visual line edge, content start, or line start in steps; jumps to the previous cell inside a table. | ✓ |
@@ -67,7 +67,7 @@ For detailed behavior of each command, see [Command Details](#command-details) b
 | ------- | :-----: | ----------- |
 | Visual line movement | ON | **ON:** the first HOME / END moves to the visual line edge.<br>**OFF:** moves directly to the logical line start / end. |
 | Smart home (standard) | ON | **ON:** HOME skips leading Markdown syntax (lists, ordered lists, checkboxes, indents, blockquotes) to reach content start — Windows Home / macOS Cmd+← style.<br>**OFF:** HOME moves directly to the start of the line — macOS / Emacs Ctrl+A style. |
-| Smart home (advanced) | ON | **ON:** also skips past headings (`# `) and footnotes (`[^1]: `). Requires Smart home (standard) to be ON. |
+| Smart home (advanced) | ON | **ON:** also skips past headings (`# `), footnotes (`[^1]: `), and callout type markers (`[!type]`). Requires Smart home (standard) to be ON. |
 | Smart join | OFF | **ON:** Kill Line join lands at the next line's content start, removing blockquote markers, list markers, and indentation. Pairs with Smart home (advanced) for headings and footnotes. Requires Smart home (standard) to be ON.<br>**OFF:** joins the next line as-is. |
 | Cross-row navigation | ON | **ON:** LEFT / HOME at the first cell and RIGHT / END at the last cell wrap to the adjacent row.<br>**OFF:** stops at the boundary. |
 
@@ -91,6 +91,7 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 <summary>Cursor UP</summary>
 
 - **Within text:** Moves up to the previous visual line, equivalent to physical cursor keys.
+- **From below a callout (LP) (*):** If the cursor is on the empty line immediately below a callout block, it enters the callout and places the cursor at the end of the last line.
 - **From below a table (*):** If the cursor is on the line immediately below a table, it enters the table and moves to the left edge of the bottom visual line of the bottom-left cell.
 - **Within a table cell (*):**
   - **First visual line:** Moves to the left edge of the bottom visual line of the cell directly above (same column). For non-wrapped cells, this is the cell start.
@@ -103,6 +104,7 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 <summary>Cursor DOWN</summary>
 
 - **Within text:** Moves down one visual line, equivalent to physical cursor keys.
+- **From above a callout (LP) (*):** If the cursor is on the line immediately above a callout header (`> [!type]...`), it enters the callout and moves to the beginning of the header line.
 - **From above a table (*):** If the cursor is on the line immediately above a table, it enters the table and moves to the beginning of the top-left cell.
 - **Within a table cell (*):**
   - **On other visual lines:** Moves to the visual line below within the same cell, equivalent to physical cursor keys.
@@ -138,7 +140,7 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 
 - Moves toward the beginning of the line in up to 3 steps.
   - **Step 1:** Moves to the left edge of the current visual line (if the line wraps and the cursor is not on the first visual line). (→ **Visual Line Movement** setting)
-  - **Step 2:** Moves to the content start, skipping Markdown markers — indentation, list markers (`- `, `* `, `+ `), checkboxes (`- [ ] `), ordered lists (`1. ` or `1) `), blockquotes (`>`), heading markers (`# `), and footnote indicators (`[^1]: `). (→ **Smart home** settings)
+  - **Step 2:** Moves to the content start, skipping Markdown markers — indentation, list markers (`- `, `* `, `+ `), checkboxes (`- [ ] `), ordered lists (`1. ` or `1) `), and blockquotes (`>`). With Smart home (advanced) ON, also skips heading markers (`# `), footnote indicators (`[^1]: `), and callout type markers (`[!type]`). (→ **Smart home** settings)
   - **Step 3:** Moves to the line start.
 - **Within a table cell,** a further step applies:
   - At the start of a non-first in-cell line (after `<br>`): does not move further.

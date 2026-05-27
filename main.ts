@@ -189,6 +189,14 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			}
 		});
 
+		this.addCommand({
+			id: 'debug-syntax-tree',
+			name: '[DEBUG] syntax tree probe',
+			editorCallback: (editor: Editor) => {
+				this.debugSyntaxTree(editor);
+			}
+		});
+
 		this.registerEditorExtension(
 			EditorView.updateListener.of((update) => {
 				if (!this.isKillChaining) return;
@@ -533,18 +541,30 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private moveCursorUp(editor: Editor) {
 		const cursor = editor.getCursor();
 
-		// Top of file: goUp is safe even inside a table.
-		if (cursor.line === 0) { editor.exec('goUp'); return; }
+		if (cursor.line === 0 || !this.isLivePreviewMode()) {
+			editor.exec('goUp');
+			return;
+		}
 
-		if (this.isLivePreviewMode()) {
-			if (this.isPositionInTable(editor)) {
-				this.moveCursorUpInTable(editor);
-				return;
-			}
-			if (this.isPositionInTable(editor, cursor.line - 1, 1)) {
-				this.moveCursorUpIntoTable(editor);
-				return;
-			}
+		if (this.isPositionInTable(editor)) {
+			this.moveCursorUpInTable(editor);
+			return;
+		}
+		if (this.isPositionInTable(editor, cursor.line - 1, 1)) {
+			this.moveCursorUpIntoTable(editor);
+			return;
+		}
+
+		// Enter a blockquote/callout from the empty line directly below it.
+		// goUp skips over the collapsed widget; setCursor triggers LP expansion (same mechanism as goLeft).
+		// Precondition: current line is empty or whitespace-only.
+		// Detection: syntax tree at end of prevLine has HyperMD-quote (covers > lines and lazy continuation).
+		if (editor.getLine(cursor.line).trim() === '' &&
+			this.isLineInQuote(editor, cursor.line - 1)) {
+			const prevLine = cursor.line - 1;
+			const prevLen  = editor.getLine(prevLine).length;
+			editor.setCursor({ line: prevLine, ch: Math.min(cursor.ch, prevLen) });
+			return;
 		}
 
 		editor.exec('goUp');
@@ -554,22 +574,29 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private moveCursorDown(editor: Editor) {
 		const cursor = editor.getCursor();
 
-		if (this.isLivePreviewMode()) {
-			if (this.isPositionInTable(editor)) {
-				this.moveCursorDownInTable(editor);
-				return;
-			}
-			if (this.isPositionInTable(editor, cursor.line + 1, 1)) {
-				this.moveCursorDownIntoTable(editor);
-				return;
-			}
+		if (!this.isLivePreviewMode()) {
+			editor.exec('goDown');
+			return;
 		}
 
-		// Last content line: at the absolute last line, or at the line just before a trailing empty line.
-		const lastLine = editor.lineCount() - 1;
-		if (cursor.line === lastLine ||
-			(cursor.line === lastLine - 1 && editor.getLine(lastLine) === '')) {
-			editor.exec('goDown');
+		if (this.isPositionInTable(editor)) {
+			this.moveCursorDownInTable(editor);
+			return;
+		}
+		if (this.isPositionInTable(editor, cursor.line + 1, 1)) {
+			this.moveCursorDownIntoTable(editor);
+			return;
+		}
+
+		// Enter a callout from the line directly above it.
+		// goDown skips over the collapsed callout widget; setCursor triggers LP expansion.
+		// Plain blockquotes are already handled by goDown; only callout headers need this.
+		// Callout header pattern: > [!type], > [!type]+, > [!type]-, > [!type]+ Title, etc.
+		const nextIdx = cursor.line + 1;
+		if (nextIdx < editor.lineCount() &&
+			/^\s*>\s*\[![^\]]+\]([+-]?(\s|$))/.test(editor.getLine(nextIdx))) {
+			const nextLen = editor.getLine(nextIdx).length;
+			editor.setCursor({ line: nextIdx, ch: Math.min(cursor.ch, nextLen) });
 			return;
 		}
 
@@ -1493,6 +1520,24 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 
+	// Returns true if the given line is part of a blockquote or callout block,
+	// including lazy continuation lines (HyperMD-quote-lazy).
+	private isLineInQuote(editor: Editor, line: number): boolean {
+		const cm = editor.cm;
+		if (!cm) return false;
+
+		const lineText = editor.getLine(line);
+		const pos = editor.posToOffset({ line, ch: lineText.length });
+
+		let node = syntaxTree(cm.state).resolveInner(pos, -1);
+		while (node) {
+			if (node.name.includes('HyperMD-quote')) return true;
+			node = node.parent!;
+		}
+		return false;
+	}
+
+
 	// Use cm.dispatch directly to avoid triggering Obsidian's table editor
 	// interference that occurs when moving the cursor within a Live Preview table.
 	private recenter(editor: Editor) {
@@ -1562,6 +1607,50 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// inner CM view active. Dispatching to the outer CM view (setCursorViaCm) causes
 	// Obsidian to destroy and recreate the inner view, which breaks native-cursor's
 	// coordsAtPos. Falls back to setCursorViaCm if the loop cannot reach the target.
+
+	private debugSyntaxTree(editor: Editor) {
+		const cm  = editor.cm;
+		if (!cm) { console.log('[UCH-tree] no cm'); return; }
+
+		const cursor = editor.getCursor();
+		const pos    = editor.posToOffset(cursor);
+		const tree   = syntaxTree(cm.state);
+
+		console.log('[UCH-tree] === syntax tree probe ===');
+		console.log('[UCH-tree] cursor:', cursor, ' offset:', pos);
+
+		// Walk up from the innermost node at cursor position and log every ancestor.
+		let node = tree.resolveInner(pos, -1);
+		const ancestors: string[] = [];
+		let n = node;
+		while (n) {
+			ancestors.push(`${n.name}[${n.from}..${n.to}]`);
+			n = n.parent!;
+		}
+		console.log('[UCH-tree] node path (inner→root):', ancestors.join(' → '));
+
+		// Also scan a wider range around the cursor (±500 chars) and list all unique node names.
+		const from  = Math.max(0, pos - 500);
+		const to    = Math.min(cm.state.doc.length, pos + 500);
+		const names = new Set<string>();
+		tree.iterate({ from, to, enter: (n) => { names.add(n.name); } });
+		console.log('[UCH-tree] node names in ±500 range:', [...names].sort().join(', '));
+
+		// Specifically check for callout-related nodes.
+		const calloutNodes: string[] = [];
+		tree.iterate({ from, to, enter: (n) => {
+			if (/callout|Callout|quote|Quote|admonition/i.test(n.name)) {
+				calloutNodes.push(`${n.name}[${n.from}..${n.to}]`);
+			}
+		}});
+		console.log('[UCH-tree] callout-related nodes:', calloutNodes.length ? calloutNodes.join(', ') : '(none found)');
+
+		// Show the raw text around cursor for context.
+		const lineText = editor.getLine(cursor.line);
+		console.log('[UCH-tree] line text:', JSON.stringify(lineText));
+		console.log('[UCH-tree] activeCM === cm?', editor.activeCM === editor.cm);
+	}
+
 
 	private debugCoordsAtPos(editor: Editor) {
 		const L = (msg: string) => console.log(`[UCH-coords] ${msg}`);
@@ -1655,6 +1744,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 		let result: RegExpMatchArray | null = null;
 		if (this.settings.smartHomeAdvanced) {
+			// Callout type marker: > [!type] Title → stop before Title (blockquote lines only)
+			if (bqEnd > 0) {
+				result = line.match(/^\[![^\]]+\][+-]?\s*/);
+				if (result !== null && result[0].length < ch) return bqEnd + result[0].length;
+			}
 			// Headings in an unordered list (Adv.)
 			// `- # heading-text`, 1st after `# `, 2nd after `- `
 			result = line.match(/^(\s*[-+*]\s)?#+\s/);
