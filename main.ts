@@ -181,22 +181,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			}
 		});
 
-		this.addCommand({
-			id: 'debug-coords-at-pos',
-			name: '[DEBUG] coordsAtPos probe',
-			editorCallback: (editor: Editor) => {
-				this.debugCoordsAtPos(editor);
-			}
-		});
-
-		this.addCommand({
-			id: 'debug-syntax-tree',
-			name: '[DEBUG] syntax tree probe',
-			editorCallback: (editor: Editor) => {
-				this.debugSyntaxTree(editor);
-			}
-		});
-
 		this.registerEditorExtension(
 			EditorView.updateListener.of((update) => {
 				if (!this.isKillChaining) return;
@@ -1677,111 +1661,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// inner CM view active. Dispatching to the outer CM view (setCursorViaCm) causes
 	// Obsidian to destroy and recreate the inner view, which breaks native-cursor's
 	// coordsAtPos. Falls back to setCursorViaCm if the loop cannot reach the target.
-
-	private debugSyntaxTree(editor: Editor) {
-		const cm  = editor.cm;
-		if (!cm) { console.log('[UCH-tree] no cm'); return; }
-
-		const cursor = editor.getCursor();
-		const pos    = editor.posToOffset(cursor);
-		const tree   = syntaxTree(cm.state);
-
-		console.log('[UCH-tree] === syntax tree probe ===');
-		console.log('[UCH-tree] cursor:', cursor, ' offset:', pos);
-
-		// Walk up from the innermost node at cursor position and log every ancestor.
-		let node = tree.resolveInner(pos, -1);
-		const ancestors: string[] = [];
-		let n = node;
-		while (n) {
-			ancestors.push(`${n.name}[${n.from}..${n.to}]`);
-			n = n.parent!;
-		}
-		console.log('[UCH-tree] node path (inner→root):', ancestors.join(' → '));
-
-		// Also scan a wider range around the cursor (±500 chars) and list all unique node names.
-		const from  = Math.max(0, pos - 500);
-		const to    = Math.min(cm.state.doc.length, pos + 500);
-		const names = new Set<string>();
-		tree.iterate({ from, to, enter: (n) => { names.add(n.name); } });
-		console.log('[UCH-tree] node names in ±500 range:', [...names].sort().join(', '));
-
-		// Specifically check for callout-related nodes.
-		const calloutNodes: string[] = [];
-		tree.iterate({ from, to, enter: (n) => {
-			if (/callout|Callout|quote|Quote|admonition/i.test(n.name)) {
-				calloutNodes.push(`${n.name}[${n.from}..${n.to}]`);
-			}
-		}});
-		console.log('[UCH-tree] callout-related nodes:', calloutNodes.length ? calloutNodes.join(', ') : '(none found)');
-
-		// Show the raw text around cursor for context.
-		const lineText = editor.getLine(cursor.line);
-		console.log('[UCH-tree] line text:', JSON.stringify(lineText));
-		console.log('[UCH-tree] activeCM === cm?', editor.activeCM === editor.cm);
-	}
-
-
-	private debugCoordsAtPos(editor: Editor) {
-		const L = (msg: string) => console.log(`[UCH-coords] ${msg}`);
-
-		const inner = editor.activeCM;
-		if (!inner || inner === editor.cm) {
-			L('No inner view — cursor is not inside an LP table cell.');
-			return;
-		}
-
-		const state   = inner.state;
-		const head    = state.selection.main.head;
-		const docLen  = state.doc.length;
-		const docText = state.doc.toString().replace(/\n/g, '\\n');
-
-		L('=== coordsAtPos probe ===');
-		L(`inner doc: "${docText}"  len=${docLen}  lines=${state.doc.lines}`);
-		L(`cursor head=${head}`);
-
-		// --- coordsAtPos at key positions ---
-		const fmt = (r: { left: number; right: number; top: number; bottom: number } | null) =>
-			r ? `top=${r.top.toFixed(1)} bottom=${r.bottom.toFixed(1)} left=${r.left.toFixed(1)}` : 'null';
-
-		L(`coordsAtPos(0):         ${fmt(inner.coordsAtPos(0))}`);
-		L(`coordsAtPos(head):      ${fmt(inner.coordsAtPos(head))}`);
-		L(`coordsAtPos(docLen):    ${fmt(inner.coordsAtPos(docLen))}`);
-		L(`coordsAtPos(head, -1):  ${fmt(inner.coordsAtPos(head, -1))}`);
-		L(`coordsAtPos(head, +1):  ${fmt(inner.coordsAtPos(head, +1))}`);
-
-		// --- per sub-line breakdown ---
-		for (let i = 1; i <= state.doc.lines; i++) {
-			const sl          = state.doc.line(i);
-			const contentEnd  = sl.from + sl.text.trimEnd().length;
-			L(`sub-line ${i}: from=${sl.from} to=${sl.to} contentEnd=${contentEnd} text="${sl.text}"`);
-			L(`  coordsAtPos(from):       ${fmt(inner.coordsAtPos(sl.from))}`);
-			L(`  coordsAtPos(contentEnd): ${fmt(inner.coordsAtPos(contentEnd))}`);
-			L(`  coordsAtPos(to):         ${fmt(inner.coordsAtPos(sl.to))}`);
-		}
-
-		// --- VL_N-1 / VL_N distinction ---
-		const headCoords = inner.coordsAtPos(head);
-		const endCoords  = inner.coordsAtPos(docLen);
-		if (headCoords && endCoords) {
-			const diff = Math.abs(headCoords.top - endCoords.top);
-			L(`VL check: head.top=${headCoords.top.toFixed(1)}  end.top=${endCoords.top.toFixed(1)}  diff=${diff.toFixed(1)}`);
-			L(`Cursor on same VL as doc end? ${diff < 4}`);
-		}
-
-		// --- posAtCoords (reverse mapping) ---
-		if (endCoords) {
-			const posAtEnd = inner.posAtCoords({ x: endCoords.left, y: endCoords.top });
-			L(`posAtCoords({x=end.left, y=end.top}): ${posAtEnd}`);
-		}
-		if (headCoords) {
-			const posAtHead = inner.posAtCoords({ x: headCoords.left, y: headCoords.top });
-			L(`posAtCoords({x=head.left, y=head.top}): ${posAtHead}`);
-		}
-
-		L('=== probe end ===');
-	}
-
 
 	private isLivePreviewMode(): boolean {
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
