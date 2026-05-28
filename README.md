@@ -56,8 +56,8 @@ For detailed behavior of each command, see [Command Details](#command-details) b
 | Yank | Ctrl + Y           | Paste from the OS clipboard. Table-aware: converts newlines and pipes automatically. | ✓ |
 | Delete char | Ctrl + D   | Forward-delete one character. Stops at cell boundary; joins sub-lines at `<br>` in Live Preview. | ✓ |
 | Recenter | Ctrl + L      | Scroll the view so the cursor line is centered on screen. | — |
-| Page down | (None)        | Scroll down one page, moving the cursor with it. ⚠️ Assigning Ctrl+V breaks paste in non-editor plugin views (e.g., Excalidraw) (Windows). | ✓ |
-| Page up | (None)        | Scroll up one page, moving the cursor with it. ⚠️ Assigning Cmd+V breaks paste in non-editor plugin views (macOS). | ✓ |
+| Page down | (None)        | Scroll down one page; the cursor stays at the same screen position. ⚠️ Assigning Ctrl+V breaks paste in non-editor plugin views (e.g., Excalidraw) (Windows). | ✓ |
+| Page up | (None)        | Scroll up one page; the cursor stays at the same screen position. ⚠️ Assigning Cmd+V breaks paste in non-editor plugin views (macOS). | ✓ |
 | Select all | (None)        | For Windows users: Restores "Select all" functionality if Ctrl+A is reassigned to HOME. Assign a custom key or run from the command palette. | — |
 
 
@@ -231,8 +231,9 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 <details>
 <summary>Page down / Page up</summary>
 
-- Scrolls the view down (Page down) or up (Page up) by one page, moving the cursor with it.
-- Behavior is independent of cursor position — works the same in plain text and inside table cells.
+- Scrolls the view down (Page down) or up (Page up) by one page.
+- The cursor stays at the same screen position after scrolling.
+- Works in plain text and inside Live Preview table cells, including soft-wrapped cells.
 
 </details>
 
