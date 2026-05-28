@@ -598,7 +598,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (rect.height > 0) return rect.top;
 		// Collapsed range on a block element: fall back to the container element's rect.
 		const node = range.startContainer;
-		const el   = node instanceof Element ? node : node.parentElement;
+		const el   = node.instanceOf(Element) ? node : node.parentElement;
 		return el?.getBoundingClientRect().top ?? null;
 	}
 
