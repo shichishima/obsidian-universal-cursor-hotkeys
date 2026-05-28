@@ -2,7 +2,7 @@ import { App, Editor, Plugin, PluginSettingTab, Setting, MarkdownView, ToggleCom
 import { syntaxTree } from '@codemirror/language';
 import { EditorView } from "@codemirror/view";
 import { EditorSelection, Transaction } from '@codemirror/state';
-import { cursorPageDown, cursorPageUp, deleteCharForward } from '@codemirror/commands';
+import { deleteCharForward } from '@codemirror/commands';
 
 // Extend the Obsidian Editor interface to include the internal CodeMirror 6 instance (EditorView)
 declare module "obsidian" {
@@ -47,6 +47,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	private readonly CELL_SEPARATOR_REGEX = /(?<!\\)\|/g;
 	private readonly TABLE_DELIMITER_REGEX = /^\s*\|?[:\s]*?-+[:\s-]*\|[:\s-|]*$/;
+	// Lines of overlap between successive page-down/up screens (Emacs next-screen-context-lines).
+	private readonly NEXT_SCREEN_CONTEXT_LINES = 2;
 
 	private isKillChaining: boolean = false;
 	private isDispatchingKill: boolean = false;
@@ -158,8 +160,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Page down',
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
-				const cm = editor.cm;
-				if (cm) cursorPageDown(cm);
+				this.pageDown(editor);
 			}
 		});
 
@@ -168,8 +169,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Page up',
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
-				const cm = editor.cm;
-				if (cm) cursorPageUp(cm);
+				this.pageUp(editor);
 			}
 		});
 
@@ -601,6 +601,104 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}
 
 		editor.exec('goDown');
+	}
+
+
+	// Returns the viewport-relative Y coordinate of the current browser cursor.
+	// Works inside LP table cells (unlike cm.coordsAtPos). Returns null when off-screen.
+	private getCursorScreenY(): number | null {
+		const sel = window.getSelection();
+		if (!sel || sel.rangeCount === 0) return null;
+		const range = sel.getRangeAt(0);
+		const rect  = range.getBoundingClientRect();
+		if (rect.height > 0) return rect.top;
+		// Collapsed range on a block element: fall back to the container element's rect.
+		const node = range.startContainer;
+		const el   = node instanceof Element ? node : node.parentElement;
+		return el?.getBoundingClientRect().top ?? null;
+	}
+
+	// Page down/up: move cursor one screen minus NEXT_SCREEN_CONTEXT_LINES of overlap.
+	// Uses moveCursorDown/Up to traverse tables and callouts correctly.
+	//
+	// Measurement: docY = getCursorScreenY() + cm.scrollDOM.scrollTop.
+	// docY is the cursor's absolute document-space Y and is invariant under any
+	// scrollIntoView — even if the outer CM head points to VL1 instead of the actual
+	// inner cursor (LP wrapped cell), screenY and scrollTop adjust symmetrically so
+	// their sum is always correct. No caching or estimation is needed.
+	private pageDown(editor: Editor) { this.scrollPage(editor,  1); }
+	private pageUp  (editor: Editor) { this.scrollPage(editor, -1); }
+
+	private scrollPage(editor: Editor, direction: 1 | -1) {
+		const cm = editor.cm;
+		if (!cm) return;
+
+		const moveCursor = direction > 0
+			? (e: Editor) => this.moveCursorDown(e)
+			: (e: Editor) => this.moveCursorUp(e);
+
+		const target = cm.scrollDOM.clientHeight
+		             - this.NEXT_SCREEN_CONTEXT_LINES * cm.defaultLineHeight;
+
+		const getDocY = (): number | null => {
+			const y = this.getCursorScreenY();
+			return y !== null ? y + cm.scrollDOM.scrollTop : null;
+		};
+
+		let prev     = editor.getCursor();
+		let consumed = 0;
+
+		const label = direction > 0 ? 'pageDown' : 'pageUp';
+		console.log(`[${label}] target=${target.toFixed(1)} clientHeight=${cm.scrollDOM.clientHeight}`);
+
+		let i = 0;
+		while (consumed < target) {
+			const prevDocY = getDocY();
+
+			moveCursor(editor);
+			const cur = editor.getCursor();
+			if (cur.line === prev.line && cur.ch === prev.ch) {
+				console.log(`[${label}] i=${i} BOF/EOF/no-move`);
+				break;
+			}
+			prev = cur;
+
+			// Scroll cursor into view so prevDocY for the next step is on-screen.
+			cm.dispatch({
+				effects: EditorView.scrollIntoView(cm.state.selection.main.head, { y: 'nearest' }),
+			});
+
+			const curDocY = getDocY();
+			const delta   = (prevDocY !== null && curDocY !== null)
+			              ? (curDocY - prevDocY) * direction : null;
+
+			let step: number;
+			let kind: string;
+			if (delta !== null && delta >= 1) {
+				step = delta;
+				kind = 'doc';
+			} else if (delta !== null) {
+				// |delta| < 1: horizontal movement on the same visual line.
+				step = 0;
+				kind = 'horiz';
+			} else {
+				step = cm.defaultLineHeight;
+				kind = 'fb';
+			}
+
+			consumed += step;
+			console.log(`[${label}] i=${i} line=${cur.line} ch=${cur.ch} prevDocY=${prevDocY?.toFixed(1)} curDocY=${curDocY?.toFixed(1)} Δ=${delta?.toFixed(1)} kind=${kind} step=${step.toFixed(1)} consumed=${consumed.toFixed(1)}`);
+			i++;
+		}
+
+		// For LP table wrapped cells the outer CM head points to the row start (VL1).
+		// Re-scroll using the inner CM to show the actual cursor position.
+		const inner = (editor as any).activeCM;
+		if (inner && inner !== cm) {
+			inner.dispatch({
+				effects: EditorView.scrollIntoView(inner.state.selection.main.head, { y: 'nearest' }),
+			});
+		}
 	}
 
 
@@ -1393,9 +1491,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private placeAtBottomVL(editor: Editor) {
 		const inner = editor.activeCM;
 		if (inner && inner !== editor.cm) {
-			const lastSubLine = inner.state.doc.line(inner.state.doc.lines);
-			const contentEnd  = lastSubLine.from + lastSubLine.text.trimEnd().length;
-			if (inner.coordsAtPos(contentEnd)) {
+			// Check cursor position (not content end) for on-screen detection:
+			// when entering a cell from an adjacent row, the cursor start (ch=cellStart)
+			// is always on-screen even if the cell content end is off-screen.
+			// moveToBottomVisualLineOfCell handles the off-screen content end via goDown fallback.
+			if (inner.coordsAtPos(inner.state.selection.main.head)) {
 				this.moveToBottomVisualLineOfCell(editor);
 				return;
 			}
