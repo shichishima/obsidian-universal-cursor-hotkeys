@@ -48,7 +48,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private readonly CELL_SEPARATOR_REGEX = /(?<!\\)\|/g;
 	private readonly TABLE_DELIMITER_REGEX = /^\s*\|?[:\s]*?-+[:\s-]*\|[:\s-|]*$/;
 	// Lines of overlap between successive page-down/up screens (Emacs next-screen-context-lines).
-	private readonly NEXT_SCREEN_CONTEXT_LINES = 2;
+	private readonly NEXT_SCREEN_CONTEXT_LINES = 0;
 
 	private isKillChaining: boolean = false;
 	private isDispatchingKill: boolean = false;
@@ -645,25 +645,25 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return y !== null ? y + cm.scrollDOM.scrollTop : null;
 		};
 
+		// Record cursor's scroll-area-relative Y before any movement.
+		// scrollToCursorAtY expects scroll-area-relative coords (same as clientHeight/2 for recenter).
+		// getCursorScreenY() returns viewport Y, so subtract scrollRect.top to convert.
+		const scrollRect  = cm.scrollDOM.getBoundingClientRect();
+		const rawY        = this.getCursorScreenY();
+		const prevScreenY = rawY !== null ? rawY - scrollRect.top : cm.scrollDOM.clientHeight / 2;
+
 		let prev     = editor.getCursor();
 		let consumed = 0;
 
-		const label = direction > 0 ? 'pageDown' : 'pageUp';
-		console.log(`[${label}] target=${target.toFixed(1)} clientHeight=${cm.scrollDOM.clientHeight}`);
-
-		let i = 0;
 		while (consumed < target) {
 			const prevDocY = getDocY();
 
 			moveCursor(editor);
 			const cur = editor.getCursor();
-			if (cur.line === prev.line && cur.ch === prev.ch) {
-				console.log(`[${label}] i=${i} BOF/EOF/no-move`);
-				break;
-			}
+			if (cur.line === prev.line && cur.ch === prev.ch) break;
 			prev = cur;
 
-			// Scroll cursor into view so prevDocY for the next step is on-screen.
+			// Scroll cursor into view so getDocY() for the next step is on-screen.
 			cm.dispatch({
 				effects: EditorView.scrollIntoView(cm.state.selection.main.head, { y: 'nearest' }),
 			});
@@ -673,32 +673,20 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			              ? (curDocY - prevDocY) * direction : null;
 
 			let step: number;
-			let kind: string;
 			if (delta !== null && delta >= 1) {
 				step = delta;
-				kind = 'doc';
 			} else if (delta !== null) {
-				// |delta| < 1: horizontal movement on the same visual line.
+				// |delta| < 1: horizontal movement on the same visual line, no vertical progress.
 				step = 0;
-				kind = 'horiz';
 			} else {
 				step = cm.defaultLineHeight;
-				kind = 'fb';
 			}
 
 			consumed += step;
-			console.log(`[${label}] i=${i} line=${cur.line} ch=${cur.ch} prevDocY=${prevDocY?.toFixed(1)} curDocY=${curDocY?.toFixed(1)} Δ=${delta?.toFixed(1)} kind=${kind} step=${step.toFixed(1)} consumed=${consumed.toFixed(1)}`);
-			i++;
 		}
 
-		// For LP table wrapped cells the outer CM head points to the row start (VL1).
-		// Re-scroll using the inner CM to show the actual cursor position.
-		const inner = (editor as any).activeCM;
-		if (inner && inner !== cm) {
-			inner.dispatch({
-				effects: EditorView.scrollIntoView(inner.state.selection.main.head, { y: 'nearest' }),
-			});
-		}
+		// Adjust scroll so cursor appears at the same screen Y as before the operation.
+		this.scrollToCursorAtY(editor, prevScreenY);
 	}
 
 
@@ -1638,43 +1626,25 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 
+	// Scroll the view so the cursor appears at targetScreenY pixels from the top of the
+	// scroll area. Works for both regular text and LP table cells: uses getCursorScreenY()
+	// (window.getSelection) rather than cm.state.selection.main.head, so the result is
+	// correct even when the outer CM head points to the row start (VL1) instead of the
+	// actual inner cursor position in a wrapped cell.
+	private scrollToCursorAtY(editor: Editor, targetScreenY: number) {
+		const cm = editor.cm;
+		if (!cm) return;
+		const cursorTop = this.getCursorScreenY();
+		if (cursorTop === null) return;
+		const scrollRect = cm.scrollDOM.getBoundingClientRect();
+		const docY = cursorTop - scrollRect.top + cm.scrollDOM.scrollTop;
+		cm.scrollDOM.scrollTop = Math.max(0, docY - targetScreenY);
+	}
+
 	// Use cm.dispatch directly to avoid triggering Obsidian's table editor
 	// interference that occurs when moving the cursor within a Live Preview table.
 	private recenter(editor: Editor) {
-		const cm = editor.cm;
-		if (!cm) return;
-
-		if (!this.isLivePreviewMode() || !this.isPositionInTable(editor)) {
-			cm.dispatch({
-				effects: EditorView.scrollIntoView(cm.state.selection.main.head, { y: 'center' })
-			});
-			return;
-		}
-
-		// Inside a Live Preview table widget, coordsAtPos is unreliable (returns dead/constant
-		// coordinates). Use window.getSelection() to get the actual browser cursor rect instead.
-		const browserSel = activeWindow.getSelection();
-		if (!browserSel || browserSel.rangeCount === 0) return;
-
-		const range = browserSel.getRangeAt(0);
-		const rangeRect = range.getBoundingClientRect();
-
-		// getBoundingClientRect() returns zeros when the range is anchored to a block element
-		// at offset 0 (e.g. div.cm-active.cm-line). Fall back to the container element's rect.
-		let cursorTop: number;
-		if (rangeRect.height > 0) {
-			cursorTop = rangeRect.top;
-		} else {
-			const node = range.startContainer;
-			const el = node.instanceOf(Element) ? node : node.parentElement;
-			const elRect = el?.getBoundingClientRect();
-			if (!elRect || elRect.height === 0) return;
-			cursorTop = elRect.top;
-		}
-
-		const scrollRect = cm.scrollDOM.getBoundingClientRect();
-		const relativeTop = cursorTop - scrollRect.top + cm.scrollDOM.scrollTop;
-		cm.scrollDOM.scrollTop = relativeTop - cm.scrollDOM.clientHeight / 2;
+		this.scrollToCursorAtY(editor, (editor.cm?.scrollDOM.clientHeight ?? 0) / 2);
 	}
 
 
