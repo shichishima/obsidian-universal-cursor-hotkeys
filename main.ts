@@ -590,13 +590,19 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	// Returns the viewport-relative Y coordinate of the current browser cursor.
 	// Works inside LP table cells (unlike cm.coordsAtPos). Returns null when off-screen.
-	private getCursorScreenY(): number | null {
+	// view: when provided, used as a precise fallback via coordsAtPos when the selection
+	// rect has zero height (e.g. cursor at ch=0 of the first line).
+	private getCursorScreenY(view?: EditorView): number | null {
 		const sel = window.getSelection();
 		if (!sel || sel.rangeCount === 0) return null;
 		const range = sel.getRangeAt(0);
 		const rect  = range.getBoundingClientRect();
 		if (rect.height > 0) return rect.top;
-		// Collapsed range on a block element: fall back to the container element's rect.
+		// Collapsed range with zero height: try coordsAtPos for accurate line top.
+		if (view) {
+			const coords = view.coordsAtPos(view.state.selection.main.head);
+			if (coords) return coords.top;
+		}
 		const node = range.startContainer;
 		const el   = node.instanceOf(Element) ? node : node.parentElement;
 		return el?.getBoundingClientRect().top ?? null;
@@ -625,7 +631,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		             - this.NEXT_SCREEN_CONTEXT_LINES * cm.defaultLineHeight;
 
 		const getDocY = (): number | null => {
-			const y = this.getCursorScreenY();
+			const y = this.getCursorScreenY(cm);
 			return y !== null ? y + cm.scrollDOM.scrollTop : null;
 		};
 
@@ -633,7 +639,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// scrollToCursorAtY expects scroll-area-relative coords (same as clientHeight/2 for recenter).
 		// getCursorScreenY() returns viewport Y, so subtract scrollRect.top to convert.
 		const scrollRect  = cm.scrollDOM.getBoundingClientRect();
-		const rawY        = this.getCursorScreenY();
+		const rawY        = this.getCursorScreenY(cm);
 		const prevScreenY = rawY !== null ? rawY - scrollRect.top : cm.scrollDOM.clientHeight / 2;
 
 		let prev     = editor.getCursor();
@@ -1618,7 +1624,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private scrollToCursorAtY(editor: Editor, targetScreenY: number) {
 		const cm = editor.cm;
 		if (!cm) return;
-		const cursorTop = this.getCursorScreenY();
+		const cursorTop = this.getCursorScreenY(cm);
 		if (cursorTop === null) return;
 		const scrollRect = cm.scrollDOM.getBoundingClientRect();
 		const docY = cursorTop - scrollRect.top + cm.scrollDOM.scrollTop;
