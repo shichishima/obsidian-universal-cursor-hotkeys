@@ -290,6 +290,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 
+		if (this.isLivePreviewMode() && cursor.ch === 0 && cursor.line > 0
+				&& this.isPositionInTable(editor, cursor.line - 1, 1)) {
+			this.moveCursorUpIntoTable(editor);
+			return;
+		}
 		editor.exec('goLeft');
 	}
 
@@ -308,6 +313,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 
+		if (this.isLivePreviewMode() && cursor.ch >= editor.getLine(cursor.line).length
+				&& this.isPositionInTable(editor, cursor.line + 1, 1)) {
+			this.moveCursorDownIntoTable(editor);
+			return;
+		}
 		editor.exec('goRight');
 	}
 
