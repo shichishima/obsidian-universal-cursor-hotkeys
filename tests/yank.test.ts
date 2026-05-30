@@ -10,7 +10,7 @@ import UniversalCursorHotkeysPlugin from '../main.ts'
 // Minimal editor mock
 // ---------------------------------------------------------------------------
 
-function makeEditor(lineText: string, cursorCh: number) {
+function makeEditor(lineText: string, cursorCh: number, inTableCell = false) {
 	const cursor = { line: 0, ch: cursorCh }
 	return {
 		getCursor:        vi.fn((_sel?: string) => ({ ...cursor })),
@@ -18,6 +18,7 @@ function makeEditor(lineText: string, cursorCh: number) {
 		lineCount:        vi.fn(() => 1),
 		replaceSelection: vi.fn(),
 		setLine:          vi.fn(),
+		inTableCell,
 	}
 }
 
@@ -32,9 +33,7 @@ describe('yank', () => {
 		plugin.settings = { smartHomeStandard: true, smartHomeAdvanced: true, visualLineMovement: true, crossRowNavigation: true }
 		plugin.killCache = ''
 
-		plugin.isLivePreviewMode = vi.fn().mockReturnValue(false)
-		plugin.isPositionInTable = vi.fn().mockReturnValue(false)
-		plugin.setCursorViaCm    = vi.fn()
+		plugin.setCursorViaCm = vi.fn()
 	})
 
 	afterEach(() => {
@@ -98,10 +97,9 @@ describe('yank', () => {
 		for (const [clipboard, expected] of cases) {
 			it(`pastes "${clipboard}" → "${expected}"`, async () => {
 				mockClipboard(clipboard)
-				// isTableLineSourceMode returns true when line starts and ends with |
-				const editor = makeEditor('| cell |', 3)
-				plugin.isLivePreviewMode.mockReturnValue(false)
 				// isTableLineSourceMode is a real method — it reads getLine result
+				// ('| cell |' starts and ends with |, so table-mode applies)
+				const editor = makeEditor('| cell |', 3)
 				await plugin.yank(editor)
 				expect(editor.replaceSelection).toHaveBeenCalledWith(expected)
 			})
@@ -113,14 +111,9 @@ describe('yank', () => {
 	// ===========================================================================
 
 	describe('LP table — no <br> in pasted text', () => {
-		beforeEach(() => {
-			plugin.isLivePreviewMode.mockReturnValue(true)
-			plugin.isPositionInTable.mockReturnValue(true)
-		})
-
 		it('pastes plain text without setTimeout path', async () => {
 			mockClipboard('hello')
-			const editor = makeEditor('| cell |', 3)
+			const editor = makeEditor('| cell |', 3, true)
 			await plugin.yank(editor)
 			expect(editor.replaceSelection).toHaveBeenCalledWith('hello')
 			expect(plugin.setCursorViaCm).not.toHaveBeenCalled()
@@ -128,7 +121,7 @@ describe('yank', () => {
 
 		it('escapes pipe but no <br> → uses replaceSelection directly', async () => {
 			mockClipboard('a | b')
-			const editor = makeEditor('| cell |', 3)
+			const editor = makeEditor('| cell |', 3, true)
 			await plugin.yank(editor)
 			expect(editor.replaceSelection).toHaveBeenCalledWith('a \\| b')
 			expect(plugin.setCursorViaCm).not.toHaveBeenCalled()
@@ -143,8 +136,6 @@ describe('yank', () => {
 		beforeEach(() => {
 			vi.useFakeTimers()
 			vi.stubGlobal('window', globalThis)
-			plugin.isLivePreviewMode.mockReturnValue(true)
-			plugin.isPositionInTable.mockReturnValue(true)
 		})
 
 		it('calls setLine then defers setCursorViaCm after insert', async () => {
@@ -153,7 +144,7 @@ describe('yank', () => {
 			// newLine = '| c' + 'line1<br>line2' + 'ell |'
 			// targetCh = 3 + 14 = 17
 			mockClipboard('line1\nline2')
-			const editor = makeEditor('| cell |', 3)
+			const editor = makeEditor('| cell |', 3, true)
 			await plugin.yank(editor)
 
 			expect(editor.setLine).toHaveBeenCalledWith(0, '| cline1<br>line2ell |')
@@ -169,7 +160,7 @@ describe('yank', () => {
 			// newLine = '| ' + 'a \\| b<br>c' + 'cell |'
 			// targetCh = 2 + 11 = 13
 			mockClipboard('a | b\nc')
-			const editor = makeEditor('| cell |', 2)
+			const editor = makeEditor('| cell |', 2, true)
 			await plugin.yank(editor)
 
 			expect(editor.setLine).toHaveBeenCalledWith(0, '| a \\| b<br>ccell |')
@@ -184,7 +175,7 @@ describe('yank', () => {
 			// newLine = '|' + 'text<br>' + ' |' = '|text<br> |'
 			// textForCursor = 'text' (4 chars) → targetCh = 1 + 4 = 5 (brStart, inside cell)
 			mockClipboard('text\n')
-			const editor = makeEditor('| |', 1)
+			const editor = makeEditor('| |', 1, true)
 			await plugin.yank(editor)
 
 			expect(editor.setLine).toHaveBeenCalledWith(0, '|text<br> |')
@@ -199,7 +190,7 @@ describe('yank', () => {
 			// newLine = '|' + 'abc<br>' + '|' = '|abc<br>|'
 			// textForCursor = 'abc' (3 chars) → targetCh = 1 + 3 = 4 (= brStart, not the close pipe at 8)
 			mockClipboard('abc\n')
-			const editor = makeEditor('||', 1)
+			const editor = makeEditor('||', 1, true)
 			await plugin.yank(editor)
 
 			expect(editor.setLine).toHaveBeenCalledWith(0, '|abc<br>|')
