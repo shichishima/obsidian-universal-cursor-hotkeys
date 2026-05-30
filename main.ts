@@ -1833,8 +1833,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	//===========================================================================
 
 	private deleteChar(editor: Editor) {
-		const inLPTable = editor.inTableCell;
-		if (inLPTable) {
+		if (editor.inTableCell) {
 			this.deleteCharInTableLP(editor);
 			return;
 		}
@@ -1905,10 +1904,9 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	private killLine(editor: Editor) {
 		const lineText = editor.getLine(editor.getCursor().line);
-		const inLPTable = editor.inTableCell;
 		const inSourceTable = !this.isLivePreviewMode() && this.isTableLineSourceMode(lineText);
 
-		if (inLPTable) {
+		if (editor.inTableCell) {
 			this.killLineInTableLP(editor);
 			return;
 		}
