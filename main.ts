@@ -8,10 +8,9 @@ import { deleteCharForward } from '@codemirror/commands';
 declare module "obsidian" {
 	interface Editor {
 		cm: EditorView;
-		// Inner CM view active when cursor is in a Live Preview table cell.
-		// Points to editor.cm when no table cell is focused.
-		activeCM: EditorView;
 		inTableCell: boolean;
+		// Active CM view: the inner EditorView when inTableCell is true, otherwise editor.cm.
+		activeCM: EditorView;
 	}
 }
 
