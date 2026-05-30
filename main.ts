@@ -8,10 +8,9 @@ import { deleteCharForward } from '@codemirror/commands';
 declare module "obsidian" {
 	interface Editor {
 		cm: EditorView;
-		// Inner CM view active when cursor is in a Live Preview table cell.
-		// Points to editor.cm when no table cell is focused.
-		activeCM: EditorView;
 		inTableCell: boolean;
+		// Active CM view: the inner EditorView when inTableCell is true, otherwise editor.cm.
+		activeCM: EditorView;
 	}
 }
 
@@ -247,7 +246,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const cursor = editor.getCursor();
 		if (cursor.ch === 0) return;
 
-		if (this.isLivePreviewMode() && this.isPositionInTable(editor)) {
+		if (editor.inTableCell) {
 			this.moveCursorHomeInTable(editor);
 			return;
 		}
@@ -262,7 +261,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 
 	private moveCursorEnd(editor: Editor) {
-		if (this.isLivePreviewMode() && this.isPositionInTable(editor)) {
+		if (editor.inTableCell) {
 			this.moveCursorEndInTable(editor);
 			return;
 		}
@@ -279,7 +278,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private moveCursorLeft(editor: Editor) {
 		const cursor = editor.getCursor();
 
-		if (this.isLivePreviewMode() && this.isPositionInTable(editor)) {
+		if (editor.inTableCell) {
 			const line = editor.getLine(cursor.line);
 			const startOfCell = this.getStartOfCellContent(line, cursor.ch);
 			const endOfCell = this.getEndOfCellContent(line, cursor.ch);
@@ -298,7 +297,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private moveCursorRight(editor: Editor) {
 		const cursor = editor.getCursor();
 
-		if (this.isLivePreviewMode() && this.isPositionInTable(editor)) {
+		if (editor.inTableCell) {
 			const line = editor.getLine(cursor.line);
 			const endOfCell = this.getEndOfCellContent(line, cursor.ch);
 			if (cursor.ch >= endOfCell) {
@@ -545,7 +544,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 
-		if (this.isPositionInTable(editor)) {
+		if (editor.inTableCell) {
 			this.moveCursorUpInTable(editor);
 			return;
 		}
@@ -578,7 +577,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 
-		if (this.isPositionInTable(editor)) {
+		if (editor.inTableCell) {
 			this.moveCursorDownInTable(editor);
 			return;
 		}
@@ -783,7 +782,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const cursorAfter = editor.getCursor();
 		if (cursorAfter.line !== cursor.line) {
 			// goUp moved to a different logical line (previous table row or outside table).
-			if (this.isPositionInTable(editor)) {
+			if (editor.inTableCell) {
 				const targetCh = this.getChByCellIndex(editor.getLine(cursorAfter.line), cellIndex);
 				if (targetCh !== -1) {
 					this.setCursorViaCm(editor, cursorAfter.line, targetCh);
@@ -1540,7 +1539,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private scheduleBottomVisualLine(editor: Editor) {
 		if (this._inScrollPage) return;
 		window.setTimeout(() => {
-			if (this.isPositionInTable(editor)) {
+			if (editor.inTableCell) {
 				this.moveToBottomVisualLineOfCell(editor);
 			}
 		}, 0);
@@ -1629,7 +1628,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Infrastructure
 	//===========================================================================
 
-	private isPositionInTable(editor: Editor, line?: number, ch?: number): boolean {
+	private isPositionInTable(editor: Editor, line: number, ch: number): boolean {
 		const cm = editor.cm;
 		if (!cm) return false;
 
@@ -1810,7 +1809,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private selectAll(editor: Editor) {
 		const cursor   = editor.getCursor();
 		const line     = editor.getLine(cursor.line);
-		const inTable  = (this.isLivePreviewMode() && this.isPositionInTable(editor))
+		const inTable  = (editor.inTableCell)
 		              || (!this.isLivePreviewMode() && this.isTableLineSourceMode(line));
 
 		if (inTable) {
@@ -1833,8 +1832,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	//===========================================================================
 
 	private deleteChar(editor: Editor) {
-		const inLPTable = this.isLivePreviewMode() && this.isPositionInTable(editor);
-		if (inLPTable) {
+		if (editor.inTableCell) {
 			this.deleteCharInTableLP(editor);
 			return;
 		}
@@ -1905,10 +1903,9 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	private killLine(editor: Editor) {
 		const lineText = editor.getLine(editor.getCursor().line);
-		const inLPTable = this.isLivePreviewMode() && this.isPositionInTable(editor);
 		const inSourceTable = !this.isLivePreviewMode() && this.isTableLineSourceMode(lineText);
 
-		if (inLPTable) {
+		if (editor.inTableCell) {
 			this.killLineInTableLP(editor);
 			return;
 		}
@@ -2081,10 +2078,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const fromLine = editor.getLine(from.line);
 		const toLine   = editor.getLine(to.line);
 
-		const inLPTable = this.isLivePreviewMode() && (
-			this.isPositionInTable(editor, from.line, from.ch) ||
-			this.isPositionInTable(editor, to.line,   to.ch)
-		);
+		const inLPTable = editor.inTableCell;
 		const inSourceTable = !this.isLivePreviewMode() && (
 			this.isTableLineSourceMode(fromLine) ||
 			this.isTableLineSourceMode(toLine)
@@ -2181,7 +2175,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (!raw) return;
 
 		const lineText = editor.getLine(editor.getCursor().line);
-		const inLPTable = this.isLivePreviewMode() && this.isPositionInTable(editor);
+		const inLPTable = editor.inTableCell;
 		const inTable = inLPTable || this.isTableLineSourceMode(lineText);
 
 		// LP table with active inner view: insert raw text directly.
