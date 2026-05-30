@@ -118,6 +118,7 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 <summary>Cursor LEFT</summary>
 
 - **Within text:** Moves left by one character, equivalent to physical cursor keys.
+- **From below a table, at the line start (*):** Enters the table and moves to the end of the content in the bottom-right cell (bottom visual line).
 - **Within a table cell (*):** Moves left one character within the cell content.
 - **At the beginning of cell content (*):** Jumps to the end of the text in the cell on the left (same row).
 - **In the leftmost cell, at the cell start (data row) (*):** Jumps to the end of the rightmost cell in the row above. (→ **Cross-Row Navigation** setting)
@@ -129,6 +130,7 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 <summary>Cursor RIGHT</summary>
 
 - **Within text:** Moves right by one character, equivalent to physical cursor keys.
+- **From above a table, at the line end (*):** Enters the table and moves to the beginning of the top-left cell.
 - **Within a table cell (*):** Moves right one character within the cell content.
 - **At the end of cell content (*):** Jumps to the beginning of the text in the cell to the right (same row).
 - **In the rightmost cell, at the cell end (non-last row) (*):** Jumps to the beginning of the leftmost cell in the row below. (→ **Cross-Row Navigation** setting)

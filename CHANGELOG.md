@@ -12,6 +12,11 @@
 ### Fixed
 
 - Ctrl+N no longer exits a soft-wrapped table cell one visual line too early.
+- Ctrl+F and Ctrl+B no longer cause unwanted scrolling when entering a Live Preview table from outside.
+
+### Changed
+
+- **Ctrl+B from below a table:** Now lands at the end of the rightmost cell in the last row (bottom visual line), consistent with moving backward through the document. Previously landed at the start of the leftmost cell, same as Ctrl+P.
 
 ### Changed
 
