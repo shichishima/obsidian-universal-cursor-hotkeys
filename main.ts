@@ -49,10 +49,13 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private readonly TABLE_DELIMITER_REGEX = /^\s*\|?[:\s]*?-+[:\s-]*\|[:\s-|]*$/;
 	// Lines of overlap between successive page-down/up screens (Emacs next-screen-context-lines).
 	private readonly NEXT_SCREEN_CONTEXT_LINES = 0;
+	// Lines of margin above/below cursor for recenter-top-bottom top/bottom positions.
+	private readonly RECENTER_TOP_BOTTOM_MARGIN_LINES = 2;
 
 	private isKillChaining: boolean = false;
 	private isDispatchingKill: boolean = false;
 	private killCache: string = '';
+	private _recenterStep = 0; // 0=center, 1=top, 2=bottom
 
 	async onload() {
 		await this.loadSettings();
@@ -181,9 +184,17 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			}
 		});
 
+		this.addCommand({
+			id: 'recenter-top-bottom',
+			name: 'Recenter top-bottom',
+			editorCallback: (editor: Editor) => {
+				this.recenterTopBottom(editor);
+			}
+		});
+
 		this.registerEditorExtension(
 			EditorView.updateListener.of((update) => {
-				if (!this.isKillChaining) return;
+				if (!this.isKillChaining && this._recenterStep === 0) return;
 				if (update.docChanged || update.selectionSet) {
 					// Only reset on genuine user actions (keystrokes, arrow keys, etc.).
 					// Programmatic dispatches (our own, Obsidian's table editor re-dispatches)
@@ -191,13 +202,17 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 					const isUserAction = update.transactions.some(
 						tr => tr.annotation(Transaction.userEvent) !== undefined
 					);
-					if (isUserAction && !this.isDispatchingKill) this.isKillChaining = false;
+					if (isUserAction && !this.isDispatchingKill) {
+						this.isKillChaining = false;
+						this._recenterStep = 0;
+					}
 				}
 			})
 		);
 
 		this.registerDomEvent(activeDocument, 'mousedown', () => {
 			this.isKillChaining = false;
+			this._recenterStep = 0;
 		});
 
 		this.registerDomEvent(activeDocument, 'copy', () => {
@@ -1673,7 +1688,24 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Use cm.dispatch directly to avoid triggering Obsidian's table editor
 	// interference that occurs when moving the cursor within a Live Preview table.
 	private recenter(editor: Editor) {
-		this.scrollToCursorAtY(editor, (editor.cm?.scrollDOM.clientHeight ?? 0) / 2);
+		const cm = editor.cm;
+		if (!cm) return;
+		this.scrollToCursorAtY(editor, cm.scrollDOM.clientHeight / 2);
+	}
+
+	// Cycles center → top → bottom on successive presses; resets on any other action.
+	private recenterTopBottom(editor: Editor) {
+		const cm = editor.cm;
+		if (!cm) return;
+		const h      = cm.scrollDOM.clientHeight;
+		const margin = this.RECENTER_TOP_BOTTOM_MARGIN_LINES * cm.defaultLineHeight;
+
+		const targetY = this._recenterStep === 0 ? h / 2
+		              : this._recenterStep === 1 ? margin
+		              :                            h - margin - cm.defaultLineHeight;
+
+		this.scrollToCursorAtY(editor, targetY);
+		this._recenterStep = (this._recenterStep + 1) % 3;
 	}
 
 
