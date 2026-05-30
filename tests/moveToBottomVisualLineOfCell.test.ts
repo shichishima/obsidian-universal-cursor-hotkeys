@@ -187,7 +187,7 @@ describe('placeAtBottomVL', () => {
 			pos === 8 ? { top: 100, bottom: 118, left: 100, right: 200 } : null
 		)
 		const inner  = {
-			state: { doc: { lines: 1, line: () => ({ from: 0, text: ' content' }) } },
+			state: { doc: { lines: 1, line: () => ({ from: 0, text: ' content' }) }, selection: { main: { head: 8 } } },
 			coordsAtPos,
 		}
 		const editor = makeEditor(inner)
@@ -210,7 +210,7 @@ describe('placeAtBottomVL', () => {
 
 	it('inner view available but coordsAtPos returns null → scheduleBottomVisualLine called', () => {
 		const inner  = {
-			state: { doc: { lines: 1, line: () => ({ from: 0, text: ' content' }) } },
+			state: { doc: { lines: 1, line: () => ({ from: 0, text: ' content' }) }, selection: { main: { head: 8 } } },
 			coordsAtPos: vi.fn(() => null),
 		}
 		const editor = makeEditor(inner)

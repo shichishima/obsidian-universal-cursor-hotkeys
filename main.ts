@@ -2,7 +2,7 @@ import { App, Editor, Plugin, PluginSettingTab, Setting, MarkdownView, ToggleCom
 import { syntaxTree } from '@codemirror/language';
 import { EditorView } from "@codemirror/view";
 import { EditorSelection, Transaction } from '@codemirror/state';
-import { cursorPageDown, cursorPageUp, deleteCharForward } from '@codemirror/commands';
+import { deleteCharForward } from '@codemirror/commands';
 
 // Extend the Obsidian Editor interface to include the internal CodeMirror 6 instance (EditorView)
 declare module "obsidian" {
@@ -47,6 +47,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	private readonly CELL_SEPARATOR_REGEX = /(?<!\\)\|/g;
 	private readonly TABLE_DELIMITER_REGEX = /^\s*\|?[:\s]*?-+[:\s-]*\|[:\s-|]*$/;
+	// Lines of overlap between successive page-down/up screens (Emacs next-screen-context-lines).
+	private readonly NEXT_SCREEN_CONTEXT_LINES = 0;
 
 	private isKillChaining: boolean = false;
 	private isDispatchingKill: boolean = false;
@@ -158,8 +160,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Page down',
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
-				const cm = editor.cm;
-				if (cm) cursorPageDown(cm);
+				this.pageDown(editor);
 			}
 		});
 
@@ -168,8 +169,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Page up',
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
-				const cm = editor.cm;
-				if (cm) cursorPageUp(cm);
+				this.pageUp(editor);
 			}
 		});
 
@@ -178,22 +178,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Recenter',
 			editorCallback: (editor: Editor) => {
 				this.recenter(editor);
-			}
-		});
-
-		this.addCommand({
-			id: 'debug-coords-at-pos',
-			name: '[DEBUG] coordsAtPos probe',
-			editorCallback: (editor: Editor) => {
-				this.debugCoordsAtPos(editor);
-			}
-		});
-
-		this.addCommand({
-			id: 'debug-syntax-tree',
-			name: '[DEBUG] syntax tree probe',
-			editorCallback: (editor: Editor) => {
-				this.debugSyntaxTree(editor);
 			}
 		});
 
@@ -601,6 +585,136 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}
 
 		editor.exec('goDown');
+	}
+
+
+	// Returns the viewport-relative Y coordinate of the current browser cursor.
+	// Works inside LP table cells (unlike cm.coordsAtPos). Returns null when off-screen.
+	// view: when provided, used as a precise fallback via coordsAtPos when the selection
+	// rect has zero height (e.g. cursor at ch=0 of the first line).
+	private getCursorScreenY(view?: EditorView): number | null {
+		const sel = window.getSelection();
+		if (!sel || sel.rangeCount === 0) return null;
+		const range = sel.getRangeAt(0);
+		const rect  = range.getBoundingClientRect();
+		if (rect.height > 0) return rect.top;
+		// Collapsed range with zero height: try coordsAtPos for accurate line top.
+		if (view) {
+			const coords = view.coordsAtPos(view.state.selection.main.head);
+			if (coords) return coords.top;
+		}
+		const node = range.startContainer;
+		const el   = node.instanceOf(Element) ? node : node.parentElement;
+		return el?.getBoundingClientRect().top ?? null;
+	}
+
+	// Page down/up: move cursor one screen minus NEXT_SCREEN_CONTEXT_LINES of overlap.
+	// Uses moveCursorDown/Up to traverse tables and callouts correctly.
+	//
+	// Measurement: docY = getCursorScreenY() + cm.scrollDOM.scrollTop.
+	// docY is the cursor's absolute document-space Y and is invariant under any
+	// scrollIntoView — even if the outer CM head points to VL1 instead of the actual
+	// inner cursor (LP wrapped cell), screenY and scrollTop adjust symmetrically so
+	// their sum is always correct. No caching or estimation is needed.
+	private _inScrollPage    = false;
+	private _scrollPageGenId = 0;
+
+	private pageDown(editor: Editor) { this.scrollPage(editor,  1); }
+	private pageUp  (editor: Editor) { this.scrollPage(editor, -1); }
+
+	// scrollPage operates in four phases:
+	//   1. Record prevScreenY — cursor's Y within the scroll area before any movement.
+	//   2. Loop — advance cursor one page via moveCursorDown/Up, measuring real pixel progress.
+	//   3. Scroll — call scrollToCursorAtY to restore the cursor to prevScreenY on screen.
+	//   4. Watch — detect LP cursor normalization and re-run scrollToCursorAtY after it settles.
+	private scrollPage(editor: Editor, direction: 1 | -1) {
+		const cm = editor.cm;
+		if (!cm) return;
+
+		const moveCursor = direction > 0
+			? (e: Editor) => this.moveCursorDown(e)
+			: (e: Editor) => this.moveCursorUp(e);
+
+		const target = cm.scrollDOM.clientHeight
+		             - this.NEXT_SCREEN_CONTEXT_LINES * cm.defaultLineHeight;
+
+		const getDocY = (): number | null => {
+			const y = this.getCursorScreenY(cm);
+			return y !== null ? y + cm.scrollDOM.scrollTop : null;
+		};
+
+		// Phase 1: record cursor's scroll-area-relative Y (viewport Y minus scrollRect.top).
+		// Used by phase 3 to restore the cursor to the same on-screen position after scrolling.
+		const scrollRect  = cm.scrollDOM.getBoundingClientRect();
+		const rawY        = this.getCursorScreenY(cm);
+		const prevScreenY = rawY !== null ? rawY - scrollRect.top : cm.scrollDOM.clientHeight / 2;
+
+		// Phase 2: step through one page via moveCursorDown/Up (handles tables and callouts).
+		// scrollIntoView keeps the cursor on-screen each step so getDocY() stays accurate.
+		// delta measures the real pixel distance moved; accumulated in consumed until >= target.
+		let prev     = editor.getCursor();
+		let consumed = 0;
+
+		this._inScrollPage = true;
+		try {
+			while (consumed < target) {
+				const prevDocY = getDocY();
+
+				moveCursor(editor);
+				const cur = editor.getCursor();
+				if (cur.line === prev.line && cur.ch === prev.ch) break;
+				prev = cur;
+
+				cm.dispatch({
+					effects: EditorView.scrollIntoView(cm.state.selection.main.head, { y: 'nearest' }),
+				});
+
+				const curDocY = getDocY();
+				const delta   = (prevDocY !== null && curDocY !== null)
+				              ? (curDocY - prevDocY) * direction : null;
+
+				let step: number;
+				if (delta !== null && delta >= 1) {
+					step = delta;
+				} else if (delta !== null) {
+					// |delta| < 1: horizontal movement on the same visual line, no vertical progress.
+					step = 0;
+				} else {
+					step = cm.defaultLineHeight;
+				}
+
+				consumed += step;
+			}
+		} finally {
+			this._inScrollPage = false;
+		}
+
+		// Phase 3: scrollIntoView only guarantees the cursor is visible, not at prevScreenY.
+		// scrollToCursorAtY adjusts scrollTop so the cursor lands at the recorded position.
+		this.scrollToCursorAtY(editor, prevScreenY);
+
+		const savedHead = cm.state.selection.main.head;
+		const genId     = ++this._scrollPageGenId;
+
+		// Phase 4: Obsidian's LP normalizer fires in the first rAF (~20ms) after the loop's
+		// scrollIntoView calls, moving the cursor to an invalid position. LP widget heights
+		// also shift during the transition, so savedScrollTop would place the cursor at the
+		// wrong Y — re-run scrollToCursorAtY instead once LP has stabilized (~100ms later).
+		// genId cancels a stale watcher when a new scrollPage call arrives first.
+		let frames = 0;
+		const watchNormalization = () => {
+			if (this._scrollPageGenId !== genId) return;
+			if (cm.state.selection.main.head !== savedHead) {
+				window.setTimeout(() => {
+					if (this._scrollPageGenId !== genId) return;
+					cm.dispatch({ selection: { anchor: savedHead, head: savedHead } });
+					this.scrollToCursorAtY(editor, prevScreenY);
+				}, 100);
+				return;
+			}
+			if (++frames < 5) requestAnimationFrame(watchNormalization);
+		};
+		requestAnimationFrame(watchNormalization);
 	}
 
 
@@ -1393,9 +1507,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private placeAtBottomVL(editor: Editor) {
 		const inner = editor.activeCM;
 		if (inner && inner !== editor.cm) {
-			const lastSubLine = inner.state.doc.line(inner.state.doc.lines);
-			const contentEnd  = lastSubLine.from + lastSubLine.text.trimEnd().length;
-			if (inner.coordsAtPos(contentEnd)) {
+			// Check cursor position (not content end) for on-screen detection:
+			// when entering a cell from an adjacent row, the cursor start (ch=cellStart)
+			// is always on-screen even if the cell content end is off-screen.
+			// moveToBottomVisualLineOfCell handles the off-screen content end via goDown fallback.
+			if (inner.coordsAtPos(inner.state.selection.main.head)) {
 				this.moveToBottomVisualLineOfCell(editor);
 				return;
 			}
@@ -1407,6 +1523,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Schedules moveToBottomVisualLineOfCell for the next event loop tick.
 	// Used after synchronous cursor placement to let the DOM settle first.
 	private scheduleBottomVisualLine(editor: Editor) {
+		if (this._inScrollPage) return;
 		window.setTimeout(() => {
 			if (this.isPositionInTable(editor)) {
 				this.moveToBottomVisualLineOfCell(editor);
@@ -1538,43 +1655,25 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 
+	// Scroll the view so the cursor appears at targetScreenY pixels from the top of the
+	// scroll area. Works for both regular text and LP table cells: uses getCursorScreenY()
+	// (window.getSelection) rather than cm.state.selection.main.head, so the result is
+	// correct even when the outer CM head points to the row start (VL1) instead of the
+	// actual inner cursor position in a wrapped cell.
+	private scrollToCursorAtY(editor: Editor, targetScreenY: number) {
+		const cm = editor.cm;
+		if (!cm) return;
+		const cursorTop = this.getCursorScreenY(cm);
+		if (cursorTop === null) return;
+		const scrollRect = cm.scrollDOM.getBoundingClientRect();
+		const docY = cursorTop - scrollRect.top + cm.scrollDOM.scrollTop;
+		cm.scrollDOM.scrollTop = Math.max(0, docY - targetScreenY);
+	}
+
 	// Use cm.dispatch directly to avoid triggering Obsidian's table editor
 	// interference that occurs when moving the cursor within a Live Preview table.
 	private recenter(editor: Editor) {
-		const cm = editor.cm;
-		if (!cm) return;
-
-		if (!this.isLivePreviewMode() || !this.isPositionInTable(editor)) {
-			cm.dispatch({
-				effects: EditorView.scrollIntoView(cm.state.selection.main.head, { y: 'center' })
-			});
-			return;
-		}
-
-		// Inside a Live Preview table widget, coordsAtPos is unreliable (returns dead/constant
-		// coordinates). Use window.getSelection() to get the actual browser cursor rect instead.
-		const browserSel = activeWindow.getSelection();
-		if (!browserSel || browserSel.rangeCount === 0) return;
-
-		const range = browserSel.getRangeAt(0);
-		const rangeRect = range.getBoundingClientRect();
-
-		// getBoundingClientRect() returns zeros when the range is anchored to a block element
-		// at offset 0 (e.g. div.cm-active.cm-line). Fall back to the container element's rect.
-		let cursorTop: number;
-		if (rangeRect.height > 0) {
-			cursorTop = rangeRect.top;
-		} else {
-			const node = range.startContainer;
-			const el = node.instanceOf(Element) ? node : node.parentElement;
-			const elRect = el?.getBoundingClientRect();
-			if (!elRect || elRect.height === 0) return;
-			cursorTop = elRect.top;
-		}
-
-		const scrollRect = cm.scrollDOM.getBoundingClientRect();
-		const relativeTop = cursorTop - scrollRect.top + cm.scrollDOM.scrollTop;
-		cm.scrollDOM.scrollTop = relativeTop - cm.scrollDOM.clientHeight / 2;
+		this.scrollToCursorAtY(editor, (editor.cm?.scrollDOM.clientHeight ?? 0) / 2);
 	}
 
 
@@ -1593,12 +1692,14 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			// CM already held DOM focus before the dispatch (e.g. after editor.setLine
 			// in Kill Line), Obsidian skips auto-focus.  Transfer focus explicitly in
 			// the next frame to cover that case without risking destroying the inner view.
-			window.requestAnimationFrame(() => {
-				const inner = editor.activeCM;
-				if (inner && inner !== cm && !inner.hasFocus) {
-					inner.focus();
-				}
-			});
+			if (!this._inScrollPage) {
+				window.requestAnimationFrame(() => {
+					const inner = editor.activeCM;
+					if (inner && inner !== cm && !inner.hasFocus) {
+						inner.focus();
+					}
+				});
+			}
 		}
 	}
 
@@ -1607,111 +1708,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// inner CM view active. Dispatching to the outer CM view (setCursorViaCm) causes
 	// Obsidian to destroy and recreate the inner view, which breaks native-cursor's
 	// coordsAtPos. Falls back to setCursorViaCm if the loop cannot reach the target.
-
-	private debugSyntaxTree(editor: Editor) {
-		const cm  = editor.cm;
-		if (!cm) { console.log('[UCH-tree] no cm'); return; }
-
-		const cursor = editor.getCursor();
-		const pos    = editor.posToOffset(cursor);
-		const tree   = syntaxTree(cm.state);
-
-		console.log('[UCH-tree] === syntax tree probe ===');
-		console.log('[UCH-tree] cursor:', cursor, ' offset:', pos);
-
-		// Walk up from the innermost node at cursor position and log every ancestor.
-		let node = tree.resolveInner(pos, -1);
-		const ancestors: string[] = [];
-		let n = node;
-		while (n) {
-			ancestors.push(`${n.name}[${n.from}..${n.to}]`);
-			n = n.parent!;
-		}
-		console.log('[UCH-tree] node path (inner→root):', ancestors.join(' → '));
-
-		// Also scan a wider range around the cursor (±500 chars) and list all unique node names.
-		const from  = Math.max(0, pos - 500);
-		const to    = Math.min(cm.state.doc.length, pos + 500);
-		const names = new Set<string>();
-		tree.iterate({ from, to, enter: (n) => { names.add(n.name); } });
-		console.log('[UCH-tree] node names in ±500 range:', [...names].sort().join(', '));
-
-		// Specifically check for callout-related nodes.
-		const calloutNodes: string[] = [];
-		tree.iterate({ from, to, enter: (n) => {
-			if (/callout|Callout|quote|Quote|admonition/i.test(n.name)) {
-				calloutNodes.push(`${n.name}[${n.from}..${n.to}]`);
-			}
-		}});
-		console.log('[UCH-tree] callout-related nodes:', calloutNodes.length ? calloutNodes.join(', ') : '(none found)');
-
-		// Show the raw text around cursor for context.
-		const lineText = editor.getLine(cursor.line);
-		console.log('[UCH-tree] line text:', JSON.stringify(lineText));
-		console.log('[UCH-tree] activeCM === cm?', editor.activeCM === editor.cm);
-	}
-
-
-	private debugCoordsAtPos(editor: Editor) {
-		const L = (msg: string) => console.log(`[UCH-coords] ${msg}`);
-
-		const inner = editor.activeCM;
-		if (!inner || inner === editor.cm) {
-			L('No inner view — cursor is not inside an LP table cell.');
-			return;
-		}
-
-		const state   = inner.state;
-		const head    = state.selection.main.head;
-		const docLen  = state.doc.length;
-		const docText = state.doc.toString().replace(/\n/g, '\\n');
-
-		L('=== coordsAtPos probe ===');
-		L(`inner doc: "${docText}"  len=${docLen}  lines=${state.doc.lines}`);
-		L(`cursor head=${head}`);
-
-		// --- coordsAtPos at key positions ---
-		const fmt = (r: { left: number; right: number; top: number; bottom: number } | null) =>
-			r ? `top=${r.top.toFixed(1)} bottom=${r.bottom.toFixed(1)} left=${r.left.toFixed(1)}` : 'null';
-
-		L(`coordsAtPos(0):         ${fmt(inner.coordsAtPos(0))}`);
-		L(`coordsAtPos(head):      ${fmt(inner.coordsAtPos(head))}`);
-		L(`coordsAtPos(docLen):    ${fmt(inner.coordsAtPos(docLen))}`);
-		L(`coordsAtPos(head, -1):  ${fmt(inner.coordsAtPos(head, -1))}`);
-		L(`coordsAtPos(head, +1):  ${fmt(inner.coordsAtPos(head, +1))}`);
-
-		// --- per sub-line breakdown ---
-		for (let i = 1; i <= state.doc.lines; i++) {
-			const sl          = state.doc.line(i);
-			const contentEnd  = sl.from + sl.text.trimEnd().length;
-			L(`sub-line ${i}: from=${sl.from} to=${sl.to} contentEnd=${contentEnd} text="${sl.text}"`);
-			L(`  coordsAtPos(from):       ${fmt(inner.coordsAtPos(sl.from))}`);
-			L(`  coordsAtPos(contentEnd): ${fmt(inner.coordsAtPos(contentEnd))}`);
-			L(`  coordsAtPos(to):         ${fmt(inner.coordsAtPos(sl.to))}`);
-		}
-
-		// --- VL_N-1 / VL_N distinction ---
-		const headCoords = inner.coordsAtPos(head);
-		const endCoords  = inner.coordsAtPos(docLen);
-		if (headCoords && endCoords) {
-			const diff = Math.abs(headCoords.top - endCoords.top);
-			L(`VL check: head.top=${headCoords.top.toFixed(1)}  end.top=${endCoords.top.toFixed(1)}  diff=${diff.toFixed(1)}`);
-			L(`Cursor on same VL as doc end? ${diff < 4}`);
-		}
-
-		// --- posAtCoords (reverse mapping) ---
-		if (endCoords) {
-			const posAtEnd = inner.posAtCoords({ x: endCoords.left, y: endCoords.top });
-			L(`posAtCoords({x=end.left, y=end.top}): ${posAtEnd}`);
-		}
-		if (headCoords) {
-			const posAtHead = inner.posAtCoords({ x: headCoords.left, y: headCoords.top });
-			L(`posAtCoords({x=head.left, y=head.top}): ${posAtHead}`);
-		}
-
-		L('=== probe end ===');
-	}
-
 
 	private isLivePreviewMode(): boolean {
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
