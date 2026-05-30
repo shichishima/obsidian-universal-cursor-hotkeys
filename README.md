@@ -55,7 +55,8 @@ For detailed behavior of each command, see [Command Details](#command-details) b
 | Kill region | Ctrl + W    | Cut the selected region to the kill cache. Table-aware: single-cell only; no-op for multi-row or cross-cell selections. | — |
 | Yank | Ctrl + Y           | Paste from the OS clipboard. Table-aware: converts newlines and pipes automatically. | ✓ |
 | Delete char | Ctrl + D   | Forward-delete one character. Stops at cell boundary; joins sub-lines at `<br>` in Live Preview. | ✓ |
-| Recenter | Ctrl + L      | Scroll the view so the cursor line is centered on screen. | — |
+| Recenter top-bottom | Ctrl + L | Cycle the view so the cursor appears at the center, top, or bottom of the screen on successive presses. Resets on any other action. | — |
+| Recenter | (None)        | Scroll the view so the cursor line is centered on screen. | — |
 | Page down | (None)        | Scroll down one page; the cursor stays at the same screen position. ⚠️ Assigning Ctrl+V breaks paste in non-editor plugin views (e.g., Excalidraw) (Windows). | ✓ |
 | Page up | (None)        | Scroll up one page; the cursor stays at the same screen position. ⚠️ Assigning Cmd+V breaks paste in non-editor plugin views (macOS). | ✓ |
 | Select all | (None)        | For Windows users: Restores "Select all" functionality if Ctrl+A is reassigned to HOME. Assign a custom key or run from the command palette. | — |
@@ -217,6 +218,16 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
   - **At the end of a non-last in-cell line (before `<br>`):** Deletes the `<br>` tag, joining the current sub-line with the next.
   - **At the end of the last in-cell line (cell boundary):** No operation.
 - **Within a table cell (Source Mode):** Deletes one character forward without HTML tag awareness. No operation at the cell content boundary (before trailing whitespace and `|`).
+
+</details>
+
+<details>
+<summary>Recenter top-bottom</summary>
+
+- Cycles the scroll position on successive presses so the cursor appears at the **center**, **top**, or **bottom** of the screen.
+- Any other action (typing, cursor movement, mouse click) resets the cycle back to center.
+- The cursor position does not change.
+- Works the same regardless of cursor position — plain text or inside a table cell.
 
 </details>
 
