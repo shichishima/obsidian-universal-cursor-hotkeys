@@ -1629,7 +1629,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Infrastructure
 	//===========================================================================
 
-	private isPositionInTable(editor: Editor, line?: number, ch?: number): boolean {
+	private isPositionInTable(editor: Editor, line: number, ch: number): boolean {
 		const cm = editor.cm;
 		if (!cm) return false;
 
