@@ -2081,10 +2081,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const fromLine = editor.getLine(from.line);
 		const toLine   = editor.getLine(to.line);
 
-		const inLPTable = this.isLivePreviewMode() && (
-			this.isPositionInTable(editor, from.line, from.ch) ||
-			this.isPositionInTable(editor, to.line,   to.ch)
-		);
+		const inLPTable = editor.inTableCell;
 		const inSourceTable = !this.isLivePreviewMode() && (
 			this.isTableLineSourceMode(fromLine) ||
 			this.isTableLineSourceMode(toLine)

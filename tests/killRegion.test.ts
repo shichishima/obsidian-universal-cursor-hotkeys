@@ -9,7 +9,8 @@ import UniversalCursorHotkeysPlugin from '../main.ts'
 function makeEditor(
 	lines: string[],
 	from: { line: number; ch: number },
-	to:   { line: number; ch: number }
+	to:   { line: number; ch: number },
+	inTableCell = false
 ) {
 	const buf = [...lines]
 	const sel = (from.line === to.line)
@@ -40,6 +41,7 @@ function makeEditor(
 			dispatch:  vi.fn(),
 			focus:     vi.fn(),
 		},
+		inTableCell,
 	}
 }
 
@@ -57,7 +59,6 @@ describe('killRegion', () => {
 		plugin.killCache         = ''
 
 		plugin.isLivePreviewMode = vi.fn().mockReturnValue(false)
-		plugin.isPositionInTable = vi.fn().mockReturnValue(false)
 		plugin.setCursorViaCm    = vi.fn()
 
 		vi.stubGlobal('navigator', {
@@ -87,11 +88,11 @@ describe('killRegion', () => {
 
 		it('LP table — multi-line selection', () => {
 			plugin.isLivePreviewMode.mockReturnValue(true)
-			plugin.isPositionInTable.mockReturnValue(true)
 			const editor = makeEditor(
 				['| a | b |', '| c | d |'],
 				{ line: 0, ch: 2 },
-				{ line: 1, ch: 2 }
+				{ line: 1, ch: 2 },
+				true
 			)
 			plugin.killRegion(editor)
 			expect(editor.replaceRange).not.toHaveBeenCalled()
@@ -100,12 +101,12 @@ describe('killRegion', () => {
 
 		it('LP table — cross-cell selection (fromBounds.open !== toBounds.open)', () => {
 			plugin.isLivePreviewMode.mockReturnValue(true)
-			plugin.isPositionInTable.mockReturnValue(true)
 			// | cell1 | cell2 | — ch=2 in cell1 (open=0), ch=12 in cell2 (open=8)
 			const editor = makeEditor(
 				['| cell1 | cell2 |'],
 				{ line: 0, ch: 2 },
-				{ line: 0, ch: 12 }
+				{ line: 0, ch: 12 },
+				true
 			)
 			plugin.killRegion(editor)
 			expect(editor.replaceRange).not.toHaveBeenCalled()
@@ -186,13 +187,12 @@ describe('killRegion', () => {
 	describe('LP table — single-cell deletion', () => {
 		beforeEach(() => {
 			plugin.isLivePreviewMode.mockReturnValue(true)
-			plugin.isPositionInTable.mockReturnValue(true)
 		})
 
 		it('dispatches changes with prefix + suffix', () => {
 			// '| hello world |' — delete 'hello ' (ch=2..8) → '| world |'
 			const line = '| hello world |'
-			const editor = makeEditor([line], { line: 0, ch: 2 }, { line: 0, ch: 8 })
+			const editor = makeEditor([line], { line: 0, ch: 2 }, { line: 0, ch: 8 }, true)
 			plugin.killRegion(editor)
 			expect(editor.cm.dispatch).toHaveBeenCalledWith({
 				changes:   { from: 0, to: line.length, insert: '| world |' },
@@ -203,7 +203,7 @@ describe('killRegion', () => {
 
 		it('dispatches selection anchor at prefix.length', () => {
 			const line = '| hello world |'
-			const editor = makeEditor([line], { line: 0, ch: 2 }, { line: 0, ch: 8 })
+			const editor = makeEditor([line], { line: 0, ch: 2 }, { line: 0, ch: 8 }, true)
 			plugin.killRegion(editor)
 			const call = editor.cm.dispatch.mock.calls[0][0]
 			expect(call.selection.anchor).toBe(2)
@@ -213,7 +213,7 @@ describe('killRegion', () => {
 			// '| ab<br>cd |': from=2, to=10 → selection='ab<br>cd' → normalized='ab\ncd'
 			// |=0 ' '=1 a=2 b=3 <=4 b=5 r=6 >=7 c=8 d=9 ' '=10 |=11
 			const line = '| ab<br>cd |'
-			const editor = makeEditor([line], { line: 0, ch: 2 }, { line: 0, ch: 10 })
+			const editor = makeEditor([line], { line: 0, ch: 2 }, { line: 0, ch: 10 }, true)
 			plugin.killRegion(editor)
 			expect(plugin.killCache).toBe('ab\ncd')
 		})
@@ -221,14 +221,14 @@ describe('killRegion', () => {
 		it('applies normalizeKillText: \\| → | in killCache', () => {
 			// '| a\\|b |': from=2, to=6 → selection='a\\|b' → normalized='a|b'
 			const line = '| a\\|b |'
-			const editor = makeEditor([line], { line: 0, ch: 2 }, { line: 0, ch: 6 })
+			const editor = makeEditor([line], { line: 0, ch: 2 }, { line: 0, ch: 6 }, true)
 			plugin.killRegion(editor)
 			expect(plugin.killCache).toBe('a|b')
 		})
 
 		it('writes killCache to clipboard', () => {
 			const line = '| hello |'
-			const editor = makeEditor([line], { line: 0, ch: 2 }, { line: 0, ch: 7 })
+			const editor = makeEditor([line], { line: 0, ch: 2 }, { line: 0, ch: 7 }, true)
 			plugin.killRegion(editor)
 			expect(navigator.clipboard.writeText).toHaveBeenCalledWith('hello')
 		})
@@ -236,7 +236,7 @@ describe('killRegion', () => {
 		it('resets isKillChaining to false', () => {
 			plugin.isKillChaining = true
 			const line = '| hello |'
-			const editor = makeEditor([line], { line: 0, ch: 2 }, { line: 0, ch: 7 })
+			const editor = makeEditor([line], { line: 0, ch: 2 }, { line: 0, ch: 7 }, true)
 			plugin.killRegion(editor)
 			expect(plugin.isKillChaining).toBe(false)
 		})
@@ -255,13 +255,12 @@ describe('killRegion', () => {
 
 		beforeEach(() => {
 			plugin.isLivePreviewMode.mockReturnValue(true)
-			plugin.isPositionInTable.mockReturnValue(true)
 		})
 
 		it('selection spanning <br>: <br> absent from dispatch result', () => {
 			// from=3 (within 'first'), to=14 (within 'second' past brEnd=11)
 			// prefix='| f', suffix='ond |' → '| fond |'
-			const editor = makeEditor([LINE], { line: 0, ch: 3 }, { line: 0, ch: 14 })
+			const editor = makeEditor([LINE], { line: 0, ch: 3 }, { line: 0, ch: 14 }, true)
 			plugin.killRegion(editor)
 			expect(editor.cm.dispatch.mock.calls[0][0].changes.insert).toBe('| fond |')
 		})
@@ -270,7 +269,7 @@ describe('killRegion', () => {
 			// from=2 (cell content start), to=7 (brStart)
 			// cellContentBefore = line.slice(1,2).trim() = '' → strip
 			// prefix='| ', suffix='second |' → '| second |'
-			const editor = makeEditor([LINE], { line: 0, ch: 2 }, { line: 0, ch: 7 })
+			const editor = makeEditor([LINE], { line: 0, ch: 2 }, { line: 0, ch: 7 }, true)
 			plugin.killRegion(editor)
 			expect(editor.cm.dispatch.mock.calls[0][0].changes.insert).toBe('| second |')
 		})
@@ -279,7 +278,7 @@ describe('killRegion', () => {
 			// from=3 ('i'), to=7 (brStart)
 			// cellContentBefore = line.slice(1,3).trim() = 'f' → no strip
 			// prefix='| f', suffix='<br>second |' → '| f<br>second |'
-			const editor = makeEditor([LINE], { line: 0, ch: 3 }, { line: 0, ch: 7 })
+			const editor = makeEditor([LINE], { line: 0, ch: 3 }, { line: 0, ch: 7 }, true)
 			plugin.killRegion(editor)
 			expect(editor.cm.dispatch.mock.calls[0][0].changes.insert).toBe('| f<br>second |')
 		})
@@ -288,7 +287,7 @@ describe('killRegion', () => {
 			// from=11 (brEnd), to=17 (space before '|')
 			// cellContentAfter = line.slice(17,18).trim() = '' → strip
 			// prefix='| first' (after strip), suffix=' |' → '| first |'
-			const editor = makeEditor([LINE], { line: 0, ch: 11 }, { line: 0, ch: 17 })
+			const editor = makeEditor([LINE], { line: 0, ch: 11 }, { line: 0, ch: 17 }, true)
 			plugin.killRegion(editor)
 			expect(editor.cm.dispatch.mock.calls[0][0].changes.insert).toBe('| first |')
 		})
@@ -297,7 +296,7 @@ describe('killRegion', () => {
 			// from=11 (brEnd), to=14 (after 'sec')
 			// cellContentAfter = line.slice(14,18).trim() = 'ond' → no strip
 			// prefix='| first<br>', suffix='ond |' → '| first<br>ond |'
-			const editor = makeEditor([LINE], { line: 0, ch: 11 }, { line: 0, ch: 14 })
+			const editor = makeEditor([LINE], { line: 0, ch: 11 }, { line: 0, ch: 14 }, true)
 			plugin.killRegion(editor)
 			expect(editor.cm.dispatch.mock.calls[0][0].changes.insert).toBe('| first<br>ond |')
 		})
