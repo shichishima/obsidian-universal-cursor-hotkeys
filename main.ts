@@ -290,6 +290,15 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 
+		if (this.isLivePreviewMode() && cursor.ch === 0 && cursor.line > 0
+				&& this.isPositionInTable(editor, cursor.line - 1, 1)) {
+			const targetLine = cursor.line - 1;
+			const lineText   = editor.getLine(targetLine);
+			const lastCell   = this.getRightmostCellIndex(lineText);
+			const endCh      = this.getEndOfCellContentByCellIndex(lineText, lastCell);
+			this.setCursorViaCm(editor, targetLine, endCh);
+			return;
+		}
 		editor.exec('goLeft');
 	}
 
@@ -308,6 +317,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 
+		if (this.isLivePreviewMode() && cursor.ch >= editor.getLine(cursor.line).length
+				&& this.isPositionInTable(editor, cursor.line + 1, 1)) {
+			this.moveCursorDownIntoTable(editor);
+			return;
+		}
 		editor.exec('goRight');
 	}
 
