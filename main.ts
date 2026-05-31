@@ -16,18 +16,18 @@ declare module "obsidian" {
 
 
 interface UniversalCursorHotkeysSettings {
+	visualLineMovement: boolean;
 	smartHomeStandard: boolean;
 	smartHomeAdvanced: boolean;
 	smartJoin: boolean;
-	visualLineMovement: boolean;
 	crossRowNavigation: boolean;
 }
 
 const DEFAULT_SETTINGS: UniversalCursorHotkeysSettings = {
+	visualLineMovement: true,
 	smartHomeStandard: true,
 	smartHomeAdvanced: true,
 	smartJoin: false,
-	visualLineMovement: true,
 	crossRowNavigation: true,
 };
 
@@ -194,17 +194,16 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		this.registerEditorExtension(
 			EditorView.updateListener.of((update) => {
 				if (!this.isKillChaining && this._recenterStep === 0) return;
-				if (update.docChanged || update.selectionSet) {
-					// Only reset on genuine user actions (keystrokes, arrow keys, etc.).
-					// Programmatic dispatches (our own, Obsidian's table editor re-dispatches)
-					// carry no Transaction.userEvent annotation and are ignored here.
-					const isUserAction = update.transactions.some(
-						tr => tr.annotation(Transaction.userEvent) !== undefined
-					);
-					if (isUserAction && !this.isDispatchingKill) {
-						this.isKillChaining = false;
-						this._recenterStep = 0;
-					}
+				if (!update.docChanged && !update.selectionSet) return;
+				// Only reset on genuine user actions (keystrokes, arrow keys, etc.).
+				// Programmatic dispatches (our own, Obsidian's table editor re-dispatches)
+				// carry no Transaction.userEvent annotation and are ignored here.
+				const isUserAction = update.transactions.some(
+					tr => tr.annotation(Transaction.userEvent) !== undefined
+				);
+				if (isUserAction && !this.isDispatchingKill) {
+					this.isKillChaining = false;
+					this._recenterStep = 0;
 				}
 			})
 		);
@@ -2116,61 +2115,60 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		this.updateKillCache(text);
 		navigator.clipboard.writeText(this.killCache).catch(() => {});
 
-		if (inLPTable) {
-			const line = fromLine;
-			let prefix = line.slice(0, from.ch);
-			let suffix = line.slice(to.ch);
-			const bounds = this.getCellBounds(line, from.ch);
-			if (bounds) {
-				if (/^<[bB][rR]>/.test(suffix)) {
-					const cellContentBefore = line.slice(bounds.open + 1, from.ch).trim();
-					if (!cellContentBefore) suffix = suffix.replace(/^<[bB][rR]>([ \t]*)/, '');
-				} else if (/<[bB][rR]>$/.test(prefix)) {
-					const cellContentAfter = line.slice(to.ch, bounds.close).trim();
-					if (!cellContentAfter) prefix = prefix.replace(/<[bB][rR]>$/, '');
-				}
-			}
-			const targetLine  = from.line;
-			const cm          = editor.cm;
-			const lineObj     = cm.state.doc.line(targetLine + 1);
-			const savedScroll = cm.scrollDOM?.scrollTop;
-			const inner       = editor.activeCM;
-			if (inner && inner !== cm) {
-				const innerSel    = inner.state.selection.main;
-				const innerDoc    = inner.state.doc.toString();
-				let delFrom       = innerSel.from;
-				let delTo         = innerSel.to;
-				const innerSuffix = innerDoc.slice(innerSel.to);
-				const innerPrefix = innerDoc.slice(0, innerSel.from);
-				// Inner view uses \n (not <br>) for in-cell line breaks
-				if (innerSuffix.startsWith('\n')) {
-					if (!innerPrefix.trim()) {
-						const wsLen = innerSuffix.match(/^\n([ \t]*)/)?.[1].length ?? 0;
-						delTo += 1 + wsLen;
-					}
-				} else {
-					const trimmedPrefix = innerPrefix.trimEnd();
-					if (trimmedPrefix.endsWith('\n') && !innerSuffix.trim()) {
-						delFrom -= innerPrefix.length - trimmedPrefix.length + 1;
-					}
-				}
-				inner.dispatch({
-					changes:   { from: delFrom, to: delTo, insert: '' },
-					selection: { anchor: delFrom },
-				});
-			} else {
-				cm.dispatch({
-					changes:   { from: lineObj.from, to: lineObj.to, insert: prefix + suffix },
-					selection: { anchor: lineObj.from + prefix.length },
-				});
-				cm.focus();
-			}
-			if (savedScroll !== undefined) cm.scrollDOM.scrollTop = savedScroll;
-		} else {
+		if (!inLPTable) {
 			editor.replaceRange('', from, to);
+			return;
 		}
 
-		this.isKillChaining = false;
+		const line = fromLine;
+		let prefix = line.slice(0, from.ch);
+		let suffix = line.slice(to.ch);
+		const bounds = this.getCellBounds(line, from.ch);
+		if (bounds) {
+			if (/^<[bB][rR]>/.test(suffix)) {
+				const cellContentBefore = line.slice(bounds.open + 1, from.ch).trim();
+				if (!cellContentBefore) suffix = suffix.replace(/^<[bB][rR]>([ \t]*)/, '');
+			} else if (/<[bB][rR]>$/.test(prefix)) {
+				const cellContentAfter = line.slice(to.ch, bounds.close).trim();
+				if (!cellContentAfter) prefix = prefix.replace(/<[bB][rR]>$/, '');
+			}
+		}
+		const targetLine  = from.line;
+		const cm          = editor.cm;
+		const lineObj     = cm.state.doc.line(targetLine + 1);
+		const savedScroll = cm.scrollDOM?.scrollTop;
+		const inner       = editor.activeCM;
+		if (inner && inner !== cm) {
+			const innerSel    = inner.state.selection.main;
+			const innerDoc    = inner.state.doc.toString();
+			let delFrom       = innerSel.from;
+			let delTo         = innerSel.to;
+			const innerSuffix = innerDoc.slice(innerSel.to);
+			const innerPrefix = innerDoc.slice(0, innerSel.from);
+			// Inner view uses \n (not <br>) for in-cell line breaks
+			if (innerSuffix.startsWith('\n')) {
+				if (!innerPrefix.trim()) {
+					const wsLen = innerSuffix.match(/^\n([ \t]*)/)?.[1].length ?? 0;
+					delTo += 1 + wsLen;
+				}
+			} else {
+				const trimmedPrefix = innerPrefix.trimEnd();
+				if (trimmedPrefix.endsWith('\n') && !innerSuffix.trim()) {
+					delFrom -= innerPrefix.length - trimmedPrefix.length + 1;
+				}
+			}
+			inner.dispatch({
+				changes:   { from: delFrom, to: delTo, insert: '' },
+				selection: { anchor: delFrom },
+			});
+		} else {
+			cm.dispatch({
+				changes:   { from: lineObj.from, to: lineObj.to, insert: prefix + suffix },
+				selection: { anchor: lineObj.from + prefix.length },
+			});
+			cm.focus();
+		}
+		if (savedScroll !== undefined) cm.scrollDOM.scrollTop = savedScroll;
 	}
 
 
