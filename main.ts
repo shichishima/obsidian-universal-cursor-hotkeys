@@ -615,136 +615,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 
-	// Returns the viewport-relative Y coordinate of the current browser cursor.
-	// Works inside LP table cells (unlike cm.coordsAtPos). Returns null when off-screen.
-	// view: when provided, used as a precise fallback via coordsAtPos when the selection
-	// rect has zero height (e.g. cursor at ch=0 of the first line).
-	private getCursorScreenY(view?: EditorView): number | null {
-		const sel = window.getSelection();
-		if (!sel || sel.rangeCount === 0) return null;
-		const range = sel.getRangeAt(0);
-		const rect  = range.getBoundingClientRect();
-		if (rect.height > 0) return rect.top;
-		// Collapsed range with zero height: try coordsAtPos for accurate line top.
-		if (view) {
-			const coords = view.coordsAtPos(view.state.selection.main.head);
-			if (coords) return coords.top;
-		}
-		const node = range.startContainer;
-		const el   = node.instanceOf(Element) ? node : node.parentElement;
-		return el?.getBoundingClientRect().top ?? null;
-	}
-
-	// Page down/up: move cursor one screen minus NEXT_SCREEN_CONTEXT_LINES of overlap.
-	// Uses moveCursorDown/Up to traverse tables and callouts correctly.
-	//
-	// Measurement: docY = getCursorScreenY() + cm.scrollDOM.scrollTop.
-	// docY is the cursor's absolute document-space Y and is invariant under any
-	// scrollIntoView — even if the outer CM head points to VL1 instead of the actual
-	// inner cursor (LP wrapped cell), screenY and scrollTop adjust symmetrically so
-	// their sum is always correct. No caching or estimation is needed.
-	private _inScrollPage    = false;
-	private _scrollPageGenId = 0;
-
-	private pageDown(editor: Editor) { this.scrollPage(editor,  1); }
-	private pageUp  (editor: Editor) { this.scrollPage(editor, -1); }
-
-	// scrollPage operates in four phases:
-	//   1. Record prevScreenY — cursor's Y within the scroll area before any movement.
-	//   2. Loop — advance cursor one page via moveCursorDown/Up, measuring real pixel progress.
-	//   3. Scroll — call scrollToCursorAtY to restore the cursor to prevScreenY on screen.
-	//   4. Watch — detect LP cursor normalization and re-run scrollToCursorAtY after it settles.
-	private scrollPage(editor: Editor, direction: 1 | -1) {
-		const cm = editor.cm;
-		if (!cm) return;
-
-		const moveCursor = direction > 0
-			? (e: Editor) => this.moveCursorDown(e)
-			: (e: Editor) => this.moveCursorUp(e);
-
-		const target = cm.scrollDOM.clientHeight
-		             - this.NEXT_SCREEN_CONTEXT_LINES * cm.defaultLineHeight;
-
-		const getDocY = (): number | null => {
-			const y = this.getCursorScreenY(cm);
-			return y !== null ? y + cm.scrollDOM.scrollTop : null;
-		};
-
-		// Phase 1: record cursor's scroll-area-relative Y (viewport Y minus scrollRect.top).
-		// Used by phase 3 to restore the cursor to the same on-screen position after scrolling.
-		const scrollRect  = cm.scrollDOM.getBoundingClientRect();
-		const rawY        = this.getCursorScreenY(cm);
-		const prevScreenY = rawY !== null ? rawY - scrollRect.top : cm.scrollDOM.clientHeight / 2;
-
-		// Phase 2: step through one page via moveCursorDown/Up (handles tables and callouts).
-		// scrollIntoView keeps the cursor on-screen each step so getDocY() stays accurate.
-		// delta measures the real pixel distance moved; accumulated in consumed until >= target.
-		let prev     = editor.getCursor();
-		let consumed = 0;
-
-		this._inScrollPage = true;
-		try {
-			while (consumed < target) {
-				const prevDocY = getDocY();
-
-				moveCursor(editor);
-				const cur = editor.getCursor();
-				if (cur.line === prev.line && cur.ch === prev.ch) break;
-				prev = cur;
-
-				cm.dispatch({
-					effects: EditorView.scrollIntoView(cm.state.selection.main.head, { y: 'nearest' }),
-				});
-
-				const curDocY = getDocY();
-				const delta   = (prevDocY !== null && curDocY !== null)
-				              ? (curDocY - prevDocY) * direction : null;
-
-				let step: number;
-				if (delta !== null && delta >= 1) {
-					step = delta;
-				} else if (delta !== null) {
-					// |delta| < 1: horizontal movement on the same visual line, no vertical progress.
-					step = 0;
-				} else {
-					step = cm.defaultLineHeight;
-				}
-
-				consumed += step;
-			}
-		} finally {
-			this._inScrollPage = false;
-		}
-
-		// Phase 3: scrollIntoView only guarantees the cursor is visible, not at prevScreenY.
-		// scrollToCursorAtY adjusts scrollTop so the cursor lands at the recorded position.
-		this.scrollToCursorAtY(editor, prevScreenY);
-
-		const savedHead = cm.state.selection.main.head;
-		const genId     = ++this._scrollPageGenId;
-
-		// Phase 4: Obsidian's LP normalizer fires in the first rAF (~20ms) after the loop's
-		// scrollIntoView calls, moving the cursor to an invalid position. LP widget heights
-		// also shift during the transition, so savedScrollTop would place the cursor at the
-		// wrong Y — re-run scrollToCursorAtY instead once LP has stabilized (~100ms later).
-		// genId cancels a stale watcher when a new scrollPage call arrives first.
-		let frames = 0;
-		const watchNormalization = () => {
-			if (this._scrollPageGenId !== genId) return;
-			if (cm.state.selection.main.head !== savedHead) {
-				window.setTimeout(() => {
-					if (this._scrollPageGenId !== genId) return;
-					cm.dispatch({ selection: { anchor: savedHead, head: savedHead } });
-					this.scrollToCursorAtY(editor, prevScreenY);
-				}, 100);
-				return;
-			}
-			if (++frames < 5) requestAnimationFrame(watchNormalization);
-		};
-		requestAnimationFrame(watchNormalization);
-	}
-
-
 	//===========================================================================
 	// Ctrl-P/N table entry helpers
 	//===========================================================================
@@ -1718,6 +1588,140 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 		this.scrollToCursorAtY(editor, targetY);
 		this._recenterStep = (this._recenterStep + 1) % 3;
+	}
+
+
+	//===========================================================================
+	// Page down / Page up
+	//===========================================================================
+
+	private pageDown(editor: Editor) { this.scrollPage(editor,  1); }
+	private pageUp  (editor: Editor) { this.scrollPage(editor, -1); }
+
+	// Returns the viewport-relative Y coordinate of the current browser cursor.
+	// Works inside LP table cells (unlike cm.coordsAtPos). Returns null when off-screen.
+	// view: when provided, used as a precise fallback via coordsAtPos when the selection
+	// rect has zero height (e.g. cursor at ch=0 of the first line).
+	private getCursorScreenY(view?: EditorView): number | null {
+		const sel = window.getSelection();
+		if (!sel || sel.rangeCount === 0) return null;
+		const range = sel.getRangeAt(0);
+		const rect  = range.getBoundingClientRect();
+		if (rect.height > 0) return rect.top;
+		// Collapsed range with zero height: try coordsAtPos for accurate line top.
+		if (view) {
+			const coords = view.coordsAtPos(view.state.selection.main.head);
+			if (coords) return coords.top;
+		}
+		const node = range.startContainer;
+		const el   = node.instanceOf(Element) ? node : node.parentElement;
+		return el?.getBoundingClientRect().top ?? null;
+	}
+
+	// Page down/up: move cursor one screen minus NEXT_SCREEN_CONTEXT_LINES of overlap.
+	// Uses moveCursorDown/Up to traverse tables and callouts correctly.
+	//
+	// Measurement: docY = getCursorScreenY() + cm.scrollDOM.scrollTop.
+	// docY is the cursor's absolute document-space Y and is invariant under any
+	// scrollIntoView — even if the outer CM head points to VL1 instead of the actual
+	// inner cursor (LP wrapped cell), screenY and scrollTop adjust symmetrically so
+	// their sum is always correct. No caching or estimation is needed.
+	private _inScrollPage    = false;
+	private _scrollPageGenId = 0;
+
+	// scrollPage operates in four phases:
+	//   1. Record prevScreenY — cursor's Y within the scroll area before any movement.
+	//   2. Loop — advance cursor one page via moveCursorDown/Up, measuring real pixel progress.
+	//   3. Scroll — call scrollToCursorAtY to restore the cursor to prevScreenY on screen.
+	//   4. Watch — detect LP cursor normalization and re-run scrollToCursorAtY after it settles.
+	private scrollPage(editor: Editor, direction: 1 | -1) {
+		const cm = editor.cm;
+		if (!cm) return;
+
+		const moveCursor = direction > 0
+			? (e: Editor) => this.moveCursorDown(e)
+			: (e: Editor) => this.moveCursorUp(e);
+
+		const target = cm.scrollDOM.clientHeight
+		             - this.NEXT_SCREEN_CONTEXT_LINES * cm.defaultLineHeight;
+
+		const getDocY = (): number | null => {
+			const y = this.getCursorScreenY(cm);
+			return y !== null ? y + cm.scrollDOM.scrollTop : null;
+		};
+
+		// Phase 1: record cursor's scroll-area-relative Y (viewport Y minus scrollRect.top).
+		// Used by phase 3 to restore the cursor to the same on-screen position after scrolling.
+		const scrollRect  = cm.scrollDOM.getBoundingClientRect();
+		const rawY        = this.getCursorScreenY(cm);
+		const prevScreenY = rawY !== null ? rawY - scrollRect.top : cm.scrollDOM.clientHeight / 2;
+
+		// Phase 2: step through one page via moveCursorDown/Up (handles tables and callouts).
+		// scrollIntoView keeps the cursor on-screen each step so getDocY() stays accurate.
+		// delta measures the real pixel distance moved; accumulated in consumed until >= target.
+		let prev     = editor.getCursor();
+		let consumed = 0;
+
+		this._inScrollPage = true;
+		try {
+			while (consumed < target) {
+				const prevDocY = getDocY();
+
+				moveCursor(editor);
+				const cur = editor.getCursor();
+				if (cur.line === prev.line && cur.ch === prev.ch) break;
+				prev = cur;
+
+				cm.dispatch({
+					effects: EditorView.scrollIntoView(cm.state.selection.main.head, { y: 'nearest' }),
+				});
+
+				const curDocY = getDocY();
+				const delta   = (prevDocY !== null && curDocY !== null)
+				              ? (curDocY - prevDocY) * direction : null;
+
+				let step: number;
+				if (delta !== null && delta >= 1) {
+					step = delta;
+				} else if (delta !== null) {
+					// |delta| < 1: horizontal movement on the same visual line, no vertical progress.
+					step = 0;
+				} else {
+					step = cm.defaultLineHeight;
+				}
+
+				consumed += step;
+			}
+		} finally {
+			this._inScrollPage = false;
+		}
+
+		// Phase 3: scrollIntoView only guarantees the cursor is visible, not at prevScreenY.
+		// scrollToCursorAtY adjusts scrollTop so the cursor lands at the recorded position.
+		this.scrollToCursorAtY(editor, prevScreenY);
+
+		const savedHead = cm.state.selection.main.head;
+		const genId     = ++this._scrollPageGenId;
+
+		// Phase 4: Obsidian's LP normalizer fires in the first rAF (~20ms) after the loop's
+		// scrollIntoView calls, moving the cursor to an invalid position. LP widget heights
+		// also shift during the transition, so savedScrollTop would place the cursor at the
+		// wrong Y — re-run scrollToCursorAtY instead once LP has stabilized (~100ms later).
+		// genId cancels a stale watcher when a new scrollPage call arrives first.
+		let frames = 0;
+		const watchNormalization = () => {
+			if (this._scrollPageGenId !== genId) return;
+			if (cm.state.selection.main.head !== savedHead) {
+				window.setTimeout(() => {
+					if (this._scrollPageGenId !== genId) return;
+					cm.dispatch({ selection: { anchor: savedHead, head: savedHead } });
+					this.scrollToCursorAtY(editor, prevScreenY);
+				}, 100);
+				return;
+			}
+			if (++frames < 5) requestAnimationFrame(watchNormalization);
+		};
+		requestAnimationFrame(watchNormalization);
 	}
 
 
