@@ -578,6 +578,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 
+		if (this.isLineImageOrEmbed(editor.getLine(cursor.line - 1))) {
+			this.setCursorViaCm(editor, cursor.line - 1, 0);
+			return;
+		}
+
 		editor.exec('goUp');
 	}
 
@@ -608,6 +613,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			/^\s*>\s*\[![^\]]+\]([+-]?(\s|$))/.test(editor.getLine(nextIdx))) {
 			const nextLen = editor.getLine(nextIdx).length;
 			editor.setCursor({ line: nextIdx, ch: Math.min(cursor.ch, nextLen) });
+			return;
+		}
+
+		if (nextIdx < editor.lineCount() && this.isLineImageOrEmbed(editor.getLine(nextIdx))) {
+			this.setCursorViaCm(editor, nextIdx, 0);
 			return;
 		}
 
@@ -1816,6 +1826,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private isTableLineSourceMode(line: string): boolean {
 		const trimmed = line.trimEnd();
 		return trimmed.startsWith('|') && trimmed.endsWith('|');
+	}
+
+
+	private isLineImageOrEmbed(lineText: string): boolean {
+		return /^!(\[\[|\[)/.test(lineText);
 	}
 
 
