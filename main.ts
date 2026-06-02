@@ -578,7 +578,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 
-		if (this.isLineImageOrEmbed(editor.getLine(cursor.line - 1))) {
+		if (this.isLineSkippableWidget(editor.getLine(cursor.line - 1))) {
 			this.setCursorViaCm(editor, cursor.line - 1, 0);
 			return;
 		}
@@ -616,7 +616,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 
-		if (nextIdx < editor.lineCount() && this.isLineImageOrEmbed(editor.getLine(nextIdx))) {
+		if (nextIdx < editor.lineCount() && this.isLineSkippableWidget(editor.getLine(nextIdx))) {
 			this.setCursorViaCm(editor, nextIdx, 0);
 			return;
 		}
@@ -1829,8 +1829,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 
-	private isLineImageOrEmbed(lineText: string): boolean {
-		return /^!(\[\[|\[)/.test(lineText);
+	private isLineSkippableWidget(lineText: string): boolean {
+		// Obsidian embed ![[...]] or Markdown image ![...](...) starting at column 0
+		if (/^!(\[\[|\[)/.test(lineText)) return true;
+		// Thematic break --- / *** / ___ (3+ identical chars, optional trailing spaces)
+		return /^[-*_]{3,}\s*$/.test(lineText);
 	}
 
 

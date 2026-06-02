@@ -5,7 +5,7 @@
 ### Added
 
 - HOME and END are now visual-line-aware inside soft-wrapped Live Preview table cells. With Visual Line Movement ON, the first press moves to the visual line edge before proceeding to the content start or the adjacent cell.
-- **Ctrl+P and Ctrl+N now enter callout blocks, images, and embeds in Live Preview mode.** Previously, these lines were skipped entirely. For images and embeds (`![[...]]`, `![...](...)`), this applies when the syntax starts at the beginning of the line; the markdown source is expanded on entry, consistent with physical cursor key behavior.
+- **Ctrl+P and Ctrl+N now enter callout blocks, images, embeds, and thematic breaks (`---`, `***`, `___`) in Live Preview mode.** Previously, these lines were skipped entirely. For images and embeds (`![[...]]`, `![...](...)`), this applies when the syntax starts at the beginning of the line; the markdown source is expanded on entry, consistent with physical cursor key behavior.
 - Smart home (Advanced): HOME inside a callout header line (`> [!type] Title`) now stops at the title start as an extra step before falling back to the blockquote prefix position.
 - **Recenter top-bottom:** Cycles the view so the cursor appears at the center, top, or bottom of the screen on successive presses. Resets on any other action. Recommended hotkey: Ctrl+L.
 

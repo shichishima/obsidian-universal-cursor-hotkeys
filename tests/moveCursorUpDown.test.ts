@@ -329,3 +329,116 @@ describe('moveCursorUp — image/embed entry', () => {
 		expect(exec).toHaveBeenCalledWith('goUp')
 	})
 })
+
+
+// ===========================================================================
+// moveCursorDown — thematic break entry (Ctrl-N)
+// ===========================================================================
+
+describe('moveCursorDown — thematic break entry', () => {
+	let plugin: any
+
+	beforeEach(() => {
+		plugin = makePlugin()
+	})
+
+	const thematicBreakCases: [string, string][] = [
+		['---',    '--- (hyphen)'],
+		['***',    '*** (asterisk)'],
+		['___',    '___ (underscore)'],
+		['----',   '---- (4 hyphens)'],
+		['---   ', '--- with trailing spaces'],
+	]
+
+	for (const [line, desc] of thematicBreakCases) {
+		it(`calls setCursorViaCm when next line is thematic break ${desc}`, () => {
+			const lines = ['text above', line]
+			const { editor, exec } = makeEditor(lines, 0, 0)
+			plugin.moveCursorDown(editor)
+			expect(plugin.setCursorViaCm).toHaveBeenCalledWith(editor, 1, 0)
+			expect(exec).not.toHaveBeenCalled()
+		})
+	}
+
+	it('falls through to goDown when next line is plain text', () => {
+		const lines = ['text above', 'plain text']
+		const { editor, exec } = makeEditor(lines, 0, 0)
+		plugin.moveCursorDown(editor)
+		expect(plugin.setCursorViaCm).not.toHaveBeenCalled()
+		expect(exec).toHaveBeenCalledWith('goDown')
+	})
+
+	it('falls through to goDown in source mode', () => {
+		plugin.isLivePreviewMode.mockReturnValue(false)
+		const lines = ['text above', '---']
+		const { editor, exec } = makeEditor(lines, 0, 0)
+		plugin.moveCursorDown(editor)
+		expect(plugin.setCursorViaCm).not.toHaveBeenCalled()
+		expect(exec).toHaveBeenCalledWith('goDown')
+	})
+
+	it('falls through to goDown when cursor is on the last line', () => {
+		const lines = ['only line']
+		const { editor, exec } = makeEditor(lines, 0, 0)
+		plugin.moveCursorDown(editor)
+		expect(plugin.setCursorViaCm).not.toHaveBeenCalled()
+		expect(exec).toHaveBeenCalledWith('goDown')
+	})
+})
+
+
+// ===========================================================================
+// moveCursorUp — thematic break entry (Ctrl-P)
+// ===========================================================================
+
+describe('moveCursorUp — thematic break entry', () => {
+	let plugin: any
+
+	beforeEach(() => {
+		plugin = makePlugin()
+		plugin.isLineInQuote = vi.fn().mockReturnValue(false)
+	})
+
+	const thematicBreakCases: [string, string][] = [
+		['---',    '--- (hyphen)'],
+		['***',    '*** (asterisk)'],
+		['___',    '___ (underscore)'],
+		['----',   '---- (4 hyphens)'],
+		['---   ', '--- with trailing spaces'],
+	]
+
+	for (const [line, desc] of thematicBreakCases) {
+		it(`calls setCursorViaCm when previous line is thematic break ${desc}`, () => {
+			const lines = [line, 'text below']
+			const { editor, exec } = makeEditor(lines, 1, 0)
+			plugin.moveCursorUp(editor)
+			expect(plugin.setCursorViaCm).toHaveBeenCalledWith(editor, 0, 0)
+			expect(exec).not.toHaveBeenCalled()
+		})
+	}
+
+	it('falls through to goUp when previous line is plain text', () => {
+		const lines = ['plain text', 'text below']
+		const { editor, exec } = makeEditor(lines, 1, 0)
+		plugin.moveCursorUp(editor)
+		expect(plugin.setCursorViaCm).not.toHaveBeenCalled()
+		expect(exec).toHaveBeenCalledWith('goUp')
+	})
+
+	it('falls through to goUp in source mode', () => {
+		plugin.isLivePreviewMode.mockReturnValue(false)
+		const lines = ['---', 'text below']
+		const { editor, exec } = makeEditor(lines, 1, 0)
+		plugin.moveCursorUp(editor)
+		expect(plugin.setCursorViaCm).not.toHaveBeenCalled()
+		expect(exec).toHaveBeenCalledWith('goUp')
+	})
+
+	it('falls through to goUp when cursor is on line 0', () => {
+		const lines = ['---']
+		const { editor, exec } = makeEditor(lines, 0, 0)
+		plugin.moveCursorUp(editor)
+		expect(plugin.setCursorViaCm).not.toHaveBeenCalled()
+		expect(exec).toHaveBeenCalledWith('goUp')
+	})
+})
