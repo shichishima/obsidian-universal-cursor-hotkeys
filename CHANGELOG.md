@@ -17,9 +17,6 @@
 ### Changed
 
 - **Ctrl+B from below a table:** Now lands at the end of the rightmost cell in the last row (bottom visual line), consistent with moving backward through the document. Previously landed at the start of the leftmost cell, same as Ctrl+P.
-
-### Changed
-
 - **Page down / Page up:** Reimplemented using step-by-step cursor movement instead of a direct CM6 command. The cursor now stays at the same screen position after scrolling, and movement correctly passes through Live Preview table cells rather than skipping over them.
 - Internal refactor: cursor operations inside Live Preview table cells now use the inner EditorView directly. No user-facing behavior change.
 
