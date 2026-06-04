@@ -2274,8 +2274,7 @@ class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			.setName('Visual line movement')
 			.then(setting => this.setHtmlDesc(setting, '' +
 				'<b>ON:</b> HOME/END first moves to the visual line edge, then to the logical line start/end.<br>' +
-				'<b>OFF:</b> Moves directly to the logical line start/end.<br>' +
-				'<i>Does not apply inside table cells.</i>'))
+				'<b>OFF:</b> Moves directly to the logical line start/end.'))
 			.addToggle(toggle => toggle
 				.setValue(this.plugin.settings.visualLineMovement)
 				.onChange(async (value) => {
