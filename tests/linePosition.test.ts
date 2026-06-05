@@ -109,6 +109,8 @@ const categories: { name: string; skipAutoStep2?: boolean; rows: TestRow[] }[] =
 		rows: [ //0  3  6 8
 			['[^1]: note',         8,    6,    0,    0],
 			['[^1]: note',         3,    0,    0,    0],
+			// Second ]: in inline code must not be greedily matched
+			['[^1]: use `[^1]: ` here',  22,   6,    0,    0],
 		],
 	},
 	{
