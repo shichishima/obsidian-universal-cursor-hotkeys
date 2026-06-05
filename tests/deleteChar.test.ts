@@ -27,6 +27,42 @@ function makeEditor(lines: string[], cursorLine: number, cursorCh: number) {
 	}
 }
 
+function makeLineAt(text: string) {
+	return (pos: number) => {
+		const parts = text.split('\n')
+		let offset = 0
+		for (let i = 0; i < parts.length; i++) {
+			const to = offset + parts[i].length
+			if (pos <= to) {
+				return { from: offset, to, text: parts[i], number: i + 1 }
+			}
+			offset = to + 1
+		}
+		const last = parts[parts.length - 1]
+		return { from: text.length - last.length, to: text.length, text: last, number: parts.length }
+	}
+}
+
+function makeEditorWithInnerView(innerText: string, head: number) {
+	const innerDispatch = vi.fn()
+	const outerCm = {} as any
+	return {
+		activeCM: {
+			state: {
+				doc: {
+					toString: () => innerText,
+					lineAt: makeLineAt(innerText),
+					lines: innerText.split('\n').length,
+				},
+				selection: { main: { head } },
+			},
+			dispatch: innerDispatch,
+		},
+		cm: outerCm,
+		_innerDispatch: innerDispatch,
+	}
+}
+
 
 describe('deleteCharInTableLP', () => {
 	let plugin: any
@@ -47,110 +83,56 @@ describe('deleteCharInTableLP', () => {
 	})
 
 
-	// ===========================================================================
-	// no-op: cell boundary (single / last)
-	// ===========================================================================
-
-	describe('no-op at cell boundary', () => {
-		it('single cell — cursor at endOfInCellLine', () => {
-			// | hello |  pipes at 0,8  endOfInCellLine=7
-			const lineText = '| hello |'
-			const editor = makeEditor([lineText], 0, 7)
-			plugin.deleteCharInTableLP(editor)
-			expect(editor.setLine).not.toHaveBeenCalled()
-			expect(deleteCharForward).not.toHaveBeenCalled()
-		})
-
-		it('single cell — cursor past endOfInCellLine (trailing space before pipe)', () => {
-			const lineText = '| hello |'
-			const editor = makeEditor([lineText], 0, 8)
-			plugin.deleteCharInTableLP(editor)
-			expect(editor.setLine).not.toHaveBeenCalled()
-			expect(deleteCharForward).not.toHaveBeenCalled()
-		})
-
-		it('last in-cell line — cursor at endOfInCellLine', () => {
-			// | a<br>b |  last segment: startOfInCellLine=7, endOfInCellLine=8
-			const lineText = '| a<br>b |'
-			const editor = makeEditor([lineText], 0, 8)
-			const info = plugin.getInCellLineInfo(lineText, 8)
-			expect(info?.lineType).toBe('last')
-			plugin.deleteCharInTableLP(editor)
-			expect(editor.setLine).not.toHaveBeenCalled()
-			expect(deleteCharForward).not.toHaveBeenCalled()
-		})
-	})
 
 
 	// ===========================================================================
-	// <br> deletion: join in-cell sub-lines
+	// inner view path — primary path when editor.activeCM is available
 	// ===========================================================================
+	//
+	// innerText=' hello '  single line; endOfSubLine=6 (trimEnd)
+	// innerText=' a\n b '  multi-line: sub-line 1 from=0,to=2; sub-line 2 from=3,to=6,endOfSubLine=5
 
-	describe('<br> deletion at in-cell line end', () => {
-		it('first segment — removes <br> and defers cursor restore', () => {
-			vi.useFakeTimers()
-			// | a<br>b |  first segment endOfInCellLine=3 (at '<' of <br>)
-			const lineText = '| a<br>b |'
-			const editor = makeEditor([lineText], 0, 3)
-			const info = plugin.getInCellLineInfo(lineText, 3)
-			expect(info?.lineType).toBe('first')
+	type Row = {
+		desc:          string
+		innerText:     string
+		head:          number
+		innerDispatch?: { changes: { from: number; to: number; insert: string }; selection: { anchor: number }; userEvent: string }
+		deleteForward?: true
+		// neither = no-op
+	}
 
-			plugin.deleteCharInTableLP(editor)
+	const innerViewMatrix: Row[] = [
+		// single-line cell: endOfSubLine=6
+		{ desc: 'single: within content → deleteCharForward',   innerText: ' hello ', head: 3, deleteForward: true },
+		{ desc: 'single: at end → no-op',                       innerText: ' hello ', head: 6 },
+		{ desc: 'single: past end (trailing space) → no-op',    innerText: ' hello ', head: 7 },
 
-			expect(editor.setLine).toHaveBeenCalledWith(0, '| ab |')
-			expect(deleteCharForward).not.toHaveBeenCalled()
+		// multi-line cell: sub-line 1 to=2; sub-line 2 endOfSubLine=5
+		{ desc: 'multi: within first sub-line → deleteCharForward', innerText: ' a\n b ', head: 1, deleteForward: true },
+		{ desc: 'multi: at first sub-line end → delete \\n',        innerText: ' a\n b ', head: 2,
+			innerDispatch: { changes: { from: 2, to: 3, insert: '' }, selection: { anchor: 2 }, userEvent: 'delete' } },
+		{ desc: 'multi: within last sub-line → deleteCharForward',  innerText: ' a\n b ', head: 4, deleteForward: true },
+		{ desc: 'multi: at last sub-line end → no-op',              innerText: ' a\n b ', head: 5 },
+	]
 
-			vi.runAllTimers()
-			expect(plugin.setCursorViaCm).toHaveBeenCalledWith(editor, 0, 3)
-		})
+	describe('inner view path', () => {
+		for (const row of innerViewMatrix) {
+			it(row.desc, () => {
+				const editor = makeEditorWithInnerView(row.innerText, row.head)
+				plugin.deleteCharInTableLP(editor)
 
-		it('first segment — removes <br> including trailing spaces', () => {
-			vi.useFakeTimers()
-			// | a<br>   b |  <br>+3 spaces consumed
-			const lineText = '| a<br>   b |'
-			const editor = makeEditor([lineText], 0, 3)
-
-			plugin.deleteCharInTableLP(editor)
-
-			expect(editor.setLine).toHaveBeenCalledWith(0, '| ab |')
-		})
-
-		it('middle segment — removes <br> between middle and last', () => {
-			vi.useFakeTimers()
-			// | a<br>b<br>c |  middle segment endOfInCellLine=8 (second '<br>' start)
-			const lineText = '| a<br>b<br>c |'
-			const editor = makeEditor([lineText], 0, 8)
-			const info = plugin.getInCellLineInfo(lineText, 8)
-			expect(info?.lineType).toBe('middle')
-
-			plugin.deleteCharInTableLP(editor)
-
-			expect(editor.setLine).toHaveBeenCalledWith(0, '| a<br>bc |')
-		})
-	})
-
-
-	// ===========================================================================
-	// within cell content: delegates to deleteCharForward
-	// ===========================================================================
-
-	describe('within cell content', () => {
-		it('cursor within single cell — calls deleteCharForward', () => {
-			// | hello |  cursor at ch=2, before endOfInCellLine=7
-			const lineText = '| hello |'
-			const editor = makeEditor([lineText], 0, 2)
-			plugin.deleteCharInTableLP(editor)
-			expect(deleteCharForward).toHaveBeenCalledWith(editor.cm)
-			expect(editor.setLine).not.toHaveBeenCalled()
-		})
-
-		it('cursor at start of last in-cell line — calls deleteCharForward', () => {
-			// | a<br>b |  cursor at ch=7 (start of 'b'), endOfInCellLine=8
-			const lineText = '| a<br>b |'
-			const editor = makeEditor([lineText], 0, 7)
-			plugin.deleteCharInTableLP(editor)
-			expect(deleteCharForward).toHaveBeenCalledWith(editor.cm)
-		})
+				if (row.innerDispatch) {
+					expect(editor._innerDispatch).toHaveBeenCalledWith(row.innerDispatch)
+					expect(deleteCharForward).not.toHaveBeenCalled()
+				} else if (row.deleteForward) {
+					expect(deleteCharForward).toHaveBeenCalledWith(editor.cm)
+					expect(editor._innerDispatch).not.toHaveBeenCalled()
+				} else {
+					expect(editor._innerDispatch).not.toHaveBeenCalled()
+					expect(deleteCharForward).not.toHaveBeenCalled()
+				}
+			})
+		}
 	})
 })
 

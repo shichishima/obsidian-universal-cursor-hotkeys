@@ -2,33 +2,32 @@ import { App, Editor, Plugin, PluginSettingTab, Setting, MarkdownView, ToggleCom
 import { syntaxTree } from '@codemirror/language';
 import { EditorView } from "@codemirror/view";
 import { EditorSelection, Transaction } from '@codemirror/state';
-import { cursorPageDown, cursorPageUp, deleteCharForward } from '@codemirror/commands';
+import { deleteCharForward } from '@codemirror/commands';
 
 // Extend the Obsidian Editor interface to include the internal CodeMirror 6 instance (EditorView)
 declare module "obsidian" {
 	interface Editor {
 		cm: EditorView;
-		// Inner CM view active when cursor is in a Live Preview table cell.
-		// Points to editor.cm when no table cell is focused.
-		activeCM: EditorView;
 		inTableCell: boolean;
+		// Active CM view: the inner EditorView when inTableCell is true, otherwise editor.cm.
+		activeCM: EditorView;
 	}
 }
 
 
 interface UniversalCursorHotkeysSettings {
+	visualLineMovement: boolean;
 	smartHomeStandard: boolean;
 	smartHomeAdvanced: boolean;
 	smartJoin: boolean;
-	visualLineMovement: boolean;
 	crossRowNavigation: boolean;
 }
 
 const DEFAULT_SETTINGS: UniversalCursorHotkeysSettings = {
+	visualLineMovement: true,
 	smartHomeStandard: true,
 	smartHomeAdvanced: true,
 	smartJoin: false,
-	visualLineMovement: true,
 	crossRowNavigation: true,
 };
 
@@ -47,10 +46,15 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	private readonly CELL_SEPARATOR_REGEX = /(?<!\\)\|/g;
 	private readonly TABLE_DELIMITER_REGEX = /^\s*\|?[:\s]*?-+[:\s-]*\|[:\s-|]*$/;
+	// Lines of overlap between successive page-down/up screens (Emacs next-screen-context-lines).
+	private readonly NEXT_SCREEN_CONTEXT_LINES = 0;
+	// Lines of margin above/below cursor for recenter-top-bottom top/bottom positions.
+	private readonly RECENTER_TOP_BOTTOM_MARGIN_LINES = 2;
 
 	private isKillChaining: boolean = false;
 	private isDispatchingKill: boolean = false;
 	private killCache: string = '';
+	private _recenterStep = 0; // 0=center, 1=top, 2=bottom
 
 	async onload() {
 		await this.loadSettings();
@@ -158,8 +162,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Page down',
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
-				const cm = editor.cm;
-				if (cm) cursorPageDown(cm);
+				this.pageDown(editor);
 			}
 		});
 
@@ -168,8 +171,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Page up',
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
-				const cm = editor.cm;
-				if (cm) cursorPageUp(cm);
+				this.pageUp(editor);
 			}
 		});
 
@@ -181,23 +183,34 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			}
 		});
 
+		this.addCommand({
+			id: 'recenter-top-bottom',
+			name: 'Recenter top-bottom',
+			editorCallback: (editor: Editor) => {
+				this.recenterTopBottom(editor);
+			}
+		});
+
 		this.registerEditorExtension(
 			EditorView.updateListener.of((update) => {
-				if (!this.isKillChaining) return;
-				if (update.docChanged || update.selectionSet) {
-					// Only reset on genuine user actions (keystrokes, arrow keys, etc.).
-					// Programmatic dispatches (our own, Obsidian's table editor re-dispatches)
-					// carry no Transaction.userEvent annotation and are ignored here.
-					const isUserAction = update.transactions.some(
-						tr => tr.annotation(Transaction.userEvent) !== undefined
-					);
-					if (isUserAction && !this.isDispatchingKill) this.isKillChaining = false;
+				if (!this.isKillChaining && this._recenterStep === 0) return;
+				if (!update.docChanged && !update.selectionSet) return;
+				// Only reset on genuine user actions (keystrokes, arrow keys, etc.).
+				// Programmatic dispatches (our own, Obsidian's table editor re-dispatches)
+				// carry no Transaction.userEvent annotation and are ignored here.
+				const isUserAction = update.transactions.some(
+					tr => tr.annotation(Transaction.userEvent) !== undefined
+				);
+				if (isUserAction && !this.isDispatchingKill) {
+					this.isKillChaining = false;
+					this._recenterStep = 0;
 				}
 			})
 		);
 
 		this.registerDomEvent(activeDocument, 'mousedown', () => {
 			this.isKillChaining = false;
+			this._recenterStep = 0;
 		});
 
 		this.registerDomEvent(activeDocument, 'copy', () => {
@@ -232,7 +245,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const cursor = editor.getCursor();
 		if (cursor.ch === 0) return;
 
-		if (this.isLivePreviewMode() && this.isPositionInTable(editor)) {
+		if (editor.inTableCell) {
 			this.moveCursorHomeInTable(editor);
 			return;
 		}
@@ -247,7 +260,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 
 	private moveCursorEnd(editor: Editor) {
-		if (this.isLivePreviewMode() && this.isPositionInTable(editor)) {
+		if (editor.inTableCell) {
 			this.moveCursorEndInTable(editor);
 			return;
 		}
@@ -264,7 +277,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private moveCursorLeft(editor: Editor) {
 		const cursor = editor.getCursor();
 
-		if (this.isLivePreviewMode() && this.isPositionInTable(editor)) {
+		if (editor.inTableCell) {
 			const line = editor.getLine(cursor.line);
 			const startOfCell = this.getStartOfCellContent(line, cursor.ch);
 			const endOfCell = this.getEndOfCellContent(line, cursor.ch);
@@ -276,6 +289,15 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 
+		if (this.isLivePreviewMode() && cursor.ch === 0 && cursor.line > 0
+				&& this.isPositionInTable(editor, cursor.line - 1, 1)) {
+			const targetLine = cursor.line - 1;
+			const lineText   = editor.getLine(targetLine);
+			const lastCell   = this.getRightmostCellIndex(lineText);
+			const endCh      = this.getEndOfCellContentByCellIndex(lineText, lastCell);
+			this.setCursorViaCm(editor, targetLine, endCh);
+			return;
+		}
 		editor.exec('goLeft');
 	}
 
@@ -283,7 +305,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private moveCursorRight(editor: Editor) {
 		const cursor = editor.getCursor();
 
-		if (this.isLivePreviewMode() && this.isPositionInTable(editor)) {
+		if (editor.inTableCell) {
 			const line = editor.getLine(cursor.line);
 			const endOfCell = this.getEndOfCellContent(line, cursor.ch);
 			if (cursor.ch >= endOfCell) {
@@ -294,16 +316,75 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 
+		if (this.isLivePreviewMode() && cursor.ch >= editor.getLine(cursor.line).length
+				&& this.isPositionInTable(editor, cursor.line + 1, 1)) {
+			this.moveCursorDownIntoTable(editor);
+			return;
+		}
 		editor.exec('goRight');
 	}
 
 
 	//===========================================================================
-	// Ctrl-A/E table helpers
+	// Ctrl-A — Home helpers
 	//===========================================================================
 
-	// In-cell Home: every in-cell line, no 2-step Home.
+	// In-cell Home: VL edge (if visualLineMovement) → smart home → sub-line start → left cell.
 	private moveCursorHomeInTable(editor: Editor) {
+		const inner = editor.activeCM;
+		if (!inner || inner === editor.cm) {
+			// Fallback: no-op if inner view is unavailable (cursor not in LP table cell).
+			return;
+		}
+
+		// Inner view path: use sub-line boundaries directly.
+		const head    = inner.state.selection.main.head;
+		const subLine = inner.state.doc.lineAt(head);
+
+		// First sub-line: skip leading whitespace to reach content start.
+		// Middle/last sub-lines: content starts right after the \n boundary.
+		const isFirstSubLine = subLine.number === 1;
+		const startOfSubLine = isFirstSubLine
+			? subLine.from + subLine.text.search(/\S|$/)
+			: subLine.from;
+
+		if (head <= startOfSubLine) {
+			if (subLine.number === 1) this.moveToLeftCellEnd(editor);
+			return;
+		}
+
+		// VL step: when on VL2+ within a sub-line, move to the VL left edge first.
+		if (this.settings.visualLineMovement) {
+			// Use assoc to pick the correct side at wrap points: assoc=-1 means the cursor
+			// is visually at the right end of VL_N, so coordsAtPos with side=-1 returns VL_N
+			// coords. Without this, default side=1 would return VL_N+1 coords and make the
+			// VL step appear to be a no-op (vlStartPos === head).
+			const assoc = inner.state.selection.main.assoc;
+			const coords = inner.coordsAtPos(head, assoc < 0 ? -1 : 1);
+			if (coords) {
+				// x=0 is left of all inner-view content; posAtCoords snaps to the leftmost
+				// character on the current visual line. y = midpoint of that line (height ≈ 18 px).
+				const vlStartPos = inner.posAtCoords({ x: 0, y: coords.top + 9 }, false);
+				if (vlStartPos !== null && vlStartPos > startOfSubLine && head > vlStartPos) {
+					inner.dispatch({ selection: { anchor: vlStartPos }, userEvent: 'move' });
+					return;
+				}
+			}
+		}
+
+		// Smart home: apply prefix detection on content slice (from startOfSubLine).
+		const contentText    = subLine.text.slice(startOfSubLine - subLine.from);
+		const smartHomeInner = startOfSubLine + this.getBeginningOfLinePosition(contentText, head - startOfSubLine);
+
+		if (head > smartHomeInner) {
+			inner.dispatch({ selection: { anchor: smartHomeInner }, userEvent: 'move' });
+			return;
+		}
+		inner.dispatch({ selection: { anchor: startOfSubLine }, userEvent: 'move' });
+	}
+
+
+	private moveCursorHomeInTableSourceMode(editor: Editor) {
 		const cursor = editor.getCursor();
 		const line = editor.getLine(cursor.line);
 		const info = this.getInCellLineInfo(line, cursor.ch);
@@ -311,23 +392,21 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 		if (info.isEmpty || cursor.ch <= info.startOfInCellLine) {
 			if (info.lineType === 'single' || info.lineType === 'first') {
-				this.moveToLeftCellEnd(editor);
+				this.moveToLeftCellEndSourceMode(editor);
 			}
 			return;
 		}
 
-		// Smart home within cell: apply Standard/Advanced prefix detection on cell content.
 		const bounds = this.getCellBounds(line, cursor.ch);
 		if (!bounds) return;
 		const cellContent = line.slice(info.startOfInCellLine, bounds.close);
 		const smartHomePos = info.startOfInCellLine + this.getBeginningOfLinePosition(cellContent, cursor.ch - info.startOfInCellLine);
 
 		if (cursor.ch > smartHomePos) {
-			this.navigateInTableToPos(editor, cursor.line, smartHomePos);
+			editor.setCursor({ line: cursor.line, ch: smartHomePos });
 			return;
 		}
-		// At or before smart home: step back to cell content start.
-		this.navigateInTableToPos(editor, cursor.line, info.startOfInCellLine);
+		editor.setCursor({ line: cursor.line, ch: info.startOfInCellLine });
 	}
 
 
@@ -363,79 +442,47 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 
-	// In-cell End: every in-cell line, no 2-step End.
-	private moveCursorEndInTable(editor: Editor) {
-		const cursor = editor.getCursor();
-		const line = editor.getLine(cursor.line);
-		const info = this.getInCellLineInfo(line, cursor.ch);
-		if (!info) return;
+	//===========================================================================
+	// Ctrl-E — End helpers
+	//===========================================================================
 
-		if (info.isEmpty || cursor.ch >= info.endOfInCellLine) {
-			if (info.lineType === 'single' || info.lineType === 'last') {
-				this.moveToRightCellStart(editor);
-			}
-			// 'first' or 'middle': do nothing.
+	// In-cell End: VL edge (if visualLineMovement) → sub-line end → right cell.
+	private moveCursorEndInTable(editor: Editor) {
+		const inner = editor.activeCM;
+		if (!inner || inner === editor.cm) {
+			// Fallback: no-op if inner view is unavailable (cursor not in LP table cell).
 			return;
 		}
-		// Middle or left position -> move to right edge of current in-cell line.
-		this.navigateInTableToPos(editor, cursor.line, info.endOfInCellLine);
-	}
 
+		// Inner view path: use sub-line boundaries directly.
+		const head    = inner.state.selection.main.head;
+		const subLine = inner.state.doc.lineAt(head);
 
-	// Non-table End: visual-line-aware 2-step end.
-	private moveCursorEndNonTable(editor: Editor) {
-		const cm = editor.cm;
-		if (cm && this.settings.visualLineMovement) {
-			const currentHead = cm.state.selection.main.head;
-			const vlEnd = cm.moveToLineBoundary(cm.state.selection.main, true, true);
+		// Last sub-line: trim trailing whitespace; non-last: end is at \n boundary.
+		const isLastSubLine = subLine.number === inner.state.doc.lines;
+		const endOfSubLine  = isLastSubLine
+			? subLine.from + subLine.text.trimEnd().length
+			: subLine.to;
 
-			if (vlEnd.head !== currentHead) {
-				// Not yet at VL end: move to VL end.
-				cm.dispatch({
+		if (head >= endOfSubLine) {
+			if (isLastSubLine) this.moveToRightCellStart(editor);
+			// first/middle at end: no-op
+			return;
+		}
+
+		// VL step: when on a non-last VL within the sub-line, move to the VL right edge first.
+		if (this.settings.visualLineMovement) {
+			const vlEnd = inner.moveToLineBoundary(inner.state.selection.main, true, true);
+			if (vlEnd.head !== head && vlEnd.head < endOfSubLine) {
+				inner.dispatch({
 					selection: EditorSelection.create([EditorSelection.cursor(vlEnd.head, vlEnd.assoc)]),
-					scrollIntoView: true,
 					userEvent: 'move',
 				});
 				return;
 			}
-			// Fell through: already at VL end.
-		}
-		// visualLineMovement OFF, no cm, or already at VL end -> move to logical line end.
-		const cursor = editor.getCursor();
-		const line = editor.getLine(cursor.line);
-		if (cursor.ch !== line.length) {
-			editor.setCursor({ line: cursor.line, ch: line.length });
-		}
-	}
-
-
-	//===========================================================================
-	// Ctrl-A/E table helpers — Source Mode
-	//===========================================================================
-
-	private moveCursorHomeInTableSourceMode(editor: Editor) {
-		const cursor = editor.getCursor();
-		const line = editor.getLine(cursor.line);
-		const info = this.getInCellLineInfo(line, cursor.ch);
-		if (!info) return;
-
-		if (info.isEmpty || cursor.ch <= info.startOfInCellLine) {
-			if (info.lineType === 'single' || info.lineType === 'first') {
-				this.moveToLeftCellEndSourceMode(editor);
-			}
-			return;
 		}
 
-		const bounds = this.getCellBounds(line, cursor.ch);
-		if (!bounds) return;
-		const cellContent = line.slice(info.startOfInCellLine, bounds.close);
-		const smartHomePos = info.startOfInCellLine + this.getBeginningOfLinePosition(cellContent, cursor.ch - info.startOfInCellLine);
-
-		if (cursor.ch > smartHomePos) {
-			editor.setCursor({ line: cursor.line, ch: smartHomePos });
-			return;
-		}
-		editor.setCursor({ line: cursor.line, ch: info.startOfInCellLine });
+		inner.dispatch({ selection: { anchor: endOfSubLine }, userEvent: 'move' });
 	}
 
 
@@ -471,6 +518,33 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 
+	// Non-table End: visual-line-aware 2-step end.
+	private moveCursorEndNonTable(editor: Editor) {
+		const cm = editor.cm;
+		if (cm && this.settings.visualLineMovement) {
+			const currentHead = cm.state.selection.main.head;
+			const vlEnd = cm.moveToLineBoundary(cm.state.selection.main, true, true);
+
+			if (vlEnd.head !== currentHead) {
+				// Not yet at VL end: move to VL end.
+				cm.dispatch({
+					selection: EditorSelection.create([EditorSelection.cursor(vlEnd.head, vlEnd.assoc)]),
+					scrollIntoView: true,
+					userEvent: 'move',
+				});
+				return;
+			}
+			// Fell through: already at VL end.
+		}
+		// visualLineMovement OFF, no cm, or already at VL end -> move to logical line end.
+		const cursor = editor.getCursor();
+		const line = editor.getLine(cursor.line);
+		if (cursor.ch !== line.length) {
+			editor.setCursor({ line: cursor.line, ch: line.length });
+		}
+	}
+
+
 	//===========================================================================
 	// Entry points: Ctrl-P / Ctrl-N
 	//===========================================================================
@@ -478,18 +552,35 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private moveCursorUp(editor: Editor) {
 		const cursor = editor.getCursor();
 
-		// Top of file: goUp is safe even inside a table.
-		if (cursor.line === 0) { editor.exec('goUp'); return; }
+		if (cursor.line === 0 || !this.isLivePreviewMode()) {
+			editor.exec('goUp');
+			return;
+		}
 
-		if (this.isLivePreviewMode()) {
-			if (this.isPositionInTable(editor)) {
-				this.moveCursorUpInTable(editor);
-				return;
-			}
-			if (this.isPositionInTable(editor, cursor.line - 1, 1)) {
-				this.moveCursorUpIntoTable(editor);
-				return;
-			}
+		if (editor.inTableCell) {
+			this.moveCursorUpInTable(editor);
+			return;
+		}
+		if (this.isPositionInTable(editor, cursor.line - 1, 1)) {
+			this.moveCursorUpIntoTable(editor);
+			return;
+		}
+
+		// Enter a blockquote/callout from the empty line directly below it.
+		// goUp skips over the collapsed widget; setCursor triggers LP expansion (same mechanism as goLeft).
+		// Precondition: current line is empty or whitespace-only.
+		// Detection: syntax tree at end of prevLine has HyperMD-quote (covers > lines and lazy continuation).
+		if (editor.getLine(cursor.line).trim() === '' &&
+			this.isLineInQuote(editor, cursor.line - 1)) {
+			const prevLine = cursor.line - 1;
+			const prevLen  = editor.getLine(prevLine).length;
+			editor.setCursor({ line: prevLine, ch: Math.min(cursor.ch, prevLen) });
+			return;
+		}
+
+		if (this.isLineSkippableWidget(editor.getLine(cursor.line - 1))) {
+			this.setCursorViaCm(editor, cursor.line - 1, 0);
+			return;
 		}
 
 		editor.exec('goUp');
@@ -499,22 +590,34 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private moveCursorDown(editor: Editor) {
 		const cursor = editor.getCursor();
 
-		if (this.isLivePreviewMode()) {
-			if (this.isPositionInTable(editor)) {
-				this.moveCursorDownInTable(editor);
-				return;
-			}
-			if (this.isPositionInTable(editor, cursor.line + 1, 1)) {
-				this.moveCursorDownIntoTable(editor);
-				return;
-			}
+		if (!this.isLivePreviewMode()) {
+			editor.exec('goDown');
+			return;
 		}
 
-		// Last content line: at the absolute last line, or at the line just before a trailing empty line.
-		const lastLine = editor.lineCount() - 1;
-		if (cursor.line === lastLine ||
-			(cursor.line === lastLine - 1 && editor.getLine(lastLine) === '')) {
-			editor.exec('goDown');
+		if (editor.inTableCell) {
+			this.moveCursorDownInTable(editor);
+			return;
+		}
+		if (this.isPositionInTable(editor, cursor.line + 1, 1)) {
+			this.moveCursorDownIntoTable(editor);
+			return;
+		}
+
+		// Enter a callout from the line directly above it.
+		// goDown skips over the collapsed callout widget; setCursor triggers LP expansion.
+		// Plain blockquotes are already handled by goDown; only callout headers need this.
+		// Callout header pattern: > [!type], > [!type]+, > [!type]-, > [!type]+ Title, etc.
+		const nextIdx = cursor.line + 1;
+		if (nextIdx < editor.lineCount() &&
+			/^\s*>\s*\[![^\]]+\]([+-]?(\s|$))/.test(editor.getLine(nextIdx))) {
+			const nextLen = editor.getLine(nextIdx).length;
+			editor.setCursor({ line: nextIdx, ch: Math.min(cursor.ch, nextLen) });
+			return;
+		}
+
+		if (nextIdx < editor.lineCount() && this.isLineSkippableWidget(editor.getLine(nextIdx))) {
+			this.setCursorViaCm(editor, nextIdx, 0);
 			return;
 		}
 
@@ -533,35 +636,52 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const startOfCellContent = this.getStartOfCellContent(line, cursor.ch);
 		const cellIndex = this.getCellIndex(line, cursor.ch);
 
-		// Empty cell: goRight/goLeft does not enter the widget, so goUp is unreliable.
-		// Detect by string analysis alone and navigate to the previous row directly.
+		// Empty cell: no navigable content, so go directly to the previous row.
 		if (startOfCellContent === this.getEndOfCellContent(line, cursor.ch)) {
 			this.setCursorToPrevRow(editor, cellIndex);
-			this.scheduleBottomVisualLine(editor);
+			this.placeAtBottomVL(editor);
 			return;
 		}
 
-		// goRight+goLeft: CM6 internally tracks which VL the cursor belongs to.
-		// By stepping right then left, goLeft returns to the same ch but with the
-		// correct assoc for the current VL (-1 if on VL_1 trailing edge, +1 if on
-		// VL_2+ leading edge). This disambiguates the VL_1/VL_2 boundary where both
-		// sides share the same ch value, and also registers the cursor inside the
-		// table widget so subsequent goUp navigates visual lines correctly.
-		editor.exec('goRight');
-		editor.exec('goLeft');
+		const innerBeforeGoUp = editor.activeCM;
+		const innerHeadBeforeGoUp = (innerBeforeGoUp && innerBeforeGoUp !== editor.cm)
+			? innerBeforeGoUp.state.selection.main.head
+			: undefined;
+
+		// At VL wrap-point edges, assoc may misidentify which VL the cursor is on,
+		// causing goUp to skip an extra visual line. Fix assoc before goUp:
+		//   left edge  → assoc=1  (start of this VL, not end of the line above)
+		//   right edge → assoc=-1 (end of this VL, not start of the line below)
+		if (innerBeforeGoUp && innerBeforeGoUp !== editor.cm && innerHeadBeforeGoUp !== undefined) {
+			const h = innerHeadBeforeGoUp;
+			const currentAssoc = innerBeforeGoUp.state.selection.main.assoc;
+			const coords = innerBeforeGoUp.coordsAtPos(h);
+			// Fix only when assoc >= 0: assoc=-1 means the cursor is already correctly
+			// placed at the right edge of VL_N (end-of-VL), so goUp works as expected.
+			// Firing for assoc=-1 would incorrectly flip the cursor to the left edge of
+			// VL_N+1 and cause goUp to skip the wrong number of visual lines.
+			if (coords && currentAssoc >= 0) {
+				const vlStartPos = innerBeforeGoUp.posAtCoords({ x: 0, y: coords.top + 9 }, false);
+				if (vlStartPos !== null && vlStartPos === h) {
+					innerBeforeGoUp.dispatch({
+						selection: EditorSelection.create([EditorSelection.cursor(h, 1)]),
+					});
+				}
+			}
+		}
+
 		editor.exec('goUp');
 
 		const cursorAfter = editor.getCursor();
 		if (cursorAfter.line !== cursor.line) {
 			// goUp moved to a different logical line (previous table row or outside table).
-			// Re-place cursor at cell start so moveToBottomVisualLineOfCell can navigate down properly.
-			if (this.isPositionInTable(editor)) {
+			if (editor.inTableCell) {
 				const targetCh = this.getChByCellIndex(editor.getLine(cursorAfter.line), cellIndex);
 				if (targetCh !== -1) {
-					this.navigateInTableToPos(editor, cursorAfter.line, targetCh);
+					this.setCursorViaCm(editor, cursorAfter.line, targetCh);
 				}
 			}
-			this.scheduleBottomVisualLine(editor);
+			this.placeAtBottomVL(editor);
 			return;
 		}
 
@@ -569,7 +689,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (cursor.ch <= startOfCellContent) {
 			// Was at cell start -> go to previous row.
 			this.setCursorToPrevRow(editor, cellIndex);
-			this.scheduleBottomVisualLine(editor);
+			this.placeAtBottomVL(editor);
 			return;
 		}
 
@@ -582,9 +702,9 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			if (cursor.ch >= endOfCellContent) {
 				// VL1 end of non-wrapped cell -> go to previous row.
 				this.setCursorToPrevRow(editor, cellIndex);
-				this.scheduleBottomVisualLine(editor);
+				this.placeAtBottomVL(editor);
 			} else {
-				this.handleCellStartSnap(editor, cursor.line, cursor.ch, cellIndex);
+				this.handleCellStartSnap(editor, cursor.line, cursor.ch, cellIndex, innerHeadBeforeGoUp);
 			}
 		}
 		// else: goUp moved within the cell to the visual line above - done.
@@ -606,7 +726,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (targetCh !== -1) {
 			editor.setCursor({ line: targetLine, ch: targetCh });
 		}
-		this.scheduleBottomVisualLine(editor);
+		this.placeAtBottomVL(editor);
 	}
 
 
@@ -616,22 +736,38 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const line = editor.getLine(cursor.line);
 		const cellIndex = this.getCellIndex(line, cursor.ch);
 		const eoc = this.getEndOfCellContent(line, cursor.ch);
-		const inCellInfo = this.getInCellLineInfo(line, cursor.ch);
-		const type = inCellInfo?.lineType ?? 'single';
 
-		// Empty cell: goDown is unreliable when the cursor was placed via cm.dispatch
-		// (not registered inside the widget).  Detect by string analysis alone and
-		// navigate to the next row directly, bypassing goDown entirely.
+		// Empty cell: no navigable content, so go directly to the next row.
 		if (this.getStartOfCellContent(line, cursor.ch) === eoc) {
 			this.setCursorToNextRow(editor, cellIndex);
 			return;
 		}
 
-		// <br> cells with more in-cell lines below (first/middle): goDown navigates
+		// Not on the last sub-line (inner doc has more lines below) → goDown navigates
 		// within the cell.  No post-check needed — we never exit the row here.
-		if (type === 'first' || type === 'middle') {
-			editor.exec('goDown');
-			return;
+		const inner = editor.activeCM;
+		if (inner && inner !== editor.cm) {
+			const head = inner.state.selection.main.head;
+			const subLine = inner.state.doc.lineAt(head);
+
+			// At VL wrap-point edges, assoc may misidentify which VL the cursor is on,
+			// causing goDown to skip an extra visual line. Fix assoc before any goDown:
+			//   left edge  → assoc=1  (start of this VL, not end of the line above)
+			//   right edge → assoc=-1 (end of this VL, not start of the line below)
+			const currentAssoc = inner.state.selection.main.assoc;
+			const coords = inner.coordsAtPos(head);
+			// Fix only when assoc >= 0 (same rationale as moveCursorUpInTable).
+			if (coords && currentAssoc >= 0) {
+				const vlStartPos = inner.posAtCoords({ x: 0, y: coords.top + 9 }, false);
+				if (vlStartPos !== null && vlStartPos === head) {
+					inner.dispatch({ selection: EditorSelection.create([EditorSelection.cursor(head, 1)]) });
+				}
+			}
+
+			if (subLine.number < inner.state.doc.lines) {
+				editor.exec('goDown');
+				return;
+			}
 		}
 
 		// type is 'single' or 'last'.
@@ -641,6 +777,29 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (cursor.ch >= eoc) {
 			this.setCursorToNextRow(editor, cellIndex);
 			return;
+		}
+
+		// Determine whether the cursor is already on the last visual line (VL_N).
+		// Used below to resolve the VL_N-1 vs VL_N clip ambiguity after goDown:
+		//   VL_N-1 clip → goDown moved into VL_N and clipped to eoc → stay in cell.
+		//   VL_N   clip → goDown could not move further → exit to next row.
+		// Default true: safe fallback to old clip→exit when inner view is unavailable.
+		let isOnLastVL = true;
+		if (inner && inner !== editor.cm) {
+			const head = inner.state.selection.main.head;
+			const lastSubLine = inner.state.doc.line(inner.state.doc.lines);
+			const contentEnd = lastSubLine.from + lastSubLine.text.trimEnd().length;
+			// Use assoc to pick the correct side at wrap points: assoc=-1 means the cursor is
+			// visually at the right end of VL_N-1, so coordsAtPos with side=-1 returns VL_N-1
+			// coords. Without this, default side=1 returns VL_N coords (= same as contentEnd's
+			// VL), causing isOnLastVL to be true even when we are still on VL_N-1.
+			const assoc = inner.state.selection.main.assoc;
+			const headCoords = inner.coordsAtPos(head, assoc < 0 ? -1 : 1);
+			const endCoords  = inner.coordsAtPos(contentEnd);
+			if (headCoords && endCoords) {
+				// 4 px: same-VL diff is always 0.0; adjacent-VL diff is ≥ line-height (~18 px).
+				isOnLastVL = Math.abs(headCoords.top - endCoords.top) < 4;
+			}
 		}
 
 		// Call goDown once and inspect where the cursor lands.
@@ -665,9 +824,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 		const eocAfter = this.getEndOfCellContent(line, after.ch);
 		if (after.ch >= eocAfter) {
-			// goDown stayed on the same line and ch reached/passed eoc.
-			// This means we are on VL_N (last visual line) — exit to next row.
-			this.setCursorToNextRow(editor, cellIndex);
+			if (isOnLastVL) {
+				// Was already on VL_N: goDown clipped in place → exit to next row.
+				this.setCursorToNextRow(editor, cellIndex);
+			}
+			// Was on VL_N-1: goDown moved to VL_N and clipped to eoc → VL advance, stay.
 			return;
 		}
 
@@ -1203,27 +1364,75 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	//===========================================================================
 
 	// Called when goUp snapped the cursor to startOfCellContent.
-	// Probes with goDown to distinguish VL1-middle from VL2+ left edge.
-	private handleCellStartSnap(editor: Editor, originalLine: number, originalCh: number, cellIndex: number) {
+	// Distinguishes VL1-middle (→ go to previous row) from VL2+ left edge (→ stay).
+	//
+	// Primary: compare y-coordinates via coordsAtPos — no cursor side-effects.
+	//   originalHead was on VL2+  →  its y > VL1-start y  →  stay
+	//   originalHead was on VL1   →  its y ≈ VL1-start y  →  previous row
+	//
+	// Fallback: goDown probe using CM6's goal-column memory.
+	private handleCellStartSnap(
+		editor: Editor,
+		originalLine: number,
+		originalCh: number,
+		cellIndex: number,
+		innerHeadBeforeGoUp?: number,
+	) {
+		const inner = editor.activeCM;
+		if (innerHeadBeforeGoUp !== undefined && inner && inner !== editor.cm) {
+			const vl1Coords      = inner.coordsAtPos(inner.state.selection.main.head);
+			const originalCoords = inner.coordsAtPos(innerHeadBeforeGoUp);
+			if (vl1Coords && originalCoords) {
+				if (originalCoords.top > vl1Coords.top + 2) {
+					// VL2+ left edge: cursor already at VL1 start — nothing to do.
+					return;
+				}
+				// VL1 middle: go to previous row.
+				this.setCursorToPrevRow(editor, cellIndex);
+				this.placeAtBottomVL(editor);
+				return;
+			}
+		}
+
+		// Fallback: goDown probe (exploits CM6 goal-column to tell VL1 from VL2+).
 		editor.exec('goDown');
 		const backTest = editor.getCursor();
 		if (backTest.line === originalLine && backTest.ch === originalCh) {
-			// VL2+ left edge: stay at VL1 start
+			// VL2+ left edge: undo probe, stay at VL1 start.
 			editor.exec('goUp');
 		} else {
-			// VL1 middle: go to previous row
+			// VL1 middle: undo probe, go to previous row.
 			editor.exec('goUp');
 			this.setCursorToPrevRow(editor, cellIndex);
-			this.scheduleBottomVisualLine(editor);
+			this.placeAtBottomVL(editor);
 		}
+	}
+
+
+	// Move to the bottom visual line synchronously if the inner view is already
+	// mounted, otherwise defer via scheduleBottomVisualLine.
+	private placeAtBottomVL(editor: Editor) {
+		const inner = editor.activeCM;
+		if (inner && inner !== editor.cm) {
+			// Check cursor position (not content end) for on-screen detection:
+			// when entering a cell from an adjacent row, the cursor start (ch=cellStart)
+			// is always on-screen even if the cell content end is off-screen.
+			// moveToBottomVisualLineOfCell handles the off-screen content end via goDown fallback.
+			if (inner.coordsAtPos(inner.state.selection.main.head)) {
+				this.moveToBottomVisualLineOfCell(editor);
+				return;
+			}
+		}
+		this.scheduleBottomVisualLine(editor);
 	}
 
 
 	// Schedules moveToBottomVisualLineOfCell for the next event loop tick.
 	// Used after synchronous cursor placement to let the DOM settle first.
 	private scheduleBottomVisualLine(editor: Editor) {
+		if (this._inScrollPage) return;
 		window.setTimeout(() => {
-			if (this.isPositionInTable(editor)) {
+			if (editor.inTableCell) {
 				this.moveToBottomVisualLineOfCell(editor);
 			}
 		}, 0);
@@ -1231,23 +1440,36 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 
 	// Move to the bottom visual line of the current table cell.
-	// Strategy:
-	//   1. goRight: works around a Live Preview issue where goDown from the leftmost
-	//      cell position (placed by cm.dispatch) exits the table immediately.
-	//   2. goDown loop: navigates visual lines until no further movement or line change.
-	//      lastPos ends up at the bottom visual line or at cell end (non-wrapped).
-	//   3. Determine landing position:
-	//      - lastPos within cell content: on bottom visual line -> stay at lastPos.
-	//      - lastPos at/past cell content end: non-wrapped cell -> restore to cell start.
+	// Primary: use coordsAtPos + posAtCoords on the inner EditorView to jump directly.
+	// Fallback: goDown loop for cases where the inner view or coordinates are unavailable.
 	private moveToBottomVisualLineOfCell(editor: Editor) {
-		const startLine  = editor.getCursor().line;
-		const originalPos = editor.getCursor();
+		const cursor = editor.getCursor();
+		const startLine = cursor.line;
 		const line = editor.getLine(startLine);
-		const endOfCellContent = this.getEndOfCellContent(line, originalPos.ch);
+		const endOfCellContent = this.getEndOfCellContent(line, cursor.ch);
 
+		const inner = editor.activeCM;
+		if (inner && inner !== editor.cm) {
+			const lastSubLine = inner.state.doc.line(inner.state.doc.lines);
+			const contentEnd  = lastSubLine.from + lastSubLine.text.trimEnd().length;
+			const endCoords   = inner.coordsAtPos(contentEnd);
+			if (endCoords) {
+				// x=0 is left of all inner-view content; posAtCoords snaps to the leftmost
+				// character on the bottom visual line. y = midpoint of that line (height ≈ 18 px).
+				const pos = inner.posAtCoords({ x: 0, y: endCoords.top + 9 }, false);
+				if (pos !== null) {
+					inner.dispatch({ selection: { anchor: pos } });
+					return;
+				}
+			}
+		}
+
+		// Fallback: goDown loop.
+		// goRight works around a Live Preview issue where goDown from the leftmost
+		// cell position (placed by cm.dispatch) exits the table immediately.
 		editor.exec('goRight');
 		if (editor.getCursor().line !== startLine) {
-			editor.setCursor(originalPos);
+			editor.setCursor(cursor);
 			return;
 		}
 		editor.exec('goLeft');
@@ -1299,7 +1521,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Infrastructure
 	//===========================================================================
 
-	private isPositionInTable(editor: Editor, line?: number, ch?: number): boolean {
+	private isPositionInTable(editor: Editor, line: number, ch: number): boolean {
 		const cm = editor.cm;
 		if (!cm) return false;
 
@@ -1322,43 +1544,194 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 
+	// Returns true if the given line is part of a blockquote or callout block,
+	// including lazy continuation lines (HyperMD-quote-lazy).
+	private isLineInQuote(editor: Editor, line: number): boolean {
+		const cm = editor.cm;
+		if (!cm) return false;
+
+		const lineText = editor.getLine(line);
+		const pos = editor.posToOffset({ line, ch: lineText.length });
+
+		let node = syntaxTree(cm.state).resolveInner(pos, -1);
+		while (node) {
+			if (node.name.includes('HyperMD-quote')) return true;
+			node = node.parent!;
+		}
+		return false;
+	}
+
+
+	// Scroll the view so the cursor appears at targetScreenY pixels from the top of the
+	// scroll area. Works for both regular text and LP table cells: uses getCursorScreenY()
+	// (window.getSelection) rather than cm.state.selection.main.head, so the result is
+	// correct even when the outer CM head points to the row start (VL1) instead of the
+	// actual inner cursor position in a wrapped cell.
+	private scrollToCursorAtY(editor: Editor, targetScreenY: number) {
+		const cm = editor.cm;
+		if (!cm) return;
+		const cursorTop = this.getCursorScreenY(cm);
+		if (cursorTop === null) return;
+		const scrollRect = cm.scrollDOM.getBoundingClientRect();
+		const docY = cursorTop - scrollRect.top + cm.scrollDOM.scrollTop;
+		cm.scrollDOM.scrollTop = Math.max(0, docY - targetScreenY);
+	}
+
 	// Use cm.dispatch directly to avoid triggering Obsidian's table editor
 	// interference that occurs when moving the cursor within a Live Preview table.
 	private recenter(editor: Editor) {
 		const cm = editor.cm;
 		if (!cm) return;
+		this.scrollToCursorAtY(editor, cm.scrollDOM.clientHeight / 2);
+	}
 
-		if (!this.isLivePreviewMode() || !this.isPositionInTable(editor)) {
-			cm.dispatch({
-				effects: EditorView.scrollIntoView(cm.state.selection.main.head, { y: 'center' })
-			});
-			return;
+	// Cycles center → top → bottom on successive presses; resets on any other action.
+	private recenterTopBottom(editor: Editor) {
+		const cm = editor.cm;
+		if (!cm) return;
+		const h      = cm.scrollDOM.clientHeight;
+		const margin = this.RECENTER_TOP_BOTTOM_MARGIN_LINES * cm.defaultLineHeight;
+
+		const targetY = this._recenterStep === 0 ? h / 2
+		              : this._recenterStep === 1 ? margin
+		              :                            h - margin - cm.defaultLineHeight;
+
+		this.scrollToCursorAtY(editor, targetY);
+		this._recenterStep = (this._recenterStep + 1) % 3;
+	}
+
+
+	//===========================================================================
+	// Page down / Page up
+	//===========================================================================
+
+	private pageDown(editor: Editor) { this.scrollPage(editor,  1); }
+	private pageUp  (editor: Editor) { this.scrollPage(editor, -1); }
+
+	// Returns the viewport-relative Y coordinate of the current browser cursor.
+	// Works inside LP table cells (unlike cm.coordsAtPos). Returns null when off-screen.
+	// view: when provided, used as a precise fallback via coordsAtPos when the selection
+	// rect has zero height (e.g. cursor at ch=0 of the first line).
+	private getCursorScreenY(view?: EditorView): number | null {
+		const sel = window.getSelection();
+		if (!sel || sel.rangeCount === 0) return null;
+		const range = sel.getRangeAt(0);
+		const rect  = range.getBoundingClientRect();
+		if (rect.height > 0) return rect.top;
+		// Collapsed range with zero height: try coordsAtPos for accurate line top.
+		if (view) {
+			const coords = view.coordsAtPos(view.state.selection.main.head);
+			if (coords) return coords.top;
+		}
+		const node = range.startContainer;
+		const el   = node.instanceOf(Element) ? node : node.parentElement;
+		return el?.getBoundingClientRect().top ?? null;
+	}
+
+	// Page down/up: move cursor one screen minus NEXT_SCREEN_CONTEXT_LINES of overlap.
+	// Uses moveCursorDown/Up to traverse tables and callouts correctly.
+	//
+	// Measurement: docY = getCursorScreenY() + cm.scrollDOM.scrollTop.
+	// docY is the cursor's absolute document-space Y and is invariant under any
+	// scrollIntoView — even if the outer CM head points to VL1 instead of the actual
+	// inner cursor (LP wrapped cell), screenY and scrollTop adjust symmetrically so
+	// their sum is always correct. No caching or estimation is needed.
+	private _inScrollPage    = false;
+	private _scrollPageGenId = 0;
+
+	// scrollPage operates in four phases:
+	//   1. Record prevScreenY — cursor's Y within the scroll area before any movement.
+	//   2. Loop — advance cursor one page via moveCursorDown/Up, measuring real pixel progress.
+	//   3. Scroll — call scrollToCursorAtY to restore the cursor to prevScreenY on screen.
+	//   4. Watch — detect LP cursor normalization and re-run scrollToCursorAtY after it settles.
+	private scrollPage(editor: Editor, direction: 1 | -1) {
+		const cm = editor.cm;
+		if (!cm) return;
+
+		const moveCursor = direction > 0
+			? (e: Editor) => this.moveCursorDown(e)
+			: (e: Editor) => this.moveCursorUp(e);
+
+		const target = cm.scrollDOM.clientHeight
+		             - this.NEXT_SCREEN_CONTEXT_LINES * cm.defaultLineHeight;
+
+		const getDocY = (): number | null => {
+			const y = this.getCursorScreenY(cm);
+			return y !== null ? y + cm.scrollDOM.scrollTop : null;
+		};
+
+		// Phase 1: record cursor's scroll-area-relative Y (viewport Y minus scrollRect.top).
+		// Used by phase 3 to restore the cursor to the same on-screen position after scrolling.
+		const scrollRect  = cm.scrollDOM.getBoundingClientRect();
+		const rawY        = this.getCursorScreenY(cm);
+		const prevScreenY = rawY !== null ? rawY - scrollRect.top : cm.scrollDOM.clientHeight / 2;
+
+		// Phase 2: step through one page via moveCursorDown/Up (handles tables and callouts).
+		// scrollIntoView keeps the cursor on-screen each step so getDocY() stays accurate.
+		// delta measures the real pixel distance moved; accumulated in consumed until >= target.
+		let prev     = editor.getCursor();
+		let consumed = 0;
+
+		this._inScrollPage = true;
+		try {
+			while (consumed < target) {
+				const prevDocY = getDocY();
+
+				moveCursor(editor);
+				const cur = editor.getCursor();
+				if (cur.line === prev.line && cur.ch === prev.ch) break;
+				prev = cur;
+
+				cm.dispatch({
+					effects: EditorView.scrollIntoView(cm.state.selection.main.head, { y: 'nearest' }),
+				});
+
+				const curDocY = getDocY();
+				const delta   = (prevDocY !== null && curDocY !== null)
+				              ? (curDocY - prevDocY) * direction : null;
+
+				let step: number;
+				if (delta !== null && delta >= 1) {
+					step = delta;
+				} else if (delta !== null) {
+					// |delta| < 1: horizontal movement on the same visual line, no vertical progress.
+					step = 0;
+				} else {
+					step = cm.defaultLineHeight;
+				}
+
+				consumed += step;
+			}
+		} finally {
+			this._inScrollPage = false;
 		}
 
-		// Inside a Live Preview table widget, coordsAtPos is unreliable (returns dead/constant
-		// coordinates). Use window.getSelection() to get the actual browser cursor rect instead.
-		const browserSel = activeWindow.getSelection();
-		if (!browserSel || browserSel.rangeCount === 0) return;
+		// Phase 3: scrollIntoView only guarantees the cursor is visible, not at prevScreenY.
+		// scrollToCursorAtY adjusts scrollTop so the cursor lands at the recorded position.
+		this.scrollToCursorAtY(editor, prevScreenY);
 
-		const range = browserSel.getRangeAt(0);
-		const rangeRect = range.getBoundingClientRect();
+		const savedHead = cm.state.selection.main.head;
+		const genId     = ++this._scrollPageGenId;
 
-		// getBoundingClientRect() returns zeros when the range is anchored to a block element
-		// at offset 0 (e.g. div.cm-active.cm-line). Fall back to the container element's rect.
-		let cursorTop: number;
-		if (rangeRect.height > 0) {
-			cursorTop = rangeRect.top;
-		} else {
-			const node = range.startContainer;
-			const el = node.instanceOf(Element) ? node : node.parentElement;
-			const elRect = el?.getBoundingClientRect();
-			if (!elRect || elRect.height === 0) return;
-			cursorTop = elRect.top;
-		}
-
-		const scrollRect = cm.scrollDOM.getBoundingClientRect();
-		const relativeTop = cursorTop - scrollRect.top + cm.scrollDOM.scrollTop;
-		cm.scrollDOM.scrollTop = relativeTop - cm.scrollDOM.clientHeight / 2;
+		// Phase 4: Obsidian's LP normalizer fires in the first rAF (~20ms) after the loop's
+		// scrollIntoView calls, moving the cursor to an invalid position. LP widget heights
+		// also shift during the transition, so savedScrollTop would place the cursor at the
+		// wrong Y — re-run scrollToCursorAtY instead once LP has stabilized (~100ms later).
+		// genId cancels a stale watcher when a new scrollPage call arrives first.
+		let frames = 0;
+		const watchNormalization = () => {
+			if (this._scrollPageGenId !== genId) return;
+			if (cm.state.selection.main.head !== savedHead) {
+				window.setTimeout(() => {
+					if (this._scrollPageGenId !== genId) return;
+					cm.dispatch({ selection: { anchor: savedHead, head: savedHead } });
+					this.scrollToCursorAtY(editor, prevScreenY);
+				}, 100);
+				return;
+			}
+			if (++frames < 5) window.requestAnimationFrame(watchNormalization);
+		};
+		window.requestAnimationFrame(watchNormalization);
 	}
 
 
@@ -1377,12 +1750,14 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			// CM already held DOM focus before the dispatch (e.g. after editor.setLine
 			// in Kill Line), Obsidian skips auto-focus.  Transfer focus explicitly in
 			// the next frame to cover that case without risking destroying the inner view.
-			window.requestAnimationFrame(() => {
-				const inner = editor.activeCM;
-				if (inner && inner !== cm && !inner.hasFocus) {
-					inner.focus();
-				}
-			});
+			if (!this._inScrollPage) {
+				window.requestAnimationFrame(() => {
+					const inner = editor.activeCM;
+					if (inner && inner !== cm && !inner.hasFocus) {
+						inner.focus();
+					}
+				});
+			}
 		}
 	}
 
@@ -1391,27 +1766,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// inner CM view active. Dispatching to the outer CM view (setCursorViaCm) causes
 	// Obsidian to destroy and recreate the inner view, which breaks native-cursor's
 	// coordsAtPos. Falls back to setCursorViaCm if the loop cannot reach the target.
-	private navigateInTableToPos(editor: Editor, targetLine: number, targetCh: number): void {
-		let pos = editor.getCursor();
-		if (pos.line === targetLine && pos.ch === targetCh) return;
-		const goingLeft = targetLine < pos.line || (targetLine === pos.line && targetCh < pos.ch);
-		const cmd = goingLeft ? 'goLeft' : 'goRight';
-		for (let step = 0; step < 256; step++) {
-			if (pos.line === targetLine && pos.ch === targetCh) return;
-			const overshot = goingLeft
-				? pos.line < targetLine || (pos.line === targetLine && pos.ch < targetCh)
-				: pos.line > targetLine || (pos.line === targetLine && pos.ch > targetCh);
-			if (overshot) break;
-			editor.exec(cmd);
-			const newP = editor.getCursor();
-			if (newP.line === pos.line && newP.ch === pos.ch) break;
-			pos = newP;
-		}
-		if (pos.line !== targetLine || pos.ch !== targetCh) {
-			this.setCursorViaCm(editor, targetLine, targetCh);
-		}
-	}
-
 
 	private isLivePreviewMode(): boolean {
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
@@ -1444,12 +1798,17 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 		let result: RegExpMatchArray | null = null;
 		if (this.settings.smartHomeAdvanced) {
+			// Callout type marker: > [!type] Title → stop before Title (blockquote lines only)
+			if (bqEnd > 0) {
+				result = line.match(/^\[![^\]]+\][+-]?\s*/);
+				if (result !== null && result[0].length < ch) return bqEnd + result[0].length;
+			}
 			// Headings in an unordered list (Adv.)
 			// `- # heading-text`, 1st after `# `, 2nd after `- `
 			result = line.match(/^(\s*[-+*]\s)?#+\s/);
 			if (result !== null && result[0].length < ch) return bqEnd + result[0].length;
 			result = line.match(/^#{1,6}\s/); // Headings (Adv.)
-			if (result === null) result = line.match(/^\[\^.+\]:\s*/); // Footnotes (Adv.)
+			if (result === null) result = line.match(/^\[\^.+?\]:\s*/); // Footnotes (Adv.)
 		}
 		if (result === null) result = line.match(/^\s*\d+[.)]\s/); // Ordered lists
 		if (result === null) result = line.match(/^\s*([-+*]\s(\[.\]\s)?)?/); // Indents, Unordered lists, Task lists
@@ -1470,6 +1829,14 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 
+	private isLineSkippableWidget(lineText: string): boolean {
+		// Obsidian embed ![[...]] or Markdown image ![...](...) starting at column 0
+		if (/^!(\[\[|\[)/.test(lineText)) return true;
+		// Thematic break --- / *** / ___ (3+ identical chars, optional trailing spaces)
+		return /^[-*_]{3,}\s*$/.test(lineText);
+	}
+
+
 	//===========================================================================
 	// Select all
 	//===========================================================================
@@ -1477,7 +1844,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private selectAll(editor: Editor) {
 		const cursor   = editor.getCursor();
 		const line     = editor.getLine(cursor.line);
-		const inTable  = (this.isLivePreviewMode() && this.isPositionInTable(editor))
+		const inTable  = (editor.inTableCell)
 		              || (!this.isLivePreviewMode() && this.isTableLineSourceMode(line));
 
 		if (inTable) {
@@ -1500,8 +1867,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	//===========================================================================
 
 	private deleteChar(editor: Editor) {
-		const inLPTable = this.isLivePreviewMode() && this.isPositionInTable(editor);
-		if (inLPTable) {
+		if (editor.inTableCell) {
 			this.deleteCharInTableLP(editor);
 			return;
 		}
@@ -1520,45 +1886,26 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 
 	private deleteCharInTableLP(editor: Editor) {
-		const cursor = editor.getCursor();
-		const lineText = editor.getLine(cursor.line);
-		const info = this.getInCellLineInfo(lineText, cursor.ch);
-		if (!info) {
-			const cm = editor.cm;
-			if (cm) deleteCharForward(cm);
+		const inner = editor.activeCM;
+		if (!inner || inner === editor.cm) {
+			// Fallback: no-op if inner view is unavailable (cursor not in LP table cell).
 			return;
 		}
 
-		// At the last in-cell line's right edge: no-op (cell boundary)
-		if ((info.lineType === 'single' || info.lineType === 'last') && cursor.ch >= info.endOfInCellLine) {
+		// Inner view path: use sub-line boundaries directly.
+		const head    = inner.state.selection.main.head;
+		const subLine = inner.state.doc.lineAt(head);
+		const isLastSubLine = subLine.number === inner.state.doc.lines;
+
+		if (isLastSubLine) {
+			const endOfSubLine = subLine.from + subLine.text.trimEnd().length;
+			if (head >= endOfSubLine) return;  // cell boundary: no-op
+		} else if (head >= subLine.to) {
+			// At \n boundary: delete the \n to join sub-lines.
+			inner.dispatch({ changes: { from: subLine.to, to: subLine.to + 1, insert: '' }, selection: { anchor: subLine.to }, userEvent: 'delete' });
 			return;
 		}
 
-		// At the end of a non-last in-cell line: delete the <br> tag to join sub-lines
-		if ((info.lineType === 'first' || info.lineType === 'middle') && cursor.ch >= info.endOfInCellLine) {
-			const brMatch = lineText.slice(info.endOfInCellLine).match(/^<[bB][rR]>([ \t]*)/);
-			if (brMatch) {
-				const brEnd = info.endOfInCellLine + brMatch[0].length;
-				const inner = editor.activeCM;
-				if (inner && inner !== editor.cm) {
-					const innerDoc    = inner.state.doc.toString();
-					const cursorInner = inner.state.selection.main.head;
-					// Inner view uses \n (not <br>) for in-cell line breaks
-					let nlPos = -1;
-					if (innerDoc[cursorInner] === '\n')          nlPos = cursorInner;
-					else if (innerDoc[cursorInner - 1] === '\n') nlPos = cursorInner - 1;
-					if (nlPos >= 0) {
-						inner.dispatch({ changes: { from: nlPos, to: nlPos + 1, insert: '' }, selection: { anchor: nlPos }, userEvent: 'delete' });
-					}
-				} else {
-					editor.setLine(cursor.line, lineText.slice(0, info.endOfInCellLine) + lineText.slice(brEnd));
-					window.setTimeout(() => { this.setCursorViaCm(editor, cursor.line, info.endOfInCellLine); }, 0);
-				}
-			}
-			return;
-		}
-
-		// Within cell content: delete one character forward
 		const cm = editor.cm;
 		if (cm) deleteCharForward(cm);
 	}
@@ -1591,18 +1938,126 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	private killLine(editor: Editor) {
 		const lineText = editor.getLine(editor.getCursor().line);
-		const inLPTable = this.isLivePreviewMode() && this.isPositionInTable(editor);
 		const inSourceTable = !this.isLivePreviewMode() && this.isTableLineSourceMode(lineText);
 
-		if (inLPTable || inSourceTable) {
+		if (editor.inTableCell) {
+			this.killLineInTableLP(editor);
+			return;
+		}
+
+		if (inSourceTable) {
 			const info = this.getInCellLineInfo(lineText, editor.getCursor().ch);
 			if (info) {
-				this.killLineInCellContext(editor, info);
+				this.killLineInTableSourceMode(editor, info);
 				return;
 			}
 		}
 
 		this.killLineNonTable(editor);
+	}
+
+
+	private killLineInTableLP(editor: Editor) {
+		const inner = editor.activeCM;
+		if (!inner || inner === editor.cm) {
+			// Fallback: no-op if inner view is unavailable (cursor not in LP table cell).
+			return;
+		}
+
+		// Inner view path: use sub-line boundaries directly.
+		const head          = inner.state.selection.main.head;
+		const subLine       = inner.state.doc.lineAt(head);
+		const isLastSubLine = subLine.number === inner.state.doc.lines;
+		const endOfSubLine  = isLastSubLine
+			? subLine.from + subLine.text.trimEnd().length
+			: subLine.to;
+
+		if (head < endOfSubLine) {
+			const text = inner.state.doc.sliceString(head, endOfSubLine);
+			this.updateKillCache(text);
+			navigator.clipboard.writeText(this.killCache).catch(() => {});
+			this.isDispatchingKill = true;
+			inner.dispatch({ changes: { from: head, to: endOfSubLine, insert: '' }, selection: { anchor: head }, userEvent: 'delete' });
+			this.isDispatchingKill = false;
+			this.isKillChaining = true;
+			return;
+		}
+
+		if (!isLastSubLine) {
+			const afterNl = inner.state.doc.sliceString(subLine.to + 1);
+			const trimLen = this.settings.smartJoin
+				? this.getBeginningOfLinePosition(afterNl, afterNl.length || 1)
+				: 0;
+			this.updateKillCache('\n');
+			navigator.clipboard.writeText(this.killCache).catch(() => {});
+			this.isDispatchingKill = true;
+			inner.dispatch({ changes: { from: subLine.to, to: subLine.to + 1 + trimLen, insert: '' }, selection: { anchor: subLine.to }, userEvent: 'delete' });
+			this.isDispatchingKill = false;
+			this.isKillChaining = true;
+			return;
+		}
+	}
+
+
+	private killLineInTableSourceMode(editor: Editor, info: InCellLineInfo) {
+		const cursor = editor.getCursor();
+		const lineText = editor.getLine(cursor.line);
+
+		if (cursor.ch < info.endOfInCellLine) {
+			const text = lineText.slice(cursor.ch, info.endOfInCellLine);
+			this.updateKillCache(this.normalizeKillText(text));
+			navigator.clipboard.writeText(this.killCache).catch(() => {});
+			this.isDispatchingKill = true;
+			editor.replaceRange('', cursor, { line: cursor.line, ch: info.endOfInCellLine });
+			this.isDispatchingKill = false;
+			this.isKillChaining = true;
+			return;
+		}
+
+		// kill <br> forward from endOfInCellLine (only possible when lineType is 'first'/'middle')
+		const brMatch = lineText.slice(info.endOfInCellLine).match(/^<[bB][rR]>([ \t]*)/);
+		if (brMatch) {
+			const brLen      = '<br>'.length;
+			const afterBr    = lineText.slice(info.endOfInCellLine + brLen);
+			const trimLen    = this.settings.smartJoin
+				? this.getBeginningOfLinePosition(afterBr, afterBr.length || 1)
+				: 0;
+			const toCh       = info.endOfInCellLine + brLen + trimLen;
+			const targetCh   = info.endOfInCellLine;
+			const targetLine = cursor.line;
+			this.updateKillCache('\n');
+			navigator.clipboard.writeText(this.killCache).catch(() => {});
+			this.isDispatchingKill = true;
+			editor.setLine(targetLine, lineText.slice(0, targetCh) + lineText.slice(toCh));
+			this.isDispatchingKill = false;
+			window.setTimeout(() => {
+				this.isDispatchingKill = true;
+				this.setCursorViaCm(editor, targetLine, targetCh);
+				this.isDispatchingKill = false;
+				this.isKillChaining = true;
+			}, 0);
+			return;
+		}
+
+		// cursor snap: cursor may land at br.end (= startOfInCellLine of 'middle'/'last')
+		// rather than br.start. Kill the <br> that ends at cursor.ch.
+		const brSnapMatch = lineText.slice(0, cursor.ch).match(/<[bB][rR]>([ \t]*)$/);
+		if (brSnapMatch && cursor.ch === info.startOfInCellLine) {
+			const brStart    = cursor.ch - brSnapMatch[0].length;
+			const targetLine = cursor.line;
+			this.updateKillCache('\n');
+			navigator.clipboard.writeText(this.killCache).catch(() => {});
+			this.isDispatchingKill = true;
+			editor.setLine(targetLine, lineText.slice(0, brStart) + lineText.slice(cursor.ch));
+			this.isDispatchingKill = false;
+			window.setTimeout(() => {
+				this.isDispatchingKill = true;
+				this.setCursorViaCm(editor, targetLine, brStart);
+				this.isDispatchingKill = false;
+				this.isKillChaining = true;
+			}, 0);
+			return;
+		}
 	}
 
 
@@ -1636,108 +2091,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 
-	private killLineInCellContext(editor: Editor, info: InCellLineInfo) {
-		const cursor = editor.getCursor();
-		const lineText = editor.getLine(cursor.line);
-
-		if (cursor.ch < info.endOfInCellLine) {
-			const text = lineText.slice(cursor.ch, info.endOfInCellLine);
-			this.updateKillCache(this.normalizeKillText(text));
-			navigator.clipboard.writeText(this.killCache).catch(() => {});
-			this.isDispatchingKill = true;
-			editor.replaceRange('', cursor, { line: cursor.line, ch: info.endOfInCellLine });
-			this.isDispatchingKill = false;
-			this.isKillChaining = true;
-			return;
-		}
-
-		// lineType 'first'/'middle': kill <br> forward from endOfInCellLine
-		if (info.lineType === 'first' || info.lineType === 'middle') {
-			const brMatch = lineText.slice(info.endOfInCellLine).match(/^<[bB][rR]>([ \t]*)/);
-			if (brMatch) {
-				const brLen       = '<br>'.length;
-				const afterBr     = lineText.slice(info.endOfInCellLine + brLen);
-				const trimLen     = this.settings.smartJoin
-					? this.getBeginningOfLinePosition(afterBr, afterBr.length || 1)
-					: 0;
-				const toCh        = info.endOfInCellLine + brLen + trimLen;
-				const targetCh    = info.endOfInCellLine;
-				const targetLine  = cursor.line;
-				this.updateKillCache('\n');
-				navigator.clipboard.writeText(this.killCache).catch(() => {});
-				const inner1 = editor.activeCM;
-				if (inner1 && inner1 !== editor.cm) {
-					const innerDoc    = inner1.state.doc.toString();
-					const cursorInner = inner1.state.selection.main.head;
-					// Inner view uses \n (not <br>) for in-cell line breaks
-					let nlPos = -1;
-					if (innerDoc[cursorInner] === '\n')          nlPos = cursorInner;
-					else if (innerDoc[cursorInner - 1] === '\n') nlPos = cursorInner - 1;
-					if (nlPos >= 0) {
-						const afterNl      = innerDoc.slice(nlPos + 1);
-						const innerTrimLen = this.settings.smartJoin
-							? this.getBeginningOfLinePosition(afterNl, afterNl.length || 1)
-							: 0;
-						this.isDispatchingKill = true;
-						inner1.dispatch({ changes: { from: nlPos, to: nlPos + 1 + innerTrimLen, insert: '' }, selection: { anchor: nlPos }, userEvent: 'delete' });
-						this.isDispatchingKill = false;
-						this.isKillChaining = true;
-					}
-				} else {
-					this.isDispatchingKill = true;
-					editor.setLine(targetLine, lineText.slice(0, targetCh) + lineText.slice(toCh));
-					this.isDispatchingKill = false;
-					window.setTimeout(() => {
-						this.isDispatchingKill = true;
-						this.setCursorViaCm(editor, targetLine, targetCh);
-						this.isDispatchingKill = false;
-						this.isKillChaining = true;
-					}, 0);
-				}
-				return;
-			}
-		}
-
-		// LP cursor snap: cursor may land at br.end (= startOfInCellLine of 'middle'/'last')
-		// rather than br.start. Kill the <br> that ends at cursor.ch.
-		if ((info.lineType === 'middle' || info.lineType === 'last') && cursor.ch === info.startOfInCellLine) {
-			const brMatch = lineText.slice(0, cursor.ch).match(/<[bB][rR]>([ \t]*)$/);
-			if (brMatch) {
-				const brStart     = cursor.ch - brMatch[0].length;
-				const targetLine  = cursor.line;
-				this.updateKillCache('\n');
-				navigator.clipboard.writeText(this.killCache).catch(() => {});
-				const inner2 = editor.activeCM;
-				if (inner2 && inner2 !== editor.cm) {
-					const cursorInner = inner2.state.selection.main.head;
-					const innerDoc2   = inner2.state.doc.toString();
-					// Inner view uses \n (not <br>) for in-cell line breaks
-					let nlPos = -1;
-					if (cursorInner > 0 && innerDoc2[cursorInner - 1] === '\n') nlPos = cursorInner - 1;
-					else if (innerDoc2[cursorInner] === '\n')                    nlPos = cursorInner;
-					if (nlPos >= 0) {
-						this.isDispatchingKill = true;
-						inner2.dispatch({ changes: { from: nlPos, to: nlPos + 1, insert: '' }, selection: { anchor: nlPos }, userEvent: 'delete' });
-						this.isDispatchingKill = false;
-						this.isKillChaining = true;
-					}
-				} else {
-					this.isDispatchingKill = true;
-					editor.setLine(targetLine, lineText.slice(0, brStart) + lineText.slice(cursor.ch));
-					this.isDispatchingKill = false;
-					window.setTimeout(() => {
-						this.isDispatchingKill = true;
-						this.setCursorViaCm(editor, targetLine, brStart);
-						this.isDispatchingKill = false;
-						this.isKillChaining = true;
-					}, 0);
-				}
-				return;
-			}
-		}
-	}
-
-
 	private normalizeKillText(text: string): string {
 		return text.replace(/<[bB][rR]>/g, '\n').replace(/\\\|/g, '|');
 	}
@@ -1760,10 +2113,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const fromLine = editor.getLine(from.line);
 		const toLine   = editor.getLine(to.line);
 
-		const inLPTable = this.isLivePreviewMode() && (
-			this.isPositionInTable(editor, from.line, from.ch) ||
-			this.isPositionInTable(editor, to.line,   to.ch)
-		);
+		const inLPTable = editor.inTableCell;
 		const inSourceTable = !this.isLivePreviewMode() && (
 			this.isTableLineSourceMode(fromLine) ||
 			this.isTableLineSourceMode(toLine)
@@ -1787,61 +2137,60 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		this.updateKillCache(text);
 		navigator.clipboard.writeText(this.killCache).catch(() => {});
 
-		if (inLPTable) {
-			const line = fromLine;
-			let prefix = line.slice(0, from.ch);
-			let suffix = line.slice(to.ch);
-			const bounds = this.getCellBounds(line, from.ch);
-			if (bounds) {
-				if (/^<[bB][rR]>/.test(suffix)) {
-					const cellContentBefore = line.slice(bounds.open + 1, from.ch).trim();
-					if (!cellContentBefore) suffix = suffix.replace(/^<[bB][rR]>([ \t]*)/, '');
-				} else if (/<[bB][rR]>$/.test(prefix)) {
-					const cellContentAfter = line.slice(to.ch, bounds.close).trim();
-					if (!cellContentAfter) prefix = prefix.replace(/<[bB][rR]>$/, '');
-				}
-			}
-			const targetLine  = from.line;
-			const cm          = editor.cm;
-			const lineObj     = cm.state.doc.line(targetLine + 1);
-			const savedScroll = cm.scrollDOM?.scrollTop;
-			const inner       = editor.activeCM;
-			if (inner && inner !== cm) {
-				const innerSel    = inner.state.selection.main;
-				const innerDoc    = inner.state.doc.toString();
-				let delFrom       = innerSel.from;
-				let delTo         = innerSel.to;
-				const innerSuffix = innerDoc.slice(innerSel.to);
-				const innerPrefix = innerDoc.slice(0, innerSel.from);
-				// Inner view uses \n (not <br>) for in-cell line breaks
-				if (innerSuffix.startsWith('\n')) {
-					if (!innerPrefix.trim()) {
-						const wsLen = innerSuffix.match(/^\n([ \t]*)/)?.[1].length ?? 0;
-						delTo += 1 + wsLen;
-					}
-				} else {
-					const trimmedPrefix = innerPrefix.trimEnd();
-					if (trimmedPrefix.endsWith('\n') && !innerSuffix.trim()) {
-						delFrom -= innerPrefix.length - trimmedPrefix.length + 1;
-					}
-				}
-				inner.dispatch({
-					changes:   { from: delFrom, to: delTo, insert: '' },
-					selection: { anchor: delFrom },
-				});
-			} else {
-				cm.dispatch({
-					changes:   { from: lineObj.from, to: lineObj.to, insert: prefix + suffix },
-					selection: { anchor: lineObj.from + prefix.length },
-				});
-				cm.focus();
-			}
-			if (savedScroll !== undefined) cm.scrollDOM.scrollTop = savedScroll;
-		} else {
+		if (!inLPTable) {
 			editor.replaceRange('', from, to);
+			return;
 		}
 
-		this.isKillChaining = false;
+		const line = fromLine;
+		let prefix = line.slice(0, from.ch);
+		let suffix = line.slice(to.ch);
+		const bounds = this.getCellBounds(line, from.ch);
+		if (bounds) {
+			if (/^<[bB][rR]>/.test(suffix)) {
+				const cellContentBefore = line.slice(bounds.open + 1, from.ch).trim();
+				if (!cellContentBefore) suffix = suffix.replace(/^<[bB][rR]>([ \t]*)/, '');
+			} else if (/<[bB][rR]>$/.test(prefix)) {
+				const cellContentAfter = line.slice(to.ch, bounds.close).trim();
+				if (!cellContentAfter) prefix = prefix.replace(/<[bB][rR]>$/, '');
+			}
+		}
+		const targetLine  = from.line;
+		const cm          = editor.cm;
+		const lineObj     = cm.state.doc.line(targetLine + 1);
+		const savedScroll = cm.scrollDOM?.scrollTop;
+		const inner       = editor.activeCM;
+		if (inner && inner !== cm) {
+			const innerSel    = inner.state.selection.main;
+			const innerDoc    = inner.state.doc.toString();
+			let delFrom       = innerSel.from;
+			let delTo         = innerSel.to;
+			const innerSuffix = innerDoc.slice(innerSel.to);
+			const innerPrefix = innerDoc.slice(0, innerSel.from);
+			// Inner view uses \n (not <br>) for in-cell line breaks
+			if (innerSuffix.startsWith('\n')) {
+				if (!innerPrefix.trim()) {
+					const wsLen = innerSuffix.match(/^\n([ \t]*)/)?.[1].length ?? 0;
+					delTo += 1 + wsLen;
+				}
+			} else {
+				const trimmedPrefix = innerPrefix.trimEnd();
+				if (trimmedPrefix.endsWith('\n') && !innerSuffix.trim()) {
+					delFrom -= innerPrefix.length - trimmedPrefix.length + 1;
+				}
+			}
+			inner.dispatch({
+				changes:   { from: delFrom, to: delTo, insert: '' },
+				selection: { anchor: delFrom },
+			});
+		} else {
+			cm.dispatch({
+				changes:   { from: lineObj.from, to: lineObj.to, insert: prefix + suffix },
+				selection: { anchor: lineObj.from + prefix.length },
+			});
+			cm.focus();
+		}
+		if (savedScroll !== undefined) cm.scrollDOM.scrollTop = savedScroll;
 	}
 
 
@@ -1860,7 +2209,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (!raw) return;
 
 		const lineText = editor.getLine(editor.getCursor().line);
-		const inLPTable = this.isLivePreviewMode() && this.isPositionInTable(editor);
+		const inLPTable = editor.inTableCell;
 		const inTable = inLPTable || this.isTableLineSourceMode(lineText);
 
 		// LP table with active inner view: insert raw text directly.
@@ -1925,8 +2274,7 @@ class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			.setName('Visual line movement')
 			.then(setting => this.setHtmlDesc(setting, '' +
 				'<b>ON:</b> HOME/END first moves to the visual line edge, then to the logical line start/end.<br>' +
-				'<b>OFF:</b> Moves directly to the logical line start/end.<br>' +
-				'<i>Does not apply inside table cells.</i>'))
+				'<b>OFF:</b> Moves directly to the logical line start/end.'))
 			.addToggle(toggle => toggle
 				.setValue(this.plugin.settings.visualLineMovement)
 				.onChange(async (value) => {
@@ -1971,7 +2319,7 @@ class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		advancedEl = new Setting(containerEl)
 			.setName('Smart home (advanced)')
 			.then(setting => this.setHtmlDesc(setting, '' +
-				'<b>ON:</b> Also skips past headings (<code>#</code>) and footnotes (<code>[^1]:</code>).<br>' +
+				'<b>ON:</b> Also skips past headings (<code>#</code>), footnotes (<code>[^1]:</code>), and callout type markers (<code>[!type]</code>).<br>' +
 				'<i>Requires <b>Smart home (standard)</b> to be enabled.</i>'))
 			.addToggle(toggle => {
 				advancedToggle = toggle;
