@@ -1729,9 +1729,9 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				}, 100);
 				return;
 			}
-			if (++frames < 5) requestAnimationFrame(watchNormalization);
+			if (++frames < 5) window.requestAnimationFrame(watchNormalization);
 		};
-		requestAnimationFrame(watchNormalization);
+		window.requestAnimationFrame(watchNormalization);
 	}
 
 
