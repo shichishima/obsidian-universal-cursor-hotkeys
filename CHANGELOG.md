@@ -13,6 +13,7 @@
 
 - Ctrl+N no longer exits a soft-wrapped table cell one visual line too early.
 - Ctrl+F and Ctrl+B no longer cause unwanted scrolling when entering a Live Preview table from outside.
+- Smart Home (Advanced): footnote prefix detection now uses a non-greedy match, fixing incorrect cursor placement when a line contains a second `]:` sequence (e.g., inside an inline code span).
 
 ### Changed
 

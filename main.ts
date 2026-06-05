@@ -1808,7 +1808,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			result = line.match(/^(\s*[-+*]\s)?#+\s/);
 			if (result !== null && result[0].length < ch) return bqEnd + result[0].length;
 			result = line.match(/^#{1,6}\s/); // Headings (Adv.)
-			if (result === null) result = line.match(/^\[\^.+\]:\s*/); // Footnotes (Adv.)
+			if (result === null) result = line.match(/^\[\^.+?\]:\s*/); // Footnotes (Adv.)
 		}
 		if (result === null) result = line.match(/^\s*\d+[.)]\s/); // Ordered lists
 		if (result === null) result = line.match(/^\s*([-+*]\s(\[.\]\s)?)?/); // Indents, Unordered lists, Task lists
