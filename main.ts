@@ -1660,15 +1660,24 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 		const t1 = perf ? performance.now() : 0;
 
-		// Phase 1.5: scan viewport for special content that needs the step loop.
+		// Phase 1.5: scan the traversal range for special content that needs the step loop.
 		// Tables and callouts require moveCursorDown/Up for correct cell/line navigation.
 		// Embeds and horizontal rules can have unpredictable heights that confuse delta tracking.
-		// If none found, use a single CM6 cursorPageDown/Up call (< 1ms vs ~200ms loop).
-		const { from: vpFrom, to: vpTo } = cm.viewport;
+		// Scan from the cursor to ~1 page ahead (not just cm.viewport) so that tables just
+		// outside the rendered viewport but within the scroll distance are also detected.
+		const estimatedLines = Math.ceil(target / cm.defaultLineHeight) + 5;
+		const curLine  = editor.getCursor().line;
+		const docLines = cm.state.doc.lines;
+		const scanFrom = direction > 0
+			? cm.state.selection.main.head
+			: cm.state.doc.line(Math.max(1, curLine - estimatedLines)).from;
+		const scanTo   = direction > 0
+			? cm.state.doc.line(Math.min(docLines, curLine + estimatedLines)).to
+			: cm.state.selection.main.head;
 		let hasSpecialInView = false;
 		const dbgNodes = perf ? new Set<string>() : null;
 		syntaxTree(cm.state).iterate({
-			from: vpFrom, to: vpTo,
+			from: scanFrom, to: scanTo,
 			enter: (node) => {
 				dbgNodes?.add(node.name);
 				if (hasSpecialInView) return false;
@@ -1679,15 +1688,15 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		});
 		// String-based fallback: syntax tree node names vary by Obsidian version/mode.
 		if (!hasSpecialInView) {
-			const vpText = cm.state.doc.sliceString(vpFrom, vpTo);
-			hasSpecialInView = /^\|/m.test(vpText)             // table rows
-				|| /^>/m.test(vpText)                          // blockquotes / callouts
-				|| /^!(?:\[\[|\[)/m.test(vpText)               // embeds
-				|| /^[-*_]{3,}\s*$/m.test(vpText);             // horizontal rules
+			const scanText = cm.state.doc.sliceString(scanFrom, scanTo);
+			hasSpecialInView = /^\|/m.test(scanText)           // table rows
+				|| /^>/m.test(scanText)                        // blockquotes / callouts
+				|| /^!(?:\[\[|\[)/m.test(scanText)             // embeds
+				|| /^[-*_]{3,}\s*$/m.test(scanText);           // horizontal rules
 		}
 		if (this._forceSlowPath) hasSpecialInView = true;
 		const t1_5 = perf ? performance.now() : 0;
-		if (perf) console.log(`[scrollPage] nodes(${vpFrom}-${vpTo}): ${[...(dbgNodes ?? [])].join(', ')}`);
+		if (perf) console.log(`[scrollPage] nodes(${scanFrom}-${scanTo}): ${[...(dbgNodes ?? [])].join(', ')}`);
 
 		// Phase 2: move cursor one page.
 		const lineBefore = perf ? editor.getCursor().line : 0;
