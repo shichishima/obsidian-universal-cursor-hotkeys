@@ -2,7 +2,7 @@ import { App, Editor, Plugin, PluginSettingTab, Setting, MarkdownView, ToggleCom
 import { syntaxTree } from '@codemirror/language';
 import { EditorView } from "@codemirror/view";
 import { EditorSelection, Transaction } from '@codemirror/state';
-import { deleteCharForward } from '@codemirror/commands';
+import { deleteCharForward, cursorPageDown, cursorPageUp } from '@codemirror/commands';
 
 // Extend the Obsidian Editor interface to include the internal CodeMirror 6 instance (EditorView)
 declare module "obsidian" {
@@ -46,8 +46,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	private readonly CELL_SEPARATOR_REGEX = /(?<!\\)\|/g;
 	private readonly TABLE_DELIMITER_REGEX = /^\s*\|?[:\s]*?-+[:\s-]*\|[:\s-|]*$/;
-	// Lines of overlap between successive page-down/up screens (Emacs next-screen-context-lines).
-	private readonly NEXT_SCREEN_CONTEXT_LINES = 0;
 	// Lines of margin above/below cursor for recenter-top-bottom top/bottom positions.
 	private readonly RECENTER_TOP_BOTTOM_MARGIN_LINES = 2;
 
@@ -1608,6 +1606,12 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private pageDown(editor: Editor) { this.scrollPage(editor,  1); }
 	private pageUp  (editor: Editor) { this.scrollPage(editor, -1); }
 
+	// Set to true to enable per-phase timing logs for scrollPage.
+	private _perfTiming = true;
+	// Set to true to force the slow path (0.6.0 loop) regardless of viewport content.
+	// Use this to record ground-truth line numbers before testing the fast path.
+	private _forceSlowPath = false;
+
 	// Returns the viewport-relative Y coordinate of the current browser cursor.
 	// Works inside LP table cells (unlike cm.coordsAtPos). Returns null when off-screen.
 	// view: when provided, used as a precise fallback via coordsAtPos when the selection
@@ -1628,14 +1632,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		return el?.getBoundingClientRect().top ?? null;
 	}
 
-	// Page down/up: move cursor one screen minus NEXT_SCREEN_CONTEXT_LINES of overlap.
+	// Page down/up: move cursor one screen, then restore cursor screen position.
 	// Uses moveCursorDown/Up to traverse tables and callouts correctly.
-	//
-	// Measurement: docY = getCursorScreenY() + cm.scrollDOM.scrollTop.
-	// docY is the cursor's absolute document-space Y and is invariant under any
-	// scrollIntoView — even if the outer CM head points to VL1 instead of the actual
-	// inner cursor (LP wrapped cell), screenY and scrollTop adjust symmetrically so
-	// their sum is always correct. No caching or estimation is needed.
 	private _inScrollPage    = false;
 	private _scrollPageGenId = 0;
 
@@ -1648,17 +1646,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const cm = editor.cm;
 		if (!cm) return;
 
-		const moveCursor = direction > 0
-			? (e: Editor) => this.moveCursorDown(e)
-			: (e: Editor) => this.moveCursorUp(e);
+		const perf = this._perfTiming;
+		const dir  = direction > 0 ? '+1' : '-1';
+		const t0   = perf ? performance.now() : 0;
 
-		const target = cm.scrollDOM.clientHeight
-		             - this.NEXT_SCREEN_CONTEXT_LINES * cm.defaultLineHeight;
-
-		const getDocY = (): number | null => {
-			const y = this.getCursorScreenY(cm);
-			return y !== null ? y + cm.scrollDOM.scrollTop : null;
-		};
+		const target = cm.scrollDOM.clientHeight;
 
 		// Phase 1: record cursor's scroll-area-relative Y (viewport Y minus scrollRect.top).
 		// Used by phase 3 to restore the cursor to the same on-screen position after scrolling.
@@ -1666,49 +1658,98 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const rawY        = this.getCursorScreenY(cm);
 		const prevScreenY = rawY !== null ? rawY - scrollRect.top : cm.scrollDOM.clientHeight / 2;
 
-		// Phase 2: step through one page via moveCursorDown/Up (handles tables and callouts).
-		// scrollIntoView keeps the cursor on-screen each step so getDocY() stays accurate.
-		// delta measures the real pixel distance moved; accumulated in consumed until >= target.
-		let prev     = editor.getCursor();
-		let consumed = 0;
+		const t1 = perf ? performance.now() : 0;
 
+		// Phase 1.5: scan viewport for special content that needs the step loop.
+		// Tables and callouts require moveCursorDown/Up for correct cell/line navigation.
+		// Embeds and horizontal rules can have unpredictable heights that confuse delta tracking.
+		// If none found, use a single CM6 cursorPageDown/Up call (< 1ms vs ~200ms loop).
+		const { from: vpFrom, to: vpTo } = cm.viewport;
+		let hasSpecialInView = false;
+		const dbgNodes = perf ? new Set<string>() : null;
+		syntaxTree(cm.state).iterate({
+			from: vpFrom, to: vpTo,
+			enter: (node) => {
+				dbgNodes?.add(node.name);
+				if (hasSpecialInView) return false;
+				if (node.name.includes('HyperMD-table') || node.name.includes('HyperMD-quote')) {
+					hasSpecialInView = true; return false;
+				}
+			},
+		});
+		// String-based fallback: syntax tree node names vary by Obsidian version/mode.
+		if (!hasSpecialInView) {
+			const vpText = cm.state.doc.sliceString(vpFrom, vpTo);
+			hasSpecialInView = /^\|/m.test(vpText)             // table rows
+				|| /^>/m.test(vpText)                          // blockquotes / callouts
+				|| /^!(?:\[\[|\[)/m.test(vpText)               // embeds
+				|| /^[-*_]{3,}\s*$/m.test(vpText);             // horizontal rules
+		}
+		if (this._forceSlowPath) hasSpecialInView = true;
+		const t1_5 = perf ? performance.now() : 0;
+		if (perf) console.log(`[scrollPage] nodes(${vpFrom}-${vpTo}): ${[...(dbgNodes ?? [])].join(', ')}`);
+
+		// Phase 2: move cursor one page.
+		const lineBefore = perf ? editor.getCursor().line : 0;
+		let steps = 0;
 		this._inScrollPage = true;
 		try {
-			while (consumed < target) {
-				const prevDocY = getDocY();
-
-				moveCursor(editor);
-				const cur = editor.getCursor();
-				if (cur.line === prev.line && cur.ch === prev.ch) break;
-				prev = cur;
-
-				cm.dispatch({
-					effects: EditorView.scrollIntoView(cm.state.selection.main.head, { y: 'nearest' }),
-				});
-
-				const curDocY = getDocY();
-				const delta   = (prevDocY !== null && curDocY !== null)
-				              ? (curDocY - prevDocY) * direction : null;
-
-				let step: number;
-				if (delta !== null && delta >= 1) {
-					step = delta;
-				} else if (delta !== null) {
-					// |delta| < 1: horizontal movement on the same visual line, no vertical progress.
-					step = 0;
-				} else {
-					step = cm.defaultLineHeight;
+			if (!hasSpecialInView) {
+				// Fast path: single CM6 native command (no intermediate scrollIntoView calls).
+				if (direction > 0) cursorPageDown(cm);
+				else cursorPageUp(cm);
+				steps = 1;
+			} else {
+				// Slow path: step loop handles tables, callouts, and variable-height widgets.
+				// scrollIntoView each step keeps getDocY() accurate by keeping the cursor on-screen.
+				const getDocY = (): number | null => {
+					const y = this.getCursorScreenY(cm);
+					return y !== null ? y + cm.scrollDOM.scrollTop : null;
+				};
+				const moveCursor = direction > 0
+					? (e: Editor) => this.moveCursorDown(e)
+					: (e: Editor) => this.moveCursorUp(e);
+				let prev     = editor.getCursor();
+				let consumed = 0;
+				while (consumed < target) {
+					const prevDocY = getDocY();
+					moveCursor(editor);
+					const cur = editor.getCursor();
+					if (cur.line === prev.line && cur.ch === prev.ch) break;
+					prev = cur;
+					steps++;
+					cm.dispatch({
+						effects: EditorView.scrollIntoView(cm.state.selection.main.head, { y: 'nearest' }),
+					});
+					const curDocY = getDocY();
+					const delta   = (prevDocY !== null && curDocY !== null)
+					              ? (curDocY - prevDocY) * direction : null;
+					let step: number;
+					if (delta !== null && delta >= 1) {
+						step = delta;
+					} else if (delta !== null) {
+						// |delta| < 1: horizontal movement on the same visual line, no vertical progress.
+						step = 0;
+					} else {
+						step = cm.defaultLineHeight;
+					}
+					consumed += step;
 				}
-
-				consumed += step;
 			}
 		} finally {
 			this._inScrollPage = false;
 		}
 
+		const t2 = perf ? performance.now() : 0;
+		const lineAfter = perf ? editor.getCursor().line : 0;
+
 		// Phase 3: scrollIntoView only guarantees the cursor is visible, not at prevScreenY.
 		// scrollToCursorAtY adjusts scrollTop so the cursor lands at the recorded position.
 		this.scrollToCursorAtY(editor, prevScreenY);
+
+		const t3 = perf ? performance.now() : 0;
+		const label = this._forceSlowPath ? 'scrollPage-gt' : 'scrollPage';
+		if (perf) console.log(`[${label}] dir=${dir} fast=${!hasSpecialInView} line:${lineBefore}→${lineAfter} | scan=${(t1_5-t1).toFixed(2)}ms loop=${(t2-t1_5).toFixed(2)}ms(${steps}steps) scroll=${(t3-t2).toFixed(2)}ms | total=${(t3-t0).toFixed(2)}ms`);
 
 		const savedHead = cm.state.selection.main.head;
 		const genId     = ++this._scrollPageGenId;
@@ -1722,14 +1763,18 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const watchNormalization = () => {
 			if (this._scrollPageGenId !== genId) return;
 			if (cm.state.selection.main.head !== savedHead) {
+				const tNorm = perf ? performance.now() : 0;
+				if (perf) console.log(`[${label}] dir=${dir} | P4-rAF: normalization at frame=${frames} +${(tNorm-t3).toFixed(2)}ms after P3`);
 				window.setTimeout(() => {
 					if (this._scrollPageGenId !== genId) return;
 					cm.dispatch({ selection: { anchor: savedHead, head: savedHead } });
 					this.scrollToCursorAtY(editor, prevScreenY);
+					if (perf) console.log(`[${label}] dir=${dir} | P4-timeout: correction applied +${(performance.now()-t3).toFixed(2)}ms after P3`);
 				}, 100);
 				return;
 			}
 			if (++frames < 5) window.requestAnimationFrame(watchNormalization);
+			else if (perf) console.log(`[${label}] dir=${dir} | P4: no normalization after ${frames} frames (+${(performance.now()-t3).toFixed(2)}ms after P3)`);
 		};
 		window.requestAnimationFrame(watchNormalization);
 	}
