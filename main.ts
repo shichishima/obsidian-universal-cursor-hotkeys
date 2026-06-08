@@ -971,7 +971,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (targetLine === -1) {
 			// Last row: go outside table (c)->(C), skipping any remaining table rows (e.g. delimiter).
 			let exitLine = cursor.line + 1;
-			while (exitLine < editor.lineCount() && this.isPositionInTable(editor, exitLine, 1)) {
+			while (exitLine < editor.lineCount() && this.isPositionInTable(editor, exitLine, 1, true)) {
 				exitLine++;
 			}
 			if (exitLine >= editor.lineCount()) {
@@ -1092,7 +1092,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const cursor = editor.getCursor();
 		return this.computePrevRowLine(
 			cursor.line,
-			this.isPositionInTable(editor, cursor.line - 1, 1),
+			this.isPositionInTable(editor, cursor.line - 1, 1, true),
 			editor.getLine(cursor.line - 1),
 		);
 	}
@@ -1104,10 +1104,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const cursor = editor.getCursor();
 		const nextLineExists = cursor.line + 1 < editor.lineCount();
 		const lineAfterNextInTable = cursor.line + 2 < editor.lineCount()
-			&& this.isPositionInTable(editor, cursor.line + 2, 1);
+			&& this.isPositionInTable(editor, cursor.line + 2, 1, true);
 		return this.computeNextRowLine(
 			cursor.line,
-			nextLineExists && this.isPositionInTable(editor, cursor.line + 1, 1),
+			nextLineExists && this.isPositionInTable(editor, cursor.line + 1, 1, true),
 			editor.getLine(cursor.line + 1),
 			lineAfterNextInTable,
 		);
@@ -1186,7 +1186,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (targetLine === -1) {
 			// Last data row: exit below, skipping any remaining table rows (e.g. delimiter).
 			let exitLine = cursor.line + 1;
-			while (exitLine < editor.lineCount() && this.isPositionInTable(editor, exitLine, 1)) {
+			while (exitLine < editor.lineCount() && this.isPositionInTable(editor, exitLine, 1, true)) {
 				exitLine++;
 			}
 			if (exitLine >= editor.lineCount()) {
@@ -1553,7 +1553,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Infrastructure
 	//===========================================================================
 
-	private isPositionInTable(editor: Editor, line: number, ch: number): boolean {
+	private isPositionInTable(editor: Editor, line: number, ch: number, alreadyInTable = false): boolean {
+		if (alreadyInTable) return editor.getLine(line).trimStart().startsWith('|');
 		const cm = editor.cm;
 		if (!cm) return false;
 
@@ -1746,7 +1747,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				steps = 1;
 			} else {
 				// Slow path: step loop handles tables, callouts, and variable-height widgets.
-				// scrollIntoView each step keeps getDocY() accurate by keeping the cursor on-screen.
+				// scrollIntoView each step keeps the cursor on-screen so table navigation
+				// functions (which rely on coordsAtPos) work correctly.
 				const getDocY = (): number | null => {
 					const y = this.getCursorScreenY(cm);
 					return y !== null ? y + cm.scrollDOM.scrollTop : null;
