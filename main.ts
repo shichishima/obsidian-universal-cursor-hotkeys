@@ -1663,7 +1663,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 		// Phase 1.5: scan the traversal range for special content that needs the step loop.
 		// Tables and callouts require moveCursorDown/Up for correct cell/line navigation.
-		// Embeds and horizontal rules can have unpredictable heights that confuse delta tracking.
+		// Embeds can have unpredictable heights that confuse delta tracking.
 		// Scan from the cursor to ~1 page ahead (not just cm.viewport) so that tables just
 		// outside the rendered viewport but within the scroll distance are also detected.
 		const estimatedLines = Math.ceil(target / cm.defaultLineHeight) + 5;
@@ -1692,8 +1692,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			const scanText = cm.state.doc.sliceString(scanFrom, scanTo);
 			hasSpecialInView = /^\|/m.test(scanText)           // table rows
 				|| /^>/m.test(scanText)                        // blockquotes / callouts
-				|| /^!(?:\[\[|\[)/m.test(scanText)             // embeds
-				|| /^[-*_]{3,}\s*$/m.test(scanText);           // horizontal rules
+				|| /^!(?:\[\[|\[)/m.test(scanText);            // embeds
 		}
 		if (this._forceSlowPath) hasSpecialInView = true;
 		const t1_5 = perf ? performance.now() : 0;
