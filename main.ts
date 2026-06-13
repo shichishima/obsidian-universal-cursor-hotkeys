@@ -174,40 +174,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		});
 
 		this.addCommand({
-			id: 'page-down-baseline',
-			name: 'Page down (baseline: CM6 only)',
-			repeatable: true,
-			editorCallback: (editor: Editor) => {
-				const cm = editor.cm;
-				if (!cm) return;
-				const t0 = performance.now();
-				cursorPageDown(cm);
-				const t1 = performance.now();
-				this.scrollToCursorAtY(editor, this._baselinePrevScreenY);
-				const t2 = performance.now();
-				this._baselinePrevScreenY = this.getCursorScreenY(cm) ?? cm.scrollDOM.clientHeight / 2;
-				console.log(`[scroll-baseline] dir=+1 line:${editor.getCursor().line} cmd=${(t1-t0).toFixed(2)}ms scroll=${(t2-t1).toFixed(2)}ms total=${(t2-t0).toFixed(2)}ms`);
-			}
-		});
-
-		this.addCommand({
-			id: 'page-up-baseline',
-			name: 'Page up (baseline: CM6 only)',
-			repeatable: true,
-			editorCallback: (editor: Editor) => {
-				const cm = editor.cm;
-				if (!cm) return;
-				const t0 = performance.now();
-				cursorPageUp(cm);
-				const t1 = performance.now();
-				this.scrollToCursorAtY(editor, this._baselinePrevScreenY);
-				const t2 = performance.now();
-				this._baselinePrevScreenY = this.getCursorScreenY(cm) ?? cm.scrollDOM.clientHeight / 2;
-				console.log(`[scroll-baseline] dir=-1 line:${editor.getCursor().line} cmd=${(t1-t0).toFixed(2)}ms scroll=${(t2-t1).toFixed(2)}ms total=${(t2-t0).toFixed(2)}ms`);
-			}
-		});
-
-		this.addCommand({
 			id: 'recenter',
 			name: 'Recenter',
 			editorCallback: (editor: Editor) => {
@@ -1646,8 +1612,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Set to true to force the slow path (0.6.0 loop) regardless of viewport content.
 	// Use this to record ground-truth line numbers before testing the fast path.
 	private _forceSlowPath = false;
-	// Tracks prevScreenY between baseline command invocations for scrollToCursorAtY.
-	private _baselinePrevScreenY = 0;
 
 	// Returns the viewport-relative Y coordinate of the current browser cursor.
 	// Works inside LP table cells (unlike cm.coordsAtPos). Returns null when off-screen.
