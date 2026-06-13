@@ -29,10 +29,10 @@ describe('moveCursorRight — table entry from above (LP)', () => {
 		plugin.moveToRightCellStart    = vi.fn()
 	})
 
-	function makeEditor(lineText: string, ch: number, inTableCell = false) {
+	function makeEditor(lineText: string, ch: number, inTableCell = false, nextLineText = TABLE_LINE) {
 		return {
 			getCursor: vi.fn(() => ({ line: 0, ch })),
-			getLine:   vi.fn(() => lineText),
+			getLine:   vi.fn((n: number) => n === 0 ? lineText : nextLineText),
 			exec:      vi.fn(),
 			inTableCell,
 		}
