@@ -1,5 +1,5 @@
-# Universal Cursor Hotkeys
-macOS/Emacs-style navigation and Kill & Yank — seamlessly across Markdown tables.
+# Universal Cursor Hotkeys — Emacs keybindings for Markdown
+Emacs-style cursor navigation and Kill & Yank inside and outside tables, for macOS and Windows.
 
 <img width="700" height="394" alt="Image" src="https://github.com/user-attachments/assets/fb82b786-f585-473f-808e-018ca0d6eb14" />
 
