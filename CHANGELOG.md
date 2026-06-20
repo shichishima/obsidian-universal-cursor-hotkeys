@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.6.1] - 2026-06-20
+
+### Performance
+
+- **Page down / Page up:** When the scroll range contains no tables, callouts, or embeds, now uses the same mechanism as the physical Page Up/Down keys, significantly reducing scroll latency.
+
 ## [0.6.0] - 2026-06-06
 
 ### Added
