@@ -222,7 +222,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 	onunload() {
-
 	}
 
 
@@ -633,9 +632,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const line = editor.getLine(cursor.line);
 		const startOfCellContent = this.getStartOfCellContent(line, cursor.ch);
 		const cellIndex = this.getCellIndex(line, cursor.ch);
+		const eoc = this.getEndOfCellContent(line, cursor.ch);
 
 		// Empty cell: no navigable content, so go directly to the previous row.
-		if (startOfCellContent === this.getEndOfCellContent(line, cursor.ch)) {
+		if (startOfCellContent === eoc) {
 			this.setCursorToPrevRow(editor, cellIndex);
 			this.placeAtBottomVL(editor);
 			return;
@@ -1607,8 +1607,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private pageDown(editor: Editor) { this.scrollPage(editor,  1); }
 	private pageUp  (editor: Editor) { this.scrollPage(editor, -1); }
 
-	// Set to true to enable per-phase timing logs for scrollPage.
-	private _perfTiming = true;
 	// Set to true to force the slow path (0.6.0 loop) regardless of viewport content.
 	// Use this to record ground-truth line numbers before testing the fast path.
 	private _forceSlowPath = false;
@@ -1647,10 +1645,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const cm = editor.cm;
 		if (!cm) return;
 
-		const perf = this._perfTiming;
-		const dir  = direction > 0 ? '+1' : '-1';
-		const t0   = perf ? performance.now() : 0;
-
 		const target = cm.scrollDOM.clientHeight;
 
 		// Phase 1: record cursor's scroll-area-relative Y (viewport Y minus scrollRect.top).
@@ -1658,8 +1652,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const scrollRect  = cm.scrollDOM.getBoundingClientRect();
 		const rawY        = this.getCursorScreenY(cm);
 		const prevScreenY = rawY !== null ? rawY - scrollRect.top : cm.scrollDOM.clientHeight / 2;
-
-		const t1 = perf ? performance.now() : 0;
 
 		// Phase 1.5: scan the traversal range for special content that needs the step loop.
 		// Tables and callouts require moveCursorDown/Up for correct cell/line navigation.
@@ -1676,11 +1668,9 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			? cm.state.doc.line(Math.min(docLines, curLine + estimatedLines)).to
 			: cm.state.selection.main.head;
 		let hasSpecialInView = false;
-		const dbgNodes = perf ? new Set<string>() : null;
 		syntaxTree(cm.state).iterate({
 			from: scanFrom, to: scanTo,
 			enter: (node) => {
-				dbgNodes?.add(node.name);
 				if (hasSpecialInView) return false;
 				if (node.name.includes('HyperMD-table') || node.name.includes('HyperMD-quote')) {
 					hasSpecialInView = true; return false;
@@ -1695,39 +1685,36 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				|| /^!(?:\[\[|\[)/m.test(scanText);            // embeds
 		}
 		if (this._forceSlowPath) hasSpecialInView = true;
-		const t1_5 = perf ? performance.now() : 0;
-		if (perf) console.log(`[scrollPage] nodes(${scanFrom}-${scanTo}): ${[...(dbgNodes ?? [])].join(', ')}`);
 
 		// Phase 2: move cursor one page.
-		const lineBefore = perf ? editor.getCursor().line : 0;
-		let steps = 0;
-		this._inScrollPage = true;
-		try {
-			if (!hasSpecialInView) {
-				// Fast path: single CM6 native command (no intermediate scrollIntoView calls).
-				if (direction > 0) cursorPageDown(cm);
-				else cursorPageUp(cm);
-				steps = 1;
+		if (!hasSpecialInView) {
+			// Fast path: single CM6 native command (no intermediate scrollIntoView calls).
+			if (direction > 0) {
+				cursorPageDown(cm);
 			} else {
-				// Slow path: step loop handles tables, callouts, and variable-height widgets.
-				// scrollIntoView each step keeps the cursor on-screen so table navigation
-				// functions (which rely on coordsAtPos) work correctly.
-				const getDocY = (): number | null => {
-					const y = this.getCursorScreenY(cm);
-					return y !== null ? y + cm.scrollDOM.scrollTop : null;
-				};
-				const moveCursor = direction > 0
-					? (e: Editor) => this.moveCursorDown(e)
-					: (e: Editor) => this.moveCursorUp(e);
-				let prev     = editor.getCursor();
-				let consumed = 0;
+				cursorPageUp(cm);
+			}
+		} else {
+			// Slow path: step loop handles tables, callouts, and variable-height widgets.
+			// scrollIntoView each step keeps the cursor on-screen so table navigation
+			// functions (which rely on coordsAtPos) work correctly.
+			const getDocY = (): number | null => {
+				const y = this.getCursorScreenY(cm);
+				return y !== null ? y + cm.scrollDOM.scrollTop : null;
+			};
+			const moveCursor = direction > 0
+				? (e: Editor) => this.moveCursorDown(e)
+				: (e: Editor) => this.moveCursorUp(e);
+			let prev     = editor.getCursor();
+			let consumed = 0;
+			this._inScrollPage = true;
+			try {
 				while (consumed < target) {
 					const prevDocY = getDocY();
 					moveCursor(editor);
 					const cur = editor.getCursor();
 					if (cur.line === prev.line && cur.ch === prev.ch) break;
 					prev = cur;
-					steps++;
 					cm.dispatch({
 						effects: EditorView.scrollIntoView(cm.state.selection.main.head, { y: 'nearest' }),
 					});
@@ -1745,21 +1732,14 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 					}
 					consumed += step;
 				}
+			} finally {
+				this._inScrollPage = false;
 			}
-		} finally {
-			this._inScrollPage = false;
 		}
-
-		const t2 = perf ? performance.now() : 0;
-		const lineAfter = perf ? editor.getCursor().line : 0;
 
 		// Phase 3: scrollIntoView only guarantees the cursor is visible, not at prevScreenY.
 		// scrollToCursorAtY adjusts scrollTop so the cursor lands at the recorded position.
 		this.scrollToCursorAtY(editor, prevScreenY);
-
-		const t3 = perf ? performance.now() : 0;
-		const label = this._forceSlowPath ? 'scrollPage-gt' : 'scrollPage';
-		if (perf) console.log(`[${label}] dir=${dir} fast=${!hasSpecialInView} line:${lineBefore}→${lineAfter} | scan=${(t1_5-t1).toFixed(2)}ms loop=${(t2-t1_5).toFixed(2)}ms(${steps}steps) scroll=${(t3-t2).toFixed(2)}ms | total=${(t3-t0).toFixed(2)}ms`);
 
 		const savedHead = cm.state.selection.main.head;
 		const genId     = ++this._scrollPageGenId;
@@ -1773,18 +1753,14 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const watchNormalization = () => {
 			if (this._scrollPageGenId !== genId) return;
 			if (cm.state.selection.main.head !== savedHead) {
-				const tNorm = perf ? performance.now() : 0;
-				if (perf) console.log(`[${label}] dir=${dir} | P4-rAF: normalization at frame=${frames} +${(tNorm-t3).toFixed(2)}ms after P3`);
 				window.setTimeout(() => {
 					if (this._scrollPageGenId !== genId) return;
 					cm.dispatch({ selection: { anchor: savedHead, head: savedHead } });
 					this.scrollToCursorAtY(editor, prevScreenY);
-					if (perf) console.log(`[${label}] dir=${dir} | P4-timeout: correction applied +${(performance.now()-t3).toFixed(2)}ms after P3`);
 				}, 100);
 				return;
 			}
 			if (++frames < 5) window.requestAnimationFrame(watchNormalization);
-			else if (perf) console.log(`[${label}] dir=${dir} | P4: no normalization after ${frames} frames (+${(performance.now()-t3).toFixed(2)}ms after P3)`);
 		};
 		window.requestAnimationFrame(watchNormalization);
 	}
