@@ -1,7 +1,7 @@
 {
 	"name": "universal-cursor-hotkeys",
-	"version": "0.6.0",
-	"description": "Use Ctrl-PNBF/AE (macOS and Emacs-style) navigation to move seamlessly between text and Markdown table cells.",
+	"version": "0.6.1",
+	"description": "Emacs keybindings for Markdown — cursor navigation and Kill & Yank, whether in tables or out, either on macOS or Windows.",
 	"main": "main.js",
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
