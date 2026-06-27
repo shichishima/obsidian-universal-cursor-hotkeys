@@ -1607,10 +1607,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private pageDown(editor: Editor) { this.scrollPage(editor,  1); }
 	private pageUp  (editor: Editor) { this.scrollPage(editor, -1); }
 
-	// Set to true to force the slow path (0.6.0 loop) regardless of viewport content.
-	// Use this to record ground-truth line numbers before testing the fast path.
-	private _forceSlowPath = false;
-
 	// Returns the viewport-relative Y coordinate of the current browser cursor.
 	// Works inside LP table cells (unlike cm.coordsAtPos). Returns null when off-screen.
 	// view: when provided, used as a precise fallback via coordsAtPos when the selection
@@ -1684,8 +1680,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				|| /^>/m.test(scanText)                        // blockquotes / callouts
 				|| /^!(?:\[\[|\[)/m.test(scanText);            // embeds
 		}
-		if (this._forceSlowPath) hasSpecialInView = true;
-
 		// Phase 2: move cursor one page.
 		if (!hasSpecialInView) {
 			// Fast path: single CM6 native command (no intermediate scrollIntoView calls).
