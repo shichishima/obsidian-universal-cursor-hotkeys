@@ -1,10 +1,14 @@
 # Changelog
 
-## [0.6.1] - 2026-06-20
+## [0.6.1] - 2026-06-27
 
 ### Performance
 
 - **Page down / Page up:** When the scroll range contains no tables, callouts, or embeds, now uses the same mechanism as the physical Page Up/Down keys, significantly reducing scroll latency.
+
+### Compatibility
+
+- Verified compatible with Obsidian 1.13.
 
 ## [0.6.0] - 2026-06-06
 
