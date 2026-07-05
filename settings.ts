@@ -161,7 +161,14 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName('Quick Setup Assistant')
 			.then(setting => {
-				setting.descEl.createSpan({ text: 'Quickly apply recommended hotkeys, group by group or individually.' });
+				setting.descEl.createSpan({ text: 'No hotkeys are assigned by default. Set only the commands you want — group by group, or ' });
+				const indivLink = setting.descEl.createEl('a', { text: 'individually', cls: 'uch-inline-link' });
+				indivLink.addEventListener('click', (e) => {
+					e.preventDefault();
+					this.individualVisible = !this.individualVisible;
+					syncToggle();
+				});
+				setting.descEl.createSpan({ text: '.' });
 				setting.descEl.createEl('br');
 				setting.descEl.createSpan({ text: 'To assign a command to a key other than the recommended hotkey, use ' });
 				const hotkeyLink = setting.descEl.createEl('a', { text: "Obsidian's built-in Hotkeys settings" });
@@ -249,7 +256,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					name: def.name, key: '',
 					current: currentHotkeys[0] ? formatHotkey(currentHotkeys[0]) : '',
 					extraCount: Math.max(0, currentHotkeys.length - 1),
-					status: 'No recommendation', action: 'none',
+					status: '—', action: 'none',
 				};
 			}
 
@@ -516,6 +523,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			const bareKey: Hotkey = { modifiers: [], key: def.key };
 			const isSet   = effectiveHotkeys(fullId).some(hk => hotkeyId(hk) === hotkeyId(bareKey));
 			const btn     = specialBtnRow.createEl('button', { text: isSet ? `${def.label} ✅` : def.label });
+			if (!isSet) btn.addClass('mod-cta');
 			btn.disabled  = isSet;
 			if (!isSet) {
 				btn.addEventListener('click', () => {
