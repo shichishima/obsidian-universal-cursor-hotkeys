@@ -194,8 +194,9 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		type RowAction = 'overwrite' | 'set' | 'done' | 'none';
 		interface HotkeyRow { name: string; key: string; current: string; extraCount: number; status: string; action: RowAction }
 
-		const MAC_MOD: Record<string, string> = { Ctrl: '⌃', Shift: '⇧', Alt: '⌥', Meta: '⌘', Mod: '⌘' };
-		const WIN_MOD: Record<string, string> = { Ctrl: 'Ctrl', Shift: 'Shift', Alt: 'Alt', Meta: 'Win', Mod: 'Ctrl' };
+		const MAC_MOD:  Record<string, string> = { Ctrl: '⌃', Shift: '⇧', Alt: '⌥', Meta: '⌘', Mod: '⌘' };
+		const WIN_MOD:  Record<string, string> = { Ctrl: 'Ctrl', Shift: 'Shift', Alt: 'Alt', Meta: 'Win', Mod: 'Ctrl' };
+		const KEY_DISP: Record<string, string> = { PageDown: 'Page Down', PageUp: 'Page Up' };
 
 		// bakedHotkeys stores modifiers as a string, not an array
 		type BakedHotkey = { modifiers: string; key: string };
@@ -206,9 +207,10 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 
 		const formatHotkey = (hk: AnyHotkey): string => {
 			const mods = normMods(hk.modifiers);
+			const key  = KEY_DISP[hk.key] ?? hk.key;
 			return Platform.isMacOS
-				? mods.map(m => MAC_MOD[m] ?? m).join('') + ' ' + hk.key
-				: [...mods.map(m => WIN_MOD[m] ?? m), hk.key].join('+');
+				? mods.map(m => MAC_MOD[m] ?? m).join('') + ' ' + key
+				: [...mods.map(m => WIN_MOD[m] ?? m), key].join('+');
 		};
 
 		// Canonical key for equality checks — sort modifiers, lowercase key
@@ -364,7 +366,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			titleCell.addClass('uch-title-cell');
 			const titleFlex = titleCell.createDiv('uch-title-flex');
 			titleFlex.createSpan({ text: title, cls: 'uch-title-text' });
-			const setAllBtn = titleFlex.createEl('button', { text: 'Apply recommended' });
+			const setAllBtn = titleFlex.createEl('button', { text: 'Apply Recommended' });
 			setAllBtn.addClass('mod-cta', 'uch-apply-btn');
 			if (!entries.some(e => e.row.action === 'set' || e.row.action === 'overwrite'))
 				setAllBtn.disabled = true;
@@ -494,13 +496,36 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			dispTbody.createEl('tr').createEl('td', { text: 'No displaced commands.', cls: 'uch-no-displaced' });
 		}
 
-		// Special Key Assignments — stub, implementation TBD
+		// Special Key Assignments
+		const SPECIAL_DEFS: Array<{ label: string; commandId: string; key: string }> = [
+			{ label: 'Set Home',      commandId: 'cursor-home', key: 'Home'     },
+			{ label: 'Set Page Down', commandId: 'page-down',   key: 'PageDown' },
+			{ label: 'Set Page Up',   commandId: 'page-up',     key: 'PageUp'   },
+		];
+
 		const specialEl = containerEl.createEl('div', { cls: 'uch-special-section' });
 		specialEl.createEl('div', { text: 'Special Key Assignments', cls: 'uch-special-title' });
 		specialEl.createEl('div', {
-			text: "Assign bare keys (Home, End, PageDown, PageUp) that cannot be set via Obsidian's built-in Hotkeys panel.",
+			text: "Assign bare keys that cannot be set via Obsidian's Hotkeys panel.",
 			cls: 'uch-special-desc',
 		});
+
+		const specialBtnRow = specialEl.createDiv({ cls: 'uch-special-btns' });
+		for (const def of SPECIAL_DEFS) {
+			const fullId  = `${PLUGIN_ID}:${def.commandId}`;
+			const bareKey: Hotkey = { modifiers: [], key: def.key };
+			const isSet   = effectiveHotkeys(fullId).some(hk => hotkeyId(hk) === hotkeyId(bareKey));
+			const btn     = specialBtnRow.createEl('button', { text: isSet ? `${def.label} ✅` : def.label });
+			btn.disabled  = isSet;
+			if (!isSet) {
+				btn.addEventListener('click', () => {
+					hm.setHotkeys(fullId, [...effectiveHotkeys(fullId).map(toHotkey), bareKey]);
+					hm.save();
+					hm.bake();
+					this.display();
+				});
+			}
+		}
 		collect(specialEl);
 	}
 

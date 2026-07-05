@@ -68,3 +68,4 @@
 .uch-special-section { margin-top: 1em; }
 .uch-special-title   { font-weight: 600; padding: 6px 8px; }
 .uch-special-desc    { padding: 2px 8px 6px; font-size: 0.9em; opacity: 0.5; }
+.uch-special-btns    { display: flex; gap: 8px; padding: 6px 8px; }
