@@ -1,0 +1,70 @@
+/* ── Tables ─────────────────────────────────────────────── */
+.uch-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.uch-disp-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1em;
+  margin-bottom: 2em;
+}
+
+/* ── Row separators ──────────────────────────────────────── */
+.uch-row-thin  { border-bottom: 1px solid var(--background-modifier-border); }
+.uch-row-thick { border-bottom: 2px solid var(--background-modifier-border); }
+.uch-block-top { border-top:    2px solid var(--background-modifier-border); }
+
+/* ── KBD chip ────────────────────────────────────────────── */
+.uch-kbd {
+  display: inline-block;
+  background: var(--background-modifier-border);
+  border-radius: var(--radius-s, 4px);
+  padding: 1px 6px;
+  font-size: 0.85em;
+  font-family: var(--font-interface);
+}
+
+/* ── Title row ───────────────────────────────────────────── */
+.uch-title-cell { padding: 6px 8px; }
+.uch-title-flex { display: flex; align-items: center; gap: 10px; }
+.uch-title-text { font-weight: 600; }
+
+/* ── Buttons ─────────────────────────────────────────────── */
+.uch-apply-btn   { font-size: 0.85em !important; padding: 2px 10px !important; }
+.uch-set-btn     { font-size: 0.75em !important; padding: 0 6px !important; line-height: 1.4 !important; min-width: 5em !important; }
+.uch-restore-btn { font-size: 0.75em !important; padding: 2px 8px !important; }
+.uch-set-btn-spacer {
+  font-size: 0.75em;
+  padding: 0 6px;
+  line-height: 1.4;
+  min-width: 5em;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* ── Column headers ──────────────────────────────────────── */
+.uch-col-header        { padding: 2px 8px; font-size: 0.8em; opacity: 0.5; }
+.uch-col-header-first  { padding-left: 40px; }
+.uch-col-header-action { text-align: right; cursor: pointer; user-select: none; white-space: nowrap; }
+
+/* ── Data cells ──────────────────────────────────────────── */
+.uch-cell-name   { padding: 2px 8px 2px 40px; white-space: nowrap; }
+.uch-cell-key    { padding: 2px 8px; white-space: nowrap; }
+.uch-cell-status { padding: 2px 8px; font-size: 0.9em; width: 100%; }
+.uch-cell-action { padding: 2px 8px; white-space: nowrap; }
+
+/* ── Links ───────────────────────────────────────────────── */
+.uch-inline-link { cursor: pointer; }
+.uch-cmd-link    { cursor: pointer; color: inherit; text-decoration: none; }
+.uch-cmd-link:hover { text-decoration: underline; }
+.uch-more-link   { display: block; font-size: 0.75em; opacity: 0.6; cursor: pointer; }
+
+/* ── Misc ────────────────────────────────────────────────── */
+.uch-empty-dash   { opacity: 0.5; }
+.uch-no-displaced { padding: 4px 8px 4px 40px; font-size: 0.9em; opacity: 0.5; }
+
+/* ── Special Key Assignments section ─────────────────────── */
+.uch-special-section { margin-top: 1em; }
+.uch-special-title   { font-weight: 600; padding: 6px 8px; }
+.uch-special-desc    { padding: 2px 8px 6px; font-size: 0.9em; opacity: 0.5; }

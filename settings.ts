@@ -151,8 +151,6 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 
-		containerEl.querySelectorAll<HTMLElement>('.setting-item-name')
-			.forEach(el => { el.style.fontWeight = '600'; });
 	}
 
 	private renderHotkeyManager(containerEl: HTMLElement): void {
@@ -167,7 +165,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				setting.descEl.createEl('br');
 				setting.descEl.createSpan({ text: 'To assign a command to a key other than the recommended hotkey, use ' });
 				const hotkeyLink = setting.descEl.createEl('a', { text: "Obsidian's built-in Hotkeys settings" });
-				hotkeyLink.style.cssText = 'cursor:pointer;';
+				hotkeyLink.addClass('uch-inline-link');
 				hotkeyLink.addEventListener('click', (e) => {
 					e.preventDefault();
 					// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -198,9 +196,6 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 
 		const MAC_MOD: Record<string, string> = { Ctrl: '⌃', Shift: '⇧', Alt: '⌥', Meta: '⌘', Mod: '⌘' };
 		const WIN_MOD: Record<string, string> = { Ctrl: 'Ctrl', Shift: 'Shift', Alt: 'Alt', Meta: 'Win', Mod: 'Ctrl' };
-		const KBD_CSS = 'display:inline-block; background:var(--background-modifier-border); border-radius:var(--radius-s, 4px); padding:1px 6px; font-size:0.85em; font-family:var(--font-interface);';
-		const BORDER_THIN  = '1px solid var(--background-modifier-border)';
-		const BORDER_THICK = '2px solid var(--background-modifier-border)';
 
 		// bakedHotkeys stores modifiers as a string, not an array
 		type BakedHotkey = { modifiers: string; key: string };
@@ -353,7 +348,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 
 		// Single shared table — all blocks share the same column widths
 		const table = containerEl.createEl('table');
-		table.style.cssText = 'width:100%; border-collapse:collapse;';
+		table.addClass('uch-table');
 		collect(table);
 
 		let isFirstBlock = true;
@@ -362,44 +357,42 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 
 			// Title row
 			const titleRow = tbody.createEl('tr');
-			titleRow.style.cssText = isFirstBlock ? '' : `border-top:${BORDER_THICK};`;
+			if (!isFirstBlock) titleRow.addClass('uch-block-top');
 			isFirstBlock = false;
 			const titleCell = titleRow.createEl('td');
 			titleCell.colSpan = 5;
-			titleCell.style.cssText = 'padding:6px 8px;';
-			const titleFlex = titleCell.createDiv();
-			titleFlex.style.cssText = 'display:flex; align-items:center; gap:10px;';
-			titleFlex.createSpan({ text: title }).style.cssText = 'font-weight:600;';
+			titleCell.addClass('uch-title-cell');
+			const titleFlex = titleCell.createDiv('uch-title-flex');
+			titleFlex.createSpan({ text: title, cls: 'uch-title-text' });
 			const setAllBtn = titleFlex.createEl('button', { text: 'Apply recommended' });
-			setAllBtn.addClass('mod-cta');
-			setAllBtn.style.cssText = 'font-size:0.85em; padding:2px 10px;';
+			setAllBtn.addClass('mod-cta', 'uch-apply-btn');
 			if (!entries.some(e => e.row.action === 'set' || e.row.action === 'overwrite'))
 				setAllBtn.disabled = true;
 			setAllBtn.addEventListener('click', () => { applyBlock(entries); });
 
 			// Column header row
 			const headerRow = tbody.createEl('tr');
-			headerRow.style.cssText = `border-bottom:${BORDER_THICK};`;
+			headerRow.addClass('uch-row-thick');
 			for (const [i, h] of (['Command', 'Recommended Hotkey', 'Current Hotkey', 'Status', '▶'] as const).entries()) {
 				const td = headerRow.createEl('td', { text: h });
 				if (i === 4) {
-					td.style.cssText = 'padding:2px 8px; font-size:0.8em; opacity:0.5; text-align:right; cursor:pointer; user-select:none; white-space:nowrap;';
+					td.addClass('uch-col-header', 'uch-col-header-action');
 					td.title = 'Toggle individual controls';
 					td.textContent = '▶ Individual';
 					td.addEventListener('click', () => { this.individualVisible = !this.individualVisible; syncToggle(); });
 					allActionHeaders.push(td);
 				} else {
-					td.style.cssText = `padding:2px 8px; font-size:0.8em; opacity:0.5; padding-left:${i === 0 ? '40px' : '8px'};`;
+					td.addClass('uch-col-header');
+					if (i === 0) td.addClass('uch-col-header-first');
 				}
 			}
 
 			// Data rows
 			for (const { def, row } of entries) {
 				const tr = tbody.createEl('tr');
-				tr.style.cssText = `border-bottom:${BORDER_THIN};`;
+				tr.addClass('uch-row-thin');
 
-				const tdName = tr.createEl('td');
-				tdName.style.cssText = 'padding:2px 8px 2px 40px; white-space:nowrap;';
+				const tdName = tr.createEl('td', { cls: 'uch-cell-name' });
 				const fullId = `${PLUGIN_ID}:${def.id}`;
 				const openHotkeysPanel = () => {
 					// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -414,44 +407,35 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 						}
 					}, 0);
 				};
-				const nameLink = tdName.createEl('a', { text: row.name });
-				nameLink.style.cssText = 'cursor:pointer; color:inherit; text-decoration:none;';
-				nameLink.addEventListener('mouseenter', () => { nameLink.style.textDecoration = 'underline'; });
-				nameLink.addEventListener('mouseleave', () => { nameLink.style.textDecoration = 'none'; });
+				const nameLink = tdName.createEl('a', { text: row.name, cls: 'uch-cmd-link' });
 				nameLink.addEventListener('click', (e) => { e.preventDefault(); openHotkeysPanel(); });
 
 				const makeKeyCell = (td: HTMLElement, label: string) => {
 					if (label) {
-						td.createEl('kbd', { text: label }).style.cssText = KBD_CSS;
+						td.createEl('kbd', { text: label, cls: 'uch-kbd' });
 					} else {
-						td.createSpan({ text: '—' }).style.cssText = 'opacity:0.5;';
+						td.createSpan({ text: '—', cls: 'uch-empty-dash' });
 					}
 				};
 
-				const tdKey = tr.createEl('td');
-				tdKey.style.cssText = 'padding:2px 8px; white-space:nowrap;';
+				const tdKey = tr.createEl('td', { cls: 'uch-cell-key' });
 				makeKeyCell(tdKey, row.key);
 
-				const tdCurrent = tr.createEl('td');
-				tdCurrent.style.cssText = 'padding:2px 8px; white-space:nowrap;';
+				const tdCurrent = tr.createEl('td', { cls: 'uch-cell-key' });
 				makeKeyCell(tdCurrent, row.current);
 				if (row.extraCount > 0) {
-					const moreLink = tdCurrent.createEl('a', { text: `+${row.extraCount} more` });
-					moreLink.style.cssText = 'display:block; font-size:0.75em; opacity:0.6; cursor:pointer;';
-					moreLink.addEventListener('click', (e) => { e.preventDefault(); openHotkeysPanel(); });
+					tdCurrent.createEl('a', { text: `+${row.extraCount} more`, cls: 'uch-more-link' })
+						.addEventListener('click', (e) => { e.preventDefault(); openHotkeysPanel(); });
 				}
 
-				tr.createEl('td', { text: row.status })
-					.style.cssText = 'padding:2px 8px; font-size:0.9em; width:100%;';
+				tr.createEl('td', { text: row.status, cls: 'uch-cell-status' });
 
-				const tdAction = tr.createEl('td');
-				tdAction.style.cssText = 'padding:2px 8px; white-space:nowrap;';
+				const tdAction = tr.createEl('td', { cls: 'uch-cell-action' });
 				if (row.action === 'overwrite' || row.action === 'set') {
 					const btn = tdAction.createEl('button', {
 						text: row.action === 'overwrite' ? 'Override' : 'Set'
 					});
-					btn.addClass('mod-cta');
-					btn.style.cssText = 'font-size:0.75em; padding:0 6px; line-height:1.4; min-width:5em; visibility:hidden;';
+					btn.addClass('mod-cta', 'uch-set-btn');
 					btn.addEventListener('click', () => {
 						applyEntry(def, row);
 						hm.save();
@@ -460,8 +444,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					});
 					allActionBtns.push(btn);
 				} else {
-					const spacer = tdAction.createEl('button');
-					spacer.style.cssText = 'font-size:0.75em; padding:0 6px; line-height:1.4; min-width:5em; visibility:hidden; pointer-events:none;';
+					tdAction.createEl('button', { cls: 'uch-set-btn-spacer' });
 				}
 			}
 		};
@@ -476,61 +459,48 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		for (const el of sectionEls) el.style.display = this.sectionVisible ? '' : 'none';
 
 		// Displaced Commands table
-		const dispTable = containerEl.createEl('table');
-		dispTable.style.cssText = 'width:100%; border-collapse:collapse; margin-top:1em; margin-bottom:2em;';
+		const dispTable = containerEl.createEl('table', { cls: 'uch-disp-table' });
 		collect(dispTable);
 
 		const dispTbody = dispTable.createEl('tbody');
 
 		// Title row
-		const dispTitleRow = dispTbody.createEl('tr');
-		const dispTitleCell = dispTitleRow.createEl('td');
+		const dispTitleCell = dispTbody.createEl('tr').createEl('td', { cls: 'uch-title-cell' });
 		dispTitleCell.colSpan = 4;
-		dispTitleCell.style.cssText = 'padding:6px 8px;';
-		dispTitleCell.createSpan({ text: 'Displaced Commands' }).style.cssText = 'font-weight:600;';
+		dispTitleCell.createSpan({ text: 'Displaced Commands', cls: 'uch-title-text' });
 
 		// Header row
 		const dispHeaderRow = dispTbody.createEl('tr');
-		dispHeaderRow.style.cssText = `border-bottom:${BORDER_THICK};`;
+		dispHeaderRow.addClass('uch-row-thick');
 		for (const [i, h] of (['Command', 'Hotkey', 'Action', ''] as const).entries()) {
-			const td = dispHeaderRow.createEl('td', { text: h });
-			td.style.cssText = `padding:2px 8px; font-size:0.8em; opacity:0.5; padding-left:${i === 0 ? '40px' : '8px'};`;
+			const td = dispHeaderRow.createEl('td', { text: h, cls: 'uch-col-header' });
+			if (i === 0) td.addClass('uch-col-header-first');
 		}
 
 		for (const d of this.displacedCommands) {
 			const tr = dispTbody.createEl('tr');
-			tr.style.cssText = `border-bottom:${BORDER_THIN};`;
-
-			tr.createEl('td', { text: d.commandName })
-				.style.cssText = 'padding:2px 8px 2px 40px; white-space:nowrap;';
-
-			const tdKey = tr.createEl('td');
-			tdKey.style.cssText = 'padding:2px 8px; white-space:nowrap;';
-			tdKey.createEl('kbd', { text: formatHotkey(d.hotkey) }).style.cssText = KBD_CSS;
-
-			tr.createEl('td', { text: `Assigned to ${d.uchCommandName}` })
-				.style.cssText = 'padding:2px 8px; font-size:0.9em; width:100%;';
-
-			const tdBtn = tr.createEl('td');
-			tdBtn.style.cssText = 'padding:2px 8px; white-space:nowrap;';
-			const restoreBtn = tdBtn.createEl('button', { text: 'Restore' });
-			restoreBtn.addClass('mod-warning');
-			restoreBtn.style.cssText = 'font-size:0.75em; padding:2px 8px;';
+			tr.addClass('uch-row-thin');
+			tr.createEl('td', { text: d.commandName, cls: 'uch-cell-name' });
+			const tdKey = tr.createEl('td', { cls: 'uch-cell-key' });
+			tdKey.createEl('kbd', { text: formatHotkey(d.hotkey), cls: 'uch-kbd' });
+			tr.createEl('td', { text: `Assigned to ${d.uchCommandName}`, cls: 'uch-cell-status' });
+			const restoreBtn = tr.createEl('td', { cls: 'uch-cell-action' })
+				.createEl('button', { text: 'Restore' });
+			restoreBtn.addClass('mod-warning', 'uch-restore-btn');
 			restoreBtn.addEventListener('click', () => { restoreDisplaced(d); });
 		}
 
 		if (this.displacedCommands.length === 0) {
-			dispTbody.createEl('tr').createEl('td', { text: 'No displaced commands.' })
-				.style.cssText = 'padding:4px 8px 4px 40px; font-size:0.9em; opacity:0.5;';
+			dispTbody.createEl('tr').createEl('td', { text: 'No displaced commands.', cls: 'uch-no-displaced' });
 		}
 
 		// Special Key Assignments — stub, implementation TBD
-		const specialEl = containerEl.createEl('div');
-		specialEl.style.cssText = 'margin-top:1em;';
-		specialEl.createEl('div', { text: 'Special Key Assignments' })
-			.style.cssText = 'font-weight:600; padding:6px 8px;';
-		specialEl.createEl('div', { text: 'Assign bare keys (Home, End, PageDown, PageUp) that cannot be set via Obsidian\'s built-in Hotkeys panel.' })
-			.style.cssText = 'padding:2px 8px 6px; font-size:0.9em; opacity:0.5;';
+		const specialEl = containerEl.createEl('div', { cls: 'uch-special-section' });
+		specialEl.createEl('div', { text: 'Special Key Assignments', cls: 'uch-special-title' });
+		specialEl.createEl('div', {
+			text: "Assign bare keys (Home, End, PageDown, PageUp) that cannot be set via Obsidian's built-in Hotkeys panel.",
+			cls: 'uch-special-desc',
+		});
 		collect(specialEl);
 	}
 
