@@ -1,5 +1,5 @@
 import { Editor, Plugin, MarkdownView } from 'obsidian';
-import { UniversalCursorHotkeysSettingTab } from './settings';
+import { UniversalCursorHotkeysSettingTab, DisplacedCommand } from './settings';
 import { syntaxTree } from '@codemirror/language';
 import { EditorView } from "@codemirror/view";
 import { EditorSelection, Transaction } from '@codemirror/state';
@@ -22,6 +22,9 @@ interface UniversalCursorHotkeysSettings {
 	smartHomeAdvanced: boolean;
 	smartJoin: boolean;
 	crossRowNavigation: boolean;
+	displacedCommands: DisplacedCommand[];
+	qsaSectionVisible: boolean;
+	qsaIndividualVisible: boolean;
 }
 
 const DEFAULT_SETTINGS: UniversalCursorHotkeysSettings = {
@@ -30,6 +33,9 @@ const DEFAULT_SETTINGS: UniversalCursorHotkeysSettings = {
 	smartHomeAdvanced: true,
 	smartJoin: false,
 	crossRowNavigation: true,
+	displacedCommands: [],
+	qsaSectionVisible: true,
+	qsaIndividualVisible: false,
 };
 
 

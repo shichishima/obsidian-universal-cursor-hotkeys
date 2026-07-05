@@ -30,7 +30,7 @@ const COMMAND_DEFS: readonly CommandDef[] = [
 	{ block: 'other',   id: 'select-all',           name: 'Select all',          recommended: null },
 ];
 
-interface DisplacedCommand {
+export interface DisplacedCommand {
 	commandId:      string;
 	commandName:    string;
 	hotkey:         Hotkey;
@@ -40,9 +40,10 @@ interface DisplacedCommand {
 
 export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 	plugin: universalCursorHotkeysPlugin;
-	private displacedCommands: DisplacedCommand[] = [];
-	private individualVisible = false;
-	private sectionVisible = true;
+	private get individualVisible() { return this.plugin.settings.qsaIndividualVisible; }
+	private set individualVisible(v: boolean) { this.plugin.settings.qsaIndividualVisible = v; void this.plugin.saveSettings(); }
+	private get sectionVisible() { return this.plugin.settings.qsaSectionVisible; }
+	private set sectionVisible(v: boolean) { this.plugin.settings.qsaSectionVisible = v; void this.plugin.saveSettings(); }
 
 	constructor(app: App, plugin: universalCursorHotkeysPlugin) {
 		super(app, plugin);
@@ -300,7 +301,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		});
 
 		// Remove displaced commands whose original command now has any hotkey assigned
-		this.displacedCommands = this.displacedCommands.filter(
+		this.plugin.settings.displacedCommands = this.plugin.settings.displacedCommands.filter(
 			d => effectiveHotkeys(d.commandId).length === 0
 		);
 
@@ -311,8 +312,8 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				for (const conflictId of (reverseMap.get(recId) ?? []).filter(id => id !== fullId)) {
 					hm.setHotkeys(conflictId,
 						effectiveHotkeys(conflictId).filter(hk => hotkeyId(hk) !== recId).map(toHotkey));
-					if (!this.displacedCommands.some(d => d.commandId === conflictId && hotkeyId(d.hotkey) === recId)) {
-						this.displacedCommands.push({
+					if (!this.plugin.settings.displacedCommands.some(d => d.commandId === conflictId && hotkeyId(d.hotkey) === recId)) {
+						this.plugin.settings.displacedCommands.push({
 							commandId:      conflictId,
 							commandName:    cmds?.[conflictId]?.name ?? conflictId,
 							hotkey:         def.recommended!,
@@ -332,6 +333,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			}
 			hm.save();
 			hm.bake();
+			void this.plugin.saveSettings();
 			this.display();
 		};
 
@@ -342,9 +344,10 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				effectiveHotkeys(uchFullId).filter(hk => hotkeyId(hk) !== dId).map(toHotkey));
 			hm.setHotkeys(d.commandId,
 				[...effectiveHotkeys(d.commandId).map(toHotkey), d.hotkey]);
-			this.displacedCommands = this.displacedCommands.filter(x => x !== d);
+			this.plugin.settings.displacedCommands = this.plugin.settings.displacedCommands.filter(x => x !== d);
 			hm.save();
 			hm.bake();
+			void this.plugin.saveSettings();
 			this.display();
 		};
 
@@ -449,6 +452,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 						applyEntry(def, row);
 						hm.save();
 						hm.bake();
+						void this.plugin.saveSettings();
 						this.display();
 					});
 					allActionBtns.push(btn);
@@ -486,7 +490,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			if (i === 0) td.addClass('uch-col-header-first');
 		}
 
-		for (const d of this.displacedCommands) {
+		for (const d of this.plugin.settings.displacedCommands) {
 			const tr = dispTbody.createEl('tr');
 			tr.addClass('uch-row-thin');
 			tr.createEl('td', { text: d.commandName, cls: 'uch-cell-name' });
@@ -499,7 +503,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			restoreBtn.addEventListener('click', () => { restoreDisplaced(d); });
 		}
 
-		if (this.displacedCommands.length === 0) {
+		if (this.plugin.settings.displacedCommands.length === 0) {
 			dispTbody.createEl('tr').createEl('td', { text: 'No displaced commands.', cls: 'uch-no-displaced' });
 		}
 
@@ -530,6 +534,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					hm.setHotkeys(fullId, [...effectiveHotkeys(fullId).map(toHotkey), bareKey]);
 					hm.save();
 					hm.bake();
+					void this.plugin.saveSettings();
 					this.display();
 				});
 			}
