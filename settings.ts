@@ -516,6 +516,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		// Special Key Assignments
 		const SPECIAL_DEFS: Array<{ label: string; commandId: string; key: string }> = [
 			{ label: 'Set Home',      commandId: 'cursor-home', key: 'Home'     },
+			{ label: 'Set End',       commandId: 'cursor-end',  key: 'End'      },
 			{ label: 'Set Page Down', commandId: 'page-down',   key: 'PageDown' },
 			{ label: 'Set Page Up',   commandId: 'page-up',     key: 'PageUp'   },
 		];
