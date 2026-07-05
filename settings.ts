@@ -30,8 +30,19 @@ const COMMAND_DEFS: readonly CommandDef[] = [
 	{ block: 'other',   id: 'select-all',           name: 'Select all',          recommended: null },
 ];
 
+interface DisplacedCommand {
+	commandId:      string;
+	commandName:    string;
+	hotkey:         Hotkey;
+	uchCommandId:   string;
+	uchCommandName: string;
+}
+
 export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 	plugin: universalCursorHotkeysPlugin;
+	private displacedCommands: DisplacedCommand[] = [];
+	private individualVisible = false;
+	private sectionVisible = true;
 
 	constructor(app: App, plugin: universalCursorHotkeysPlugin) {
 		super(app, plugin);
@@ -145,7 +156,6 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 	}
 
 	private renderHotkeyManager(containerEl: HTMLElement): void {
-		let visible = true;
 		const sectionEls: HTMLElement[] = [];
 		const collect = (el: HTMLElement) => sectionEls.push(el);
 
@@ -174,16 +184,17 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				});
 				setting.descEl.createSpan({ text: '.' });
 			})
-			.addButton(btn => btn
-				.setButtonText('Hide')
-				.onClick(() => {
-					visible = !visible;
-					btn.setButtonText(visible ? 'Hide' : 'Show');
-					for (const el of sectionEls) el.style.display = visible ? '' : 'none';
-				}));
+			.addButton(btn => {
+				btn.setButtonText(this.sectionVisible ? 'Hide' : 'Show');
+				btn.onClick(() => {
+					this.sectionVisible = !this.sectionVisible;
+					btn.setButtonText(this.sectionVisible ? 'Hide' : 'Show');
+					for (const el of sectionEls) el.style.display = this.sectionVisible ? '' : 'none';
+				});
+			});
 
 		type RowAction = 'overwrite' | 'set' | 'done' | 'none';
-		interface HotkeyRow { name: string; key: string; current: string; status: string; action: RowAction }
+		interface HotkeyRow { name: string; key: string; current: string; extraCount: number; status: string; action: RowAction }
 
 		const MAC_MOD: Record<string, string> = { Ctrl: '⌃', Shift: '⇧', Alt: '⌥', Meta: '⌘', Mod: '⌘' };
 		const WIN_MOD: Record<string, string> = { Ctrl: 'Ctrl', Shift: 'Shift', Alt: 'Alt', Meta: 'Win', Mod: 'Ctrl' };
@@ -240,6 +251,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				return {
 					name: def.name, key: '',
 					current: currentHotkeys[0] ? formatHotkey(currentHotkeys[0]) : '',
+					extraCount: Math.max(0, currentHotkeys.length - 1),
 					status: 'No recommendation', action: 'none',
 				};
 			}
@@ -249,39 +261,94 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			const hasRec = currentHotkeys.some(hk => hotkeyId(hk) === recId);
 
 			if (hasRec) {
-				return { name: def.name, key: recFmt, current: recFmt, status: '✅ Set', action: 'done' };
+				return { name: def.name, key: recFmt, current: recFmt, extraCount: currentHotkeys.length - 1, status: '✅ Set', action: 'done' };
 			}
 
 			if (currentHotkeys.length > 0) {
 				return {
 					name: def.name, key: recFmt,
 					current: formatHotkey(currentHotkeys[0]),
+					extraCount: currentHotkeys.length - 1,
 					status: '⚙️ Custom key', action: 'done',
 				};
 			}
 
 			// Not set — check for conflicts (multiple commands can share the same key)
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			const cmds = (this.app as any).commands?.commands;
 			const conflictIds = (reverseMap.get(recId) ?? []).filter(id => id !== fullId);
 			if (conflictIds.length > 0) {
 				const names = conflictIds.map(id => cmds?.[id]?.name ?? id).join(', ');
 				const icon = conflictIds.length > 1 ? '🚨' : '⚠️';
 				return {
-					name: def.name, key: recFmt, current: '',
+					name: def.name, key: recFmt, current: '', extraCount: 0,
 					status: `${icon} Conflict: ${names}`, action: 'overwrite',
 				};
 			}
 
-			return { name: def.name, key: recFmt, current: '', status: 'No conflict', action: 'set' };
+			return { name: def.name, key: recFmt, current: '', extraCount: 0, status: 'No conflict', action: 'set' };
 		};
 
-		let individualVisible = false;
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const cmds = (this.app as any).commands?.commands;
+
+		const toHotkey = (hk: BakedHotkey): Hotkey => ({
+			modifiers: normMods(hk.modifiers) as Modifier[],
+			key: hk.key,
+		});
+
+		// Remove displaced commands whose original command now has any hotkey assigned
+		this.displacedCommands = this.displacedCommands.filter(
+			d => effectiveHotkeys(d.commandId).length === 0
+		);
+
+		const applyEntry = (def: CommandDef, row: HotkeyRow) => {
+			const fullId = `${PLUGIN_ID}:${def.id}`;
+			const recId  = hotkeyId(def.recommended!);
+			if (row.action === 'overwrite') {
+				for (const conflictId of (reverseMap.get(recId) ?? []).filter(id => id !== fullId)) {
+					hm.setHotkeys(conflictId,
+						effectiveHotkeys(conflictId).filter(hk => hotkeyId(hk) !== recId).map(toHotkey));
+					if (!this.displacedCommands.some(d => d.commandId === conflictId && hotkeyId(d.hotkey) === recId)) {
+						this.displacedCommands.push({
+							commandId:      conflictId,
+							commandName:    cmds?.[conflictId]?.name ?? conflictId,
+							hotkey:         def.recommended!,
+							uchCommandId:   def.id,
+							uchCommandName: def.name,
+						});
+					}
+				}
+			}
+			hm.setHotkeys(fullId, [...effectiveHotkeys(fullId).map(toHotkey), def.recommended!]);
+		};
+
+		const applyBlock = (entries: Array<{def: CommandDef; row: HotkeyRow}>) => {
+			for (const { def, row } of entries) {
+				if (row.action !== 'set' && row.action !== 'overwrite') continue;
+				applyEntry(def, row);
+			}
+			hm.save();
+			hm.bake();
+			this.display();
+		};
+
+		const restoreDisplaced = (d: DisplacedCommand) => {
+			const dId = hotkeyId(d.hotkey);
+			const uchFullId = `${PLUGIN_ID}:${d.uchCommandId}`;
+			hm.setHotkeys(uchFullId,
+				effectiveHotkeys(uchFullId).filter(hk => hotkeyId(hk) !== dId).map(toHotkey));
+			hm.setHotkeys(d.commandId,
+				[...effectiveHotkeys(d.commandId).map(toHotkey), d.hotkey]);
+			this.displacedCommands = this.displacedCommands.filter(x => x !== d);
+			hm.save();
+			hm.bake();
+			this.display();
+		};
+
 		const allActionBtns: HTMLElement[]    = [];
 		const allActionHeaders: HTMLElement[] = [];
 		const syncToggle = () => {
-			for (const el of allActionBtns)    el.style.visibility = individualVisible ? 'visible' : 'hidden';
-			for (const el of allActionHeaders) el.textContent      = individualVisible ? '▼ Individual' : '▶ Individual';
+			for (const el of allActionBtns)    el.style.visibility = this.individualVisible ? 'visible' : 'hidden';
+			for (const el of allActionHeaders) el.textContent      = this.individualVisible ? '▼ Individual' : '▶ Individual';
 		};
 
 		// Single shared table — all blocks share the same column widths
@@ -290,7 +357,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		collect(table);
 
 		let isFirstBlock = true;
-		const addBlock = (title: string, rows: HotkeyRow[]) => {
+		const addBlock = (title: string, entries: Array<{def: CommandDef; row: HotkeyRow}>) => {
 			const tbody = table.createEl('tbody');
 
 			// Title row
@@ -306,7 +373,9 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			const setAllBtn = titleFlex.createEl('button', { text: 'Apply recommended' });
 			setAllBtn.addClass('mod-cta');
 			setAllBtn.style.cssText = 'font-size:0.85em; padding:2px 10px;';
-			setAllBtn.addEventListener('click', () => {});
+			if (!entries.some(e => e.row.action === 'set' || e.row.action === 'overwrite'))
+				setAllBtn.disabled = true;
+			setAllBtn.addEventListener('click', () => { applyBlock(entries); });
 
 			// Column header row
 			const headerRow = tbody.createEl('tr');
@@ -317,7 +386,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					td.style.cssText = 'padding:2px 8px; font-size:0.8em; opacity:0.5; text-align:right; cursor:pointer; user-select:none; white-space:nowrap;';
 					td.title = 'Toggle individual controls';
 					td.textContent = '▶ Individual';
-					td.addEventListener('click', () => { individualVisible = !individualVisible; syncToggle(); });
+					td.addEventListener('click', () => { this.individualVisible = !this.individualVisible; syncToggle(); });
 					allActionHeaders.push(td);
 				} else {
 					td.style.cssText = `padding:2px 8px; font-size:0.8em; opacity:0.5; padding-left:${i === 0 ? '40px' : '8px'};`;
@@ -325,12 +394,31 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			}
 
 			// Data rows
-			for (const row of rows) {
+			for (const { def, row } of entries) {
 				const tr = tbody.createEl('tr');
 				tr.style.cssText = `border-bottom:${BORDER_THIN};`;
 
-				tr.createEl('td', { text: row.name })
-					.style.cssText = 'padding:2px 8px 2px 40px; white-space:nowrap;';
+				const tdName = tr.createEl('td');
+				tdName.style.cssText = 'padding:2px 8px 2px 40px; white-space:nowrap;';
+				const fullId = `${PLUGIN_ID}:${def.id}`;
+				const openHotkeysPanel = () => {
+					// eslint-disable-next-line @typescript-eslint/no-explicit-any
+					const s = (this.app as any).setting;
+					s.open();
+					const tab = s.openTabById('hotkeys');
+					setTimeout(() => {
+						const search = tab?.searchComponent;
+						if (search) {
+							search.setValue(cmds?.[fullId]?.name ?? def.name);
+							search.inputEl?.dispatchEvent(new Event('input'));
+						}
+					}, 0);
+				};
+				const nameLink = tdName.createEl('a', { text: row.name });
+				nameLink.style.cssText = 'cursor:pointer; color:inherit; text-decoration:none;';
+				nameLink.addEventListener('mouseenter', () => { nameLink.style.textDecoration = 'underline'; });
+				nameLink.addEventListener('mouseleave', () => { nameLink.style.textDecoration = 'none'; });
+				nameLink.addEventListener('click', (e) => { e.preventDefault(); openHotkeysPanel(); });
 
 				const makeKeyCell = (td: HTMLElement, label: string) => {
 					if (label) {
@@ -347,6 +435,11 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				const tdCurrent = tr.createEl('td');
 				tdCurrent.style.cssText = 'padding:2px 8px; white-space:nowrap;';
 				makeKeyCell(tdCurrent, row.current);
+				if (row.extraCount > 0) {
+					const moreLink = tdCurrent.createEl('a', { text: `+${row.extraCount} more` });
+					moreLink.style.cssText = 'display:block; font-size:0.75em; opacity:0.6; cursor:pointer;';
+					moreLink.addEventListener('click', (e) => { e.preventDefault(); openHotkeysPanel(); });
+				}
 
 				tr.createEl('td', { text: row.status })
 					.style.cssText = 'padding:2px 8px; font-size:0.9em; width:100%;';
@@ -359,7 +452,12 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					});
 					btn.addClass('mod-cta');
 					btn.style.cssText = 'font-size:0.75em; padding:0 6px; line-height:1.4; min-width:5em; visibility:hidden;';
-					btn.addEventListener('click', () => {});
+					btn.addEventListener('click', () => {
+						applyEntry(def, row);
+						hm.save();
+						hm.bake();
+						this.display();
+					});
 					allActionBtns.push(btn);
 				} else {
 					const spacer = tdAction.createEl('button');
@@ -368,9 +466,14 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			}
 		};
 
-		addBlock('Cursor Movement', COMMAND_DEFS.filter(d => d.block === 'cursor').map(computeRow));
-		addBlock('Editing',         COMMAND_DEFS.filter(d => d.block === 'editing').map(computeRow));
-		addBlock('Other Hotkeys',   COMMAND_DEFS.filter(d => d.block === 'other').map(computeRow));
+		const makeEntries = (block: CommandDef['block']) =>
+			COMMAND_DEFS.filter(d => d.block === block).map(def => ({ def, row: computeRow(def) }));
+
+		addBlock('Cursor Movement', makeEntries('cursor'));
+		addBlock('Editing',         makeEntries('editing'));
+		addBlock('Other Hotkeys',   makeEntries('other'));
+		syncToggle();
+		for (const el of sectionEls) el.style.display = this.sectionVisible ? '' : 'none';
 
 		// Displaced Commands table
 		const dispTable = containerEl.createEl('table');
@@ -394,25 +497,18 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			td.style.cssText = `padding:2px 8px; font-size:0.8em; opacity:0.5; padding-left:${i === 0 ? '40px' : '8px'};`;
 		}
 
-		// Sample displaced rows (replaced with real data in step 3)
-		const dispRows: { command: string; hk: Hotkey; action: string }[] = [
-			{ command: 'Open command palette', hk: ctrl('P'), action: 'Assigned to UP' },
-			{ command: 'Search current file',  hk: ctrl('F'), action: 'Assigned to RIGHT' },
-			{ command: 'Select all',           hk: ctrl('A'), action: 'Assigned to HOME' },
-		];
-
-		for (const row of dispRows) {
+		for (const d of this.displacedCommands) {
 			const tr = dispTbody.createEl('tr');
 			tr.style.cssText = `border-bottom:${BORDER_THIN};`;
 
-			tr.createEl('td', { text: row.command })
+			tr.createEl('td', { text: d.commandName })
 				.style.cssText = 'padding:2px 8px 2px 40px; white-space:nowrap;';
 
 			const tdKey = tr.createEl('td');
 			tdKey.style.cssText = 'padding:2px 8px; white-space:nowrap;';
-			tdKey.createEl('kbd', { text: formatHotkey(row.hk) }).style.cssText = KBD_CSS;
+			tdKey.createEl('kbd', { text: formatHotkey(d.hotkey) }).style.cssText = KBD_CSS;
 
-			tr.createEl('td', { text: row.action })
+			tr.createEl('td', { text: `Assigned to ${d.uchCommandName}` })
 				.style.cssText = 'padding:2px 8px; font-size:0.9em; width:100%;';
 
 			const tdBtn = tr.createEl('td');
@@ -420,8 +516,22 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			const restoreBtn = tdBtn.createEl('button', { text: 'Restore' });
 			restoreBtn.addClass('mod-warning');
 			restoreBtn.style.cssText = 'font-size:0.75em; padding:2px 8px;';
-			restoreBtn.addEventListener('click', () => {});
+			restoreBtn.addEventListener('click', () => { restoreDisplaced(d); });
 		}
+
+		if (this.displacedCommands.length === 0) {
+			dispTbody.createEl('tr').createEl('td', { text: 'No displaced commands.' })
+				.style.cssText = 'padding:4px 8px 4px 40px; font-size:0.9em; opacity:0.5;';
+		}
+
+		// Special Key Assignments — stub, implementation TBD
+		const specialEl = containerEl.createEl('div');
+		specialEl.style.cssText = 'margin-top:1em;';
+		specialEl.createEl('div', { text: 'Special Key Assignments' })
+			.style.cssText = 'font-weight:600; padding:6px 8px;';
+		specialEl.createEl('div', { text: 'Assign bare keys (Home, End, PageDown, PageUp) that cannot be set via Obsidian\'s built-in Hotkeys panel.' })
+			.style.cssText = 'padding:2px 8px 6px; font-size:0.9em; opacity:0.5;';
+		collect(specialEl);
 	}
 
 	private setHtmlDesc(setting: Setting, html: string): Setting {
