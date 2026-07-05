@@ -159,7 +159,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 
 		// Section header — desc contains the link to Obsidian's hotkeys settings
 		new Setting(containerEl)
-			.setName('Hotkey Setup Assistant')
+			.setName('Quick Setup Assistant')
 			.then(setting => {
 				setting.descEl.createSpan({ text: 'Quickly apply recommended hotkeys, group by group or individually.' });
 				setting.descEl.createEl('br');
