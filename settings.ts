@@ -1,4 +1,4 @@
-import { App, Hotkey, Modifier, Platform, PluginSettingTab, Setting, ToggleComponent, sanitizeHTMLToDom } from 'obsidian';
+import { App, ButtonComponent, Hotkey, Modifier, Platform, PluginSettingTab, Setting, ToggleComponent, sanitizeHTMLToDom } from 'obsidian';
 import type universalCursorHotkeysPlugin from './main';
 
 const PLUGIN_ID = 'universal-cursor-hotkeys';
@@ -157,6 +157,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 	private renderHotkeyManager(containerEl: HTMLElement): void {
 		const sectionEls: HTMLElement[] = [];
 		const collect = (el: HTMLElement) => sectionEls.push(el);
+		let showHideBtn: ButtonComponent;
 
 		// Section header — desc contains the link to Obsidian's hotkeys settings
 		new Setting(containerEl)
@@ -166,7 +167,12 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				const indivLink = setting.descEl.createEl('a', { text: 'individually', cls: 'uch-inline-link' });
 				indivLink.addEventListener('click', (e) => {
 					e.preventDefault();
-					this.individualVisible = !this.individualVisible;
+					if (!this.sectionVisible) {
+						this.sectionVisible = true;
+						showHideBtn.setButtonText('Hide');
+						for (const el of sectionEls) el.style.display = '';
+					}
+					this.individualVisible = true;
 					syncToggle();
 				});
 				setting.descEl.createSpan({ text: '.' });
@@ -191,6 +197,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				setting.descEl.createSpan({ text: '.' });
 			})
 			.addButton(btn => {
+				showHideBtn = btn;
 				btn.setButtonText(this.sectionVisible ? 'Hide' : 'Show');
 				btn.onClick(() => {
 					this.sectionVisible = !this.sectionVisible;
@@ -469,7 +476,6 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		addBlock('Editing',         makeEntries('editing'));
 		addBlock('Other Hotkeys',   makeEntries('other'));
 		syncToggle();
-		for (const el of sectionEls) el.style.display = this.sectionVisible ? '' : 'none';
 
 		// Displaced Commands table
 		const dispTable = containerEl.createEl('table', { cls: 'uch-disp-table' });
@@ -540,6 +546,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			}
 		}
 		collect(specialEl);
+		for (const el of sectionEls) el.style.display = this.sectionVisible ? '' : 'none';
 	}
 
 	private setHtmlDesc(setting: Setting, html: string): Setting {
