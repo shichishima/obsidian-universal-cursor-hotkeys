@@ -308,7 +308,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		});
 
 		// Remove displaced commands whose original command now has any hotkey assigned
-		this.plugin.settings.displacedCommands = this.plugin.settings.displacedCommands.filter(
+		this.plugin.settings.qsaDisplacedCommands = this.plugin.settings.qsaDisplacedCommands.filter(
 			d => effectiveHotkeys(d.commandId).length === 0
 		);
 
@@ -319,8 +319,8 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				for (const conflictId of (reverseMap.get(recId) ?? []).filter(id => id !== fullId)) {
 					hm.setHotkeys(conflictId,
 						effectiveHotkeys(conflictId).filter(hk => hotkeyId(hk) !== recId).map(toHotkey));
-					if (!this.plugin.settings.displacedCommands.some(d => d.commandId === conflictId && hotkeyId(d.hotkey) === recId)) {
-						this.plugin.settings.displacedCommands.push({
+					if (!this.plugin.settings.qsaDisplacedCommands.some(d => d.commandId === conflictId && hotkeyId(d.hotkey) === recId)) {
+						this.plugin.settings.qsaDisplacedCommands.push({
 							commandId:      conflictId,
 							commandName:    cmds?.[conflictId]?.name ?? conflictId,
 							hotkey:         def.recommended!,
@@ -351,7 +351,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				effectiveHotkeys(uchFullId).filter(hk => hotkeyId(hk) !== dId).map(toHotkey));
 			hm.setHotkeys(d.commandId,
 				[...effectiveHotkeys(d.commandId).map(toHotkey), d.hotkey]);
-			this.plugin.settings.displacedCommands = this.plugin.settings.displacedCommands.filter(x => x !== d);
+			this.plugin.settings.qsaDisplacedCommands = this.plugin.settings.qsaDisplacedCommands.filter(x => x !== d);
 			hm.save();
 			hm.bake();
 			void this.plugin.saveSettings();
@@ -496,7 +496,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			if (i === 0) td.addClass('uch-col-header-first');
 		}
 
-		for (const d of this.plugin.settings.displacedCommands) {
+		for (const d of this.plugin.settings.qsaDisplacedCommands) {
 			const tr = dispTbody.createEl('tr');
 			tr.addClass('uch-row-thin');
 			tr.createEl('td', { text: d.commandName, cls: 'uch-cell-name' });
@@ -509,7 +509,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			restoreBtn.addEventListener('click', () => { restoreDisplaced(d); });
 		}
 
-		if (this.plugin.settings.displacedCommands.length === 0) {
+		if (this.plugin.settings.qsaDisplacedCommands.length === 0) {
 			dispTbody.createEl('tr').createEl('td', { text: 'No displaced commands.', cls: 'uch-no-displaced' });
 		}
 

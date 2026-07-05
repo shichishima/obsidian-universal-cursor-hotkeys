@@ -22,7 +22,7 @@ interface UniversalCursorHotkeysSettings {
 	smartHomeAdvanced: boolean;
 	smartJoin: boolean;
 	crossRowNavigation: boolean;
-	displacedCommands: DisplacedCommand[];
+	qsaDisplacedCommands: DisplacedCommand[];
 	qsaSectionVisible: boolean;
 	qsaIndividualVisible: boolean;
 }
@@ -33,7 +33,7 @@ const DEFAULT_SETTINGS: UniversalCursorHotkeysSettings = {
 	smartHomeAdvanced: true,
 	smartJoin: false,
 	crossRowNavigation: true,
-	displacedCommands: [],
+	qsaDisplacedCommands: [],
 	qsaSectionVisible: true,
 	qsaIndividualVisible: false,
 };
