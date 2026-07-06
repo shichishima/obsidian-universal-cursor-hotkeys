@@ -159,6 +159,20 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		const collect = (el: HTMLElement) => sectionEls.push(el);
 		let showHideBtn: ButtonComponent;
 
+		const openHotkeysPanelFor = (query: string) => {
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			const s = (this.app as any).setting;
+			s.open();
+			const tab = s.openTabById('hotkeys');
+			setTimeout(() => {
+				const search = tab?.searchComponent;
+				if (search) {
+					search.setValue(query);
+					search.inputEl?.dispatchEvent(new Event('input'));
+				}
+			}, 0);
+		};
+
 		// Section header — desc contains the link to Obsidian's hotkeys settings
 		new Setting(containerEl)
 			.setName('Quick Setup Assistant')
@@ -207,7 +221,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			});
 
 		type RowAction = 'overwrite' | 'set' | 'done' | 'none';
-		interface HotkeyRow { name: string; key: string; current: string; extraCount: number; status: string; action: RowAction }
+		interface HotkeyRow { name: string; key: string; current: string; extraCount: number; status: string; conflictIds: string[]; action: RowAction }
 
 		const MAC_MOD:  Record<string, string> = { Ctrl: '⌃', Shift: '⇧', Alt: '⌥', Meta: '⌘', Mod: '⌘' };
 		const WIN_MOD:  Record<string, string> = { Ctrl: 'Ctrl', Shift: 'Shift', Alt: 'Alt', Meta: 'Win', Mod: 'Ctrl' };
@@ -264,7 +278,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					name: def.name, key: '',
 					current: currentHotkeys[0] ? formatHotkey(currentHotkeys[0]) : '',
 					extraCount: Math.max(0, currentHotkeys.length - 1),
-					status: '—', action: 'none',
+					status: '—', conflictIds: [], action: 'none',
 				};
 			}
 
@@ -273,7 +287,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			const hasRec = currentHotkeys.some(hk => hotkeyId(hk) === recId);
 
 			if (hasRec) {
-				return { name: def.name, key: recFmt, current: recFmt, extraCount: currentHotkeys.length - 1, status: '✅ Set', action: 'done' };
+				return { name: def.name, key: recFmt, current: recFmt, extraCount: currentHotkeys.length - 1, status: '✅ Set', conflictIds: [], action: 'done' };
 			}
 
 			if (currentHotkeys.length > 0) {
@@ -281,22 +295,21 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					name: def.name, key: recFmt,
 					current: formatHotkey(currentHotkeys[0]),
 					extraCount: currentHotkeys.length - 1,
-					status: '⚙️ Custom key', action: 'done',
+					status: '⚙️ Custom key', conflictIds: [], action: 'done',
 				};
 			}
 
 			// Not set — check for conflicts (multiple commands can share the same key)
 			const conflictIds = (reverseMap.get(recId) ?? []).filter(id => id !== fullId);
 			if (conflictIds.length > 0) {
-				const names = conflictIds.map(id => cmds?.[id]?.name ?? id).join(', ');
 				const icon = conflictIds.length > 1 ? '🚨' : '⚠️';
 				return {
 					name: def.name, key: recFmt, current: '', extraCount: 0,
-					status: `${icon} Conflict: ${names}`, action: 'overwrite',
+					status: `${icon} Conflict: `, conflictIds, action: 'overwrite',
 				};
 			}
 
-			return { name: def.name, key: recFmt, current: '', extraCount: 0, status: 'No conflict', action: 'set' };
+			return { name: def.name, key: recFmt, current: '', extraCount: 0, status: 'No conflict', conflictIds: [], action: 'set' };
 		};
 
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -413,19 +426,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 
 				const tdName = tr.createEl('td', { cls: 'uch-cell-name' });
 				const fullId = `${PLUGIN_ID}:${def.id}`;
-				const openHotkeysPanel = () => {
-					// eslint-disable-next-line @typescript-eslint/no-explicit-any
-					const s = (this.app as any).setting;
-					s.open();
-					const tab = s.openTabById('hotkeys');
-					setTimeout(() => {
-						const search = tab?.searchComponent;
-						if (search) {
-							search.setValue(cmds?.[fullId]?.name ?? def.name);
-							search.inputEl?.dispatchEvent(new Event('input'));
-						}
-					}, 0);
-				};
+				const openHotkeysPanel = () => openHotkeysPanelFor(cmds?.[fullId]?.name ?? def.name);
 				const nameLink = tdName.createEl('a', { text: row.name, cls: 'uch-cmd-link' });
 				nameLink.addEventListener('click', (e) => { e.preventDefault(); openHotkeysPanel(); });
 
@@ -447,7 +448,18 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 						.addEventListener('click', (e) => { e.preventDefault(); openHotkeysPanel(); });
 				}
 
-				tr.createEl('td', { text: row.status, cls: 'uch-cell-status' });
+				const tdStatus = tr.createEl('td', { cls: 'uch-cell-status' });
+				if (row.conflictIds.length > 0) {
+					tdStatus.createSpan({ text: row.status });
+					for (const [i, conflictId] of row.conflictIds.entries()) {
+						if (i > 0) tdStatus.createSpan({ text: ', ' });
+						const conflictName = cmds?.[conflictId]?.name ?? conflictId;
+						tdStatus.createEl('a', { text: conflictName, cls: 'uch-cmd-link' })
+							.addEventListener('click', (e) => { e.preventDefault(); openHotkeysPanelFor(conflictName); });
+					}
+				} else {
+					tdStatus.setText(row.status);
+				}
 
 				const tdAction = tr.createEl('td', { cls: 'uch-cell-action' });
 				if (row.action === 'overwrite' || row.action === 'set') {
@@ -499,7 +511,9 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		for (const d of this.plugin.settings.qsaDisplacedCommands) {
 			const tr = dispTbody.createEl('tr');
 			tr.addClass('uch-row-thin');
-			tr.createEl('td', { text: d.commandName, cls: 'uch-cell-name' });
+			tr.createEl('td', { cls: 'uch-cell-name' })
+				.createEl('a', { text: d.commandName, cls: 'uch-cmd-link' })
+				.addEventListener('click', (e) => { e.preventDefault(); openHotkeysPanelFor(d.commandName); });
 			const tdKey = tr.createEl('td', { cls: 'uch-cell-key' });
 			tdKey.createEl('kbd', { text: formatHotkey(d.hotkey), cls: 'uch-kbd' });
 			tr.createEl('td', { text: `Assigned to ${d.uchCommandName}`, cls: 'uch-cell-status' });
