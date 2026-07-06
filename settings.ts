@@ -300,7 +300,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			}
 
 			// Not set — check for conflicts (multiple commands can share the same key)
-			const conflictIds = (reverseMap.get(recId) ?? []).filter(id => id !== fullId);
+			const conflictIds = (reverseMap.get(recId) ?? []).filter(id => id !== fullId && cmds?.[id] !== undefined);
 			if (conflictIds.length > 0) {
 				const icon = conflictIds.length > 1 ? '🚨' : '⚠️';
 				return {
