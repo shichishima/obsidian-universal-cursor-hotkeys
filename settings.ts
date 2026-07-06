@@ -3,12 +3,82 @@ import type universalCursorHotkeysPlugin from './main';
 
 const PLUGIN_ID = 'universal-cursor-hotkeys';
 
-interface CommandDef {
+export interface CommandDef {
 	block: 'cursor' | 'editing' | 'other';
 	id: string;
 	name: string;
 	recommended: Hotkey | null;
 }
+
+export type RowAction = 'overwrite' | 'set' | 'done' | 'none';
+export interface HotkeyRow { name: string; key: string; current: string; extraCount: number; status: string; conflictIds: string[]; action: RowAction }
+export type BakedHotkey = { modifiers: string; key: string };
+export type AnyHotkey   = { modifiers: string | string[]; key: string };
+
+const MAC_MOD:  Record<string, string> = { Ctrl: '⌃', Shift: '⇧', Alt: '⌥', Meta: '⌘', Mod: '⌘' };
+const WIN_MOD:  Record<string, string> = { Ctrl: 'Ctrl', Shift: 'Shift', Alt: 'Alt', Meta: 'Win', Mod: 'Ctrl' };
+const KEY_DISP: Record<string, string> = { PageDown: 'Page Down', PageUp: 'Page Up' };
+
+export const normMods = (mods: string | string[]): string[] =>
+	Array.isArray(mods) ? mods : (mods ? mods.split(',') : []);
+
+export const hotkeyId = (hk: AnyHotkey): string =>
+	normMods(hk.modifiers).sort().join('+') + '+' + hk.key.toLowerCase();
+
+export const formatHotkey = (hk: AnyHotkey, isMacOS = Platform.isMacOS): string => {
+	const mods = normMods(hk.modifiers);
+	const key  = KEY_DISP[hk.key] ?? hk.key;
+	return isMacOS
+		? mods.map(m => MAC_MOD[m] ?? m).join('') + ' ' + key
+		: [...mods.map(m => WIN_MOD[m] ?? m), key].join('+');
+};
+
+export const computeRow = (
+	def: CommandDef,
+	effectiveHotkeys: (cmdId: string) => BakedHotkey[],
+	reverseMap: Map<string, string[]>,
+	cmds: Record<string, { name: string }> | undefined,
+): HotkeyRow => {
+	const fullId = `${PLUGIN_ID}:${def.id}`;
+	const currentHotkeys = effectiveHotkeys(fullId);
+
+	if (def.recommended === null) {
+		return {
+			name: def.name, key: '',
+			current: currentHotkeys[0] ? formatHotkey(currentHotkeys[0]) : '',
+			extraCount: Math.max(0, currentHotkeys.length - 1),
+			status: '—', conflictIds: [], action: 'none',
+		};
+	}
+
+	const recId  = hotkeyId(def.recommended);
+	const recFmt = formatHotkey(def.recommended);
+	const hasRec = currentHotkeys.some(hk => hotkeyId(hk) === recId);
+
+	if (hasRec) {
+		return { name: def.name, key: recFmt, current: recFmt, extraCount: currentHotkeys.length - 1, status: '✅ Set', conflictIds: [], action: 'done' };
+	}
+
+	if (currentHotkeys.length > 0) {
+		return {
+			name: def.name, key: recFmt,
+			current: formatHotkey(currentHotkeys[0]),
+			extraCount: currentHotkeys.length - 1,
+			status: '⚙️ Custom key', conflictIds: [], action: 'done',
+		};
+	}
+
+	const conflictIds = (reverseMap.get(recId) ?? []).filter(id => id !== fullId && cmds?.[id] !== undefined);
+	if (conflictIds.length > 0) {
+		const icon = conflictIds.length > 1 ? '🚨' : '⚠️';
+		return {
+			name: def.name, key: recFmt, current: '', extraCount: 0,
+			status: `${icon} Used by: `, conflictIds, action: 'overwrite',
+		};
+	}
+
+	return { name: def.name, key: recFmt, current: '', extraCount: 0, status: 'No conflict', conflictIds: [], action: 'set' };
+};
 
 const ctrl = (...keys: string[]): Hotkey => ({ modifiers: ['Ctrl' as Modifier], key: keys[0] });
 
@@ -220,32 +290,6 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				});
 			});
 
-		type RowAction = 'overwrite' | 'set' | 'done' | 'none';
-		interface HotkeyRow { name: string; key: string; current: string; extraCount: number; status: string; conflictIds: string[]; action: RowAction }
-
-		const MAC_MOD:  Record<string, string> = { Ctrl: '⌃', Shift: '⇧', Alt: '⌥', Meta: '⌘', Mod: '⌘' };
-		const WIN_MOD:  Record<string, string> = { Ctrl: 'Ctrl', Shift: 'Shift', Alt: 'Alt', Meta: 'Win', Mod: 'Ctrl' };
-		const KEY_DISP: Record<string, string> = { PageDown: 'Page Down', PageUp: 'Page Up' };
-
-		// bakedHotkeys stores modifiers as a string, not an array
-		type BakedHotkey = { modifiers: string; key: string };
-		type AnyHotkey   = { modifiers: string | string[]; key: string };
-
-		const normMods = (mods: string | string[]): string[] =>
-			Array.isArray(mods) ? mods : (mods ? mods.split(',') : []);
-
-		const formatHotkey = (hk: AnyHotkey): string => {
-			const mods = normMods(hk.modifiers);
-			const key  = KEY_DISP[hk.key] ?? hk.key;
-			return Platform.isMacOS
-				? mods.map(m => MAC_MOD[m] ?? m).join('') + ' ' + key
-				: [...mods.map(m => WIN_MOD[m] ?? m), key].join('+');
-		};
-
-		// Canonical key for equality checks — sort modifiers, lowercase key
-		const hotkeyId = (hk: AnyHotkey): string =>
-			normMods(hk.modifiers).sort().join('+') + '+' + hk.key.toLowerCase();
-
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const hm = (this.app as any).hotkeyManager;
 		// Re-bake so bakedIds/bakedHotkeys reflect the latest user changes
@@ -268,49 +312,6 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				if (id === cmdId) acc.push(bakedHotkeys[i]);
 				return acc;
 			}, []);
-
-		const computeRow = (def: CommandDef): HotkeyRow => {
-			const fullId = `${PLUGIN_ID}:${def.id}`;
-			const currentHotkeys = effectiveHotkeys(fullId);
-
-			if (def.recommended === null) {
-				return {
-					name: def.name, key: '',
-					current: currentHotkeys[0] ? formatHotkey(currentHotkeys[0]) : '',
-					extraCount: Math.max(0, currentHotkeys.length - 1),
-					status: '—', conflictIds: [], action: 'none',
-				};
-			}
-
-			const recId  = hotkeyId(def.recommended);
-			const recFmt = formatHotkey(def.recommended);
-			const hasRec = currentHotkeys.some(hk => hotkeyId(hk) === recId);
-
-			if (hasRec) {
-				return { name: def.name, key: recFmt, current: recFmt, extraCount: currentHotkeys.length - 1, status: '✅ Set', conflictIds: [], action: 'done' };
-			}
-
-			if (currentHotkeys.length > 0) {
-				return {
-					name: def.name, key: recFmt,
-					current: formatHotkey(currentHotkeys[0]),
-					extraCount: currentHotkeys.length - 1,
-					status: '⚙️ Custom key', conflictIds: [], action: 'done',
-				};
-			}
-
-			// Not set — check for conflicts (multiple commands can share the same key)
-			const conflictIds = (reverseMap.get(recId) ?? []).filter(id => id !== fullId && cmds?.[id] !== undefined);
-			if (conflictIds.length > 0) {
-				const icon = conflictIds.length > 1 ? '🚨' : '⚠️';
-				return {
-					name: def.name, key: recFmt, current: '', extraCount: 0,
-					status: `${icon} Used by: `, conflictIds, action: 'overwrite',
-				};
-			}
-
-			return { name: def.name, key: recFmt, current: '', extraCount: 0, status: 'No conflict', conflictIds: [], action: 'set' };
-		};
 
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const cmds = (this.app as any).commands?.commands;
@@ -482,7 +483,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		};
 
 		const makeEntries = (block: CommandDef['block']) =>
-			COMMAND_DEFS.filter(d => d.block === block).map(def => ({ def, row: computeRow(def) }));
+			COMMAND_DEFS.filter(d => d.block === block).map(def => ({ def, row: computeRow(def, effectiveHotkeys, reverseMap, cmds) }));
 
 		addBlock('Cursor Movement', makeEntries('cursor'));
 		addBlock('Editing',         makeEntries('editing'));
