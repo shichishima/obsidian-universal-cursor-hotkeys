@@ -503,7 +503,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		// Header row
 		const dispHeaderRow = dispTbody.createEl('tr');
 		dispHeaderRow.addClass('uch-row-thick');
-		for (const [i, h] of (['Command', 'Hotkey', 'Action', ''] as const).entries()) {
+		for (const [i, h] of (['Command', 'Hotkey', 'Displaced by', ''] as const).entries()) {
 			const td = dispHeaderRow.createEl('td', { text: h, cls: 'uch-col-header' });
 			if (i === 0) td.addClass('uch-col-header-first');
 		}
@@ -516,7 +516,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				.addEventListener('click', (e) => { e.preventDefault(); openHotkeysPanelFor(d.commandName); });
 			const tdKey = tr.createEl('td', { cls: 'uch-cell-key' });
 			tdKey.createEl('kbd', { text: formatHotkey(d.hotkey), cls: 'uch-kbd' });
-			tr.createEl('td', { text: `Assigned to ${d.uchCommandName}`, cls: 'uch-cell-status' });
+			tr.createEl('td', { text: d.uchCommandName, cls: 'uch-cell-status' });
 			const restoreBtn = tr.createEl('td', { cls: 'uch-cell-action' })
 				.createEl('button', { text: 'Restore' });
 			restoreBtn.addClass('mod-warning', 'uch-restore-btn');
