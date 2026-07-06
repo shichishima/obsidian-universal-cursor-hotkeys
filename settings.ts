@@ -497,13 +497,13 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 
 		// Title row
 		const dispTitleCell = dispTbody.createEl('tr').createEl('td', { cls: 'uch-title-cell' });
-		dispTitleCell.colSpan = 4;
+		dispTitleCell.colSpan = 5;
 		dispTitleCell.createSpan({ text: 'Displaced Commands', cls: 'uch-title-text' });
 
 		// Header row
 		const dispHeaderRow = dispTbody.createEl('tr');
 		dispHeaderRow.addClass('uch-row-thick');
-		for (const [i, h] of (['Command', 'Hotkey', 'Displaced by', ''] as const).entries()) {
+		for (const [i, h] of (['Command', '', 'Hotkey', 'Displaced by', ''] as const).entries()) {
 			const td = dispHeaderRow.createEl('td', { text: h, cls: 'uch-col-header' });
 			if (i === 0) td.addClass('uch-col-header-first');
 		}
@@ -514,6 +514,10 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			tr.createEl('td', { cls: 'uch-cell-name' })
 				.createEl('a', { text: d.commandName, cls: 'uch-cmd-link' })
 				.addEventListener('click', (e) => { e.preventDefault(); openHotkeysPanelFor(d.commandName); });
+			const assignBtn = tr.createEl('td', { cls: 'uch-cell-action' })
+				.createEl('button', { text: 'Assign' });
+			assignBtn.addClass('mod-cta', 'uch-restore-btn');
+			assignBtn.addEventListener('click', () => { openHotkeysPanelFor(d.commandName); });
 			const tdKey = tr.createEl('td', { cls: 'uch-cell-key' });
 			tdKey.createEl('kbd', { text: formatHotkey(d.hotkey), cls: 'uch-kbd' });
 			tr.createEl('td', { text: d.uchCommandName, cls: 'uch-cell-status' });
@@ -524,7 +528,8 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		}
 
 		if (this.plugin.settings.qsaDisplacedCommands.length === 0) {
-			dispTbody.createEl('tr').createEl('td', { text: 'No displaced commands.', cls: 'uch-no-displaced' });
+			const noDisp = dispTbody.createEl('tr').createEl('td', { text: 'No displaced commands.', cls: 'uch-no-displaced' });
+			noDisp.colSpan = 5;
 		}
 
 		// Special Key Assignments
