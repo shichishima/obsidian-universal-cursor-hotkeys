@@ -305,7 +305,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				const icon = conflictIds.length > 1 ? '🚨' : '⚠️';
 				return {
 					name: def.name, key: recFmt, current: '', extraCount: 0,
-					status: `${icon} Conflict: `, conflictIds, action: 'overwrite',
+					status: `${icon} Used by: `, conflictIds, action: 'overwrite',
 				};
 			}
 
