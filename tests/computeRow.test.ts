@@ -145,7 +145,7 @@ describe('computeRow — no hotkey, no conflict', () => {
 			new Map(), undefined,
 		)
 		expect(row.action).toBe('set')
-		expect(row.status).toBe('No conflict')
+		expect(row.status).toBe('Available')
 		expect(row.conflictIds).toEqual([])
 	})
 })

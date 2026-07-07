@@ -81,7 +81,7 @@ export const computeRow = (
 		};
 	}
 
-	return { name: def.name, key: recFmt, current: '', extraCount: 0, status: 'No conflict', conflictIds: [], action: 'set' };
+	return { name: def.name, key: recFmt, current: '', extraCount: 0, status: 'Available', conflictIds: [], action: 'set' };
 };
 
 const ctrl = (...keys: string[]): Hotkey => ({ modifiers: ['Ctrl' as Modifier], key: keys[0] });
