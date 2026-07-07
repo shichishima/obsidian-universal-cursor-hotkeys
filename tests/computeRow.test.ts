@@ -161,7 +161,7 @@ describe('computeRow — conflict with active command', () => {
 			cmds([otherId]),
 		)
 		expect(row.action).toBe('overwrite')
-		expect(row.status).toBe('⚠️ Used by: ')
+		expect(row.status).toBe('🟡Used by: ')
 		expect(row.conflictIds).toEqual([otherId])
 	})
 
@@ -178,7 +178,7 @@ describe('computeRow — conflict with active command', () => {
 			makeReverseMap(entries),
 			cmds([id1, id2]),
 		)
-		expect(row.status).toBe('🚨 Used by: ')
+		expect(row.status).toBe('🔴Conflict: ')
 		expect(row.conflictIds).toHaveLength(2)
 	})
 })

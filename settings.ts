@@ -56,6 +56,10 @@ export const computeRow = (
 	const hasRec = currentHotkeys.some(hk => hotkeyId(hk) === recId);
 
 	if (hasRec) {
+		const conflictIds = (reverseMap.get(recId) ?? []).filter(id => id !== fullId && cmds?.[id] !== undefined);
+		if (conflictIds.length > 0) {
+			return { name: def.name, key: recFmt, current: recFmt, extraCount: currentHotkeys.length - 1, status: '🔴Conflict: ', conflictIds, action: 'done' };
+		}
 		return { name: def.name, key: recFmt, current: recFmt, extraCount: currentHotkeys.length - 1, status: '✅ Set', conflictIds: [], action: 'done' };
 	}
 
@@ -70,10 +74,10 @@ export const computeRow = (
 
 	const conflictIds = (reverseMap.get(recId) ?? []).filter(id => id !== fullId && cmds?.[id] !== undefined);
 	if (conflictIds.length > 0) {
-		const icon = conflictIds.length > 1 ? '🚨' : '⚠️';
+		const status = conflictIds.length === 1 ? '🟡Used by: ' : '🔴Conflict: ';
 		return {
 			name: def.name, key: recFmt, current: '', extraCount: 0,
-			status: `${icon} Used by: `, conflictIds, action: 'overwrite',
+			status, conflictIds, action: 'overwrite',
 		};
 	}
 
@@ -484,6 +488,10 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 						this.display();
 					});
 					allActionBtns.push(btn);
+				} else if (row.action === 'done' && row.conflictIds.length > 0 && def.recommended) {
+					const link = tdAction.createEl('a', { text: 'Hotkey settings', cls: 'uch-inline-link' });
+					link.addEventListener('click', (e) => { e.preventDefault(); openHotkeysPanelByKey(def.recommended!); });
+					allActionBtns.push(link);
 				} else {
 					tdAction.createEl('button', { cls: 'uch-set-btn-spacer' });
 				}
