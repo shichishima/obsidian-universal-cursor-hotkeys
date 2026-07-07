@@ -243,6 +243,14 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			}, 0);
 		};
 
+		const openHotkeysPanelByKey = (hk: AnyHotkey) => {
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			const s = (this.app as any).setting;
+			s.open();
+			const tab = s.openTabById('hotkeys');
+			setTimeout(() => tab?.setActiveHotkeyFilter?.({ modifiers: normMods(hk.modifiers), key: hk.key }), 0);
+		};
+
 		// Section header — desc contains the link to Obsidian's hotkeys settings
 		new Setting(containerEl)
 			.setName('Quick Setup Assistant')
@@ -279,7 +287,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					}, 0);
 				});
 				setting.descEl.createSpan({ text: '.' });
-			})
+				})
 			.addButton(btn => {
 				showHideBtn = btn;
 				btn.setButtonText(this.sectionVisible ? 'Hide' : 'Show');
