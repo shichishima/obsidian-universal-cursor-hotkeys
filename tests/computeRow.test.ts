@@ -160,7 +160,7 @@ describe('computeRow — conflict with active command', () => {
 			makeReverseMap(entries),
 			cmds([otherId]),
 		)
-		expect(row.action).toBe('overwrite')
+		expect(row.action).toBe('override')
 		expect(row.status).toBe('🟡Used by: ')
 		expect(row.conflictIds).toEqual([otherId])
 	})
@@ -180,6 +180,57 @@ describe('computeRow — conflict with active command', () => {
 		)
 		expect(row.status).toBe('🔴Conflict: ')
 		expect(row.conflictIds).toHaveLength(2)
+	})
+})
+
+describe('computeRow — bare key exception (cursor-home / cursor-end)', () => {
+	it('bare Home on cursor-home is ignored → action is set', () => {
+		const row = computeRow(
+			def('cursor-home', rec('A', 'Ctrl')),
+			makeEffective([[uchId('cursor-home'), baked('', 'Home')]]),
+			new Map(), undefined,
+		)
+		expect(row.action).toBe('set')
+		expect(row.status).toBe('Available')
+		expect(row.current).toBe('Home')
+	})
+
+	it('bare Home on cursor-home + Ctrl+A → ✅ Set', () => {
+		const row = computeRow(
+			def('cursor-home', rec('A', 'Ctrl')),
+			makeEffective([
+				[uchId('cursor-home'), baked('', 'Home')],
+				[uchId('cursor-home'), baked('Ctrl', 'A')],
+			]),
+			new Map(), undefined,
+		)
+		expect(row.action).toBe('done')
+		expect(row.status).toBe('✅ Set')
+		expect(row.current).toBe('Ctrl+A')
+		expect(row.extraCount).toBe(1)
+	})
+
+	it('bare End on cursor-end is ignored → action is set', () => {
+		const row = computeRow(
+			def('cursor-end', rec('E', 'Ctrl')),
+			makeEffective([[uchId('cursor-end'), baked('', 'End')]]),
+			new Map(), undefined,
+		)
+		expect(row.action).toBe('set')
+		expect(row.current).toBe('End')
+	})
+
+	it('bare Home on cursor-home with conflict → action is override, current shows Home', () => {
+		const otherId = 'other-plugin:cmd'
+		const entries: Array<[string, BakedHotkey]> = [[otherId, baked('Ctrl', 'A')]]
+		const row = computeRow(
+			def('cursor-home', rec('A', 'Ctrl')),
+			makeEffective([[uchId('cursor-home'), baked('', 'Home')]]),
+			makeReverseMap(entries),
+			cmds([otherId]),
+		)
+		expect(row.action).toBe('override')
+		expect(row.current).toBe('Home')
 	})
 })
 
@@ -210,7 +261,7 @@ describe('computeRow — conflict with disabled plugin command', () => {
 			makeReverseMap(entries),
 			cmds([activeId]),
 		)
-		expect(row.action).toBe('overwrite')
+		expect(row.action).toBe('override')
 		expect(row.conflictIds).toEqual([activeId])
 	})
 })

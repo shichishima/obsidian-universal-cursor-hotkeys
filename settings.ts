@@ -10,7 +10,7 @@ export interface CommandDef {
 	recommended: Hotkey | null;
 }
 
-export type RowAction = 'overwrite' | 'set' | 'done' | 'none';
+export type RowAction = 'override' | 'set' | 'done' | 'none';
 export interface HotkeyRow { name: string; key: string; current: string; extraCount: number; status: string; conflictIds: string[]; action: RowAction }
 export type BakedHotkey = { modifiers: string; key: string };
 export type AnyHotkey   = { modifiers: string | string[]; key: string };
@@ -33,6 +33,41 @@ export const formatHotkey = (hk: AnyHotkey, isMacOS = Platform.isMacOS): string 
 		: [...mods.map(m => WIN_MOD[m] ?? m), key].join('+');
 };
 
+const SPECIAL_KEY_EXCEPTION: Partial<Record<string, string>> = {
+	'cursor-home': 'Home',
+	'cursor-end':  'End',
+	'page-up':     'PageUp',
+	'page-down':   'PageDown',
+};
+
+export const selectCurrentChips = (
+	allHks: BakedHotkey[],
+	recommended: Hotkey | null,
+	exKey: string | undefined,
+): { chips: BakedHotkey[]; remaining: BakedHotkey[] } => {
+	const recHkId = recommended ? hotkeyId(recommended) : null;
+
+	const modifiedCand = recHkId
+		? allHks.find(hk => hotkeyId(hk) === recHkId) ?? allHks.find(hk => normMods(hk.modifiers).length > 0)
+		: allHks.find(hk => normMods(hk.modifiers).length > 0);
+	const bareCand = exKey
+		? allHks.find(hk => normMods(hk.modifiers).length === 0 && hk.key === exKey) ?? allHks.find(hk => normMods(hk.modifiers).length === 0)
+		: allHks.find(hk => normMods(hk.modifiers).length === 0);
+
+	const shownSet = new Set([
+		modifiedCand ? hotkeyId(modifiedCand) : null,
+		bareCand     ? hotkeyId(bareCand) : null,
+	].filter((x): x is string => x !== null));
+	const remaining = allHks.filter(hk => !shownSet.has(hotkeyId(hk)));
+
+	const chips = (recommended !== null
+		? [modifiedCand, bareCand]
+		: [bareCand, modifiedCand]
+	).filter((hk): hk is BakedHotkey => hk != null);
+
+	return { chips, remaining };
+};
+
 export const computeRow = (
 	def: CommandDef,
 	effectiveHotkeys: (cmdId: string) => BakedHotkey[],
@@ -40,13 +75,17 @@ export const computeRow = (
 	cmds: Record<string, { name: string }> | undefined,
 ): HotkeyRow => {
 	const fullId = `${PLUGIN_ID}:${def.id}`;
-	const currentHotkeys = effectiveHotkeys(fullId);
+	const allCurrentHotkeys = effectiveHotkeys(fullId);
+	const exceptionKey = SPECIAL_KEY_EXCEPTION[def.id];
+	const currentHotkeys = exceptionKey
+		? allCurrentHotkeys.filter(hk => !(normMods(hk.modifiers).length === 0 && hk.key === exceptionKey))
+		: allCurrentHotkeys;
 
 	if (def.recommended === null) {
 		return {
 			name: def.name, key: '',
-			current: currentHotkeys[0] ? formatHotkey(currentHotkeys[0]) : '',
-			extraCount: Math.max(0, currentHotkeys.length - 1),
+			current: allCurrentHotkeys[0] ? formatHotkey(allCurrentHotkeys[0]) : '',
+			extraCount: Math.max(0, allCurrentHotkeys.length - 1),
 			status: '—', conflictIds: [], action: 'none',
 		};
 	}
@@ -58,30 +97,30 @@ export const computeRow = (
 	if (hasRec) {
 		const conflictIds = (reverseMap.get(recId) ?? []).filter(id => id !== fullId && cmds?.[id] !== undefined);
 		if (conflictIds.length > 0) {
-			return { name: def.name, key: recFmt, current: recFmt, extraCount: currentHotkeys.length - 1, status: '🔴Conflict: ', conflictIds, action: 'done' };
+			return { name: def.name, key: recFmt, current: recFmt, extraCount: allCurrentHotkeys.length - 1, status: '🔴Conflict: ', conflictIds, action: 'done' };
 		}
-		return { name: def.name, key: recFmt, current: recFmt, extraCount: currentHotkeys.length - 1, status: '✅ Set', conflictIds: [], action: 'done' };
+		return { name: def.name, key: recFmt, current: recFmt, extraCount: allCurrentHotkeys.length - 1, status: '✅ Set', conflictIds: [], action: 'done' };
 	}
 
 	if (currentHotkeys.length > 0) {
 		return {
 			name: def.name, key: recFmt,
 			current: formatHotkey(currentHotkeys[0]),
-			extraCount: currentHotkeys.length - 1,
+			extraCount: allCurrentHotkeys.length - 1,
 			status: '⚙️ Custom key', conflictIds: [], action: 'done',
 		};
 	}
 
+	const currentDisplay = allCurrentHotkeys[0] ? formatHotkey(allCurrentHotkeys[0]) : '';
+	const extraCount = Math.max(0, allCurrentHotkeys.length - 1);
+
 	const conflictIds = (reverseMap.get(recId) ?? []).filter(id => id !== fullId && cmds?.[id] !== undefined);
 	if (conflictIds.length > 0) {
 		const status = conflictIds.length === 1 ? '🟡Used by: ' : '🔴Conflict: ';
-		return {
-			name: def.name, key: recFmt, current: '', extraCount: 0,
-			status, conflictIds, action: 'overwrite',
-		};
+		return { name: def.name, key: recFmt, current: currentDisplay, extraCount, status, conflictIds, action: 'override' };
 	}
 
-	return { name: def.name, key: recFmt, current: '', extraCount: 0, status: 'Available', conflictIds: [], action: 'set' };
+	return { name: def.name, key: recFmt, current: currentDisplay, extraCount, status: 'Available', conflictIds: [], action: 'set' };
 };
 
 const ctrl = (...keys: string[]): Hotkey => ({ modifiers: ['Ctrl' as Modifier], key: keys[0] });
@@ -341,7 +380,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		const applyEntry = (def: CommandDef, row: HotkeyRow) => {
 			const fullId = `${PLUGIN_ID}:${def.id}`;
 			const recId  = hotkeyId(def.recommended!);
-			if (row.action === 'overwrite') {
+			if (row.action === 'override') {
 				for (const conflictId of (reverseMap.get(recId) ?? []).filter(id => id !== fullId)) {
 					hm.setHotkeys(conflictId,
 						effectiveHotkeys(conflictId).filter(hk => hotkeyId(hk) !== recId).map(toHotkey));
@@ -361,7 +400,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 
 		const applyBlock = (entries: Array<{def: CommandDef; row: HotkeyRow}>) => {
 			for (const { def, row } of entries) {
-				if (row.action !== 'set' && row.action !== 'overwrite') continue;
+				if (row.action !== 'set' && row.action !== 'override') continue;
 				applyEntry(def, row);
 			}
 			hm.save();
@@ -410,7 +449,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			titleFlex.createSpan({ text: title, cls: 'uch-title-text' });
 			const setAllBtn = titleFlex.createEl('button', { text: 'Apply Recommended' });
 			setAllBtn.addClass('mod-cta', 'uch-apply-btn');
-			if (!entries.some(e => e.row.action === 'set' || e.row.action === 'overwrite'))
+			if (!entries.some(e => e.row.action === 'set' || e.row.action === 'override'))
 				setAllBtn.disabled = true;
 			setAllBtn.addEventListener('click', () => { applyBlock(entries); });
 
@@ -458,11 +497,22 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				makeKeyCell(tdKey, row.key, def.recommended ? () => openHotkeysPanelByKey(def.recommended!) : undefined);
 
 				const tdCurrent = tr.createEl('td', { cls: 'uch-cell-key' });
-				const currentHk = effectiveHotkeys(fullId)[0];
-				makeKeyCell(tdCurrent, row.current, currentHk ? () => openHotkeysPanelByKey(currentHk) : undefined);
-				if (row.extraCount > 0) {
-					tdCurrent.createEl('a', { text: `+${row.extraCount} more`, cls: 'uch-more-link' })
-						.addEventListener('click', (e) => { e.preventDefault(); openHotkeysPanel(); });
+				const currentWrap = tdCurrent.createDiv({ cls: 'uch-key-stack' });
+				const allHks = effectiveHotkeys(fullId);
+				const { chips, remaining: chipRemaining } = selectCurrentChips(
+					allHks, def.recommended, SPECIAL_KEY_EXCEPTION[def.id],
+				);
+
+				if (chips.length === 0) {
+					currentWrap.createSpan({ text: '—', cls: 'uch-empty-dash' });
+				} else {
+					for (const hk of chips) {
+						makeKeyCell(currentWrap, formatHotkey(hk), () => openHotkeysPanelByKey(hk));
+					}
+					if (chipRemaining.length > 0) {
+						currentWrap.createEl('a', { text: `+${chipRemaining.length} more`, cls: 'uch-more-link' })
+							.addEventListener('click', (e) => { e.preventDefault(); openHotkeysPanel(); });
+					}
 				}
 
 				const tdStatus = tr.createEl('td', { cls: 'uch-cell-status' });
@@ -479,12 +529,12 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				}
 
 				const tdAction = tr.createEl('td', { cls: 'uch-cell-action' });
-				if (row.action === 'overwrite' || row.action === 'set') {
+				if (row.action === 'override' || row.action === 'set') {
 					const btn = tdAction.createEl('button', {
-						text: row.action === 'overwrite' ? 'Override' : 'Set'
+						text: row.action === 'override' ? 'Override' : 'Set'
 					});
 					btn.addClass('mod-cta', 'uch-set-btn');
-					if (row.action === 'overwrite') btn.addClass('uch-override-btn');
+					if (row.action === 'override') btn.addClass('uch-override-btn');
 					btn.addEventListener('click', () => {
 						applyEntry(def, row);
 						hm.save();
@@ -503,7 +553,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				}
 			}
 
-			if (entries.some(e => e.row.action === 'overwrite')) {
+			if (entries.some(e => e.row.action === 'override')) {
 				const noteRow = tbody.createEl('tr');
 				const noteTd = noteRow.createEl('td', { cls: 'uch-override-note' });
 				noteTd.colSpan = 5;

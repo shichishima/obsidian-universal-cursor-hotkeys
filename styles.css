@@ -53,6 +53,7 @@
 /* ── Data cells ──────────────────────────────────────────── */
 .uch-cell-name   { padding: 2px 8px 2px 40px; white-space: nowrap; }
 .uch-cell-key    { padding: 2px 8px; white-space: nowrap; }
+.uch-key-stack   { display: flex; flex-direction: row; align-items: center; gap: 4px; }
 .uch-cell-status { padding: 2px 8px; font-size: 0.9em; width: 100%; }
 .uch-cell-action { padding: 2px 8px; white-space: nowrap; }
 
