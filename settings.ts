@@ -643,7 +643,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		const specialEl = containerEl.createEl('div', { cls: 'uch-special-section' });
 		specialEl.createEl('div', { text: 'Special Key Assignments', cls: 'uch-special-title' });
 		specialEl.createEl('div', {
-			text: "Assign bare keys that cannot be set via Obsidian's Hotkeys panel.",
+			text: "These keys cannot be set in Obsidian's Hotkeys panel. Assign them here.",
 			cls: 'uch-special-desc',
 		});
 
