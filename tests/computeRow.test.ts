@@ -78,17 +78,38 @@ describe('formatHotkey', () => {
 	it('Windows: Ctrl+Shift+A', () => {
 		expect(formatHotkey({ modifiers: ['Ctrl', 'Shift'], key: 'A' }, false)).toBe('Ctrl+Shift+A')
 	})
+	it('Windows: Alt+A', () => {
+		expect(formatHotkey({ modifiers: ['Alt'], key: 'A' }, false)).toBe('Alt+A')
+	})
+	it('Windows: Meta+A → Win+A', () => {
+		expect(formatHotkey({ modifiers: ['Meta'], key: 'A' }, false)).toBe('Win+A')
+	})
 	it('Windows: bare Home', () => {
 		expect(formatHotkey({ modifiers: [], key: 'Home' }, false)).toBe('Home')
 	})
 	it('Windows: PageDown → Page Down', () => {
 		expect(formatHotkey({ modifiers: [], key: 'PageDown' }, false)).toBe('Page Down')
 	})
+	it('Windows: PageUp → Page Up', () => {
+		expect(formatHotkey({ modifiers: [], key: 'PageUp' }, false)).toBe('Page Up')
+	})
 	it('Mac: Ctrl+A → ⌃ A', () => {
 		expect(formatHotkey({ modifiers: ['Ctrl'], key: 'A' }, true)).toBe('⌃ A')
 	})
 	it('Mac: Mod+A → ⌘ A', () => {
 		expect(formatHotkey({ modifiers: ['Mod'], key: 'A' }, true)).toBe('⌘ A')
+	})
+	it('Mac: Shift+A → ⇧ A', () => {
+		expect(formatHotkey({ modifiers: ['Shift'], key: 'A' }, true)).toBe('⇧ A')
+	})
+	it('Mac: Alt+A → ⌥ A', () => {
+		expect(formatHotkey({ modifiers: ['Alt'], key: 'A' }, true)).toBe('⌥ A')
+	})
+	it('Mac: Meta+A → ⌘ A', () => {
+		expect(formatHotkey({ modifiers: ['Meta'], key: 'A' }, true)).toBe('⌘ A')
+	})
+	it('Mac: Ctrl+Shift+A → ⌃⇧ A', () => {
+		expect(formatHotkey({ modifiers: ['Ctrl', 'Shift'], key: 'A' }, true)).toBe('⌃⇧ A')
 	})
 })
 
@@ -109,6 +130,16 @@ describe('computeRow — recommended: null', () => {
 		)
 		expect(row.current).toBe('Ctrl+P')
 	})
+	it('multiple hotkeys: extraCount is length - 1', () => {
+		const entries: Array<[string, BakedHotkey]> = [
+			[uchId('page-down'), baked('Ctrl', 'P')],
+			[uchId('page-down'), baked('Ctrl', 'N')],
+			[uchId('page-down'), baked('Ctrl', 'F')],
+		]
+		const row = computeRow(def('page-down', null), makeEffective(entries), new Map(), undefined)
+		expect(row.extraCount).toBe(2)
+		expect(row.current).toBe('Ctrl+P')
+	})
 })
 
 describe('computeRow — recommended set, already applied', () => {
@@ -121,6 +152,22 @@ describe('computeRow — recommended set, already applied', () => {
 		)
 		expect(row.action).toBe('done')
 		expect(row.status).toBe('✅ Set')
+	})
+	it('rec applied but another command also uses that key → action done, status 🔴Conflict', () => {
+		const otherId = 'other-plugin:some-cmd'
+		const entries: Array<[string, BakedHotkey]> = [
+			[uchId('cursor-home'), baked('Ctrl', 'A')],
+			[otherId,              baked('Ctrl', 'A')],
+		]
+		const row = computeRow(
+			def('cursor-home', rec('A', 'Ctrl')),
+			makeEffective(entries),
+			makeReverseMap(entries),
+			cmds([otherId]),
+		)
+		expect(row.action).toBe('done')
+		expect(row.status).toBe('🔴Conflict: ')
+		expect(row.conflictIds).toEqual([otherId])
 	})
 })
 
