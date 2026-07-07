@@ -180,7 +180,7 @@ describe('computeRow — custom key (different from recommended)', () => {
 			new Map(), undefined,
 		)
 		expect(row.action).toBe('done')
-		expect(row.status).toBe('⚙️ Custom key')
+		expect(row.status).toBe('🔵Custom key')
 	})
 })
 
