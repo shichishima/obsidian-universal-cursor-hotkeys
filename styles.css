@@ -68,7 +68,10 @@
 
 /* ── Misc ────────────────────────────────────────────────── */
 .uch-empty-dash   { opacity: 0.5; }
-.uch-no-displaced { padding: 4px 8px 4px 40px; font-size: 0.9em; opacity: 0.5; }
+.uch-no-displaced  { padding: 4px 8px 4px 40px; font-size: 0.9em; opacity: 0.5; }
+.uch-override-note { padding: 4px 8px 4px 40px; font-size: 0.85em; opacity: 0.65; }
+tbody:has(.uch-override-btn:hover) .uch-override-note { opacity: 1; color: var(--text-warning); }
+.uch-block-spacer  { height: 14px; }
 .uch-disp-desc    { padding: 2px 8px 8px; font-size: 0.85em; opacity: 0.65; }
 .uch-disp-desc ul { margin: 2px 0; padding-left: 1.4em; }
 .uch-disp-desc li { margin: 1px 0; }

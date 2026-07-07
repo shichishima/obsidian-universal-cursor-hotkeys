@@ -386,9 +386,11 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 
 		const allActionBtns: HTMLElement[]    = [];
 		const allActionHeaders: HTMLElement[] = [];
+		const allOverrideNotes: HTMLElement[] = [];
 		const syncToggle = () => {
 			for (const el of allActionBtns)    el.style.visibility = this.individualVisible ? 'visible' : 'hidden';
 			for (const el of allActionHeaders) el.textContent      = this.individualVisible ? '▼ Individual' : '▶ Individual';
+			for (const el of allOverrideNotes) el.style.display    = this.individualVisible ? '' : 'none';
 		};
 
 		// Single shared table — all blocks share the same column widths
@@ -396,14 +398,11 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		table.addClass('uch-table');
 		collect(table);
 
-		let isFirstBlock = true;
 		const addBlock = (title: string, entries: Array<{def: CommandDef; row: HotkeyRow}>) => {
 			const tbody = table.createEl('tbody');
 
 			// Title row
 			const titleRow = tbody.createEl('tr');
-			if (!isFirstBlock) titleRow.addClass('uch-block-top');
-			isFirstBlock = false;
 			const titleCell = titleRow.createEl('td');
 			titleCell.colSpan = 5;
 			titleCell.addClass('uch-title-cell');
@@ -485,6 +484,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 						text: row.action === 'overwrite' ? 'Override' : 'Set'
 					});
 					btn.addClass('mod-cta', 'uch-set-btn');
+					if (row.action === 'overwrite') btn.addClass('uch-override-btn');
 					btn.addEventListener('click', () => {
 						applyEntry(def, row);
 						hm.save();
@@ -502,6 +502,17 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					tdAction.createEl('button', { cls: 'uch-set-btn-spacer' });
 				}
 			}
+
+			if (entries.some(e => e.row.action === 'overwrite')) {
+				const noteRow = tbody.createEl('tr');
+				const noteTd = noteRow.createEl('td', { cls: 'uch-override-note' });
+				noteTd.colSpan = 5;
+				noteTd.setText('Clicking "Override" reassigns the hotkey to this plugin\'s command. The command currently using it loses its hotkey and appears in Displaced Commands below.');
+				allOverrideNotes.push(noteRow);
+			}
+
+			const spacerTd = tbody.createEl('tr').createEl('td', { cls: 'uch-block-spacer' });
+			spacerTd.colSpan = 5;
 		};
 
 		const makeEntries = (block: CommandDef['block']) =>
