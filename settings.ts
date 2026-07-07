@@ -495,7 +495,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					allActionBtns.push(btn);
 				} else if (row.action === 'done' && row.conflictIds.length > 0 && def.recommended) {
 					const btn = tdAction.createEl('button', { text: 'Open →' });
-					btn.addClass('uch-set-btn');
+					btn.addClass('uch-open-btn');
 					btn.addEventListener('click', () => openHotkeysPanelByKey(def.recommended!));
 					allActionBtns.push(btn);
 				} else {
@@ -523,6 +523,18 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		dispTitleCell.colSpan = 5;
 		dispTitleCell.createSpan({ text: 'Displaced Commands', cls: 'uch-title-text' });
 
+		// Description row
+		const dispDescTd = dispTbody.createEl('tr').createEl('td', { cls: 'uch-disp-desc' });
+		dispDescTd.colSpan = 5;
+		const dispDescList = dispDescTd.createEl('ul');
+		for (const text of [
+			'Commands reassigned by Override appear here.',
+			'Assigning a different hotkey removes it from this list. Click a command to open Hotkeys settings and assign a new one.',
+			'Commands accessible from the Command Palette or by mouse can safely be left here.',
+		]) {
+			dispDescList.createEl('li', { text });
+		}
+
 		// Header row
 		const dispHeaderRow = dispTbody.createEl('tr');
 		dispHeaderRow.addClass('uch-row-thick');
@@ -545,7 +557,9 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			const dispKbd = tdKey.createEl('kbd', { text: formatHotkey(d.hotkey), cls: 'uch-kbd' });
 			dispKbd.addClass('uch-kbd-link');
 			dispKbd.addEventListener('click', () => openHotkeysPanelByKey(d.hotkey));
-			tr.createEl('td', { text: d.uchCommandName, cls: 'uch-cell-status' });
+			tr.createEl('td', { cls: 'uch-cell-status' })
+				.createEl('a', { text: d.uchCommandName, cls: 'uch-cmd-link' })
+				.addEventListener('click', (e) => { e.preventDefault(); openHotkeysPanelFor(d.uchCommandName); });
 			const restoreBtn = tr.createEl('td', { cls: 'uch-cell-action' })
 				.createEl('button', { text: 'Restore' });
 			restoreBtn.addClass('mod-warning', 'uch-restore-btn');
