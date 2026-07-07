@@ -443,19 +443,24 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				const nameLink = tdName.createEl('a', { text: row.name, cls: 'uch-cmd-link' });
 				nameLink.addEventListener('click', (e) => { e.preventDefault(); openHotkeysPanel(); });
 
-				const makeKeyCell = (td: HTMLElement, label: string) => {
+				const makeKeyCell = (td: HTMLElement, label: string, onClick?: () => void) => {
 					if (label) {
-						td.createEl('kbd', { text: label, cls: 'uch-kbd' });
+						const kbd = td.createEl('kbd', { text: label, cls: 'uch-kbd' });
+						if (onClick) {
+							kbd.addClass('uch-kbd-link');
+							kbd.addEventListener('click', onClick);
+						}
 					} else {
 						td.createSpan({ text: '—', cls: 'uch-empty-dash' });
 					}
 				};
 
 				const tdKey = tr.createEl('td', { cls: 'uch-cell-key' });
-				makeKeyCell(tdKey, row.key);
+				makeKeyCell(tdKey, row.key, def.recommended ? () => openHotkeysPanelByKey(def.recommended!) : undefined);
 
 				const tdCurrent = tr.createEl('td', { cls: 'uch-cell-key' });
-				makeKeyCell(tdCurrent, row.current);
+				const currentHk = effectiveHotkeys(fullId)[0];
+				makeKeyCell(tdCurrent, row.current, currentHk ? () => openHotkeysPanelByKey(currentHk) : undefined);
 				if (row.extraCount > 0) {
 					tdCurrent.createEl('a', { text: `+${row.extraCount} more`, cls: 'uch-more-link' })
 						.addEventListener('click', (e) => { e.preventDefault(); openHotkeysPanel(); });
@@ -489,9 +494,10 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					});
 					allActionBtns.push(btn);
 				} else if (row.action === 'done' && row.conflictIds.length > 0 && def.recommended) {
-					const link = tdAction.createEl('a', { text: 'Hotkey settings', cls: 'uch-inline-link' });
-					link.addEventListener('click', (e) => { e.preventDefault(); openHotkeysPanelByKey(def.recommended!); });
-					allActionBtns.push(link);
+					const btn = tdAction.createEl('button', { text: 'Open →' });
+					btn.addClass('uch-set-btn');
+					btn.addEventListener('click', () => openHotkeysPanelByKey(def.recommended!));
+					allActionBtns.push(btn);
 				} else {
 					tdAction.createEl('button', { cls: 'uch-set-btn-spacer' });
 				}
@@ -536,7 +542,9 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			assignBtn.addClass('mod-cta', 'uch-restore-btn');
 			assignBtn.addEventListener('click', () => { openHotkeysPanelFor(d.commandName); });
 			const tdKey = tr.createEl('td', { cls: 'uch-cell-key' });
-			tdKey.createEl('kbd', { text: formatHotkey(d.hotkey), cls: 'uch-kbd' });
+			const dispKbd = tdKey.createEl('kbd', { text: formatHotkey(d.hotkey), cls: 'uch-kbd' });
+			dispKbd.addClass('uch-kbd-link');
+			dispKbd.addEventListener('click', () => openHotkeysPanelByKey(d.hotkey));
 			tr.createEl('td', { text: d.uchCommandName, cls: 'uch-cell-status' });
 			const restoreBtn = tr.createEl('td', { cls: 'uch-cell-action' })
 				.createEl('button', { text: 'Restore' });
