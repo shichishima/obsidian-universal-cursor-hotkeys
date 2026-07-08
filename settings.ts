@@ -290,8 +290,19 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			const s = (this.app as any).setting;
 			s.open();
-			const tab = s.openTabById('hotkeys');
-			setTimeout(() => tab?.setActiveHotkeyFilter?.({ modifiers: normMods(hk.modifiers), key: hk.key }), 0);
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			const tab = s.openTabById('hotkeys') as any;
+			const mods = normMods(hk.modifiers);
+			const filterArg = { modifiers: mods, key: hk.key };
+			setTimeout(() => {
+				if (typeof tab?.setActiveHotkeyFilter === 'function') {
+					// Obsidian 1.13+
+					tab.setActiveHotkeyFilter(filterArg);
+				} else if (typeof tab?.setHotkeyFilter === 'function') {
+					// Obsidian 1.12
+					tab.setHotkeyFilter(filterArg);
+				}
+			}, 0);
 		};
 
 		// Section header — desc contains the link to Obsidian's hotkeys settings
