@@ -639,7 +639,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		}
 
 		if (this.plugin.settings.qsaDisplacedCommands.length === 0) {
-			const noDisp = dispTbody.createEl('tr').createEl('td', { text: 'No displaced commands.', cls: 'uch-no-displaced' });
+			const noDisp = dispTbody.createEl('tr', { cls: 'uch-row-thin' }).createEl('td', { text: 'No displaced commands.', cls: 'uch-no-displaced' });
 			noDisp.colSpan = 5;
 		}
 
