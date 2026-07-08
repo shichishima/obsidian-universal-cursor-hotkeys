@@ -107,7 +107,7 @@ export const computeRow = (
 			name: def.name, key: recFmt,
 			current: formatHotkey(currentHotkeys[0]),
 			extraCount: allCurrentHotkeys.length - 1,
-			status: '🔵Custom key', conflictIds: [], action: 'done',
+			status: '🔵Custom', conflictIds: [], action: 'done',
 		};
 	}
 
