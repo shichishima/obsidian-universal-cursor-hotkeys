@@ -323,7 +323,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				});
 				setting.descEl.createSpan({ text: '.' });
 				setting.descEl.createEl('br');
-				setting.descEl.createSpan({ text: 'To assign a command to a key other than the recommended hotkey, use ' });
+				setting.descEl.createSpan({ text: 'To assign a command to a key other than the recommended, use ' });
 				const hotkeyLink = setting.descEl.createEl('a', { text: "Obsidian's built-in Hotkeys settings" });
 				hotkeyLink.addClass('uch-inline-link');
 				hotkeyLink.addEventListener('click', (e) => {
