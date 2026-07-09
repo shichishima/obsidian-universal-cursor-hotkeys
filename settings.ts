@@ -619,11 +619,11 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			const tr = dispTbody.createEl('tr');
 			tr.addClass('uch-row-thin');
 			tr.createEl('td', { cls: 'uch-cell-name' })
-				.createEl('a', { text: d.commandName, cls: 'uch-cmd-link' })
+				.createEl('a', { text: d.commandName, cls: 'uch-cmd-link uch-disp-name' })
 				.addEventListener('click', (e) => { e.preventDefault(); openHotkeysPanelFor(d.commandName); });
 			const assignBtn = tr.createEl('td', { cls: 'uch-cell-action' })
 				.createEl('button', { text: 'Assign' });
-			assignBtn.addClass('mod-cta', 'uch-restore-btn');
+			assignBtn.addClass('mod-cta', 'uch-restore-btn', 'uch-assign-btn');
 			assignBtn.addEventListener('click', () => { openHotkeysPanelFor(d.commandName); });
 			const tdKey = tr.createEl('td', { cls: 'uch-cell-key' });
 			const dispKbd = tdKey.createEl('kbd', { text: formatHotkey(d.hotkey), cls: 'uch-kbd' });
