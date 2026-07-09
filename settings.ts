@@ -568,7 +568,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				const noteRow = tbody.createEl('tr');
 				const noteTd = noteRow.createEl('td', { cls: 'uch-override-note' });
 				noteTd.colSpan = 5;
-				noteTd.setText('Clicking "Override" reassigns the hotkey to this plugin\'s command. The command currently using it loses its hotkey and appears in Displaced Commands below.');
+				noteTd.setText('"Override" reassigns the hotkey to this plugin\'s command, removing it from the command currently using it. Commands left with no remaining hotkeys appear in Displaced Commands below.');
 				allOverrideNotes.push(noteRow);
 			}
 
@@ -600,9 +600,9 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		dispDescTd.colSpan = 5;
 		const dispDescList = dispDescTd.createEl('ul');
 		for (const text of [
-			'Commands reassigned by Override appear here.',
-			'Assigning a different hotkey removes it from this list. Click a command to open Hotkeys settings and assign a new one.',
-			'Commands accessible from the Command Palette or by mouse can safely be left here.',
+			'Commands left with no hotkeys after Override are listed here.',
+			'Click a command name or use Assign to open Hotkeys settings and reassign a hotkey.',
+			'Commands still reachable via Command Palette or mouse can safely be left as-is.',
 		]) {
 			dispDescList.createEl('li', { text });
 		}
