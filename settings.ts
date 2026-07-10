@@ -82,10 +82,17 @@ export const computeRow = (
 		: allCurrentHotkeys;
 
 	if (def.recommended === null) {
+		if (allCurrentHotkeys.length > 0) {
+			return {
+				name: def.name, key: '',
+				current: formatHotkey(allCurrentHotkeys[0]),
+				extraCount: allCurrentHotkeys.length - 1,
+				status: '🟢Custom', conflictIds: [], action: 'done',
+			};
+		}
 		return {
 			name: def.name, key: '',
-			current: allCurrentHotkeys[0] ? formatHotkey(allCurrentHotkeys[0]) : '',
-			extraCount: Math.max(0, allCurrentHotkeys.length - 1),
+			current: '', extraCount: 0,
 			status: '—', conflictIds: [], action: 'none',
 		};
 	}

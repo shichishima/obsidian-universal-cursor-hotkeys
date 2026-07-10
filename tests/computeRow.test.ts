@@ -116,19 +116,30 @@ describe('formatHotkey', () => {
 // ── computeRow ───────────────────────────────────────────────────────────────
 
 describe('computeRow — recommended: null', () => {
-	it('action is none, status is dash', () => {
+	it('no hotkey assigned → action none, status dash', () => {
 		const row = computeRow(def('page-down', null), makeEffective([]), new Map(), undefined)
 		expect(row.action).toBe('none')
 		expect(row.status).toBe('—')
 	})
-	it('shows current hotkey if assigned', () => {
+	it('non-exception hotkey assigned → 🟢Custom, action done', () => {
 		const hk = baked('Ctrl', 'P')
 		const row = computeRow(
 			def('page-down', null),
 			makeEffective([[uchId('page-down'), hk]]),
 			new Map(), undefined,
 		)
+		expect(row.status).toBe('🟢Custom')
+		expect(row.action).toBe('done')
 		expect(row.current).toBe('Ctrl+P')
+	})
+	it('only bare exception key assigned → 🟢Custom (exception exclusion does not apply when rec is null)', () => {
+		const row = computeRow(
+			def('page-down', null),
+			makeEffective([[uchId('page-down'), baked('', 'PageDown')]]),
+			new Map(), undefined,
+		)
+		expect(row.status).toBe('🟢Custom')
+		expect(row.action).toBe('done')
 	})
 	it('multiple hotkeys: extraCount is length - 1', () => {
 		const entries: Array<[string, BakedHotkey]> = [
