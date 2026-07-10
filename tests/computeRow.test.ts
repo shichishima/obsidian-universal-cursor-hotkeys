@@ -151,9 +151,9 @@ describe('computeRow — recommended set, already applied', () => {
 			new Map(), undefined,
 		)
 		expect(row.action).toBe('done')
-		expect(row.status).toBe('✅ Set')
+		expect(row.status).toBe('✅Set')
 	})
-	it('rec applied but another command also uses that key → action done, status 🔴Conflict', () => {
+	it('rec applied but another command also uses that key → action done, status 🔴 Conflict', () => {
 		const otherId = 'other-plugin:some-cmd'
 		const entries: Array<[string, BakedHotkey]> = [
 			[uchId('cursor-home'), baked('Ctrl', 'A')],
@@ -172,7 +172,7 @@ describe('computeRow — recommended set, already applied', () => {
 })
 
 describe('computeRow — custom key (different from recommended)', () => {
-	it('action is done, status is Custom key', () => {
+	it('action is done, status is 🟢 Custom', () => {
 		const hk = baked('Ctrl', 'H')
 		const row = computeRow(
 			def('cursor-home', rec('A', 'Ctrl')),
@@ -180,7 +180,7 @@ describe('computeRow — custom key (different from recommended)', () => {
 			new Map(), undefined,
 		)
 		expect(row.action).toBe('done')
-		expect(row.status).toBe('🔵Custom')
+		expect(row.status).toBe('🟢Custom')
 	})
 })
 
@@ -192,27 +192,44 @@ describe('computeRow — no hotkey, no conflict', () => {
 			new Map(), undefined,
 		)
 		expect(row.action).toBe('set')
-		expect(row.status).toBe('Available')
+		expect(row.status).toBe('🔵Available')
 		expect(row.conflictIds).toEqual([])
 	})
 })
 
 describe('computeRow — conflict with active command', () => {
-	it('action is overwrite, single conflict gets warning icon', () => {
+	it('single conflict, other command has only that key → 🟡 Used (1 displacement)', () => {
 		const otherId = 'other-plugin:some-cmd'
 		const entries: Array<[string, BakedHotkey]> = [[otherId, baked('Ctrl', 'A')]]
 		const row = computeRow(
 			def('cursor-home', rec('A', 'Ctrl')),
-			makeEffective([]),
+			makeEffective(entries),
 			makeReverseMap(entries),
 			cmds([otherId]),
 		)
 		expect(row.action).toBe('override')
-		expect(row.status).toBe('🟡Used by: ')
+		expect(row.status).toBe('🟡Used: ')
 		expect(row.conflictIds).toEqual([otherId])
 	})
 
-	it('multiple conflicts get alarm icon', () => {
+	it('single conflict, other command has additional keys → 🔵 Used (0 displacement)', () => {
+		const otherId = 'other-plugin:some-cmd'
+		const entries: Array<[string, BakedHotkey]> = [
+			[otherId, baked('Ctrl', 'A')],
+			[otherId, baked('Ctrl', 'B')],
+		]
+		const row = computeRow(
+			def('cursor-home', rec('A', 'Ctrl')),
+			makeEffective(entries),
+			makeReverseMap(entries),
+			cmds([otherId]),
+		)
+		expect(row.action).toBe('override')
+		expect(row.status).toBe('🔵Used: ')
+		expect(row.conflictIds).toEqual([otherId])
+	})
+
+	it('multiple conflicts → 🔴 Conflict regardless of displacement count', () => {
 		const id1 = 'plugin-a:cmd-1'
 		const id2 = 'plugin-b:cmd-2'
 		const entries: Array<[string, BakedHotkey]> = [
@@ -221,7 +238,7 @@ describe('computeRow — conflict with active command', () => {
 		]
 		const row = computeRow(
 			def('cursor-home', rec('A', 'Ctrl')),
-			makeEffective([]),
+			makeEffective(entries),
 			makeReverseMap(entries),
 			cmds([id1, id2]),
 		)
@@ -231,14 +248,14 @@ describe('computeRow — conflict with active command', () => {
 })
 
 describe('computeRow — bare key exception (cursor-home / cursor-end)', () => {
-	it('bare Home on cursor-home is ignored → action is set', () => {
+	it('bare Home on cursor-home is ignored → action is set, status 🔵 Available', () => {
 		const row = computeRow(
 			def('cursor-home', rec('A', 'Ctrl')),
 			makeEffective([[uchId('cursor-home'), baked('', 'Home')]]),
 			new Map(), undefined,
 		)
 		expect(row.action).toBe('set')
-		expect(row.status).toBe('Available')
+		expect(row.status).toBe('🔵Available')
 		expect(row.current).toBe('Home')
 	})
 
@@ -252,7 +269,7 @@ describe('computeRow — bare key exception (cursor-home / cursor-end)', () => {
 			new Map(), undefined,
 		)
 		expect(row.action).toBe('done')
-		expect(row.status).toBe('✅ Set')
+		expect(row.status).toBe('✅Set')
 		expect(row.current).toBe('Ctrl+A')
 		expect(row.extraCount).toBe(1)
 	})

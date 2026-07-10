@@ -99,7 +99,7 @@ export const computeRow = (
 		if (conflictIds.length > 0) {
 			return { name: def.name, key: recFmt, current: recFmt, extraCount: allCurrentHotkeys.length - 1, status: '🔴Conflict: ', conflictIds, action: 'done' };
 		}
-		return { name: def.name, key: recFmt, current: recFmt, extraCount: allCurrentHotkeys.length - 1, status: '✅ Set', conflictIds: [], action: 'done' };
+		return { name: def.name, key: recFmt, current: recFmt, extraCount: allCurrentHotkeys.length - 1, status: '✅Set', conflictIds: [], action: 'done' };
 	}
 
 	if (currentHotkeys.length > 0) {
@@ -107,7 +107,7 @@ export const computeRow = (
 			name: def.name, key: recFmt,
 			current: formatHotkey(currentHotkeys[0]),
 			extraCount: allCurrentHotkeys.length - 1,
-			status: '🔵Custom', conflictIds: [], action: 'done',
+			status: '🟢Custom', conflictIds: [], action: 'done',
 		};
 	}
 
@@ -115,12 +115,16 @@ export const computeRow = (
 	const extraCount = Math.max(0, allCurrentHotkeys.length - 1);
 
 	const conflictIds = (reverseMap.get(recId) ?? []).filter(id => id !== fullId && cmds?.[id] !== undefined);
-	if (conflictIds.length > 0) {
-		const status = conflictIds.length === 1 ? '🟡Used by: ' : '🔴Conflict: ';
+	if (conflictIds.length >= 2) {
+		return { name: def.name, key: recFmt, current: currentDisplay, extraCount, status: '🔴Conflict: ', conflictIds, action: 'override' };
+	}
+	if (conflictIds.length === 1) {
+		const displaced = effectiveHotkeys(conflictIds[0]).length === 1;
+		const status = displaced ? '🟡Used: ' : '🔵Used: ';
 		return { name: def.name, key: recFmt, current: currentDisplay, extraCount, status, conflictIds, action: 'override' };
 	}
 
-	return { name: def.name, key: recFmt, current: currentDisplay, extraCount, status: 'Available', conflictIds: [], action: 'set' };
+	return { name: def.name, key: recFmt, current: currentDisplay, extraCount, status: '🔵Available', conflictIds: [], action: 'set' };
 };
 
 const ctrl = (...keys: string[]): Hotkey => ({ modifiers: ['Ctrl' as Modifier], key: keys[0] });
@@ -554,10 +558,10 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 						this.display();
 					});
 					allActionBtns.push(btn);
-				} else if (row.action === 'done' && row.conflictIds.length > 0 && def.recommended) {
+				} else if (row.action === 'done') {
 					const btn = tdAction.createEl('button', { text: 'Open →' });
 					btn.addClass('uch-open-btn');
-					btn.addEventListener('click', () => openHotkeysPanelByKey(def.recommended!));
+					btn.addEventListener('click', () => openHotkeysPanel());
 					allActionBtns.push(btn);
 				} else {
 					tdAction.createEl('button', { cls: 'uch-set-btn-spacer' });
