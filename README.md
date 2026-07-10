@@ -58,8 +58,8 @@ For detailed behavior of each command, see [Command Details](#command-details) b
 | Delete char | Ctrl + D   | Forward-delete one character. Stops at cell boundary; joins sub-lines at `<br>` in Live Preview. | ✓ |
 | Recenter top-bottom | Ctrl + L | Cycle the view so the cursor appears at the center, top, or bottom of the screen on successive presses. Resets on any other action. | — |
 | Recenter | (None)        | Scroll the view so the cursor line is centered on screen. | — |
-| Page down | (None)        | Scroll down one page; the cursor stays at the same screen position. ⚠️ Assigning Ctrl+V breaks paste in non-editor plugin views (e.g., Excalidraw) (Windows). | ✓ |
-| Page up | (None)        | Scroll up one page; the cursor stays at the same screen position. ⚠️ Assigning Cmd+V breaks paste in non-editor plugin views (macOS). | ✓ |
+| Page down | (None)        | Scroll down one page; the cursor stays at the same screen position. Bare PageDown can be set in the plugin's Settings. ⚠️ Assigning Ctrl+V breaks paste in non-editor plugin views (e.g., Excalidraw) (Windows). | ✓ |
+| Page up | (None)        | Scroll up one page; the cursor stays at the same screen position. Bare PageUp can be set in the plugin's Settings. ⚠️ Assigning Cmd+V breaks paste in non-editor plugin views (macOS). | ✓ |
 | Select all | (None)        | For Windows users: Restores "Select all" functionality if Ctrl+A is reassigned to HOME. Assign a custom key or run from the command palette. | — |
 
 
