@@ -162,6 +162,19 @@ export interface DisplacedCommand {
 	uchCommandName: string;
 }
 
+interface RenderCtx {
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	hm: any;
+	effectiveHotkeys: (id: string) => BakedHotkey[];
+	cmds: Record<string, { name: string }> | undefined;
+	applyEntry: (def: CommandDef, row: HotkeyRow) => void;
+	applyBlock: (entries: Array<{def: CommandDef; row: HotkeyRow}>) => void;
+	allActionBtns: HTMLElement[];
+	allActionHeaders: HTMLElement[];
+	allOverrideNotes: HTMLElement[];
+	syncToggle: () => void;
+}
+
 export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 	plugin: universalCursorHotkeysPlugin;
 	private get individualVisible() { return this.plugin.settings.qsaIndividualVisible; }
@@ -278,43 +291,177 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 
 	}
 
+	private openHotkeysPanelFor(query: string): void {
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const s = (this.app as any).setting;
+		s.open();
+		const tab = s.openTabById('hotkeys');
+		setTimeout(() => {
+			const search = tab?.searchComponent;
+			if (search) {
+				search.setValue(query);
+				search.inputEl?.dispatchEvent(new Event('input'));
+			}
+		}, 0);
+	}
+
+	private openHotkeysPanelByKey(hk: AnyHotkey): void {
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const s = (this.app as any).setting;
+		s.open();
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const tab = s.openTabById('hotkeys') as any;
+		const mods = normMods(hk.modifiers);
+		const filterArg = { modifiers: mods, key: hk.key };
+		setTimeout(() => {
+			if (typeof tab?.setActiveHotkeyFilter === 'function') {
+				// Obsidian 1.13+
+				tab.setActiveHotkeyFilter(filterArg);
+			} else if (typeof tab?.setHotkeyFilter === 'function') {
+				// Obsidian 1.12
+				tab.setHotkeyFilter(filterArg);
+			}
+		}, 0);
+	}
+
+	private makeKeyCell(td: HTMLElement, label: string, onClick?: () => void): void {
+		if (label) {
+			const kbd = td.createEl('kbd', { text: label, cls: 'uch-kbd' });
+			if (onClick) {
+				kbd.addClass('uch-kbd-link');
+				kbd.addEventListener('click', onClick);
+			}
+		} else {
+			td.createSpan({ text: '—', cls: 'uch-empty-dash' });
+		}
+	}
+
+	private renderDataRow(tbody: HTMLElement, def: CommandDef, row: HotkeyRow, ctx: RenderCtx): void {
+		const tr = tbody.createEl('tr');
+		tr.addClass('uch-row-thin');
+
+		const tdName = tr.createEl('td', { cls: 'uch-cell-name' });
+		const fullId = `${PLUGIN_ID}:${def.id}`;
+		const openHotkeysPanel = () => this.openHotkeysPanelFor(ctx.cmds?.[fullId]?.name ?? def.name);
+		const nameLink = tdName.createEl('a', { text: row.name, cls: 'uch-cmd-link' });
+		nameLink.addEventListener('click', (e) => { e.preventDefault(); openHotkeysPanel(); });
+
+		const tdKey = tr.createEl('td', { cls: 'uch-cell-key' });
+		this.makeKeyCell(tdKey, row.key, def.recommended ? () => this.openHotkeysPanelByKey(def.recommended!) : undefined);
+
+		const tdCurrent = tr.createEl('td', { cls: 'uch-cell-key' });
+		const currentWrap = tdCurrent.createDiv({ cls: 'uch-key-stack' });
+		const allHks = ctx.effectiveHotkeys(fullId);
+		const { chips, remaining: chipRemaining } = selectCurrentChips(
+			allHks, def.recommended, SPECIAL_KEY_EXCEPTION[def.id],
+		);
+
+		if (chips.length === 0) {
+			currentWrap.createSpan({ text: '—', cls: 'uch-empty-dash' });
+		} else {
+			for (const hk of chips) {
+				this.makeKeyCell(currentWrap, formatHotkey(hk), () => this.openHotkeysPanelByKey(hk));
+			}
+			if (chipRemaining.length > 0) {
+				currentWrap.createEl('a', { text: `+${chipRemaining.length} more`, cls: 'uch-more-link' })
+					.addEventListener('click', (e) => { e.preventDefault(); openHotkeysPanel(); });
+			}
+		}
+
+		const tdStatus = tr.createEl('td', { cls: 'uch-cell-status' });
+		if (row.conflictIds.length > 0) {
+			tdStatus.createSpan({ text: row.status });
+			for (const [i, conflictId] of row.conflictIds.entries()) {
+				if (i > 0) tdStatus.createSpan({ text: ', ' });
+				const conflictName = ctx.cmds?.[conflictId]?.name ?? conflictId;
+				tdStatus.createEl('a', { text: conflictName, cls: 'uch-cmd-link' })
+					.addEventListener('click', (e) => { e.preventDefault(); this.openHotkeysPanelFor(conflictName); });
+			}
+		} else {
+			tdStatus.setText(row.status);
+		}
+
+		const tdAction = tr.createEl('td', { cls: 'uch-cell-action' });
+		if (row.action === 'override' || row.action === 'set') {
+			const btn = tdAction.createEl('button', {
+				text: row.action === 'override' ? 'Override' : 'Set'
+			});
+			btn.addClass('mod-cta', 'uch-set-btn');
+			if (row.action === 'override') btn.addClass('uch-override-btn');
+			btn.addEventListener('click', () => {
+				ctx.applyEntry(def, row);
+				ctx.hm.save();
+				ctx.hm.bake();
+				void this.plugin.saveSettings();
+				this.display();
+			});
+			ctx.allActionBtns.push(btn);
+		} else if (row.action === 'done') {
+			const btn = tdAction.createEl('button', { text: 'Open →' });
+			btn.addClass('uch-open-btn');
+			btn.addEventListener('click', () => openHotkeysPanel());
+			ctx.allActionBtns.push(btn);
+		} else {
+			tdAction.createEl('button', { cls: 'uch-set-btn-spacer' });
+		}
+	}
+
+	private renderBlock(table: HTMLElement, title: string, entries: Array<{def: CommandDef; row: HotkeyRow}>, ctx: RenderCtx): void {
+		const tbody = table.createEl('tbody');
+
+		// Title row
+		const titleRow = tbody.createEl('tr');
+		const titleCell = titleRow.createEl('td');
+		titleCell.colSpan = 5;
+		titleCell.addClass('uch-title-cell');
+		const titleFlex = titleCell.createDiv('uch-title-flex');
+		titleFlex.createSpan({ text: title, cls: 'uch-title-text' });
+		const setAllBtn = titleFlex.createEl('button', { text: 'Apply Recommended' });
+		setAllBtn.addClass('mod-cta', 'uch-apply-btn');
+		if (!entries.some(e => e.row.action === 'set' || e.row.action === 'override'))
+			setAllBtn.disabled = true;
+		setAllBtn.addEventListener('click', () => { ctx.applyBlock(entries); });
+
+		// Column header row
+		const headerRow = tbody.createEl('tr');
+		headerRow.addClass('uch-row-thick');
+		for (const [i, h] of (['Command', 'Recommended Hotkey', 'Current Hotkey', 'Status', '▶'] as const).entries()) {
+			const td = headerRow.createEl('td', { text: h });
+			if (i === 4) {
+				td.addClass('uch-col-header', 'uch-col-header-action');
+				td.title = 'Toggle individual controls';
+				td.textContent = '▶ Individual';
+				td.addEventListener('click', () => { this.individualVisible = !this.individualVisible; ctx.syncToggle(); });
+				ctx.allActionHeaders.push(td);
+			} else {
+				td.addClass('uch-col-header');
+				if (i === 0) td.addClass('uch-col-header-first');
+			}
+		}
+
+		// Data rows
+		for (const { def, row } of entries) {
+			this.renderDataRow(tbody, def, row, ctx);
+		}
+
+		if (entries.some(e => e.row.action === 'override')) {
+			const noteRow = tbody.createEl('tr');
+			const noteTd = noteRow.createEl('td', { cls: 'uch-override-note' });
+			noteTd.colSpan = 5;
+			noteTd.appendText('"');
+			noteTd.createEl('strong', { text: 'Override', cls: 'uch-override-word' });
+			noteTd.appendText('" reassigns the hotkey to this plugin\'s command, removing it from the command currently using it. Commands left with no remaining hotkeys appear in Displaced Commands below.');
+			ctx.allOverrideNotes.push(noteRow);
+		}
+
+		const spacerTd = tbody.createEl('tr').createEl('td', { cls: 'uch-block-spacer' });
+		spacerTd.colSpan = 5;
+	}
+
 	private renderHotkeyManager(containerEl: HTMLElement): void {
 		const sectionEls: HTMLElement[] = [];
 		const collect = (el: HTMLElement) => sectionEls.push(el);
 		let showHideBtn: ButtonComponent;
-
-		const openHotkeysPanelFor = (query: string) => {
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			const s = (this.app as any).setting;
-			s.open();
-			const tab = s.openTabById('hotkeys');
-			setTimeout(() => {
-				const search = tab?.searchComponent;
-				if (search) {
-					search.setValue(query);
-					search.inputEl?.dispatchEvent(new Event('input'));
-				}
-			}, 0);
-		};
-
-		const openHotkeysPanelByKey = (hk: AnyHotkey) => {
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			const s = (this.app as any).setting;
-			s.open();
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			const tab = s.openTabById('hotkeys') as any;
-			const mods = normMods(hk.modifiers);
-			const filterArg = { modifiers: mods, key: hk.key };
-			setTimeout(() => {
-				if (typeof tab?.setActiveHotkeyFilter === 'function') {
-					// Obsidian 1.13+
-					tab.setActiveHotkeyFilter(filterArg);
-				} else if (typeof tab?.setHotkeyFilter === 'function') {
-					// Obsidian 1.12
-					tab.setHotkeyFilter(filterArg);
-				}
-			}, 0);
-		};
 
 		// Section header — desc contains the link to Obsidian's hotkeys settings
 		new Setting(containerEl)
@@ -339,17 +486,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				hotkeyLink.addClass('uch-inline-link');
 				hotkeyLink.addEventListener('click', (e) => {
 					e.preventDefault();
-					// eslint-disable-next-line @typescript-eslint/no-explicit-any
-					const s = (this.app as any).setting;
-					s.open();
-					const tab = s.openTabById('hotkeys');
-					setTimeout(() => {
-						const search = tab?.searchComponent;
-						if (search) {
-							search.setValue('universal-cursor-hotkeys');
-							search.inputEl?.dispatchEvent(new Event('input'));
-						}
-					}, 0);
+					this.openHotkeysPanelFor('universal-cursor-hotkeys');
 				});
 				setting.descEl.createSpan({ text: '.' });
 				})
@@ -454,147 +591,19 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			for (const el of allOverrideNotes) el.style.display    = this.individualVisible ? '' : 'none';
 		};
 
+		const ctx: RenderCtx = { hm, effectiveHotkeys, cmds, applyEntry, applyBlock, allActionBtns, allActionHeaders, allOverrideNotes, syncToggle };
+
 		// Single shared table — all blocks share the same column widths
 		const table = containerEl.createEl('table');
 		table.addClass('uch-table');
 		collect(table);
 
-		const addBlock = (title: string, entries: Array<{def: CommandDef; row: HotkeyRow}>) => {
-			const tbody = table.createEl('tbody');
-
-			// Title row
-			const titleRow = tbody.createEl('tr');
-			const titleCell = titleRow.createEl('td');
-			titleCell.colSpan = 5;
-			titleCell.addClass('uch-title-cell');
-			const titleFlex = titleCell.createDiv('uch-title-flex');
-			titleFlex.createSpan({ text: title, cls: 'uch-title-text' });
-			const setAllBtn = titleFlex.createEl('button', { text: 'Apply Recommended' });
-			setAllBtn.addClass('mod-cta', 'uch-apply-btn');
-			if (!entries.some(e => e.row.action === 'set' || e.row.action === 'override'))
-				setAllBtn.disabled = true;
-			setAllBtn.addEventListener('click', () => { applyBlock(entries); });
-
-			// Column header row
-			const headerRow = tbody.createEl('tr');
-			headerRow.addClass('uch-row-thick');
-			for (const [i, h] of (['Command', 'Recommended Hotkey', 'Current Hotkey', 'Status', '▶'] as const).entries()) {
-				const td = headerRow.createEl('td', { text: h });
-				if (i === 4) {
-					td.addClass('uch-col-header', 'uch-col-header-action');
-					td.title = 'Toggle individual controls';
-					td.textContent = '▶ Individual';
-					td.addEventListener('click', () => { this.individualVisible = !this.individualVisible; syncToggle(); });
-					allActionHeaders.push(td);
-				} else {
-					td.addClass('uch-col-header');
-					if (i === 0) td.addClass('uch-col-header-first');
-				}
-			}
-
-			// Data rows
-			for (const { def, row } of entries) {
-				const tr = tbody.createEl('tr');
-				tr.addClass('uch-row-thin');
-
-				const tdName = tr.createEl('td', { cls: 'uch-cell-name' });
-				const fullId = `${PLUGIN_ID}:${def.id}`;
-				const openHotkeysPanel = () => openHotkeysPanelFor(cmds?.[fullId]?.name ?? def.name);
-				const nameLink = tdName.createEl('a', { text: row.name, cls: 'uch-cmd-link' });
-				nameLink.addEventListener('click', (e) => { e.preventDefault(); openHotkeysPanel(); });
-
-				const makeKeyCell = (td: HTMLElement, label: string, onClick?: () => void) => {
-					if (label) {
-						const kbd = td.createEl('kbd', { text: label, cls: 'uch-kbd' });
-						if (onClick) {
-							kbd.addClass('uch-kbd-link');
-							kbd.addEventListener('click', onClick);
-						}
-					} else {
-						td.createSpan({ text: '—', cls: 'uch-empty-dash' });
-					}
-				};
-
-				const tdKey = tr.createEl('td', { cls: 'uch-cell-key' });
-				makeKeyCell(tdKey, row.key, def.recommended ? () => openHotkeysPanelByKey(def.recommended!) : undefined);
-
-				const tdCurrent = tr.createEl('td', { cls: 'uch-cell-key' });
-				const currentWrap = tdCurrent.createDiv({ cls: 'uch-key-stack' });
-				const allHks = effectiveHotkeys(fullId);
-				const { chips, remaining: chipRemaining } = selectCurrentChips(
-					allHks, def.recommended, SPECIAL_KEY_EXCEPTION[def.id],
-				);
-
-				if (chips.length === 0) {
-					currentWrap.createSpan({ text: '—', cls: 'uch-empty-dash' });
-				} else {
-					for (const hk of chips) {
-						makeKeyCell(currentWrap, formatHotkey(hk), () => openHotkeysPanelByKey(hk));
-					}
-					if (chipRemaining.length > 0) {
-						currentWrap.createEl('a', { text: `+${chipRemaining.length} more`, cls: 'uch-more-link' })
-							.addEventListener('click', (e) => { e.preventDefault(); openHotkeysPanel(); });
-					}
-				}
-
-				const tdStatus = tr.createEl('td', { cls: 'uch-cell-status' });
-				if (row.conflictIds.length > 0) {
-					tdStatus.createSpan({ text: row.status });
-					for (const [i, conflictId] of row.conflictIds.entries()) {
-						if (i > 0) tdStatus.createSpan({ text: ', ' });
-						const conflictName = cmds?.[conflictId]?.name ?? conflictId;
-						tdStatus.createEl('a', { text: conflictName, cls: 'uch-cmd-link' })
-							.addEventListener('click', (e) => { e.preventDefault(); openHotkeysPanelFor(conflictName); });
-					}
-				} else {
-					tdStatus.setText(row.status);
-				}
-
-				const tdAction = tr.createEl('td', { cls: 'uch-cell-action' });
-				if (row.action === 'override' || row.action === 'set') {
-					const btn = tdAction.createEl('button', {
-						text: row.action === 'override' ? 'Override' : 'Set'
-					});
-					btn.addClass('mod-cta', 'uch-set-btn');
-					if (row.action === 'override') btn.addClass('uch-override-btn');
-					btn.addEventListener('click', () => {
-						applyEntry(def, row);
-						hm.save();
-						hm.bake();
-						void this.plugin.saveSettings();
-						this.display();
-					});
-					allActionBtns.push(btn);
-				} else if (row.action === 'done') {
-					const btn = tdAction.createEl('button', { text: 'Open →' });
-					btn.addClass('uch-open-btn');
-					btn.addEventListener('click', () => openHotkeysPanel());
-					allActionBtns.push(btn);
-				} else {
-					tdAction.createEl('button', { cls: 'uch-set-btn-spacer' });
-				}
-			}
-
-			if (entries.some(e => e.row.action === 'override')) {
-				const noteRow = tbody.createEl('tr');
-				const noteTd = noteRow.createEl('td', { cls: 'uch-override-note' });
-				noteTd.colSpan = 5;
-				noteTd.appendText('"');
-				noteTd.createEl('strong', { text: 'Override', cls: 'uch-override-word' });
-				noteTd.appendText('" reassigns the hotkey to this plugin\'s command, removing it from the command currently using it. Commands left with no remaining hotkeys appear in Displaced Commands below.');
-				allOverrideNotes.push(noteRow);
-			}
-
-			const spacerTd = tbody.createEl('tr').createEl('td', { cls: 'uch-block-spacer' });
-			spacerTd.colSpan = 5;
-		};
-
 		const makeEntries = (block: CommandDef['block']) =>
 			COMMAND_DEFS.filter(d => d.block === block).map(def => ({ def, row: computeRow(def, effectiveHotkeys, reverseMap, cmds) }));
 
-		addBlock('Cursor Movement', makeEntries('cursor'));
-		addBlock('Editing',         makeEntries('editing'));
-		addBlock('Other Hotkeys',   makeEntries('other'));
+		this.renderBlock(table, 'Cursor Movement', makeEntries('cursor'), ctx);
+		this.renderBlock(table, 'Editing',         makeEntries('editing'), ctx);
+		this.renderBlock(table, 'Other Hotkeys',   makeEntries('other'), ctx);
 		syncToggle();
 
 		// Displaced Commands table
@@ -633,18 +642,18 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			tr.addClass('uch-row-thin');
 			tr.createEl('td', { cls: 'uch-cell-name' })
 				.createEl('a', { text: d.commandName, cls: 'uch-cmd-link uch-disp-name' })
-				.addEventListener('click', (e) => { e.preventDefault(); openHotkeysPanelFor(d.commandName); });
+				.addEventListener('click', (e) => { e.preventDefault(); this.openHotkeysPanelFor(d.commandName); });
 			const assignBtn = tr.createEl('td', { cls: 'uch-cell-action' })
 				.createEl('button', { text: 'Assign' });
 			assignBtn.addClass('mod-cta', 'uch-restore-btn', 'uch-assign-btn');
-			assignBtn.addEventListener('click', () => { openHotkeysPanelFor(d.commandName); });
+			assignBtn.addEventListener('click', () => { this.openHotkeysPanelFor(d.commandName); });
 			const tdKey = tr.createEl('td', { cls: 'uch-cell-key' });
 			const dispKbd = tdKey.createEl('kbd', { text: formatHotkey(d.hotkey), cls: 'uch-kbd' });
 			dispKbd.addClass('uch-kbd-link');
-			dispKbd.addEventListener('click', () => openHotkeysPanelByKey(d.hotkey));
+			dispKbd.addEventListener('click', () => this.openHotkeysPanelByKey(d.hotkey));
 			tr.createEl('td', { cls: 'uch-cell-status' })
 				.createEl('a', { text: d.uchCommandName, cls: 'uch-cmd-link' })
-				.addEventListener('click', (e) => { e.preventDefault(); openHotkeysPanelFor(d.uchCommandName); });
+				.addEventListener('click', (e) => { e.preventDefault(); this.openHotkeysPanelFor(d.uchCommandName); });
 			const restoreBtn = tr.createEl('td', { cls: 'uch-cell-action' })
 				.createEl('button', { text: 'Restore' });
 			restoreBtn.addClass('mod-warning', 'uch-restore-btn');
