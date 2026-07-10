@@ -568,7 +568,9 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				const noteRow = tbody.createEl('tr');
 				const noteTd = noteRow.createEl('td', { cls: 'uch-override-note' });
 				noteTd.colSpan = 5;
-				noteTd.setText('"Override" reassigns the hotkey to this plugin\'s command, removing it from the command currently using it. Commands left with no remaining hotkeys appear in Displaced Commands below.');
+				noteTd.appendText('"');
+				noteTd.createEl('strong', { text: 'Override', cls: 'uch-override-word' });
+				noteTd.appendText('" reassigns the hotkey to this plugin\'s command, removing it from the command currently using it. Commands left with no remaining hotkeys appear in Displaced Commands below.');
 				allOverrideNotes.push(noteRow);
 			}
 
