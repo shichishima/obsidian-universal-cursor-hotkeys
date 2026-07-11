@@ -22,21 +22,13 @@ Kill & Yank (Ctrl+K / Ctrl+Y) and Kill Region (Ctrl+W) bring the full Emacs edit
   </tr>
 </table>
 
-## Install & Setup
+## Getting Started
 
-### Installation
+No hotkeys are assigned by default.
 
-1. Open **Settings → Community plugins** and click **Browse**.
-2. Search for **Universal Cursor Hotkeys** and click **Install**.
-3. Click **Enable** to activate the plugin.
+**Quick Setup (recommended):** Open **Settings → Universal Cursor Hotkeys** and click **Apply Recommended** for each of the three command groups — Cursor Movement, Editing, and Other Hotkeys. Three clicks and you're done.
 
-### Assign Hotkeys
-
-Go to **Settings → Hotkeys**, search for "Universal Cursor Hotkeys", and assign your preferred keys (e.g., Ctrl+P, Ctrl+N) to each command.
-
-### Note:
-- No hotkeys are assigned by default. You must manually set them to enable the navigation.
-- **Windows Users**: Assigning Ctrl+A or Ctrl+F will overwrite standard OS shortcuts like "Select all" or "Find".
+**Manual setup:** Go to **Settings → Hotkeys**, search for "Universal Cursor Hotkeys", and assign keys individually.
 
 
 ## Command Reference
@@ -81,7 +73,7 @@ For detailed behavior of each command, see [Command Details](#command-details) b
 - **Source Mode table detection is heuristic:** In Source Mode, table rows are identified by a simple string check (line starts and ends with `|`). Unlike Live Preview mode, which uses the syntax tree, this approach may produce unexpected behavior on lines that coincidentally match the pattern but are not part of a Markdown table.
 - **Page down / Page up — tall table cells:** In Live Preview mode, if a table contains a cell with many `<br>` line breaks, the cursor position calculation may become inaccurate, causing page down / page up to scroll by an unexpected amount.
 - **Shortcut Conflicts**
-  - **On Windows:** Assigning Ctrl+A (HOME) overrides the system Select all shortcut. Use the bundled "Select all" command (run from the command palette or assign it a custom hotkey) as a replacement.
+  - **On Windows — OS-level shortcuts not detected by Quick Setup:** Ctrl+A (HOME) and Ctrl+Y (Yank) override the system Select all and Redo shortcuts respectively. Because these are OS-level defaults rather than Obsidian hotkeys, the Quick Setup Assistant cannot detect the conflict and will show them as available. The bundled **Select all** command can be used as a replacement for Ctrl+A — run it from the Command Palette or assign it a custom hotkey.
   - **Page down / Page up — paste conflict:** Assigning Ctrl+V (Windows) or Cmd+V (macOS) to Page down or Page up will break keyboard paste in non-editor plugin views (e.g., Excalidraw). Yank (Ctrl+Y) restores paste within the markdown editor, but cannot substitute for Cmd+V in those views. Right-click → Paste remains available as a workaround. It is recommended to assign these commands to keys that do not conflict with paste.
 
 
