@@ -92,7 +92,7 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 <summary>Cursor UP</summary>
 
 - **Within text:** Moves up to the previous visual line, equivalent to physical cursor keys.
-- **From below a callout, image, embed, or thematic break (LP) (*):** Enters the block and expands the markdown source, consistent with physical cursor key behavior. For callouts, the cursor must be on the empty line immediately below. For images and embeds (`![[...]]`, `![...](...)`), applies when the syntax starts at the beginning of the line. For thematic breaks (`---`, `***`, `___`), the cursor lands at the beginning of the break line.
+- **From below a callout, image, embed, or thematic break (Live Preview) (*):** Enters the block and expands the markdown source, consistent with physical cursor key behavior. For callouts, the cursor must be on the empty line immediately below. For images and embeds (`![[...]]`, `![...](...)`), applies when the syntax starts at the beginning of the line. For thematic breaks (`---`, `***`, `___`), the cursor lands at the beginning of the break line.
 - **From below a table (*):** If the cursor is on the line immediately below a table, it enters the table and moves to the left edge of the bottom visual line of the bottom-left cell.
 - **Within a table cell (*):**
   - **First visual line:** Moves to the left edge of the bottom visual line of the cell directly above (same column). For non-wrapped cells, this is the cell start.
@@ -105,7 +105,7 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 <summary>Cursor DOWN</summary>
 
 - **Within text:** Moves down one visual line, equivalent to physical cursor keys.
-- **From above a callout, image, embed, or thematic break (LP) (*):** Enters the block and expands the markdown source, consistent with physical cursor key behavior. For callouts, the next line must be a callout header (`> [!type]...`). For images and embeds (`![[...]]`, `![...](...)`), applies when the syntax starts at the beginning of the line. For thematic breaks (`---`, `***`, `___`), the cursor lands at the beginning of the break line.
+- **From above a callout, image, embed, or thematic break (Live Preview) (*):** Enters the block and expands the markdown source, consistent with physical cursor key behavior. For callouts, the next line must be a callout header (`> [!type]...`). For images and embeds (`![[...]]`, `![...](...)`), applies when the syntax starts at the beginning of the line. For thematic breaks (`---`, `***`, `___`), the cursor lands at the beginning of the break line.
 - **From above a table (*):** If the cursor is on the line immediately above a table, it enters the table and moves to the beginning of the top-left cell.
 - **Within a table cell (*):**
   - **On other visual lines:** Moves to the visual line below within the same cell, equivalent to physical cursor keys.
