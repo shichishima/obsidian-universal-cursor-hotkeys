@@ -5,9 +5,9 @@ Emacs-style cursor navigation and Kill & Yank inside and outside tables, for mac
 
 ## Overview
 
-On macOS, Emacs-style cursor shortcuts — Ctrl+P/N/B/F/A/E — and page down/up work throughout Obsidian notes, but stop the moment your cursor enters a Markdown table in Live Preview mode. This plugin restores them, giving you seamless navigation through table cells just as physical cursor keys would.
+On macOS, Emacs-style cursor shortcuts — Ctrl+P/N/B/F/A/E — and Page down/up work throughout Obsidian notes, but stop the moment your cursor enters a Markdown table in Live Preview mode. This plugin restores them, giving you seamless navigation through table cells just as physical cursor keys would.
 
-Windows users can also enable full Emacs-style cursor movement and page down/up throughout your notes, including inside tables.
+Windows users can also enable full Emacs-style cursor movement and Page down/up throughout your notes, including inside tables.
 
 Kill & Yank (Ctrl+K / Ctrl+Y) and Kill Region (Ctrl+W) bring the full Emacs editing workflow to Obsidian — and all three work seamlessly inside table cells, automatically handling newlines and pipe characters. Recenter-top-bottom (Ctrl+L) rounds out the workflow.
 
@@ -77,7 +77,7 @@ For detailed behavior of each command, see [Command Details](#command-details) b
 
 - **Source Mode table detection is heuristic:** In Source Mode, table rows are identified by a simple string check (line starts and ends with `|`). Unlike Live Preview mode, which uses the syntax tree, this approach may produce unexpected behavior on lines that coincidentally match the pattern but are not part of a Markdown table.
 
-- **Page down / Page up — tall table cells:** In Live Preview mode, if a table contains a cell with many `<br>` line breaks, the cursor position calculation may become inaccurate, causing page down / page up to scroll by an unexpected amount.
+- **Page down / Page up — tall table cells:** In Live Preview mode, if a table contains a cell with many `<br>` line breaks, the cursor position calculation may become inaccurate, causing Page down / Page up to scroll by an unexpected amount.
 
 - **Shortcut Conflicts**
   - **On Windows — OS-level shortcuts not detected by Quick Setup:** Ctrl+A (HOME) and Ctrl+Y (Yank) override the system Select all and Redo shortcuts respectively. Because these are OS-level defaults rather than Obsidian hotkeys, the Quick Setup Assistant cannot detect the conflict and will show them as available. The bundled **Select all** command can be used as a replacement for Ctrl+A — run it from the Command Palette or assign it a custom hotkey. For Redo, use Ctrl+Shift+Z as an alternative.
