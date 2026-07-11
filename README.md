@@ -84,7 +84,7 @@ For detailed behavior of each command, see [Command Details](#command-details) b
 
 ## Command Details
 
-Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
+Note: (*) indicates behaviors specific to Live Preview mode.
 
 <details>
 <summary>Cursor UP</summary>
