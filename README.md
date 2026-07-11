@@ -56,6 +56,33 @@ For detailed behavior of each command, see [Command Details](#command-details) b
 
 ## Settings
 
+### Quick Setup Assistant
+
+Open **Settings → Universal Cursor Hotkeys** to assign hotkeys without leaving the settings screen.
+
+**Apply Recommended:** Each command group has an **Apply Recommended** button that assigns all recommended hotkeys at once.
+
+**Live status:** Each row shows the current state of its hotkey:
+
+| Status | Meaning |
+|--------|---------|
+| ✅Set | Recommended hotkey is assigned. |
+| 🟢Custom | A non-recommended hotkey is assigned. |
+| 🔵Available | Recommended hotkey is free to assign. |
+| 🔵Used | Recommended hotkey is taken; applying it will not displace any command. |
+| 🟡Used | Recommended hotkey is taken; applying it will displace one command. |
+| 🔴Conflict | Recommended hotkey is currently causing a conflict. |
+
+- **Hotkey chips:** Click any hotkey chip to open the Hotkeys panel filtered to that key.
+- **Override:** When the recommended hotkey is in use, the command(s) currently using it appear inline. **Override** assigns the hotkey, removing it from any command currently using it.
+- **Open →:** Opens the Hotkeys panel filtered to this plugin's commands.
+
+**Displaced Commands:** Lists commands that would lose their only hotkey when recommended keys are applied. Each entry has an **Assign** button to reassign it via the Hotkeys panel, and a **Restore** button to undo the displacement and return the key to its original command.
+
+**Special Key Assignments:** Set bare Home, End, Page Down, and Page Up keys — Obsidian's Hotkeys panel does not support modifier-free keys.
+
+### Behavior Options
+
 | Setting | Default | Description |
 | ------- | :-----: | ----------- |
 | Visual line movement | ON | **ON:** the first HOME / END moves to the visual line edge.<br>**OFF:** moves directly to the logical line start / end. |
