@@ -5,11 +5,11 @@ Emacs-style cursor navigation and Kill & Yank inside and outside tables, for mac
 
 ## Overview
 
-On macOS, Emacs-style cursor shortcuts — Ctrl+P/N/B/F/A/E — work throughout Obsidian, but stop the moment your cursor enters a Markdown table in Live Preview mode. This plugin restores them, giving you seamless navigation through table cells just as physical cursor keys would.
+On macOS, Emacs-style cursor shortcuts — Ctrl+P/N/B/F/A/E — and page down/up work throughout Obsidian notes, but stop the moment your cursor enters a Markdown table in Live Preview mode. This plugin restores them, giving you seamless navigation through table cells just as physical cursor keys would.
 
-Windows users can also enable full Emacs-style cursor movement throughout Obsidian, including inside tables.
+Windows users can also enable full Emacs-style cursor movement and page down/up throughout your notes, including inside tables.
 
-Kill & Yank (Ctrl+K / Ctrl+Y) and Kill Region (Ctrl+W) bring the full Emacs editing workflow to Obsidian — and all three work seamlessly inside table cells, automatically handling newlines and pipe characters.
+Kill & Yank (Ctrl+K / Ctrl+Y) and Kill Region (Ctrl+W) bring the full Emacs editing workflow to Obsidian — and all three work seamlessly inside table cells, automatically handling newlines and pipe characters. Recenter-top-bottom (Ctrl+L) rounds out the workflow.
 
 <table>
   <tr>
@@ -47,7 +47,7 @@ For detailed behavior of each command, see [Command Details](#command-details) b
 | Kill region | Ctrl + W    | Cut the selected region to the kill cache. Table-aware: single-cell only; no-op for multi-row or cross-cell selections. | — |
 | Yank | Ctrl + Y           | Paste from the OS clipboard. Table-aware: converts newlines and pipes automatically. | ✓ |
 | Delete char | Ctrl + D   | Forward-delete one character. Stops at cell boundary; joins sub-lines at `<br>` in Live Preview. | ✓ |
-| Recenter top-bottom | Ctrl + L | Cycle the view so the cursor appears at the center, top, or bottom of the screen on successive presses. Resets on any other action. | — |
+| Recenter-top-bottom | Ctrl + L | Cycle the view so the cursor appears at the center, top, or bottom of the screen on successive presses. Resets on any other action. | — |
 | Recenter | (None)        | Scroll the view so the cursor line is centered on screen. | — |
 | Page down | (None)        | Scroll down one page; the cursor stays at the same screen position. Bare PageDown can be set in the plugin's Settings. | ✓ |
 | Page up | (None)        | Scroll up one page; the cursor stays at the same screen position. Bare PageUp can be set in the plugin's Settings. | ✓ |
@@ -224,7 +224,7 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 </details>
 
 <details>
-<summary>Recenter top-bottom</summary>
+<summary>Recenter-top-bottom</summary>
 
 - Cycles the scroll position on successive presses so the cursor appears at the **center**, **top**, or **bottom** of the screen.
 - Any other action (typing, cursor movement, mouse click) resets the cycle back to center.
