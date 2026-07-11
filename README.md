@@ -80,7 +80,7 @@ For detailed behavior of each command, see [Command Details](#command-details) b
 - **Page down / Page up — tall table cells:** In Live Preview mode, if a table contains a cell with many `<br>` line breaks, the cursor position calculation may become inaccurate, causing page down / page up to scroll by an unexpected amount.
 
 - **Shortcut Conflicts**
-  - **On Windows — OS-level shortcuts not detected by Quick Setup:** Ctrl+A (HOME) and Ctrl+Y (Yank) override the system Select all and Redo shortcuts respectively. Because these are OS-level defaults rather than Obsidian hotkeys, the Quick Setup Assistant cannot detect the conflict and will show them as available. The bundled **Select all** command can be used as a replacement for Ctrl+A — run it from the Command Palette or assign it a custom hotkey.
+  - **On Windows — OS-level shortcuts not detected by Quick Setup:** Ctrl+A (HOME) and Ctrl+Y (Yank) override the system Select all and Redo shortcuts respectively. Because these are OS-level defaults rather than Obsidian hotkeys, the Quick Setup Assistant cannot detect the conflict and will show them as available. The bundled **Select all** command can be used as a replacement for Ctrl+A — run it from the Command Palette or assign it a custom hotkey. For Redo, use Ctrl+Shift+Z as an alternative.
   - **Page down / Page up — paste conflict:** Assigning Ctrl+V (Windows) or Cmd+V (macOS) to Page down or Page up will break keyboard paste in non-editor plugin views (e.g., Excalidraw). Yank (Ctrl+Y) restores paste within the markdown editor, but cannot substitute for Cmd+V in those views. Right-click → Paste remains available as a workaround. It is recommended to assign these commands to keys that do not conflict with paste.
 
 
