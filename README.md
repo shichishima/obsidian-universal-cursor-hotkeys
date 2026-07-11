@@ -71,13 +71,11 @@ For detailed behavior of each command, see [Command Details](#command-details) b
 
 - **No Range Selection:** Shift+modifier combinations (e.g., Shift+Ctrl+P/N/B/F/A/E) for extending the selection are not supported. Use Shift+Arrow keys instead.
 
-- **Brief scroll flash when entering a tall wrapped cell in Live Preview (UP):** When pressing UP into a cell whose wrapped content exceeds the screen height, the view momentarily scrolls to the cell start before jumping to the bottom visual line. This is an inherent side effect of the two-step navigation used to locate the bottom visual line within Obsidian's Live Preview table widget.
+- **Brief scroll when entering a tall wrapped cell in Live Preview (UP):** When pressing UP into a cell whose wrapped content exceeds the screen height, the view momentarily scrolls to the cell start before jumping to the bottom visual line. This is an inherent side effect of the two-step navigation used to locate the bottom visual line within Obsidian's Live Preview table widget.
 
 - **Multi-cell cut, copy, and paste are not supported (Kill Line / Kill Region / Yank):** Kill Line, Kill Region, and Yank are text-level operations; inside a table, they work on the text content within individual cells. Selecting multiple cells and attempting to cut or paste with these commands is not supported. For multi-cell cut, copy, and paste operations, use the right-click context menu instead.
 
 - **Source Mode table detection is heuristic:** In Source Mode, table rows are identified by a simple string check (line starts and ends with `|`). Unlike Live Preview mode, which uses the syntax tree, this approach may produce unexpected behavior on lines that coincidentally match the pattern but are not part of a Markdown table.
-
-- **Page down / Page up — tall table cells:** In Live Preview mode, if a table contains a cell with many `<br>` line breaks, the cursor position calculation may become inaccurate, causing Page down / Page up to scroll by an unexpected amount.
 
 - **Shortcut Conflicts**
   - **On Windows — OS-level shortcuts not detected by Quick Setup:** Ctrl+A (HOME) and Ctrl+Y (Yank) override the system Select all and Redo shortcuts respectively. Because these are OS-level defaults rather than Obsidian hotkeys, the Quick Setup Assistant cannot detect the conflict and will show them as available. The bundled **Select all** command can be used as a replacement for Ctrl+A — run it from the Command Palette or assign it a custom hotkey. For Redo, use Ctrl+Shift+Z as an alternative.
