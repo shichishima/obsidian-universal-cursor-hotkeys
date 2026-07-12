@@ -15,6 +15,28 @@ export interface HotkeyRow { name: string; key: string; current: string; extraCo
 export type BakedHotkey = { modifiers: string; key: string };
 export type AnyHotkey   = { modifiers: string | string[]; key: string };
 
+// Obsidian internal APIs — not exposed in obsidian.d.ts
+interface HotkeyManager {
+	bake(): void;
+	save(): void;
+	bakedIds:     string[];
+	bakedHotkeys: BakedHotkey[];
+	setHotkeys(commandId: string, hotkeys: Hotkey[]): void;
+}
+interface HotkeySettingTab {
+	searchComponent?: { setValue(v: string): void; inputEl?: HTMLInputElement };
+	setActiveHotkeyFilter?(filter: { modifiers: string[]; key: string }): void;
+	setHotkeyFilter?(filter: { modifiers: string[]; key: string }): void;
+}
+interface ObsidianInternals {
+	hotkeyManager: HotkeyManager;
+	commands?: { commands: Record<string, { name: string }> };
+	setting: {
+		open(): void;
+		openTabById(id: string): HotkeySettingTab | null;
+	};
+}
+
 const MAC_MOD:  Record<string, string> = { Ctrl: '⌃', Shift: '⇧', Alt: '⌥', Meta: '⌘', Mod: '⌘' };
 const WIN_MOD:  Record<string, string> = { Ctrl: 'Ctrl', Shift: 'Shift', Alt: 'Alt', Meta: 'Win', Mod: 'Ctrl' };
 const KEY_DISP: Record<string, string> = { PageDown: 'Page Down', PageUp: 'Page Up' };
@@ -163,8 +185,7 @@ export interface DisplacedCommand {
 }
 
 interface RenderCtx {
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Obsidian internal API, not exposed in obsidian.d.ts
-	hm: any;
+	hm: HotkeyManager;
 	effectiveHotkeys: (id: string) => BakedHotkey[];
 	cmds: Record<string, { name: string }> | undefined;
 	applyEntry: (def: CommandDef, row: HotkeyRow) => void;
@@ -292,8 +313,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 	}
 
 	private openHotkeysPanelFor(query: string): void {
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Obsidian internal API, not exposed in obsidian.d.ts
-		const s = (this.app as any).setting;
+		const s = (this.app as unknown as ObsidianInternals).setting;
 		s.open();
 		const tab = s.openTabById('hotkeys');
 		window.setTimeout(() => {
@@ -306,8 +326,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 	}
 
 	private openHotkeysPanelByKey(hk: AnyHotkey): void {
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Obsidian internal API, not exposed in obsidian.d.ts
-		const s = (this.app as any).setting;
+		const s = (this.app as unknown as ObsidianInternals).setting;
 		s.open();
 		const tab = s.openTabById('hotkeys');
 		const mods = normMods(hk.modifiers);
@@ -499,10 +518,10 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				});
 			});
 
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Obsidian internal API, not exposed in obsidian.d.ts
-		const hm = (this.app as any).hotkeyManager;
+		const app = this.app as unknown as ObsidianInternals;
+		const hm  = app.hotkeyManager;
 		// Re-bake so bakedIds/bakedHotkeys reflect the latest user changes
-		if (typeof hm.bake === 'function') hm.bake();
+		hm.bake();
 		const bakedIds:     string[]      = hm.bakedIds     ?? [];
 		const bakedHotkeys: BakedHotkey[] = hm.bakedHotkeys ?? [];
 
@@ -522,8 +541,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				return acc;
 			}, []);
 
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Obsidian internal API, not exposed in obsidian.d.ts
-		const cmds = (this.app as any).commands?.commands;
+		const cmds = app.commands?.commands;
 
 		const toHotkey = (hk: BakedHotkey): Hotkey => ({
 			modifiers: normMods(hk.modifiers) as Modifier[],
