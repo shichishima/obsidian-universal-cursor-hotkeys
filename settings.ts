@@ -438,7 +438,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		titleCell.addClass('uch-title-cell');
 		const titleFlex = titleCell.createDiv('uch-title-flex');
 		titleFlex.createSpan({ text: title, cls: 'uch-title-text' });
-		const setAllBtn = titleFlex.createEl('button', { text: 'Apply Recommended' });
+		const setAllBtn = titleFlex.createEl('button', { text: 'Apply recommended' });
 		setAllBtn.addClass('mod-cta', 'uch-apply-btn');
 		if (!entries.some(e => e.row.action === 'set' || e.row.action === 'override'))
 			setAllBtn.disabled = true;
@@ -487,9 +487,10 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 
 		// Section header — desc contains the link to Obsidian's hotkeys settings
 		new Setting(containerEl)
-			.setName('Quick Setup Assistant')
+			.setName('Quick setup assistant')
 			.then(setting => {
 				setting.descEl.createSpan({ text: 'No hotkeys are assigned by default. Set only the commands you want — group by group, or ' });
+				// eslint-disable-next-line obsidianmd/ui/sentence-case -- mid-sentence link, lowercase is linguistically correct
 				const indivLink = setting.descEl.createEl('a', { text: 'individually', cls: 'uch-inline-link' });
 				indivLink.addEventListener('click', (e) => {
 					e.preventDefault();
@@ -504,7 +505,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				setting.descEl.createSpan({ text: '.' });
 				setting.descEl.createEl('br');
 				setting.descEl.createSpan({ text: 'To assign a command to a key other than the recommended, use ' });
-				const hotkeyLink = setting.descEl.createEl('a', { text: "Obsidian's built-in Hotkeys settings" });
+				const hotkeyLink = setting.descEl.createEl('a', { text: "Obsidian's built-in hotkeys settings" });
 				hotkeyLink.addClass('uch-inline-link');
 				hotkeyLink.addEventListener('click', (e) => {
 					e.preventDefault();
@@ -700,10 +701,10 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			{ label: 'Set Page Up',   commandId: 'page-up',     key: 'PageUp'   },
 		];
 
-		const specialEl = containerEl.createEl('div', { cls: 'uch-special-section' });
-		specialEl.createEl('div', { text: 'Special Key Assignments', cls: 'uch-special-title' });
-		specialEl.createEl('div', {
-			text: "These keys cannot be set in Obsidian's Hotkeys panel. Assign them here.",
+		const specialEl = containerEl.createDiv({ cls: 'uch-special-section' });
+		specialEl.createDiv({ text: 'Special key assignments', cls: 'uch-special-title' });
+		specialEl.createDiv({
+			text: "These keys cannot be set in Obsidian's hotkeys panel. Assign them here.",
 			cls: 'uch-special-desc',
 		});
 
