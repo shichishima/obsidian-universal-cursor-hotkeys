@@ -26,7 +26,7 @@ Kill & Yank (Ctrl+K / Ctrl+Y) and Kill Region (Ctrl+W) bring the full Emacs edit
 
 No hotkeys are assigned by default.
 
-**Quick Setup (recommended):** Open **Settings → Universal Cursor Hotkeys** and click **Apply Recommended** for each of the three command groups — Cursor Movement, Editing, and Other Hotkeys. Three clicks and you're done.
+**Quick Setup (recommended):** Open **Settings → Universal Cursor Hotkeys** and click **Apply recommended** for each of the three command groups — Cursor movement, Editing, and Other hotkeys. Three clicks and you're done.
 
 **Manual setup:** Go to **Settings → Hotkeys**, search for "Universal Cursor Hotkeys", and assign keys individually.
 
@@ -56,11 +56,11 @@ For detailed behavior of each command, see [Command Details](#command-details) b
 
 ## Settings
 
-### Quick Setup Assistant
+### Quick setup assistant
 
 Open **Settings → Universal Cursor Hotkeys** to assign hotkeys without leaving the settings screen.
 
-**Apply Recommended:** Each command group has an **Apply Recommended** button that assigns all recommended hotkeys at once.
+**Apply recommended:** Each command group has an **Apply recommended** button that assigns all recommended hotkeys at once.
 
 **Live status:** Each row shows the current state of its hotkey:
 
@@ -73,13 +73,13 @@ Open **Settings → Universal Cursor Hotkeys** to assign hotkeys without leaving
 | 🟡Used | Recommended hotkey is taken; applying it will displace one command. |
 | 🔴Conflict | Recommended hotkey is currently causing a conflict. |
 
-- **Hotkey chips:** Click any hotkey chip to open the Hotkeys panel filtered to that key.
+- **Hotkey chips:** Click any hotkey chip to open the hotkeys panel filtered to that key.
 - **Override:** When the recommended hotkey is in use, the command(s) currently using it appear inline. **Override** assigns the hotkey, removing it from any command currently using it.
-- **Open →:** Opens the Hotkeys panel filtered to this plugin's commands.
+- **Open →:** Opens the hotkeys panel filtered to this plugin's commands.
 
-**Displaced Commands:** Lists commands that would lose their only hotkey when recommended keys are applied. Each entry has an **Assign** button to reassign it via the Hotkeys panel, and a **Restore** button to undo the displacement and return the key to its original command.
+**Displaced commands:** Lists commands that would lose their only hotkey when recommended keys are applied. Each entry has an **Assign** button to reassign it via the hotkeys panel, and a **Restore** button to undo the displacement and return the key to its original command.
 
-**Special Key Assignments:** Set bare Home, End, Page Down, and Page Up keys — Obsidian's Hotkeys panel does not support modifier-free keys.
+**Special key assignments:** Set bare Home, End, Page Down, and Page Up keys — Obsidian's hotkeys panel does not support modifier-free keys.
 
 ### Behavior Options
 
@@ -105,7 +105,7 @@ Open **Settings → Universal Cursor Hotkeys** to assign hotkeys without leaving
 - **Source Mode table detection is heuristic:** In Source Mode, table rows are identified by a simple string check (line starts and ends with `|`). Unlike Live Preview mode, which uses the syntax tree, this approach may produce unexpected behavior on lines that coincidentally match the pattern but are not part of a Markdown table.
 
 - **Shortcut Conflicts**
-  - **On Windows — OS-level shortcuts not detected by Quick Setup:** Ctrl+A (HOME) and Ctrl+Y (Yank) override the system Select all and Redo shortcuts respectively. Because these are OS-level defaults rather than Obsidian hotkeys, the Quick Setup Assistant cannot detect the conflict and will show them as available. The bundled **Select all** command can be used as a replacement for Ctrl+A — run it from the Command Palette or assign it a custom hotkey. For Redo, use Ctrl+Shift+Z as an alternative.
+  - **On Windows — OS-level shortcuts not detected by Quick Setup:** Ctrl+A (HOME) and Ctrl+Y (Yank) override the system Select all and Redo shortcuts respectively. Because these are OS-level defaults rather than Obsidian hotkeys, the Quick setup assistant cannot detect the conflict and will show them as available. The bundled **Select all** command can be used as a replacement for Ctrl+A — run it from the Command Palette or assign it a custom hotkey. For Redo, use Ctrl+Shift+Z as an alternative.
   - **Page down / Page up — paste conflict:** Assigning Ctrl+V (Windows) or Cmd+V (macOS) to Page down or Page up will break keyboard paste in non-editor plugin views (e.g., Excalidraw). Yank (Ctrl+Y) restores paste within the markdown editor, but cannot substitute for Cmd+V in those views. Right-click → Paste remains available as a workaround. It is recommended to assign these commands to keys that do not conflict with paste.
 
 

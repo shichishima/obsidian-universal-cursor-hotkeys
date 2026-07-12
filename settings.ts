@@ -472,7 +472,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			noteTd.colSpan = 5;
 			noteTd.appendText('"');
 			noteTd.createEl('strong', { text: 'Override', cls: 'uch-override-word' });
-			noteTd.appendText('" reassigns the hotkey to this plugin\'s command, removing it from the command currently using it. Commands left with no remaining hotkeys appear in Displaced Commands below.');
+			noteTd.appendText('" reassigns the hotkey to this plugin\'s command, removing it from the command currently using it. Commands left with no remaining hotkeys appear in Displaced commands below.');
 			ctx.allOverrideNotes.push(noteRow);
 		}
 
@@ -622,12 +622,12 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		const makeEntries = (block: CommandDef['block']) =>
 			COMMAND_DEFS.filter(d => d.block === block).map(def => ({ def, row: computeRow(def, effectiveHotkeys, reverseMap, cmds) }));
 
-		this.renderBlock(table, 'Cursor Movement', makeEntries('cursor'), ctx);
+		this.renderBlock(table, 'Cursor movement', makeEntries('cursor'), ctx);
 		this.renderBlock(table, 'Editing',         makeEntries('editing'), ctx);
-		this.renderBlock(table, 'Other Hotkeys',   makeEntries('other'), ctx);
+		this.renderBlock(table, 'Other hotkeys',   makeEntries('other'), ctx);
 		syncToggle();
 
-		// Displaced Commands table
+		// Displaced commands table
 		const dispTable = containerEl.createEl('table', { cls: 'uch-disp-table' });
 		collect(dispTable);
 
@@ -636,7 +636,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		// Title row
 		const dispTitleCell = dispTbody.createEl('tr').createEl('td', { cls: 'uch-title-cell' });
 		dispTitleCell.colSpan = 5;
-		dispTitleCell.createSpan({ text: 'Displaced Commands', cls: 'uch-title-text' });
+		dispTitleCell.createSpan({ text: 'Displaced commands', cls: 'uch-title-text' });
 
 		// Description row
 		const dispDescTd = dispTbody.createEl('tr').createEl('td', { cls: 'uch-disp-desc' });

@@ -4,8 +4,8 @@
 
 ### Added
 
-- **Quick Setup Assistant:** New hotkey management screen in Settings. **Apply Recommended** assigns all recommended hotkeys for a command group in one click. Each row shows the live assignment status of its recommended hotkey. You can undo applied hotkeys via **Restore** in the Displaced Commands section.
-- **Special Key Assignments:** Assign bare Home, End, Page Down, and Page Up keys directly from the Settings screen — Obsidian's Hotkeys panel does not support modifier-free keys.
+- **Quick setup assistant:** New hotkey management screen in Settings. **Apply recommended** assigns all recommended hotkeys for a command group in one click. Each row shows the live assignment status of its recommended hotkey. You can undo applied hotkeys via **Restore** in the Displaced commands section.
+- **Special key assignments:** Assign bare Home, End, Page Down, and Page Up keys directly from the Settings screen — Obsidian's hotkeys panel does not support modifier-free keys.
 
 ## [0.6.1] - 2026-06-27
 
