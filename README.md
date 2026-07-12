@@ -1,16 +1,15 @@
 # Universal Cursor Hotkeys — Emacs keybindings for Markdown
 Emacs-style cursor navigation and Kill & Yank inside and outside tables, for macOS and Windows.
 
-<img width="700" height="394" alt="Image" src="https://github.com/user-attachments/assets/fb82b786-f585-473f-808e-018ca0d6eb14" />
+<img width="700" height="385" alt="Image" src="https://github.com/user-attachments/assets/04e77243-e632-4898-8a3d-d2d669a43165" />
 
 ## Overview
 
-Navigate your entire note with Ctrl+P/N/B/F — including inside Markdown tables.
-On macOS, these shortcuts stop working the moment your cursor enters a table in Live Preview mode. This plugin fixes that, providing seamless movement between table cells just as you would with physical cursor keys.
+On macOS, Emacs-style cursor shortcuts — Ctrl+P/N/B/F/A/E — and Page down/up work throughout Obsidian notes, but stop the moment your cursor enters a Markdown table in Live Preview mode. This plugin restores them, giving you seamless navigation through table cells just as physical cursor keys would.
 
-Windows users can also use this plugin to enable Emacs-style cursor movement.
+Windows users can also enable full Emacs-style cursor movement and Page down/up throughout your notes, including inside tables.
 
-Kill & Yank (Ctrl+K / Ctrl+Y) and Kill Region (Ctrl+W) bring the full Emacs editing workflow to Obsidian — and all three work seamlessly inside table cells, automatically handling newlines and pipe characters.
+Kill & Yank (Ctrl+K / Ctrl+Y) and Kill Region (Ctrl+W) bring the full Emacs editing workflow to Obsidian — and all three work seamlessly inside table cells, automatically handling newlines and pipe characters. Recenter-top-bottom (Ctrl+L) rounds out the workflow.
 
 <table>
   <tr>
@@ -23,21 +22,13 @@ Kill & Yank (Ctrl+K / Ctrl+Y) and Kill Region (Ctrl+W) bring the full Emacs edit
   </tr>
 </table>
 
-## Install & Setup
+## Getting Started
 
-### Installation
+No hotkeys are assigned by default.
 
-1. Open **Settings → Community plugins** and click **Browse**.
-2. Search for **Universal Cursor Hotkeys** and click **Install**.
-3. Click **Enable** to activate the plugin.
+**Quick Setup (recommended):** Open **Settings → Universal Cursor Hotkeys** and click **Apply recommended** for each of the three command groups — Cursor movement, Editing, and Other hotkeys. Three clicks and you're done.
 
-### Assign Hotkeys
-
-Go to **Settings → Hotkeys**, search for "Universal Cursor Hotkeys", and assign your preferred keys (e.g., Ctrl+P, Ctrl+N) to each command.
-
-### Note:
-- No hotkeys are assigned by default. You must manually set them to enable the navigation.
-- **Windows Users**: Assigning Ctrl+A or Ctrl+F will overwrite standard OS shortcuts like "Select all" or "Find".
+**Manual setup:** Go to **Settings → Hotkeys**, search for "Universal Cursor Hotkeys", and assign keys individually.
 
 
 ## Command Reference
@@ -56,14 +47,41 @@ For detailed behavior of each command, see [Command Details](#command-details) b
 | Kill region | Ctrl + W    | Cut the selected region to the kill cache. Table-aware: single-cell only; no-op for multi-row or cross-cell selections. | — |
 | Yank | Ctrl + Y           | Paste from the OS clipboard. Table-aware: converts newlines and pipes automatically. | ✓ |
 | Delete char | Ctrl + D   | Forward-delete one character. Stops at cell boundary; joins sub-lines at `<br>` in Live Preview. | ✓ |
-| Recenter top-bottom | Ctrl + L | Cycle the view so the cursor appears at the center, top, or bottom of the screen on successive presses. Resets on any other action. | — |
+| Recenter-top-bottom | Ctrl + L | Cycle the view so the cursor appears at the center, top, or bottom of the screen on successive presses. Resets on any other action. | — |
 | Recenter | (None)        | Scroll the view so the cursor line is centered on screen. | — |
-| Page down | (None)        | Scroll down one page; the cursor stays at the same screen position. ⚠️ Assigning Ctrl+V breaks paste in non-editor plugin views (e.g., Excalidraw) (Windows). | ✓ |
-| Page up | (None)        | Scroll up one page; the cursor stays at the same screen position. ⚠️ Assigning Cmd+V breaks paste in non-editor plugin views (macOS). | ✓ |
-| Select all | (None)        | For Windows users: Restores "Select all" functionality if Ctrl+A is reassigned to HOME. Assign a custom key or run from the command palette. | — |
+| Page down | (None)        | Scroll down one page; the cursor stays at the same screen position. Bare PageDown can be set in the plugin's Settings. | ✓ |
+| Page up | (None)        | Scroll up one page; the cursor stays at the same screen position. Bare PageUp can be set in the plugin's Settings. | ✓ |
+| Select all | (None)        | Windows replacement for Select all when Ctrl+A is reassigned to HOME. | — |
 
 
 ## Settings
+
+### Quick setup assistant
+
+Open **Settings → Universal Cursor Hotkeys** to assign hotkeys without leaving the settings screen.
+
+**Apply recommended:** Each command group has an **Apply recommended** button that assigns all recommended hotkeys at once.
+
+**Live status:** Each row shows the current state of its hotkey:
+
+| Status | Meaning |
+|--------|---------|
+| ✅Set | Recommended hotkey is assigned. |
+| 🟢Custom | A non-recommended hotkey is assigned. |
+| 🔵Available | Recommended hotkey is free to assign. |
+| 🔵Used | Recommended hotkey is taken; applying it will not displace any command. |
+| 🟡Used | Recommended hotkey is taken; applying it will displace one command. |
+| 🔴Conflict | Recommended hotkey is currently causing a conflict. |
+
+- **Hotkey chips:** Click any hotkey chip to open the hotkeys panel filtered to that key.
+- **Override:** When the recommended hotkey is in use, the command(s) currently using it appear inline. **Override** assigns the hotkey, removing it from any command currently using it.
+- **Open →:** Opens the hotkeys panel filtered to this plugin's commands.
+
+**Displaced commands:** Lists commands that would lose their only hotkey when recommended keys are applied. Each entry has an **Assign** button to reassign it via the hotkeys panel, and a **Restore** button to undo the displacement and return the key to its original command.
+
+**Special key assignments:** Set bare Home, End, Page Down, and Page Up keys — Obsidian's hotkeys panel does not support modifier-free keys.
+
+### Behavior Options
 
 | Setting | Default | Description |
 | ------- | :-----: | ----------- |
@@ -75,26 +93,31 @@ For detailed behavior of each command, see [Command Details](#command-details) b
 
 
 ## Limitations
+
 - **No Word-Level Navigation:** Movement by word (e.g., Option/Ctrl + Left/Right) is currently not supported.
+
 - **No Range Selection:** Shift+modifier combinations (e.g., Shift+Ctrl+P/N/B/F/A/E) for extending the selection are not supported. Use Shift+Arrow keys instead.
-- **Brief scroll flash when entering a tall wrapped cell in Live Preview (UP):** When pressing UP into a cell whose wrapped content exceeds the screen height, the view momentarily scrolls to the cell start before jumping to the bottom visual line. This is an inherent side effect of the two-step navigation used to locate the bottom visual line within Obsidian's Live Preview table widget.
+
+- **Brief scroll when entering a tall wrapped cell in Live Preview (UP):** When pressing UP into a cell whose wrapped content exceeds the screen height, the view momentarily scrolls to the cell start before jumping to the bottom visual line. This is an inherent side effect of the two-step navigation used to locate the bottom visual line within Obsidian's Live Preview table widget.
+
 - **Multi-cell cut, copy, and paste are not supported (Kill Line / Kill Region / Yank):** Kill Line, Kill Region, and Yank are text-level operations; inside a table, they work on the text content within individual cells. Selecting multiple cells and attempting to cut or paste with these commands is not supported. For multi-cell cut, copy, and paste operations, use the right-click context menu instead.
+
 - **Source Mode table detection is heuristic:** In Source Mode, table rows are identified by a simple string check (line starts and ends with `|`). Unlike Live Preview mode, which uses the syntax tree, this approach may produce unexpected behavior on lines that coincidentally match the pattern but are not part of a Markdown table.
-- **Page down / Page up — tall table cells:** In Live Preview mode, if a table contains a cell with many `<br>` line breaks, the cursor position calculation may become inaccurate, causing page down / page up to scroll by an unexpected amount.
+
 - **Shortcut Conflicts**
-  - **On Windows:** Assigning Ctrl+A (HOME) overrides the system Select all shortcut. Use the bundled "Select all" command (run from the command palette or assign it a custom hotkey) as a replacement.
+  - **On Windows — OS-level shortcuts not detected by Quick Setup:** Ctrl+A (HOME) and Ctrl+Y (Yank) override the system Select all and Redo shortcuts respectively. Because these are OS-level defaults rather than Obsidian hotkeys, the Quick setup assistant cannot detect the conflict and will show them as available. The bundled **Select all** command can be used as a replacement for Ctrl+A — run it from the Command Palette or assign it a custom hotkey. For Redo, use Ctrl+Shift+Z as an alternative.
   - **Page down / Page up — paste conflict:** Assigning Ctrl+V (Windows) or Cmd+V (macOS) to Page down or Page up will break keyboard paste in non-editor plugin views (e.g., Excalidraw). Yank (Ctrl+Y) restores paste within the markdown editor, but cannot substitute for Cmd+V in those views. Right-click → Paste remains available as a workaround. It is recommended to assign these commands to keys that do not conflict with paste.
 
 
 ## Command Details
 
-Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
+Note: (*) indicates behaviors specific to Live Preview mode.
 
 <details>
 <summary>Cursor UP</summary>
 
 - **Within text:** Moves up to the previous visual line, equivalent to physical cursor keys.
-- **From below a callout, image, embed, or thematic break (LP) (*):** Enters the block and expands the markdown source, consistent with physical cursor key behavior. For callouts, the cursor must be on the empty line immediately below. For images and embeds (`![[...]]`, `![...](...)`), applies when the syntax starts at the beginning of the line. For thematic breaks (`---`, `***`, `___`), the cursor lands at the beginning of the break line.
+- **From below a callout, image, embed, or thematic break (Live Preview) (*):** Enters the block and expands the markdown source, consistent with physical cursor key behavior. For callouts, the cursor must be on the empty line immediately below. For images and embeds (`![[...]]`, `![...](...)`), applies when the syntax starts at the beginning of the line. For thematic breaks (`---`, `***`, `___`), the cursor lands at the beginning of the break line.
 - **From below a table (*):** If the cursor is on the line immediately below a table, it enters the table and moves to the left edge of the bottom visual line of the bottom-left cell.
 - **Within a table cell (*):**
   - **First visual line:** Moves to the left edge of the bottom visual line of the cell directly above (same column). For non-wrapped cells, this is the cell start.
@@ -107,7 +130,7 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 <summary>Cursor DOWN</summary>
 
 - **Within text:** Moves down one visual line, equivalent to physical cursor keys.
-- **From above a callout, image, embed, or thematic break (LP) (*):** Enters the block and expands the markdown source, consistent with physical cursor key behavior. For callouts, the next line must be a callout header (`> [!type]...`). For images and embeds (`![[...]]`, `![...](...)`), applies when the syntax starts at the beginning of the line. For thematic breaks (`---`, `***`, `___`), the cursor lands at the beginning of the break line.
+- **From above a callout, image, embed, or thematic break (Live Preview) (*):** Enters the block and expands the markdown source, consistent with physical cursor key behavior. For callouts, the next line must be a callout header (`> [!type]...`). For images and embeds (`![[...]]`, `![...](...)`), applies when the syntax starts at the beginning of the line. For thematic breaks (`---`, `***`, `___`), the cursor lands at the beginning of the break line.
 - **From above a table (*):** If the cursor is on the line immediately above a table, it enters the table and moves to the beginning of the top-left cell.
 - **Within a table cell (*):**
   - **On other visual lines:** Moves to the visual line below within the same cell, equivalent to physical cursor keys.
@@ -226,7 +249,7 @@ Note: (*) indicates behaviors specific to Markdown tables in Live Preview mode.
 </details>
 
 <details>
-<summary>Recenter top-bottom</summary>
+<summary>Recenter-top-bottom</summary>
 
 - Cycles the scroll position on successive presses so the cursor appears at the **center**, **top**, or **bottom** of the screen.
 - Any other action (typing, cursor movement, mouse click) resets the cycle back to center.
