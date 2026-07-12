@@ -40,6 +40,7 @@ interface ObsidianInternals {
 const MAC_MOD:  Record<string, string> = { Ctrl: '⌃', Shift: '⇧', Alt: '⌥', Meta: '⌘', Mod: '⌘' };
 const WIN_MOD:  Record<string, string> = { Ctrl: 'Ctrl', Shift: 'Shift', Alt: 'Alt', Meta: 'Win', Mod: 'Ctrl' };
 const KEY_DISP: Record<string, string> = { PageDown: 'Page Down', PageUp: 'Page Up' };
+const MOD_ORDER: Record<string, number> = { Mod: 0, Ctrl: 1, Alt: 2, Shift: 3, Meta: 4 };
 
 export const normMods = (mods: string | string[]): string[] =>
 	Array.isArray(mods) ? mods : (mods ? mods.split(',') : []);
@@ -48,7 +49,7 @@ export const hotkeyId = (hk: AnyHotkey): string =>
 	normMods(hk.modifiers).sort().join('+') + '+' + hk.key.toLowerCase();
 
 export const formatHotkey = (hk: AnyHotkey, isMacOS = Platform.isMacOS): string => {
-	const mods = normMods(hk.modifiers);
+	const mods = normMods(hk.modifiers).sort((a, b) => (MOD_ORDER[a] ?? 9) - (MOD_ORDER[b] ?? 9));
 	const key  = KEY_DISP[hk.key] ?? hk.key;
 	return isMacOS
 		? mods.map(m => MAC_MOD[m] ?? m).join('') + ' ' + key
