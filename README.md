@@ -67,11 +67,11 @@ Open **Settings → Universal Cursor Hotkeys** to assign hotkeys without leaving
 | Status | Meaning |
 |--------|---------|
 | ✅Set | Recommended hotkey is assigned. |
-| 🟢Custom | A non-recommended hotkey is assigned. |
+| 🟢Custom | A non-recommended hotkey is assigned, with no conflict. |
 | 🔵Available | Recommended hotkey is free to assign. |
 | 🔵Used | Recommended hotkey is taken; applying it will not displace any command. |
 | 🟡Used | Recommended hotkey is taken; applying it will displace one command. |
-| 🔴Conflict | Recommended hotkey is currently causing a conflict. |
+| 🔴Conflict | A conflict exists: a hotkey is currently assigned to more than one command. |
 
 - **Hotkey chips:** Click any hotkey chip to open the hotkeys panel filtered to that key.
 - **Override:** When the recommended hotkey is in use, the command(s) currently using it appear inline. **Override** assigns the hotkey, removing it from any command currently using it.
