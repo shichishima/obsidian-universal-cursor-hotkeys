@@ -490,8 +490,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			.setName('Quick setup assistant')
 			.then(setting => {
 				setting.descEl.createSpan({ text: 'No hotkeys are assigned by default. Set only the commands you want — group by group, or ' });
-				// eslint-disable-next-line obsidianmd/ui/sentence-case -- mid-sentence link, lowercase is linguistically correct
-				const indivLink = setting.descEl.createEl('a', { text: 'individually', cls: 'uch-inline-link' });
+				const indivLink = setting.descEl.createEl('a', { text: 'Individually', cls: 'uch-inline-link' });
 				indivLink.addEventListener('click', (e) => {
 					e.preventDefault();
 					if (!this.sectionVisible) {
