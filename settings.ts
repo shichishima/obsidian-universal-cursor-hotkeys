@@ -405,7 +405,11 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				text: row.action === 'override' ? 'Override' : 'Set'
 			});
 			btn.addClass('mod-cta', 'uch-set-btn');
-			if (row.action === 'override') btn.addClass('uch-override-btn');
+			if (row.action === 'override') {
+				btn.addClass('uch-override-btn');
+				btn.addEventListener('mouseenter', () => tbody.addClass('uch-override-active'));
+				btn.addEventListener('mouseleave', () => tbody.removeClass('uch-override-active'));
+			}
 			btn.addEventListener('click', () => {
 				ctx.applyEntry(def, row);
 				ctx.hm.save();
@@ -657,13 +661,19 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		for (const d of this.plugin.settings.qsaDisplacedCommands) {
 			const tr = dispTbody.createEl('tr');
 			tr.addClass('uch-row-thin');
-			tr.createEl('td', { cls: 'uch-cell-name' })
-				.createEl('a', { text: d.commandName, cls: 'uch-cmd-link uch-disp-name' })
-				.addEventListener('click', (e) => { e.preventDefault(); this.openHotkeysPanelFor(d.commandName); });
+			const dispName = tr.createEl('td', { cls: 'uch-cell-name' })
+				.createEl('a', { text: d.commandName, cls: 'uch-cmd-link uch-disp-name' });
+			dispName.addEventListener('click', (e) => { e.preventDefault(); this.openHotkeysPanelFor(d.commandName); });
 			const assignBtn = tr.createEl('td', { cls: 'uch-cell-action' })
 				.createEl('button', { text: 'Assign' });
 			assignBtn.addClass('mod-cta', 'uch-restore-btn', 'uch-assign-btn');
 			assignBtn.addEventListener('click', () => { this.openHotkeysPanelFor(d.commandName); });
+			const addDispHover    = () => tr.addClass('uch-disp-hover');
+			const removeDispHover = () => tr.removeClass('uch-disp-hover');
+			dispName.addEventListener('mouseenter', addDispHover);
+			dispName.addEventListener('mouseleave', removeDispHover);
+			assignBtn.addEventListener('mouseenter', addDispHover);
+			assignBtn.addEventListener('mouseleave', removeDispHover);
 			const tdKey = tr.createEl('td', { cls: 'uch-cell-key' });
 			const dispKbd = tdKey.createEl('kbd', { text: formatHotkey(d.hotkey), cls: 'uch-kbd' });
 			dispKbd.addClass('uch-kbd-link');
