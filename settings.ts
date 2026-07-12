@@ -134,7 +134,7 @@ export const computeRow = (
 	return { name: def.name, key: recFmt, current: currentDisplay, extraCount, status: '🔵Available', conflictIds: [], action: 'set' };
 };
 
-const ctrl = (...keys: string[]): Hotkey => ({ modifiers: ['Ctrl' as Modifier], key: keys[0] });
+const ctrl = (...keys: string[]): Hotkey => ({ modifiers: ['Ctrl'], key: keys[0] });
 
 const COMMAND_DEFS: readonly CommandDef[] = [
 	{ block: 'cursor',  id: 'cursor-up',           name: 'UP',                  recommended: ctrl('P') },
@@ -163,7 +163,7 @@ export interface DisplacedCommand {
 }
 
 interface RenderCtx {
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Obsidian internal API, not exposed in obsidian.d.ts
 	hm: any;
 	effectiveHotkeys: (id: string) => BakedHotkey[];
 	cmds: Record<string, { name: string }> | undefined;
@@ -292,11 +292,11 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 	}
 
 	private openHotkeysPanelFor(query: string): void {
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Obsidian internal API, not exposed in obsidian.d.ts
 		const s = (this.app as any).setting;
 		s.open();
 		const tab = s.openTabById('hotkeys');
-		setTimeout(() => {
+		window.setTimeout(() => {
 			const search = tab?.searchComponent;
 			if (search) {
 				search.setValue(query);
@@ -306,14 +306,13 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 	}
 
 	private openHotkeysPanelByKey(hk: AnyHotkey): void {
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Obsidian internal API, not exposed in obsidian.d.ts
 		const s = (this.app as any).setting;
 		s.open();
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const tab = s.openTabById('hotkeys') as any;
+		const tab = s.openTabById('hotkeys');
 		const mods = normMods(hk.modifiers);
 		const filterArg = { modifiers: mods, key: hk.key };
-		setTimeout(() => {
+		window.setTimeout(() => {
 			if (typeof tab?.setActiveHotkeyFilter === 'function') {
 				// Obsidian 1.13+
 				tab.setActiveHotkeyFilter(filterArg);
@@ -474,7 +473,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					if (!this.sectionVisible) {
 						this.sectionVisible = true;
 						showHideBtn.setButtonText('Hide');
-						for (const el of sectionEls) el.style.display = '';
+						for (const el of sectionEls) el.removeClass('uch-hidden');
 					}
 					this.individualVisible = true;
 					syncToggle();
@@ -496,11 +495,11 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				btn.onClick(() => {
 					this.sectionVisible = !this.sectionVisible;
 					btn.setButtonText(this.sectionVisible ? 'Hide' : 'Show');
-					for (const el of sectionEls) el.style.display = this.sectionVisible ? '' : 'none';
+					for (const el of sectionEls) el.toggleClass('uch-hidden', !this.sectionVisible);
 				});
 			});
 
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Obsidian internal API, not exposed in obsidian.d.ts
 		const hm = (this.app as any).hotkeyManager;
 		// Re-bake so bakedIds/bakedHotkeys reflect the latest user changes
 		if (typeof hm.bake === 'function') hm.bake();
@@ -523,7 +522,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				return acc;
 			}, []);
 
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Obsidian internal API, not exposed in obsidian.d.ts
 		const cmds = (this.app as any).commands?.commands;
 
 		const toHotkey = (hk: BakedHotkey): Hotkey => ({
@@ -586,9 +585,9 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		const allActionHeaders: HTMLElement[] = [];
 		const allOverrideNotes: HTMLElement[] = [];
 		const syncToggle = () => {
-			for (const el of allActionBtns)    el.style.visibility = this.individualVisible ? 'visible' : 'hidden';
-			for (const el of allActionHeaders) el.textContent      = this.individualVisible ? '▼ Individual' : '▶ Individual';
-			for (const el of allOverrideNotes) el.style.display    = this.individualVisible ? '' : 'none';
+			for (const el of allActionBtns)    el.toggleClass('uch-vis-hidden', !this.individualVisible);
+			for (const el of allActionHeaders) el.textContent = this.individualVisible ? '▼ Individual' : '▶ Individual';
+			for (const el of allOverrideNotes) el.toggleClass('uch-hidden', !this.individualVisible);
 		};
 
 		const ctx: RenderCtx = { hm, effectiveHotkeys, cmds, applyEntry, applyBlock, allActionBtns, allActionHeaders, allOverrideNotes, syncToggle };
@@ -699,7 +698,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			}
 		}
 		collect(specialEl);
-		for (const el of sectionEls) el.style.display = this.sectionVisible ? '' : 'none';
+		for (const el of sectionEls) el.toggleClass('uch-hidden', !this.sectionVisible);
 	}
 
 	private setHtmlDesc(setting: Setting, html: string): Setting {

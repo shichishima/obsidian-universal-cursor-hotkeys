@@ -70,6 +70,10 @@ tr:has(.uch-assign-btn:hover) .uch-disp-name  { text-decoration: underline; colo
 tr:has(.uch-disp-name:hover)  .uch-assign-btn { filter: brightness(0.85); }
 .uch-more-link   { display: block; font-size: 0.75em; opacity: 0.6; cursor: pointer; }
 
+/* ── Visibility helpers ──────────────────────────────────── */
+.uch-hidden     { display: none; }
+.uch-vis-hidden { visibility: hidden; }
+
 /* ── Misc ────────────────────────────────────────────────── */
 .uch-empty-dash   { opacity: 0.5; }
 .uch-no-displaced  { padding: 4px 8px 4px 40px; font-size: 0.9em; opacity: 0.5; }
