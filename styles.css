@@ -31,11 +31,11 @@
 .uch-title-text { font-weight: 600; }
 
 /* ── Buttons ─────────────────────────────────────────────── */
-.uch-apply-btn   { font-size: 0.85em !important; padding: 2px 10px !important; }
-.uch-set-btn     { font-size: 0.75em !important; padding: 0 6px !important; line-height: 1.4 !important; min-width: 5em !important; }
-.uch-open-btn       { font-size: 0.75em !important; padding: 0 6px !important; line-height: 1.4 !important; min-width: 5em !important; }
-.uch-open-btn:hover { filter: brightness(0.8); }
-.uch-restore-btn { font-size: 0.75em !important; padding: 2px 8px !important; }
+.uch-table .uch-apply-btn        { font-size: 0.85em; padding: 2px 10px; }
+.uch-table .uch-set-btn          { font-size: 0.75em; padding: 0 6px; line-height: 1.4; min-width: 5em; }
+.uch-table .uch-open-btn         { font-size: 0.75em; padding: 0 6px; line-height: 1.4; min-width: 5em; }
+.uch-open-btn:hover              { filter: brightness(0.8); }
+.uch-disp-table .uch-restore-btn { font-size: 0.75em; padding: 2px 8px; }
 .uch-set-btn-spacer {
   font-size: 0.75em;
   padding: 0 6px;
