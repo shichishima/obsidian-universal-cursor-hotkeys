@@ -33,7 +33,9 @@ jobs:
       - name: Generate artifact attestation
         uses: actions/attest@v4
         with:
-          subject-path: main.js
+          subject-path: |
+            main.js
+            styles.css
 
       - name: Create release
         uses: softprops/action-gh-release@v2
