@@ -1,6 +1,6 @@
 {
 	"name": "universal-cursor-hotkeys",
-	"version": "0.6.1",
+	"version": "0.7.0",
 	"description": "Emacs keybindings for Markdown — cursor navigation and Kill & Yank, whether in tables or out, either on macOS or Windows.",
 	"main": "main.js",
 	"scripts": {
