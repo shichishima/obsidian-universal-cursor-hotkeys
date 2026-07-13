@@ -183,7 +183,7 @@ describe('computeRow — recommended set, already applied', () => {
 })
 
 describe('computeRow — custom key (different from recommended)', () => {
-	it('action is done, status is 🟢 Custom', () => {
+	it('action is done, status is 🟢Custom when no conflict', () => {
 		const hk = baked('Ctrl', 'H')
 		const row = computeRow(
 			def('cursor-home', rec('A', 'Ctrl')),
@@ -192,6 +192,24 @@ describe('computeRow — custom key (different from recommended)', () => {
 		)
 		expect(row.action).toBe('done')
 		expect(row.status).toBe('🟢Custom')
+	})
+
+	it('custom key held by another active command → 🔴Conflict', () => {
+		const otherId = 'other-plugin:some-cmd'
+		const hk = baked('Ctrl', 'H')
+		const entries: Array<[string, BakedHotkey]> = [
+			[uchId('cursor-home'), hk],
+			[otherId,              hk],
+		]
+		const row = computeRow(
+			def('cursor-home', rec('A', 'Ctrl')),
+			makeEffective(entries),
+			makeReverseMap(entries),
+			cmds([otherId]),
+		)
+		expect(row.action).toBe('done')
+		expect(row.status).toBe('🔴Conflict: ')
+		expect(row.conflictIds).toEqual([otherId])
 	})
 })
 

@@ -133,9 +133,20 @@ export const computeRow = (
 	}
 
 	if (currentHotkeys.length > 0) {
+		const primaryHk   = currentHotkeys[0];
+		const customId    = hotkeyId(primaryHk);
+		const conflictIds = (reverseMap.get(customId) ?? []).filter(id => id !== fullId && cmds?.[id] !== undefined);
+		if (conflictIds.length > 0) {
+			return {
+				name: def.name, key: recFmt,
+				current: formatHotkey(primaryHk),
+				extraCount: allCurrentHotkeys.length - 1,
+				status: '🔴Conflict: ', conflictIds, action: 'done',
+			};
+		}
 		return {
 			name: def.name, key: recFmt,
-			current: formatHotkey(currentHotkeys[0]),
+			current: formatHotkey(primaryHk),
 			extraCount: allCurrentHotkeys.length - 1,
 			status: '🟢Custom', conflictIds: [], action: 'done',
 		};
