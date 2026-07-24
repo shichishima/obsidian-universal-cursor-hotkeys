@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- **Corrected documentation — range selection is supported:** Shift+Ctrl+P/N/B/F/A/E extend the selection normally, both in plain text and inside table cells — this always worked; an earlier README incorrectly listed it as unsupported. (Crossing a table cell boundary is the one remaining edge case; see Limitations.)
+
 ## [0.7.0] - 2026-07-13
 
 ### Added

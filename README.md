@@ -5,7 +5,7 @@ Cursor navigation shortcuts (Ctrl+P/N/B/F/A/E) and Kill & Yank inside and outsid
 
 ## Overview
 
-On macOS, cursor shortcuts — Ctrl+P (up), Ctrl+N (down), Ctrl+B/F (left/right), Ctrl+A/E (home/end), and Page Down/Up — work natively in Obsidian, but break the moment your cursor enters a Markdown table in Live Preview mode. This plugin restores them inside tables, giving you seamless navigation just as physical cursor keys would.
+On macOS, cursor shortcuts — Ctrl+P (up), Ctrl+N (down), Ctrl+B/F (left/right), Ctrl+A/E (home/end), and Page Down/Up — work natively in Obsidian, but break the moment your cursor enters a Markdown table in Live Preview mode. This plugin restores them inside tables, giving you seamless navigation just as physical cursor keys would — and Shift+Ctrl+P/N/B/F/A/E extend the selection the same way.
 
 Windows users can enable the full set of macOS-style cursor shortcuts throughout Obsidian. The Quick setup assistant assigns all recommended hotkeys in three clicks.
 
@@ -94,9 +94,9 @@ Open **Settings → Universal Cursor Hotkeys** to assign hotkeys without leaving
 
 ## Limitations
 
-- **No Word-Level Navigation:** Movement by word (e.g., Option/Ctrl + Left/Right) is currently not supported.
+- **No Word-Level Navigation:** Movement by word (macOS: Option+Left/Right; Windows: Ctrl+Left/Right; Emacs: Meta-F/B) is currently not supported.
 
-- **No Range Selection:** Shift+modifier combinations (e.g., Shift+Ctrl+P/N/B/F/A/E) for extending the selection are not supported. Use Shift+Arrow keys instead.
+- **Range selection stops at table cell boundaries:** Shift+Ctrl+P/N/B/F/A/E extend the selection normally within plain text and within a single table cell. At a cell boundary, they neither cross into the adjacent cell (unlike plain Ctrl+B/F) nor extend the selection across cells (unlike Shift+Arrow keys). Use Shift+Arrow keys for cross-cell selection.
 
 - **Brief scroll when entering a tall wrapped cell in Live Preview (UP):** When pressing UP into a cell whose wrapped content exceeds the screen height, the view momentarily scrolls to the cell start before jumping to the bottom visual line. This is an inherent side effect of the two-step navigation used to locate the bottom visual line within Obsidian's Live Preview table widget.
 
