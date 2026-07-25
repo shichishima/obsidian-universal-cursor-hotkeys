@@ -1,20 +1,10 @@
 import { Editor, Plugin, MarkdownView } from 'obsidian';
 import { UniversalCursorHotkeysSettingTab, DisplacedCommand } from './settings';
+import { VimSupport } from './vim-support';
 import { syntaxTree } from '@codemirror/language';
 import { EditorView } from "@codemirror/view";
-import { EditorSelection, Transaction, findClusterBreak } from '@codemirror/state';
+import { EditorSelection, Transaction } from '@codemirror/state';
 import { deleteCharForward, cursorPageDown, cursorPageUp } from '@codemirror/commands';
-
-// Obsidian's built-in Vim mode (codemirror-vim) — not exposed in obsidian.d.ts.
-interface VimPos { line: number; ch: number }
-interface VimMotionArgs { forward: boolean; repeat: number }
-type VimMotionFn = (cm: unknown, head: VimPos, motionArgs: VimMotionArgs) => VimPos;
-interface VimApi {
-	defineMotion(name: string, fn: VimMotionFn): void;
-}
-interface VimCm {
-	getLine(line: number): string;
-}
 
 // Extend the Obsidian Editor interface to include the internal CodeMirror 6 instance (EditorView)
 declare module "obsidian" {
@@ -69,11 +59,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Lines of margin above/below cursor for recenter-top-bottom top/bottom positions.
 	private readonly RECENTER_TOP_BOTTOM_MARGIN_LINES = 2;
 
-	// Not persisted — whether the Vim h/l override is actually active in the
-	// current running session. Re-enabling always works live; disabling does not
-	// (see restoreVimHlOverride), so this only ever flips true → it goes back to
-	// false only via a fresh app start where settings.vimHlSupport is already off.
-	vimHlLiveApplied: boolean = false;
+	vimSupport: VimSupport;
 
 	private isKillChaining: boolean = false;
 	private isDispatchingKill: boolean = false;
@@ -82,6 +68,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	async onload() {
 		await this.loadSettings();
+		this.vimSupport = new VimSupport(this);
 		this.addSettingTab(new UniversalCursorHotkeysSettingTab(this.app, this));
 
 		this.addCommand({
@@ -245,85 +232,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			this.killCache = '';
 		});
 
-		if (this.settings.vimHlSupport) {
-			this.applyVimHlOverride();
-			this.vimHlLiveApplied = true;
-		}
+		this.vimSupport.setup();
 	}
 
 	onunload() {
-		// Best-effort only — see restoreVimHlOverride's own caveat.
-		this.restoreVimHlOverride();
-	}
-
-
-	//===========================================================================
-	// Vim mode support (experimental)
-	//===========================================================================
-
-	// Vim's own moveByCharacters, hardcoded (codemirror-vim's `motions` table is
-	// write-only via defineMotion — there is no public API to read the previous
-	// value before overriding it, so this is our restore target on toggle-off /
-	// unload). If another plugin's vimrc customized 'moveByCharacters' before ours
-	// loaded, restoring goes to this vim.js default rather than that customization.
-	private static readonly VIM_DEFAULT_MOVE_BY_CHARACTERS: VimMotionFn = (_cm, head, motionArgs) => ({
-		line: head.line,
-		ch: motionArgs.forward ? head.ch + motionArgs.repeat : head.ch - motionArgs.repeat,
-	});
-
-	// Grapheme-cluster-aware replacement for h/l (moveByCharacters). Fixes two
-	// native bugs observed in Obsidian's Vim mode inside Live Preview table cells:
-	// (1) naive ch±repeat arithmetic miscounts multi-UTF-16-unit characters
-	//     (e.g. surrogate-pair emoji), landing mid-character.
-	// (2) h/l cross into the adjacent table cell even from a non-boundary
-	//     position (e.g. the end of a non-last wrapped sub-line). By always
-	//     computing and returning a position clamped within the current line
-	//     ourselves, we never hand vim.js an out-of-range Pos for it to "fix" —
-	//     which is where the cell-crossing appears to happen.
-	private readonly vimMoveByCharacters: VimMotionFn = (cm, head, motionArgs) => {
-		const lineText = (cm as VimCm).getLine(head.line);
-		let ch = head.ch;
-		for (let i = 0; i < motionArgs.repeat; i++) {
-			const next = findClusterBreak(lineText, ch, motionArgs.forward);
-			if (next === ch) break; // already at the line boundary; vim's h/l don't wrap
-			ch = next;
-		}
-		return { line: head.line, ch };
-	};
-
-	private applyVimHlOverride(): void {
-		const Vim = (window as unknown as { CodeMirrorAdapter?: { Vim?: VimApi } }).CodeMirrorAdapter?.Vim;
-		Vim?.defineMotion('moveByCharacters', this.vimMoveByCharacters);
-	}
-
-	// Best-effort restore — see the class-level note on vimHlLiveApplied: this does
-	// not reliably take effect within a running session (cause unconfirmed), so it
-	// is only ever called from onunload(), never exposed as a live "disable" action.
-	private restoreVimHlOverride(): void {
-		const Vim = (window as unknown as { CodeMirrorAdapter?: { Vim?: VimApi } }).CodeMirrorAdapter?.Vim;
-		Vim?.defineMotion('moveByCharacters', universalCursorHotkeysPlugin.VIM_DEFAULT_MOVE_BY_CHARACTERS);
-	}
-
-	// State A -> B. Applies immediately; reliable.
-	enableVimHlSupport(): void {
-		this.settings.vimHlSupport = true;
-		this.applyVimHlOverride();
-		this.vimHlLiveApplied = true;
-		void this.saveSettings();
-	}
-
-	// State B -> C. Does not touch the live override (disabling isn't reliable
-	// mid-session) — only schedules it to stay off from the next app start.
-	scheduleDisableVimHlSupport(): void {
-		this.settings.vimHlSupport = false;
-		void this.saveSettings();
-	}
-
-	// State C -> B. The override was never actually removed, so this is just
-	// cancelling the pending disable — reliable, no re-apply needed.
-	cancelDisableVimHlSupport(): void {
-		this.settings.vimHlSupport = true;
-		void this.saveSettings();
+		this.vimSupport.teardown();
 	}
 
 
