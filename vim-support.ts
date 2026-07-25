@@ -341,7 +341,7 @@ export class VimSupport {
 	// for single-row crossing, including entering/exiting the table entirely, and
 	// (via overshoot) multi-row crossing for count-prefixed motions.
 	private scheduleRowCrossing(forward: boolean, goalCh: number, goalCellIndex: number | null, overshoot: number): void {
-		setTimeout(() => {
+		window.setTimeout(() => {
 			const editor = getActiveEditor();
 			if (!editor || !editor.inTableCell) return;
 			// goalCellIndex should already be non-null here (we're crossing *from*
@@ -354,7 +354,7 @@ export class VimSupport {
 			// editor.activeCM reports in this same setTimeout tick — reading it here
 			// risks resyncing against a transient view that isn't what vim.js will
 			// actually hand the next motion call.
-			requestAnimationFrame(() => {
+			window.requestAnimationFrame(() => {
 				this.resyncAfterDeferredMove(editor, landedOuter, goalCh, cellIndex);
 			});
 		}, 0);
@@ -365,7 +365,7 @@ export class VimSupport {
 	// setTimeout for the same reason as scheduleRowCrossing — entering a table
 	// cell is itself a view-boundary crossing, carrying the same crash risk.
 	private scheduleTableEntry(targetLine: number, forward: boolean, goalCh: number, goalCellIndex: number | null, remaining: number): void {
-		setTimeout(() => {
+		window.setTimeout(() => {
 			const editor = getActiveEditor();
 			if (!editor) return;
 			// Note: by the time this fires, editor.inTableCell is likely already
@@ -384,7 +384,7 @@ export class VimSupport {
 			const landedOuter = this.host.enterTableAtLine(editor, targetLine, cellIndex, forward, goalCh, remaining);
 			// See scheduleRowCrossing's own comment on why this read is deferred an
 			// extra frame past the RAF-based focus-transfer fallback.
-			requestAnimationFrame(() => {
+			window.requestAnimationFrame(() => {
 				this.resyncAfterDeferredMove(editor, landedOuter, goalCh, cellIndex);
 			});
 		}, 0);
