@@ -1,6 +1,9 @@
 import { Editor, Plugin, MarkdownView } from 'obsidian';
 import { UniversalCursorHotkeysSettingTab, DisplacedCommand } from './settings';
 import { VimSupport } from './vim-support';
+import { InCellLineInfo, getCellBounds, getStartOfCellContent, getEndOfCellContent,
+	getEndOfCellContentByCellIndex, getRightmostCellIndex, getCellIndex, getChByCellIndex,
+	getInCellLineInfo } from './table-cell-utils';
 import { syntaxTree } from '@codemirror/language';
 import { EditorView } from "@codemirror/view";
 import { EditorSelection, Transaction } from '@codemirror/state';
@@ -42,19 +45,10 @@ const DEFAULT_SETTINGS: UniversalCursorHotkeysSettings = {
 };
 
 
-interface InCellLineInfo {
-	lineType: 'single' | 'first' | 'middle' | 'last';
-	startOfInCellLine: number;   // left edge (ch position)
-	endOfInCellLine: number;     // right edge (ch position)
-	isEmpty: boolean;            // startOfInCellLine === endOfInCellLine
-}
-
-
 export default class universalCursorHotkeysPlugin extends Plugin {
 
 	settings: UniversalCursorHotkeysSettings;
 
-	private readonly CELL_SEPARATOR_REGEX = /(?<!\\)\|/g;
 	private readonly TABLE_DELIMITER_REGEX = /^\s*\|?[:\s]*?-+[:\s-]*\|[:\s-|]*$/;
 	// Lines of margin above/below cursor for recenter-top-bottom top/bottom positions.
 	private readonly RECENTER_TOP_BOTTOM_MARGIN_LINES = 2;
@@ -291,8 +285,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 		if (editor.inTableCell) {
 			const line = editor.getLine(cursor.line);
-			const startOfCell = this.getStartOfCellContent(line, cursor.ch);
-			const endOfCell = this.getEndOfCellContent(line, cursor.ch);
+			const startOfCell = getStartOfCellContent(line, cursor.ch);
+			const endOfCell = getEndOfCellContent(line, cursor.ch);
 			if (startOfCell === endOfCell || cursor.ch <= startOfCell) {
 				this.moveToLeftCellEnd(editor);
 			} else {
@@ -305,8 +299,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				&& this.isPositionInTable(editor, cursor.line - 1, 1)) {
 			const targetLine = cursor.line - 1;
 			const lineText   = editor.getLine(targetLine);
-			const lastCell   = this.getRightmostCellIndex(lineText);
-			const endCh      = this.getEndOfCellContentByCellIndex(lineText, lastCell);
+			const lastCell   = getRightmostCellIndex(lineText);
+			const endCh      = getEndOfCellContentByCellIndex(lineText, lastCell);
 			this.setCursorViaCm(editor, targetLine, endCh);
 			return;
 		}
@@ -319,7 +313,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 		if (editor.inTableCell) {
 			const line = editor.getLine(cursor.line);
-			const endOfCell = this.getEndOfCellContent(line, cursor.ch);
+			const endOfCell = getEndOfCellContent(line, cursor.ch);
 			if (cursor.ch >= endOfCell) {
 				this.moveToRightCellStart(editor);
 			} else {
@@ -399,7 +393,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private moveCursorHomeInTableSourceMode(editor: Editor) {
 		const cursor = editor.getCursor();
 		const line = editor.getLine(cursor.line);
-		const info = this.getInCellLineInfo(line, cursor.ch);
+		const info = getInCellLineInfo(line, cursor.ch);
 		if (!info) return;
 
 		if (info.isEmpty || cursor.ch <= info.startOfInCellLine) {
@@ -409,7 +403,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 
-		const bounds = this.getCellBounds(line, cursor.ch);
+		const bounds = getCellBounds(line, cursor.ch);
 		if (!bounds) return;
 		const cellContent = line.slice(info.startOfInCellLine, bounds.close);
 		const smartHomePos = info.startOfInCellLine + this.getBeginningOfLinePosition(cellContent, cursor.ch - info.startOfInCellLine);
@@ -504,12 +498,12 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 		// Cursor is before the first pipe (outside any cell): snap to cell 0 content start.
 		if (cursor.ch === 0) {
-			const targetCh = this.getChByCellIndex(line, 0);
+			const targetCh = getChByCellIndex(line, 0);
 			if (targetCh !== -1) editor.setCursor({ line: cursor.line, ch: targetCh });
 			return;
 		}
 
-		const info = this.getInCellLineInfo(line, cursor.ch);
+		const info = getInCellLineInfo(line, cursor.ch);
 		if (!info) return;
 
 		if (info.isEmpty || cursor.ch >= info.endOfInCellLine) {
@@ -519,7 +513,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				// 'first' or 'middle' with cursor strictly inside <br> text: skip to next segment's end.
 				const brLen = line.slice(info.endOfInCellLine).match(/^<[bB][rR]>([ \t]*)/)?.[0].length ?? 0;
 				if (brLen > 0) {
-					const nextInfo = this.getInCellLineInfo(line, info.endOfInCellLine + brLen);
+					const nextInfo = getInCellLineInfo(line, info.endOfInCellLine + brLen);
 					if (nextInfo) editor.setCursor({ line: cursor.line, ch: nextInfo.endOfInCellLine });
 				}
 			}
@@ -645,9 +639,9 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private moveCursorUpInTable(editor: Editor) {
 		const cursor = editor.getCursor();
 		const line = editor.getLine(cursor.line);
-		const startOfCellContent = this.getStartOfCellContent(line, cursor.ch);
-		const cellIndex = this.getCellIndex(line, cursor.ch);
-		const eoc = this.getEndOfCellContent(line, cursor.ch);
+		const startOfCellContent = getStartOfCellContent(line, cursor.ch);
+		const cellIndex = getCellIndex(line, cursor.ch);
+		const eoc = getEndOfCellContent(line, cursor.ch);
 
 		// Empty cell: no navigable content, so go directly to the previous row.
 		if (startOfCellContent === eoc) {
@@ -689,7 +683,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (cursorAfter.line !== cursor.line) {
 			// goUp moved to a different logical line (previous table row or outside table).
 			if (editor.inTableCell) {
-				const targetCh = this.getChByCellIndex(editor.getLine(cursorAfter.line), cellIndex);
+				const targetCh = getChByCellIndex(editor.getLine(cursorAfter.line), cellIndex);
 				if (targetCh !== -1) {
 					this.setCursorViaCm(editor, cursorAfter.line, targetCh);
 				}
@@ -711,7 +705,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			// which causes the goDown probe in handleCellStartSnap to give a false case-b.
 			// Detect this directly: if cursor was at end of cell content, it's VL1 end
 			// of a non-wrapped cell -> go to previous row without probing.
-			const endOfCellContent = this.getEndOfCellContent(line, cursor.ch);
+			const endOfCellContent = getEndOfCellContent(line, cursor.ch);
 			if (cursor.ch >= endOfCellContent) {
 				// VL1 end of non-wrapped cell -> go to previous row.
 				this.setCursorToPrevRow(editor, cellIndex);
@@ -735,7 +729,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}
 		// VL1: goUp moved to the table's last row; reposition to the bottom-left cell.
 		const targetLine = cursor.line - 1;
-		const targetCh = this.getChByCellIndex(editor.getLine(targetLine), 0);
+		const targetCh = getChByCellIndex(editor.getLine(targetLine), 0);
 		if (targetCh !== -1) {
 			editor.setCursor({ line: targetLine, ch: targetCh });
 		}
@@ -747,11 +741,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private moveCursorDownInTable(editor: Editor) {
 		const cursor = editor.getCursor();
 		const line = editor.getLine(cursor.line);
-		const cellIndex = this.getCellIndex(line, cursor.ch);
-		const eoc = this.getEndOfCellContent(line, cursor.ch);
+		const cellIndex = getCellIndex(line, cursor.ch);
+		const eoc = getEndOfCellContent(line, cursor.ch);
 
 		// Empty cell: no navigable content, so go directly to the next row.
-		if (this.getStartOfCellContent(line, cursor.ch) === eoc) {
+		if (getStartOfCellContent(line, cursor.ch) === eoc) {
 			this.setCursorToNextRow(editor, cellIndex);
 			return;
 		}
@@ -835,7 +829,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 
-		const eocAfter = this.getEndOfCellContent(line, after.ch);
+		const eocAfter = getEndOfCellContent(line, after.ch);
 		if (after.ch >= eocAfter) {
 			if (isOnLastVL) {
 				// Was already on VL_N: goDown clipped in place → exit to next row.
@@ -852,7 +846,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Handles goDown when the cursor is on the line directly above a table in Live Preview mode.
 	private moveCursorDownIntoTable(editor: Editor) {
 		const cursor = editor.getCursor();
-		const targetCh = this.getChByCellIndex(editor.getLine(cursor.line + 1), 0);
+		const targetCh = getChByCellIndex(editor.getLine(cursor.line + 1), 0);
 		editor.setCursor({ line: cursor.line + 1, ch: targetCh });
 	}
 
@@ -881,11 +875,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private moveToLeftCellEnd(editor: Editor) {
 		const cursor = editor.getCursor();
 		const line = editor.getLine(cursor.line);
-		const cellIndex = this.getCellIndex(line, cursor.ch);
+		const cellIndex = getCellIndex(line, cursor.ch);
 
 		if (cellIndex > 0) {
 			// Same row: move to left cell's end
-			const targetCh = this.getEndOfCellContentByCellIndex(line, cellIndex - 1);
+			const targetCh = getEndOfCellContentByCellIndex(line, cellIndex - 1);
 			if (targetCh !== -1) {
 				this.setCursorViaCm(editor, cursor.line, targetCh);
 			}
@@ -906,8 +900,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}
 		// Previous row: rightmost cell end
 		const targetLineText = editor.getLine(targetLine);
-		const rightmostIndex = this.getRightmostCellIndex(targetLineText);
-		const targetCh = this.getEndOfCellContentByCellIndex(targetLineText, rightmostIndex);
+		const rightmostIndex = getRightmostCellIndex(targetLineText);
+		const targetCh = getEndOfCellContentByCellIndex(targetLineText, rightmostIndex);
 		if (targetCh !== -1) {
 			this.setCursorViaCm(editor, targetLine, targetCh);
 		}
@@ -932,12 +926,12 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private moveToRightCellStart(editor: Editor) {
 		const cursor = editor.getCursor();
 		const line = editor.getLine(cursor.line);
-		const cellIndex = this.getCellIndex(line, cursor.ch);
-		const lastCellIndex = this.getRightmostCellIndex(line);
+		const cellIndex = getCellIndex(line, cursor.ch);
+		const lastCellIndex = getRightmostCellIndex(line);
 
 		if (cellIndex < lastCellIndex) {
 			// Same row: move to right cell's start
-			const targetCh = this.getChByCellIndex(line, cellIndex + 1);
+			const targetCh = getChByCellIndex(line, cellIndex + 1);
 			if (targetCh !== -1) {
 				this.setCursorViaCm(editor, cursor.line, targetCh);
 			}
@@ -962,7 +956,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 		// Next row: leftmost cell start
-		const targetCh = this.getChByCellIndex(editor.getLine(targetLine), 0);
+		const targetCh = getChByCellIndex(editor.getLine(targetLine), 0);
 		if (targetCh !== -1) {
 			this.setCursorViaCm(editor, targetLine, targetCh);
 		}
@@ -976,10 +970,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private moveToLeftCellEndSourceMode(editor: Editor) {
 		const cursor = editor.getCursor();
 		const line = editor.getLine(cursor.line);
-		const cellIndex = this.getCellIndex(line, cursor.ch);
+		const cellIndex = getCellIndex(line, cursor.ch);
 
 		if (cellIndex > 0) {
-			const targetCh = this.getEndOfCellContentByCellIndex(line, cellIndex - 1);
+			const targetCh = getEndOfCellContentByCellIndex(line, cellIndex - 1);
 			if (targetCh !== -1) {
 				editor.setCursor({ line: cursor.line, ch: targetCh });
 			}
@@ -996,8 +990,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 		const targetLineText = editor.getLine(targetLine);
-		const rightmostIndex = this.getRightmostCellIndex(targetLineText);
-		const targetCh = this.getEndOfCellContentByCellIndex(targetLineText, rightmostIndex);
+		const rightmostIndex = getRightmostCellIndex(targetLineText);
+		const targetCh = getEndOfCellContentByCellIndex(targetLineText, rightmostIndex);
 		if (targetCh !== -1) {
 			editor.setCursor({ line: targetLine, ch: targetCh });
 		}
@@ -1007,11 +1001,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private moveToRightCellStartSourceMode(editor: Editor) {
 		const cursor = editor.getCursor();
 		const line = editor.getLine(cursor.line);
-		const cellIndex = this.getCellIndex(line, cursor.ch);
-		const lastCellIndex = this.getRightmostCellIndex(line);
+		const cellIndex = getCellIndex(line, cursor.ch);
+		const lastCellIndex = getRightmostCellIndex(line);
 
 		if (cellIndex < lastCellIndex) {
-			const targetCh = this.getChByCellIndex(line, cellIndex + 1);
+			const targetCh = getChByCellIndex(line, cellIndex + 1);
 			if (targetCh !== -1) {
 				editor.setCursor({ line: cursor.line, ch: targetCh });
 			}
@@ -1032,7 +1026,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			editor.setCursor({ line: exitLine, ch: 0 });
 			return;
 		}
-		const targetCh = this.getChByCellIndex(editor.getLine(targetLine), 0);
+		const targetCh = getChByCellIndex(editor.getLine(targetLine), 0);
 		if (targetCh !== -1) {
 			editor.setCursor({ line: targetLine, ch: targetCh });
 		}
@@ -1069,27 +1063,29 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	// Returns the line number of the previous table data row.
 	// Returns -1 when the current row is the header row (caller should go outside the table).
-	private getPrevRowLine(editor: Editor): number {
-		const cursor = editor.getCursor();
+	// fromLine defaults to the live cursor (all existing Ctrl-P callers); Vim's
+	// multi-row crossing passes an explicit line to walk multiple rows without
+	// moving the real cursor between steps.
+	private getPrevRowLine(editor: Editor, fromLine: number = editor.getCursor().line): number {
 		return this.computePrevRowLine(
-			cursor.line,
-			this.isPositionInTable(editor, cursor.line - 1, 1, true),
-			editor.getLine(cursor.line - 1),
+			fromLine,
+			this.isPositionInTable(editor, fromLine - 1, 1, true),
+			editor.getLine(fromLine - 1),
 		);
 	}
 
 
 	// Returns the line number of the next table data row.
 	// Returns -1 when the current row is the last row (caller should go outside the table).
-	private getNextRowLine(editor: Editor): number {
-		const cursor = editor.getCursor();
-		const nextLineExists = cursor.line + 1 < editor.lineCount();
-		const lineAfterNextInTable = cursor.line + 2 < editor.lineCount()
-			&& this.isPositionInTable(editor, cursor.line + 2, 1, true);
+	// fromLine defaults to the live cursor — see getPrevRowLine's own note.
+	private getNextRowLine(editor: Editor, fromLine: number = editor.getCursor().line): number {
+		const nextLineExists = fromLine + 1 < editor.lineCount();
+		const lineAfterNextInTable = fromLine + 2 < editor.lineCount()
+			&& this.isPositionInTable(editor, fromLine + 2, 1, true);
 		return this.computeNextRowLine(
-			cursor.line,
-			nextLineExists && this.isPositionInTable(editor, cursor.line + 1, 1, true),
-			editor.getLine(cursor.line + 1),
+			fromLine,
+			nextLineExists && this.isPositionInTable(editor, fromLine + 1, 1, true),
+			editor.getLine(fromLine + 1),
 			lineAfterNextInTable,
 		);
 	}
@@ -1133,16 +1129,18 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// (*2)->(*1) if above is outside table (header row), go out.
 	// (*3)->(*2) if above is delimiter line, go to cursor.line-2.
 	// (*4)->(*3) go to cursor.line-1.
-	private setCursorToPrevRow(editor: Editor, cellIndex: number) {
-		const cursor = editor.getCursor();
-		const targetLine = this.getPrevRowLine(editor);
+	// fromLine defaults to the live cursor (all existing Ctrl-P callers); Vim's
+	// multi-row crossing passes its own walked-to line, since by the time this
+	// runs the real cursor hasn't moved yet (see crossTableRowForCell).
+	private setCursorToPrevRow(editor: Editor, cellIndex: number, fromLine: number = editor.getCursor().line) {
+		const targetLine = this.getPrevRowLine(editor, fromLine);
 
 		if (targetLine === -1) {
 			// Header row: go outside table
-			this.setCursorViaCm(editor, cursor.line - 1, 0);
+			this.setCursorViaCm(editor, fromLine - 1, 0);
 			return;
 		}
-		const targetCh = this.getChByCellIndex(editor.getLine(targetLine), cellIndex);
+		const targetCh = getChByCellIndex(editor.getLine(targetLine), cellIndex);
 		if (targetCh !== -1) {
 			this.setCursorViaCm(editor, targetLine, targetCh);
 		}
@@ -1160,13 +1158,13 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// (*1)->(*2) if below is delimiter line, go to cursor.line+2.
 	// (*2)->(*3) go to cursor.line+1.
 	// (*3)->(*4) go outside table.
-	private setCursorToNextRow(editor: Editor, cellIndex: number) {
-		const cursor = editor.getCursor();
-		const targetLine = this.getNextRowLine(editor);
+	// fromLine defaults to the live cursor — see setCursorToPrevRow's own note.
+	private setCursorToNextRow(editor: Editor, cellIndex: number, fromLine: number = editor.getCursor().line) {
+		const targetLine = this.getNextRowLine(editor, fromLine);
 
 		if (targetLine === -1) {
 			// Last data row: exit below, skipping any remaining table rows (e.g. delimiter).
-			let exitLine = cursor.line + 1;
+			let exitLine = fromLine + 1;
 			while (exitLine < editor.lineCount() && this.isPositionInTable(editor, exitLine, 1, true)) {
 				exitLine++;
 			}
@@ -1176,199 +1174,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			this.setCursorViaCm(editor, exitLine, 0);
 			return;
 		}
-		const targetCh = this.getChByCellIndex(editor.getLine(targetLine), cellIndex);
+		const targetCh = getChByCellIndex(editor.getLine(targetLine), cellIndex);
 		if (targetCh !== -1) {
 			this.setCursorViaCm(editor, targetLine, targetCh);
 		}
-	}
-
-
-	//===========================================================================
-	// In-cell line analysis
-	//===========================================================================
-
-	// Parses the cell at position ch and returns info about the in-cell line
-	// (the <br>-delimited sub-line) that the cursor is currently on.
-	private getInCellLineInfo(line: string, ch: number): InCellLineInfo | null {
-		// 1. Find bounding pipes for the cell containing ch
-		const bounds = this.getCellBounds(line, ch);
-		if (!bounds) return null;
-		const cellStart = bounds.open + 1;
-		const cellEnd   = bounds.close;
-
-		// 2. Find <br> tags within the cell (case-insensitive, no spaces or slash inside)
-		const cellContent = line.slice(cellStart, cellEnd);
-		const brMatches   = [...cellContent.matchAll(/<[bB][rR]>/g)];
-		const brPositions = brMatches.map(m => ({
-			start: cellStart + m.index,
-			end:   cellStart + m.index + m[0].length,
-		}));
-
-		// 3. Build in-cell line segments separated by <br> tags
-		//    Segment k: [ prevEnd, brPositions[k].start )
-		//    Last segment: [ brPositions[n-1].end, cellEnd )
-		const segments: Array<{ start: number; end: number }> = [];
-		let prevEnd = cellStart;
-		for (const br of brPositions) {
-			segments.push({ start: prevEnd, end: br.start });
-			prevEnd = br.end;
-		}
-		segments.push({ start: prevEnd, end: cellEnd });
-
-		// 4. Find which segment contains ch
-		//    Boundary: ch at seg.end (= br.start) belongs to the current segment (right edge of it)
-		let segIndex = segments.findIndex(seg => ch >= seg.start && ch <= seg.end);
-		if (segIndex === -1) {
-			// ch is inside a <br> tag: assign to the preceding segment
-			for (let i = 0; i < brPositions.length; i++) {
-				if (ch > brPositions[i].start && ch < brPositions[i].end) {
-					segIndex = i;
-					break;
-				}
-			}
-		}
-		if (segIndex === -1) segIndex = segments.length - 1; // final fallback
-
-		const seg = segments[segIndex];
-		const n   = segments.length;
-
-		// 5. Determine line type
-		const lineType: InCellLineInfo['lineType'] =
-			n === 1         ? 'single' :
-			segIndex === 0  ? 'first'  :
-			segIndex < n -1 ? 'middle' : 'last';
-
-		// 6. Compute startOfInCellLine and endOfInCellLine
-		//
-		//  single / first : startOfInCellLine = first non-whitespace character position
-		//                   (leading spaces after pipe or <br> are the separator, not content)
-		//  middle / last  : startOfInCellLine = position right after <br>  (= seg.start)
-		//
-		//  single / last  : endOfInCellLine = position after last non-whitespace  (trimEnd)
-		//  first  / middle: endOfInCellLine = position of <br>  (= seg.end)
-		//
-		//  isEmpty fallback when no non-whitespace is found:
-		//    single -> seg.start  (endOfInCellLine = seg.start + 0 = seg.start -> isEmpty)
-		//    first  -> seg.end    (= br.start -> startOfInCellLine = endOfInCellLine -> isEmpty)
-		const segContent = line.slice(seg.start, seg.end);
-		let startOfInCellLine: number;
-		let endOfInCellLine: number;
-
-		if (lineType === 'single' || lineType === 'first') {
-			const firstNonSpace = segContent.search(/\S/);
-			if (firstNonSpace === -1) {
-				startOfInCellLine = lineType === 'single' ? seg.start : seg.end;
-			} else {
-				startOfInCellLine = seg.start + firstNonSpace;
-			}
-		} else {
-			startOfInCellLine = seg.start; // right after <br>
-		}
-
-		if (lineType === 'single' || lineType === 'last') {
-			endOfInCellLine = seg.start + segContent.trimEnd().length;
-		} else {
-			endOfInCellLine = seg.end; // position of <br>
-		}
-
-		return {
-			lineType,
-			startOfInCellLine,
-			endOfInCellLine,
-			isEmpty: startOfInCellLine === endOfInCellLine,
-		};
-	}
-
-
-	//===========================================================================
-	// Cell content position helpers
-	//===========================================================================
-
-	// Returns the open/close pipe positions bounding the cell that contains ch.
-	// open  = index of the pipe immediately to the left of ch
-	// close = index of the pipe immediately to the right of ch (or line.length if absent)
-	// Returns null if ch is not inside any cell (no pipe to the left).
-	private getCellBounds(line: string, ch: number): { open: number; close: number } | null {
-		const pipes = this.getPipePositions(line);
-		let open = -1;
-		for (const p of pipes) {
-			if (p < ch) open = p;
-			else break;
-		}
-		if (open === -1) return null;
-		const close = pipes.find(p => p >= ch) ?? line.length;
-		return { open, close };
-	}
-
-	// +----------------------+
-	// |(a)some text in the   |	(a) startOfCellContent
-	// | cell.<br>            |
-	// | 2nd in-cell line<br> |	(*) cursor potition
-	// | cursor is(*)here<br> |
-	// | last in-cell line(b) |	(b) endOfCellContent
-	// +----------------------+
-	// Indicates cell start/end, regardless of line wrapping or in-cell lines.
-
-	// Returns target cursor position when moving to the left cell with Ctrl-E or Ctrl-F.
-	private getStartOfCellContent(line: string, ch: number): number {
-		const bounds = this.getCellBounds(line, ch);
-		if (!bounds) return 0;
-		const { open, close } = bounds;
-		const firstNonSpace = line.slice(open + 1, close).search(/\S/);
-		return firstNonSpace === -1 ? open + 1 : open + 1 + firstNonSpace;
-	}
-
-
-	// Returns target cursor position when moving to the right cell with Ctrl-A or Ctrl-B.
-	private getEndOfCellContent(line: string, ch: number): number {
-		const bounds = this.getCellBounds(line, ch);
-		if (!bounds) return 0;
-		const { open, close } = bounds;
-		return open + 1 + line.slice(open + 1, close).trimEnd().length;
-	}
-
-
-	// Returns endOfCellContent for the cell at the given 0-based cellIndex.
-	// Returns -1 if cellIndex is out of range.
-	private getEndOfCellContentByCellIndex(line: string, cellIndex: number): number {
-		const pipes = this.getPipePositions(line);
-		if (cellIndex < 0 || cellIndex + 1 >= pipes.length) return -1;
-		const openPipe  = pipes[cellIndex];
-		const closePipe = pipes[cellIndex + 1];
-		return openPipe + 1 + line.slice(openPipe + 1, closePipe).trimEnd().length;
-	}
-
-
-	// Returns the 0-based index of the rightmost cell in a table row.
-	private getRightmostCellIndex(line: string): number {
-		return Math.max(0, this.getPipePositions(line).length - 2);
-	}
-
-
-	//===========================================================================
-	// Cell index helpers
-	//===========================================================================
-
-	private getCellIndex(line: string, ch: number): number {
-		return Math.max(0, this.getPipePositions(line.substring(0, ch)).length - 1);
-	}
-
-
-	private getChByCellIndex(lineText: string, cellIndex: number): number {
-		const pipes = this.getPipePositions(lineText);
-
-		if (cellIndex >= 0 && cellIndex < pipes.length) {
-			const pipeIndex = pipes[cellIndex];
-			const searchEnd = pipes[cellIndex + 1] ?? lineText.length;
-			const cellContent = lineText.substring(pipeIndex + 1, searchEnd);
-			const firstNonSpaceMatch = cellContent.search(/\S/);
-
-			return firstNonSpaceMatch !== -1
-				? pipeIndex + 1 + firstNonSpaceMatch
-				: pipeIndex + 1;
-		}
-
-		return -1;
 	}
 
 
@@ -1459,7 +1268,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const cursor = editor.getCursor();
 		const startLine = cursor.line;
 		const line = editor.getLine(startLine);
-		const endOfCellContent = this.getEndOfCellContent(line, cursor.ch);
+		const endOfCellContent = getEndOfCellContent(line, cursor.ch);
 
 		const inner = editor.activeCM;
 		if (inner && inner !== editor.cm) {
@@ -1858,11 +1667,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 
-	private getPipePositions(line: string): number[] {
-		return [...line.matchAll(this.CELL_SEPARATOR_REGEX)].map(m => m.index);
-	}
-
-
 	private isTableLineSourceMode(line: string): boolean {
 		const trimmed = line.trimEnd();
 		return trimmed.startsWith('|') && trimmed.endsWith('|');
@@ -1888,8 +1692,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		              || (!this.isLivePreviewMode() && this.isTableLineSourceMode(line));
 
 		if (inTable) {
-			const start = this.getStartOfCellContent(line, cursor.ch);
-			const end   = this.getEndOfCellContent(line, cursor.ch);
+			const start = getStartOfCellContent(line, cursor.ch);
+			const end   = getEndOfCellContent(line, cursor.ch);
 			if (start === end) return;
 			editor.setSelection({ line: cursor.line, ch: start }, { line: cursor.line, ch: end });
 			return;
@@ -1954,7 +1758,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private deleteCharInTableSource(editor: Editor) {
 		const cursor = editor.getCursor();
 		const lineText = editor.getLine(cursor.line);
-		const bounds = this.getCellBounds(lineText, cursor.ch);
+		const bounds = getCellBounds(lineText, cursor.ch);
 
 		if (!bounds) {
 			const cm = editor.cm;
@@ -1986,7 +1790,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}
 
 		if (inSourceTable) {
-			const info = this.getInCellLineInfo(lineText, editor.getCursor().ch);
+			const info = getInCellLineInfo(lineText, editor.getCursor().ch);
 			if (info) {
 				this.killLineInTableSourceMode(editor, info);
 				return;
@@ -2163,8 +1967,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			if (from.line !== to.line) return;
 
 			const line        = fromLine;
-			const fromBounds  = this.getCellBounds(line, from.ch);
-			const toBounds    = this.getCellBounds(line, to.ch);
+			const fromBounds  = getCellBounds(line, from.ch);
+			const toBounds    = getCellBounds(line, to.ch);
 			if (!fromBounds || !toBounds || fromBounds.open !== toBounds.open) return;
 		}
 
@@ -2185,7 +1989,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const line = fromLine;
 		let prefix = line.slice(0, from.ch);
 		let suffix = line.slice(to.ch);
-		const bounds = this.getCellBounds(line, from.ch);
+		const bounds = getCellBounds(line, from.ch);
 		if (bounds) {
 			if (/^<[bB][rR]>/.test(suffix)) {
 				const cellContentBefore = line.slice(bounds.open + 1, from.ch).trim();
@@ -2293,6 +2097,211 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		} else {
 			editor.replaceSelection(text);
 		}
+	}
+
+
+	//===========================================================================
+	// VimSupportHost bridge implementation
+	//
+	// Methods vim-support.ts calls through the VimSupportHost duck-typed interface,
+	// grouped here (rather than scattered near whichever existing method each one
+	// happens to reuse) since more are expected as table-entry/multi-row-crossing
+	// support is added. These exist only because vim-support.ts deliberately does
+	// not import main.ts (file-split risk-isolation) but still needs to reuse
+	// private, stateful methods below (setCursorViaCm depends on this._inScrollPage
+	// and dispatches to CM6 directly) that can't be pure-function-extracted the way
+	// table-cell-utils.ts's string helpers were.
+	//===========================================================================
+
+	// See vim-support.ts's scheduleRowCrossing. Reuses the same row-finding logic
+	// Ctrl-N/P rely on (getNextRowLine/getPrevRowLine), but lands on the target
+	// cell's first/last <br>-segment at goalCh, rather than always at
+	// cell-content-start — Vim's j/k need the column preserved across the row
+	// boundary, which Ctrl-N/P's own setCursorToNextRow/PrevRow don't do.
+	// Returns the outer {line, ch} landed on (or null if it couldn't compute one),
+	// so vim-support.ts can re-sync its own goal-column continuity cache against
+	// the actual post-crossing position — see scheduleRowCrossing's own comment
+	// for why that resync is necessary.
+	// overshoot is how many logical lines (row-crossings and/or <br>-segments
+	// combined) still need to be consumed beyond the current cell's own range —
+	// see vim-support.ts's moveByLines for how it's computed. Walks row by row
+	// (via getNextRowLine/PrevRowLine, so delimiter rows stay invisible exactly
+	// as they are for Ctrl-N/P), consuming each row's cellIndex's own <br>-segment
+	// count, until the remainder fits within one row — then lands there via
+	// landInCellSegment. All reads only; no view is touched until that final landing.
+	crossTableRowForCell(editor: unknown, cellIndex: number, forward: boolean, goalCh: number, overshoot: number): { line: number; ch: number } | null {
+		const e = editor as Editor;
+		const startLine = forward ? this.getNextRowLine(e) : this.getPrevRowLine(e);
+		if (startLine === -1) {
+			// Exiting the table entirely without crossing any row first (the
+			// current cell is already the last/first row). fromLine = the live
+			// cursor, since no walk has happened yet.
+			return this.exitTableWithColumn(e, cellIndex, forward, goalCh, e.getCursor().line);
+		}
+		return this.walkTableRows(e, cellIndex, forward, startLine, overshoot, goalCh);
+	}
+
+	// Full (syntax-tree-based) table-membership check, same one Ctrl-N/P's own
+	// moveCursorUpIntoTable/DownIntoTable use to detect table *entry* specifically
+	// (as opposed to the cheap text-based shortcut used elsewhere for "already
+	// confirmed inside a table"). Exposed as-is for vim-support.ts's
+	// scheduleTableEntry to confirm its own cheap pre-filter before committing to
+	// an entry landing.
+	isLinePartOfTable(editor: unknown, line: number, ch: number): boolean {
+		return this.isPositionInTable(editor as Editor, line, ch);
+	}
+
+	// Lands on cellIndex's <br>-segment at goalCh, remaining logical lines in from
+	// targetLine's own first/last segment — used when vim-support.ts's
+	// moveByLines' plain-text walk reaches a table row (remaining is however much
+	// of the original repeat count is left to consume from there). cellIndex is
+	// vim-support.ts's goalCellIndex (falls back to 0, matching Ctrl-N/P's own
+	// moveCursorUpIntoTable/DownIntoTable convention, when there's no remembered
+	// cell to return to).
+	enterTableAtLine(editor: unknown, targetLine: number, cellIndex: number, forward: boolean, goalCh: number, remaining: number): { line: number; ch: number } | null {
+		const e = editor as Editor;
+		let line = targetLine;
+		if (this.TABLE_DELIMITER_REGEX.test(e.getLine(line))) {
+			// Shouldn't be reachable now that moveByLines' plain-text walk moves
+			// one line at a time (it always reaches the header/last-data-row
+			// before it could reach a delimiter) — kept as a defensive fallback
+			// in case some other path still lands here directly. Without this
+			// redirect, landInCellSegment would treat the delimiter's "---" text
+			// as if it were real cell content. Redirect to the nearest real row
+			// instead: forward → the first data row (line + 1); backward → the
+			// header row (line - 1).
+			line = forward ? line + 1 : line - 1;
+			if (line < 0 || line >= e.lineCount() || !this.isPositionInTable(e, line, 1, true)) return null;
+		}
+		return this.walkTableRows(e, cellIndex, forward, line, remaining, goalCh);
+	}
+
+	// Shared by crossTableRowForCell and enterTableAtLine: starting at startLine
+	// (a row already known to be part of the table, whose own cellIndex segments
+	// haven't been consumed yet), consumes `remaining` logical lines — first
+	// against startLine's own <br>-segment count, then (if that's not enough)
+	// walking further rows via getNextRowLine/PrevRowLine — landing via
+	// landInCellSegment once remaining fits within one row's segments. All reads
+	// only until that final landing; exits the table via exitTableWithColumn if
+	// it runs out of rows first (remaining beyond the table boundary is not
+	// carried into the surrounding plain text — known, deliberate gap).
+	private walkTableRows(editor: Editor, cellIndex: number, forward: boolean, startLine: number, remaining: number, goalCh: number): { line: number; ch: number } | null {
+		let targetLine = startLine;
+		let fromLine = startLine;
+		for (;;) {
+			const segCount = this.countCellSegments(editor.getLine(targetLine), cellIndex);
+			if (remaining <= segCount) {
+				return this.landInCellSegment(editor, targetLine, cellIndex, forward, remaining - 1, goalCh);
+			}
+			remaining -= segCount;
+			fromLine = targetLine;
+			const nextLine = forward ? this.getNextRowLine(editor, fromLine) : this.getPrevRowLine(editor, fromLine);
+			if (nextLine === -1) {
+				return this.exitTableWithColumn(editor, cellIndex, forward, goalCh, fromLine);
+			}
+			targetLine = nextLine;
+		}
+	}
+
+	// Exits the table entirely (fromLine's next/prev row doesn't exist). Reuses
+	// the existing exit logic (line-finding, delimiter-row skipping, EOF newline
+	// insertion) as-is via setCursorToNextRow/PrevRow, then separately corrects
+	// the column — those hardcode ch=0, which is fine for Ctrl-N/P but loses
+	// goalCh for Vim. This follow-up move stays within the (now plain-text) line
+	// just landed on, so it doesn't cross any view boundary and carries none of
+	// the row-crossing crash risk. fromLine is passed explicitly rather than
+	// relying on setCursorToNextRow/PrevRow's own live-cursor default, since the
+	// real cursor hasn't moved from its original (pre-walk) position yet.
+	private exitTableWithColumn(editor: Editor, cellIndex: number, forward: boolean, goalCh: number, fromLine: number): { line: number; ch: number } | null {
+		if (forward) this.setCursorToNextRow(editor, cellIndex, fromLine);
+		else this.setCursorToPrevRow(editor, cellIndex, fromLine);
+		const landed = editor.getCursor();
+		const landedLineText = editor.getLine(landed.line);
+		const targetCh = Math.min(goalCh, Math.max(0, landedLineText.length - 1));
+		if (targetCh !== landed.ch) {
+			this.setCursorViaCm(editor, landed.line, targetCh);
+		}
+		return { line: landed.line, ch: targetCh };
+	}
+
+	// Shared by crossTableRowForCell and enterTableAtLine: given a target row
+	// already known to exist, lands on the specified cell's <br>-segment at
+	// segmentOffset steps in from the entry edge (first segment if forward, last
+	// segment if backward; segmentOffset=0 is that edge segment itself — the
+	// single-row-crossing/entry case). A segmentOffset > 0 is only reached via
+	// crossTableRowForCell's multi-row walk, when a single row-boundary jump
+	// doesn't consume the whole repeat count. cellIndex is clamped to the row's
+	// rightmost cell — the caller may be remembering a wider goal cell index from
+	// a table with more columns, which this row doesn't have; clamping only
+	// affects this landing, not whatever goal value the caller keeps.
+	private landInCellSegment(editor: Editor, targetLine: number, cellIndex: number, forward: boolean, segmentOffset: number, goalCh: number): { line: number; ch: number } | null {
+		const lineText = editor.getLine(targetLine);
+		const clampedCellIndex = Math.min(cellIndex, getRightmostCellIndex(lineText));
+		const cellStartCh = getChByCellIndex(lineText, clampedCellIndex);
+		if (cellStartCh === -1) return null;
+
+		// cellStartCh already lands in the cell's first <br>-segment.
+		let segInfo = getInCellLineInfo(lineText, cellStartCh);
+		if (!segInfo) return null;
+		// Landing backward (up) starts from the LAST segment instead of the first —
+		// reaching it always means walking *toward* increasing segment indices
+		// (true), regardless of the outer crossing's own direction. (Bug fixed
+		// here: this previously passed `forward` itself, which is false for a
+		// backward landing — walking "backward" from the already-first segment
+		// is a no-op, so it silently stayed on the first segment instead of the last.)
+		if (!forward) {
+			segInfo = this.walkSegments(lineText, segInfo, true, Infinity).segInfo;
+		}
+		// Walk segmentOffset further steps toward the opposite edge.
+		segInfo = this.walkSegments(lineText, segInfo, forward, segmentOffset).segInfo;
+
+		// Same normal-mode "can't rest past last char" clamp as vim-support.ts's
+		// maxNormalModeCh — this position is read back as vim's next head once
+		// focus moves to the new inner view, so it must already be vim-legal.
+		const segLen = segInfo.endOfInCellLine - segInfo.startOfInCellLine;
+		const maxOffset = Math.max(0, segLen - 1);
+		const targetCh = segInfo.startOfInCellLine + Math.min(goalCh, maxOffset);
+		this.setCursorViaCm(editor, targetLine, targetCh);
+		return { line: targetLine, ch: targetCh };
+	}
+
+	// Walks from segInfo toward the next segment (forward) or previous segment
+	// (backward) up to maxSteps times, stopping early if there's no further
+	// segment. Returns the resulting segment and how many steps were actually
+	// taken (steps < maxSteps only when it ran out of segments).
+	private walkSegments(lineText: string, segInfo: InCellLineInfo, forward: boolean, maxSteps: number): { segInfo: InCellLineInfo; steps: number } {
+		let current = segInfo;
+		let steps = 0;
+		while (steps < maxSteps) {
+			if (forward) {
+				if (current.lineType === 'last' || current.lineType === 'single') break;
+				const brLen = lineText.slice(current.endOfInCellLine).match(/^<[bB][rR]>/)?.[0].length ?? 0;
+				if (brLen === 0) break;
+				const next = getInCellLineInfo(lineText, current.endOfInCellLine + brLen);
+				if (!next) break;
+				current = next;
+			} else {
+				if (current.lineType === 'first' || current.lineType === 'single') break;
+				const prev = getInCellLineInfo(lineText, current.startOfInCellLine - 1);
+				if (!prev) break;
+				current = prev;
+			}
+			steps++;
+		}
+		return { segInfo: current, steps };
+	}
+
+	// Total <br>-segment count of the given cell (clamped to the row's rightmost
+	// cell, matching landInCellSegment's own clamping) — used by
+	// crossTableRowForCell's multi-row walk to know how much of the remaining
+	// overshoot each row's cell can consume.
+	private countCellSegments(lineText: string, cellIndex: number): number {
+		const clampedCellIndex = Math.min(cellIndex, getRightmostCellIndex(lineText));
+		const cellStartCh = getChByCellIndex(lineText, clampedCellIndex);
+		if (cellStartCh === -1) return 0;
+		const segInfo = getInCellLineInfo(lineText, cellStartCh);
+		if (!segInfo) return 0;
+		return 1 + this.walkSegments(lineText, segInfo, true, Infinity).steps;
 	}
 
 }
