@@ -75,6 +75,21 @@ describe('moveByLines: inside a table cell', () => {
 		)
 	})
 
+	it('a crossing that returns null (e.g. genuinely impossible) leaves state at the synchronous fallback, untouched by resync', () => {
+		const host = makeHost({ crossTableRowForCell: vi.fn().mockReturnValue(null) })
+		const vim = new VimSupport(host) as any
+		win = installVimWindow(makeCellEditor({ line: 5, ch: 9 }))
+		const cm = { getLine: () => 'bbb', lastLine: () => 0 }
+		const result = vim.moveByLines(cm, { line: 0, ch: 2 }, { forward: true, repeat: 1 })
+		win.flush()
+		// resyncAfterDeferredMove's `if (!landedOuter) return` fires — state
+		// stays exactly what moveByLines' own synchronous tail end set.
+		expect(vim.goalCh).toBe(2)
+		expect(vim.lastCm).toBe(cm)
+		expect(vim.lastReturnedPos).toEqual(result)
+		expect(vim.lastOuterPos).toBeNull()
+	})
+
 	it('backward crossing computes overshoot from a negative rawTargetLine', () => {
 		const host = makeHost({ crossTableRowForCell: vi.fn().mockReturnValue(null) })
 		const vim = new VimSupport(host) as any

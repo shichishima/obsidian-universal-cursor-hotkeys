@@ -100,4 +100,11 @@ describe('moveByLines: plain text', () => {
 		const result = vim.moveByLines(cm, { line: 0, ch: 8 }, { forward: true, repeat: 3 })
 		expect(result).toEqual({ line: 3, ch: 1 }) // 'dd' len 2 -> clamp to 1
 	})
+
+	it('currentCellIndex() stays null in plain text (not inside a table cell)', () => {
+		const { cm, editor } = makeCmAndEditor()
+		win.setEditor(editor)
+		vim.moveByLines(cm, { line: 0, ch: 0 }, { forward: true, repeat: 1 })
+		expect(vim.goalCellIndex).toBeNull()
+	})
 })
