@@ -2131,43 +2131,14 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// landInCellSegment. All reads only; no view is touched until that final landing.
 	crossTableRowForCell(editor: unknown, cellIndex: number, forward: boolean, goalCh: number, overshoot: number): { line: number; ch: number } | null {
 		const e = editor as Editor;
-		let remaining = overshoot;
-		let fromLine = e.getCursor().line;
-
-		while (remaining > 0) {
-			const targetLine = forward ? this.getNextRowLine(e, fromLine) : this.getPrevRowLine(e, fromLine);
-			if (targetLine === -1) {
-				// Exiting the table entirely. Reuse the existing exit logic (line-finding,
-				// delimiter-row skipping, EOF newline insertion) as-is, then separately
-				// correct the column — setCursorToNextRow/PrevRow hardcode ch=0, which is
-				// fine for Ctrl-N/P but loses goalCh for Vim. This follow-up move stays
-				// within the (now plain-text) line we just landed on, so it doesn't cross
-				// any view boundary and carries none of the row-crossing crash risk.
-				// Any overshoot remaining beyond the table boundary is not walked
-				// further into the surrounding plain text (known, deliberate gap).
-				// Pass fromLine explicitly — the real cursor hasn't moved from its
-				// original (pre-walk) position yet, so setCursorToNextRow/PrevRow's
-				// own default (the live cursor) would re-derive "next row" from the
-				// wrong starting point after a multi-row walk.
-				if (forward) this.setCursorToNextRow(e, cellIndex, fromLine);
-				else this.setCursorToPrevRow(e, cellIndex, fromLine);
-				const landed = e.getCursor();
-				const landedLineText = e.getLine(landed.line);
-				const targetCh = Math.min(goalCh, Math.max(0, landedLineText.length - 1));
-				if (targetCh !== landed.ch) {
-					this.setCursorViaCm(e, landed.line, targetCh);
-				}
-				return { line: landed.line, ch: targetCh };
-			}
-
-			const segCount = this.countCellSegments(e.getLine(targetLine), cellIndex);
-			if (remaining <= segCount) {
-				return this.landInCellSegment(e, targetLine, cellIndex, forward, remaining - 1, goalCh);
-			}
-			remaining -= segCount;
-			fromLine = targetLine;
+		const startLine = forward ? this.getNextRowLine(e) : this.getPrevRowLine(e);
+		if (startLine === -1) {
+			// Exiting the table entirely without crossing any row first (the
+			// current cell is already the last/first row). fromLine = the live
+			// cursor, since no walk has happened yet.
+			return this.exitTableWithColumn(e, cellIndex, forward, goalCh, e.getCursor().line);
 		}
-		return null; // unreachable — the loop only exits via return
+		return this.walkTableRows(e, cellIndex, forward, startLine, overshoot, goalCh);
 	}
 
 	// Full (syntax-tree-based) table-membership check, same one Ctrl-N/P's own
@@ -2180,28 +2151,77 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		return this.isPositionInTable(editor as Editor, line, ch);
 	}
 
-	// Lands on cellIndex's first (forward) / last (backward) <br>-segment at
-	// goalCh — used when vim-support.ts's moveByLines detects it's about to move
-	// from plain text onto a table row. cellIndex is vim-support.ts's goalCellIndex
-	// (falls back to 0, matching Ctrl-N/P's own moveCursorUpIntoTable/DownIntoTable
-	// convention, when there's no remembered cell to return to) — clamped to the
-	// target row's rightmost cell in landInCellSegment if it doesn't have that
-	// many columns.
-	enterTableAtLine(editor: unknown, targetLine: number, cellIndex: number, forward: boolean, goalCh: number): { line: number; ch: number } | null {
+	// Lands on cellIndex's <br>-segment at goalCh, remaining logical lines in from
+	// targetLine's own first/last segment — used when vim-support.ts's
+	// moveByLines' plain-text walk reaches a table row (remaining is however much
+	// of the original repeat count is left to consume from there). cellIndex is
+	// vim-support.ts's goalCellIndex (falls back to 0, matching Ctrl-N/P's own
+	// moveCursorUpIntoTable/DownIntoTable convention, when there's no remembered
+	// cell to return to).
+	enterTableAtLine(editor: unknown, targetLine: number, cellIndex: number, forward: boolean, goalCh: number, remaining: number): { line: number; ch: number } | null {
 		const e = editor as Editor;
 		let line = targetLine;
 		if (this.TABLE_DELIMITER_REGEX.test(e.getLine(line))) {
-			// A count-prefixed entry (e.g. "4j" from plain text) can land exactly
-			// on the delimiter row via flat line-number arithmetic — entry doesn't
-			// yet count <br>-segments the way row-crossing does (a known,
-			// deliberately unfixed gap). Without this redirect, landInCellSegment
-			// would treat the delimiter's "---" text as if it were real cell
-			// content. Redirect to the nearest real row instead: forward → the
-			// first data row (line + 1); backward → the header row (line - 1).
+			// Shouldn't be reachable now that moveByLines' plain-text walk moves
+			// one line at a time (it always reaches the header/last-data-row
+			// before it could reach a delimiter) — kept as a defensive fallback
+			// in case some other path still lands here directly. Without this
+			// redirect, landInCellSegment would treat the delimiter's "---" text
+			// as if it were real cell content. Redirect to the nearest real row
+			// instead: forward → the first data row (line + 1); backward → the
+			// header row (line - 1).
 			line = forward ? line + 1 : line - 1;
 			if (line < 0 || line >= e.lineCount() || !this.isPositionInTable(e, line, 1, true)) return null;
 		}
-		return this.landInCellSegment(e, line, cellIndex, forward, 0, goalCh);
+		return this.walkTableRows(e, cellIndex, forward, line, remaining, goalCh);
+	}
+
+	// Shared by crossTableRowForCell and enterTableAtLine: starting at startLine
+	// (a row already known to be part of the table, whose own cellIndex segments
+	// haven't been consumed yet), consumes `remaining` logical lines — first
+	// against startLine's own <br>-segment count, then (if that's not enough)
+	// walking further rows via getNextRowLine/PrevRowLine — landing via
+	// landInCellSegment once remaining fits within one row's segments. All reads
+	// only until that final landing; exits the table via exitTableWithColumn if
+	// it runs out of rows first (remaining beyond the table boundary is not
+	// carried into the surrounding plain text — known, deliberate gap).
+	private walkTableRows(editor: Editor, cellIndex: number, forward: boolean, startLine: number, remaining: number, goalCh: number): { line: number; ch: number } | null {
+		let targetLine = startLine;
+		let fromLine = startLine;
+		for (;;) {
+			const segCount = this.countCellSegments(editor.getLine(targetLine), cellIndex);
+			if (remaining <= segCount) {
+				return this.landInCellSegment(editor, targetLine, cellIndex, forward, remaining - 1, goalCh);
+			}
+			remaining -= segCount;
+			fromLine = targetLine;
+			const nextLine = forward ? this.getNextRowLine(editor, fromLine) : this.getPrevRowLine(editor, fromLine);
+			if (nextLine === -1) {
+				return this.exitTableWithColumn(editor, cellIndex, forward, goalCh, fromLine);
+			}
+			targetLine = nextLine;
+		}
+	}
+
+	// Exits the table entirely (fromLine's next/prev row doesn't exist). Reuses
+	// the existing exit logic (line-finding, delimiter-row skipping, EOF newline
+	// insertion) as-is via setCursorToNextRow/PrevRow, then separately corrects
+	// the column — those hardcode ch=0, which is fine for Ctrl-N/P but loses
+	// goalCh for Vim. This follow-up move stays within the (now plain-text) line
+	// just landed on, so it doesn't cross any view boundary and carries none of
+	// the row-crossing crash risk. fromLine is passed explicitly rather than
+	// relying on setCursorToNextRow/PrevRow's own live-cursor default, since the
+	// real cursor hasn't moved from its original (pre-walk) position yet.
+	private exitTableWithColumn(editor: Editor, cellIndex: number, forward: boolean, goalCh: number, fromLine: number): { line: number; ch: number } | null {
+		if (forward) this.setCursorToNextRow(editor, cellIndex, fromLine);
+		else this.setCursorToPrevRow(editor, cellIndex, fromLine);
+		const landed = editor.getCursor();
+		const landedLineText = editor.getLine(landed.line);
+		const targetCh = Math.min(goalCh, Math.max(0, landedLineText.length - 1));
+		if (targetCh !== landed.ch) {
+			this.setCursorViaCm(editor, landed.line, targetCh);
+		}
+		return { line: landed.line, ch: targetCh };
 	}
 
 	// Shared by crossTableRowForCell and enterTableAtLine: given a target row
