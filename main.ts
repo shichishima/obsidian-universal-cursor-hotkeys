@@ -2160,7 +2160,20 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// target row's rightmost cell in landInCellSegment if it doesn't have that
 	// many columns.
 	enterTableAtLine(editor: unknown, targetLine: number, cellIndex: number, forward: boolean, goalCh: number): { line: number; ch: number } | null {
-		return this.landInCellSegment(editor as Editor, targetLine, cellIndex, forward, goalCh);
+		const e = editor as Editor;
+		let line = targetLine;
+		if (this.TABLE_DELIMITER_REGEX.test(e.getLine(line))) {
+			// A count-prefixed entry (e.g. "4j" from plain text) can land exactly
+			// on the delimiter row via flat line-number arithmetic — entry doesn't
+			// yet count <br>-segments the way row-crossing does (a known,
+			// deliberately unfixed gap). Without this redirect, landInCellSegment
+			// would treat the delimiter's "---" text as if it were real cell
+			// content. Redirect to the nearest real row instead: forward → the
+			// first data row (line + 1); backward → the header row (line - 1).
+			line = forward ? line + 1 : line - 1;
+			if (line < 0 || line >= e.lineCount() || !this.isPositionInTable(e, line, 1, true)) return null;
+		}
+		return this.landInCellSegment(e, line, cellIndex, forward, goalCh);
 	}
 
 	// Shared by crossTableRowForCell and enterTableAtLine: given a target row
