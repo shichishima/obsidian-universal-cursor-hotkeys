@@ -2152,22 +2152,27 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		return this.isPositionInTable(editor as Editor, line, ch);
 	}
 
-	// Lands on cellIndex-0's first (forward) / last (backward) <br>-segment at
+	// Lands on cellIndex's first (forward) / last (backward) <br>-segment at
 	// goalCh — used when vim-support.ts's moveByLines detects it's about to move
-	// from plain text onto a table row. Always cellIndex 0 (leftmost cell),
-	// matching Ctrl-N/P's own moveCursorUpIntoTable/DownIntoTable convention —
-	// there's no "previous cell" to preserve continuity with when entering fresh
-	// from plain text.
-	enterTableAtLine(editor: unknown, targetLine: number, forward: boolean, goalCh: number): { line: number; ch: number } | null {
-		return this.landInCellSegment(editor as Editor, targetLine, 0, forward, goalCh);
+	// from plain text onto a table row. cellIndex is vim-support.ts's goalCellIndex
+	// (falls back to 0, matching Ctrl-N/P's own moveCursorUpIntoTable/DownIntoTable
+	// convention, when there's no remembered cell to return to) — clamped to the
+	// target row's rightmost cell in landInCellSegment if it doesn't have that
+	// many columns.
+	enterTableAtLine(editor: unknown, targetLine: number, cellIndex: number, forward: boolean, goalCh: number): { line: number; ch: number } | null {
+		return this.landInCellSegment(editor as Editor, targetLine, cellIndex, forward, goalCh);
 	}
 
 	// Shared by crossTableRowForCell and enterTableAtLine: given a target row
 	// already known to exist, lands on the specified cell's first <br>-segment
-	// (forward) or last <br>-segment (backward) at goalCh.
+	// (forward) or last <br>-segment (backward) at goalCh. cellIndex is clamped to
+	// the row's rightmost cell — the caller may be remembering a wider goal cell
+	// index from a table with more columns, which this row doesn't have; clamping
+	// only affects this landing, not whatever goal value the caller keeps.
 	private landInCellSegment(editor: Editor, targetLine: number, cellIndex: number, forward: boolean, goalCh: number): { line: number; ch: number } | null {
 		const lineText = editor.getLine(targetLine);
-		const cellStartCh = getChByCellIndex(lineText, cellIndex);
+		const clampedCellIndex = Math.min(cellIndex, getRightmostCellIndex(lineText));
+		const cellStartCh = getChByCellIndex(lineText, clampedCellIndex);
 		if (cellStartCh === -1) return null;
 
 		// cellStartCh already lands in the cell's first <br>-segment. Landing

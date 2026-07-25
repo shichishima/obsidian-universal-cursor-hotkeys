@@ -56,9 +56,10 @@ export interface VimSupportHost {
 	// Full (syntax-tree-based) table-membership check — confirms a cheap textual
 	// pre-filter before committing to a table-entry landing (see scheduleTableEntry).
 	isLinePartOfTable(editor: unknown, line: number, ch: number): boolean;
-	// Lands on cellIndex-0's first/last <br>-segment at goalCh, for moving from
-	// plain text onto a table row. Returns the outer {line, ch} landed on (or null).
-	enterTableAtLine(editor: unknown, targetLine: number, forward: boolean, goalCh: number): { line: number; ch: number } | null;
+	// Lands on cellIndex's first/last <br>-segment at goalCh, for moving from
+	// plain text onto a table row (cellIndex is goalCellIndex, or 0 as a
+	// fallback). Returns the outer {line, ch} landed on (or null).
+	enterTableAtLine(editor: unknown, targetLine: number, cellIndex: number, forward: boolean, goalCh: number): { line: number; ch: number } | null;
 }
 
 export class VimSupport {
@@ -189,6 +190,12 @@ export class VimSupport {
 	// between (h/l, click, edit) breaks the match, and head.ch is correctly treated
 	// as a fresh goal column.
 	private goalCh: number | null = null;
+	// Same idea, for which table cell (column-wise) to prefer — e.g. exiting a
+	// table below and re-entering it (or a different, narrower table) further
+	// down a continuing chain should return to the same cell, not always the
+	// leftmost one. Riding the same continuity check as goalCh: reset together
+	// with it whenever the chain breaks.
+	private goalCellIndex: number | null = null;
 	private lastReturnedPos: VimPos | null = null;
 
 	// Step 1 of j/k support: plain-text linewise movement with goal-column memory.
@@ -206,12 +213,15 @@ export class VimSupport {
 			head.line === this.lastReturnedPos.line &&
 			head.ch === this.lastReturnedPos.ch;
 		const goalCh = continuing && this.goalCh !== null ? this.goalCh : head.ch;
+		const goalCellIndex = continuing && this.goalCellIndex !== null
+			? this.goalCellIndex
+			: VimSupport.currentCellIndex();
 
 		const lastLine = vcm.lastLine();
 		const rawTargetLine = motionArgs.forward ? head.line + motionArgs.repeat : head.line - motionArgs.repeat;
 
 		if (rawTargetLine < 0 || rawTargetLine > lastLine) {
-			this.scheduleRowCrossing(motionArgs.forward, goalCh);
+			this.scheduleRowCrossing(motionArgs.forward, goalCh, goalCellIndex);
 		} else if (vcm.getLine(rawTargetLine).trimStart().startsWith('|')) {
 			// Cheap pre-filter (the same shortcut used elsewhere for "already
 			// confirmed inside a table") — only worth a deferred full syntax-tree
@@ -219,17 +229,30 @@ export class VimSupport {
 			// When already inside a cell, cm is the inner view and its own lines
 			// never start with a literal pipe, so this naturally only fires when
 			// currently in plain text and about to enter a table.
-			this.scheduleTableEntry(rawTargetLine, motionArgs.forward, goalCh);
+			this.scheduleTableEntry(rawTargetLine, motionArgs.forward, goalCh, goalCellIndex);
 		}
 
 		const line = Math.max(0, Math.min(lastLine, rawTargetLine));
 		const ch = Math.min(goalCh, VimSupport.maxNormalModeCh(vcm.getLine(line)));
 
 		this.goalCh = goalCh;
+		this.goalCellIndex = goalCellIndex;
 		const result = { line, ch };
 		this.lastReturnedPos = result;
 		return result;
 	};
+
+	// Derives the current cell index from the live cursor position, to initialize
+	// goalCellIndex when starting a fresh (non-continuing) vertical-move chain.
+	// Null when not currently inside a table cell (goalCellIndex then stays null
+	// too, until some chain actually starts from inside a cell).
+	private static currentCellIndex(): number | null {
+		const editor = getActiveEditor();
+		if (!editor || !editor.inTableCell) return null;
+		const cursor = editor.getCursor();
+		const line = editor.getLine(cursor.line);
+		return getCellIndex(line, cursor.ch);
+	}
 
 	// Row-crossing: called when repeat carries head past the current cell's own
 	// <br>-segment range. The actual crossing is deferred to a setTimeout, run
@@ -240,15 +263,16 @@ export class VimSupport {
 	// for single-row crossing, including entering/exiting the table entirely.
 	// Not yet handled: a repeat large enough to span more than one row boundary
 	// (e.g. "3j" spanning two rows) only crosses one row.
-	private scheduleRowCrossing(forward: boolean, goalCh: number): void {
+	private scheduleRowCrossing(forward: boolean, goalCh: number, goalCellIndex: number | null): void {
 		setTimeout(() => {
 			const editor = getActiveEditor();
 			if (!editor || !editor.inTableCell) return;
-			const cursor = editor.getCursor();
-			const line = editor.getLine(cursor.line);
-			const cellIndex = getCellIndex(line, cursor.ch);
+			// goalCellIndex should already be non-null here (we're crossing *from*
+			// inside a cell, so the synchronous call's currentCellIndex() found
+			// one) — the live re-derive is only a defensive fallback.
+			const cellIndex = goalCellIndex ?? getCellIndex(editor.getLine(editor.getCursor().line), editor.getCursor().ch);
 			const landedOuter = this.host.crossTableRowForCell(editor, cellIndex, forward, goalCh);
-			this.resyncAfterDeferredMove(editor, landedOuter, goalCh);
+			this.resyncAfterDeferredMove(editor, landedOuter, goalCh, cellIndex);
 		}, 0);
 	}
 
@@ -256,7 +280,7 @@ export class VimSupport {
 	// line (still in plain-text coordinates) might be a table row. Deferred to a
 	// setTimeout for the same reason as scheduleRowCrossing — entering a table
 	// cell is itself a view-boundary crossing, carrying the same crash risk.
-	private scheduleTableEntry(targetLine: number, forward: boolean, goalCh: number): void {
+	private scheduleTableEntry(targetLine: number, forward: boolean, goalCh: number, goalCellIndex: number | null): void {
 		setTimeout(() => {
 			const editor = getActiveEditor();
 			if (!editor) return;
@@ -269,20 +293,25 @@ export class VimSupport {
 			// before overriding that temporary landing with the correct one.
 			if (!this.host.isLinePartOfTable(editor, targetLine, 1)) return;
 
-			const landedOuter = this.host.enterTableAtLine(editor, targetLine, forward, goalCh);
-			this.resyncAfterDeferredMove(editor, landedOuter, goalCh);
+			// goalCellIndex is null for a genuinely fresh entry (no continuing
+			// chain to remember a cell from) — falls back to the leftmost cell,
+			// matching Ctrl-N/P's own table-entry convention.
+			const cellIndex = goalCellIndex ?? 0;
+			const landedOuter = this.host.enterTableAtLine(editor, targetLine, cellIndex, forward, goalCh);
+			this.resyncAfterDeferredMove(editor, landedOuter, goalCh, cellIndex);
 		}, 0);
 	}
 
 	// Shared by scheduleRowCrossing and scheduleTableEntry: the motion function's
 	// own synchronous return already cached a (now-stale) position in the *old*
 	// view. Without re-syncing here, the next keystroke's head — from the new
-	// view — won't match it, the continuing-chain check fails, and goalCh
-	// incorrectly resets to whatever column this landing happened to clamp to
-	// (e.g. a short row passed through mid-chain). Read back the actual landing
-	// position in the new inner view's own local coordinates and re-sync against
-	// that, keeping goalCh at its original (not clamped) value.
-	private resyncAfterDeferredMove(editor: EditorBridge, landedOuter: { line: number; ch: number } | null, goalCh: number): void {
+	// view — won't match it, the continuing-chain check fails, and goalCh/
+	// goalCellIndex incorrectly reset to whatever this landing happened to clamp
+	// to (e.g. a short row, or a narrower table, passed through mid-chain). Read
+	// back the actual landing position in the new inner view's own local
+	// coordinates and re-sync against that, keeping goalCh/goalCellIndex at their
+	// original (not clamped) values.
+	private resyncAfterDeferredMove(editor: EditorBridge, landedOuter: { line: number; ch: number } | null, goalCh: number, goalCellIndex: number): void {
 		if (!landedOuter) return;
 		const inner = editor.activeCM;
 		if (!inner) return;
@@ -290,6 +319,7 @@ export class VimSupport {
 		const innerLine = inner.state.doc.lineAt(head);
 		this.lastReturnedPos = { line: innerLine.number - 1, ch: head - innerLine.from };
 		this.goalCh = goalCh;
+		this.goalCellIndex = goalCellIndex;
 	}
 }
 
