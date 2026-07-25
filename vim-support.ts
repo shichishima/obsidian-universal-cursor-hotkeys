@@ -51,8 +51,10 @@ export interface VimSupportHost {
 	// editor/cellIndex are passed through untyped (see EditorBridge) — the host's
 	// real implementation casts back to its own Editor type internally. goalCh is
 	// the desired column, relative to the landing <br>-segment's own start.
+	// overshoot is how many logical lines (rows and/or <br>-segments) beyond the
+	// current cell's own range still need to be consumed — see moveByLines.
 	// Returns the outer {line, ch} landed on (or null), for goal-column resync.
-	crossTableRowForCell(editor: unknown, cellIndex: number, forward: boolean, goalCh: number): { line: number; ch: number } | null;
+	crossTableRowForCell(editor: unknown, cellIndex: number, forward: boolean, goalCh: number, overshoot: number): { line: number; ch: number } | null;
 	// Full (syntax-tree-based) table-membership check — confirms a cheap textual
 	// pre-filter before committing to a table-entry landing (see scheduleTableEntry).
 	isLinePartOfTable(editor: unknown, line: number, ch: number): boolean;
@@ -220,8 +222,14 @@ export class VimSupport {
 		const lastLine = vcm.lastLine();
 		const rawTargetLine = motionArgs.forward ? head.line + motionArgs.repeat : head.line - motionArgs.repeat;
 
+		let line: number;
 		if (rawTargetLine < 0 || rawTargetLine > lastLine) {
-			this.scheduleRowCrossing(motionArgs.forward, goalCh, goalCellIndex);
+			// How many logical lines beyond this cell's own range still need
+			// consuming — e.g. a repeat of 5 from line 3 of a 4-line (0..3) cell
+			// overshoots by 1 (needs 1 more logical line beyond this cell).
+			const overshoot = motionArgs.forward ? rawTargetLine - lastLine : -rawTargetLine;
+			this.scheduleRowCrossing(motionArgs.forward, goalCh, goalCellIndex, overshoot);
+			line = Math.max(0, Math.min(lastLine, rawTargetLine));
 		} else if (vcm.getLine(rawTargetLine).trimStart().startsWith('|')) {
 			// Cheap pre-filter (the same shortcut used elsewhere for "already
 			// confirmed inside a table") — only worth a deferred full syntax-tree
@@ -230,9 +238,17 @@ export class VimSupport {
 			// never start with a literal pipe, so this naturally only fires when
 			// currently in plain text and about to enter a table.
 			this.scheduleTableEntry(rawTargetLine, motionArgs.forward, goalCh, goalCellIndex);
+			// Stay put rather than jumping straight to rawTargetLine: unlike
+			// row-crossing (naturally clamped within the current cell's own safe
+			// range above), plain text has no such bound, so this would otherwise
+			// land exactly on the raw target line — including, sometimes, a table
+			// delimiter row, which likely has no focusable rendered position in
+			// Live Preview at all. The real, corrected landing happens in the
+			// deferred callback regardless of where this temporary value sits.
+			line = head.line;
+		} else {
+			line = rawTargetLine;
 		}
-
-		const line = Math.max(0, Math.min(lastLine, rawTargetLine));
 		const ch = Math.min(goalCh, VimSupport.maxNormalModeCh(vcm.getLine(line)));
 
 		this.goalCh = goalCh;
@@ -260,10 +276,9 @@ export class VimSupport {
 	// row-crossing primitive (the one Ctrl-N/P also uses) directly inside the
 	// motion function's own return previously crashed in vim.js's
 	// clipCursorToContent; deferring it avoids that. Confirmed working manually
-	// for single-row crossing, including entering/exiting the table entirely.
-	// Not yet handled: a repeat large enough to span more than one row boundary
-	// (e.g. "3j" spanning two rows) only crosses one row.
-	private scheduleRowCrossing(forward: boolean, goalCh: number, goalCellIndex: number | null): void {
+	// for single-row crossing, including entering/exiting the table entirely, and
+	// (via overshoot) multi-row crossing for count-prefixed motions.
+	private scheduleRowCrossing(forward: boolean, goalCh: number, goalCellIndex: number | null, overshoot: number): void {
 		setTimeout(() => {
 			const editor = getActiveEditor();
 			if (!editor || !editor.inTableCell) return;
@@ -271,7 +286,7 @@ export class VimSupport {
 			// inside a cell, so the synchronous call's currentCellIndex() found
 			// one) — the live re-derive is only a defensive fallback.
 			const cellIndex = goalCellIndex ?? getCellIndex(editor.getLine(editor.getCursor().line), editor.getCursor().ch);
-			const landedOuter = this.host.crossTableRowForCell(editor, cellIndex, forward, goalCh);
+			const landedOuter = this.host.crossTableRowForCell(editor, cellIndex, forward, goalCh, overshoot);
 			this.resyncAfterDeferredMove(editor, landedOuter, goalCh, cellIndex);
 		}, 0);
 	}
