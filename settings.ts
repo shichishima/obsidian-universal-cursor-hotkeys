@@ -322,6 +322,51 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 
+		this.renderVimSupportSetting(containerEl);
+
+	}
+
+	private renderVimSupportSetting(containerEl: HTMLElement): void {
+		const wantsOn  = this.plugin.settings.vimHlSupport;
+		const liveOn   = this.plugin.vimHlLiveApplied;
+		// State A: never enabled this session. B: enabled and live. C: disable scheduled for next restart.
+		const state: 'A' | 'B' | 'C' = !liveOn ? 'A' : (wantsOn ? 'B' : 'C');
+
+		const baseDesc = 'Fixes two native bugs in Obsidian\'s Vim mode inside Live Preview table cells — ' +
+			'h/l miscounting multi-byte characters (e.g. emoji), and h/l incorrectly jumping to the adjacent ' +
+			'cell instead of stopping at the line boundary.<br>' +
+			'Off by default: if you already customize h/l via your own vimrc or another Vim plugin, enabling this will override that.';
+
+		const setting = new Setting(containerEl).setName('Vim h/l support (experimental)');
+
+		if (state === 'A') {
+			this.setHtmlDesc(setting, baseDesc);
+			setting.addButton(btn => btn
+				.setButtonText('Enable')
+				.setCta()
+				.onClick(() => {
+					this.plugin.enableVimHlSupport();
+					this.display();
+				}));
+		} else if (state === 'B') {
+			this.setHtmlDesc(setting, '✅ <b>Enabled</b> — takes effect immediately.<br>' + baseDesc);
+			setting.addButton(btn => btn
+				.setButtonText('Disable (after restart)')
+				.setCta()
+				.onClick(() => {
+					this.plugin.scheduleDisableVimHlSupport();
+					this.display();
+				}));
+		} else {
+			this.setHtmlDesc(setting, '⏳ <b>Will disable after you restart Obsidian.</b> Still active for the rest of this session.<br>' + baseDesc);
+			setting.addButton(btn => btn
+				.setButtonText('Keep enabled')
+				.setCta()
+				.onClick(() => {
+					this.plugin.cancelDisableVimHlSupport();
+					this.display();
+				}));
+		}
 	}
 
 	private openHotkeysPanelFor(query: string): void {
