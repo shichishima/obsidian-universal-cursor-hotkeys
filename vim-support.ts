@@ -36,6 +36,7 @@ interface EditorBridge {
 	getCursor(): VimPos;
 	getLine(line: number): string;
 	activeCM?: InnerCmLike;
+	cm?: InnerCmLike;
 }
 
 const getActiveEditor = (): EditorBridge | undefined =>
@@ -199,6 +200,24 @@ export class VimSupport {
 	// with it whenever the chain breaks.
 	private goalCellIndex: number | null = null;
 	private lastReturnedPos: VimPos | null = null;
+	// The cm the above lastReturnedPos belongs to. Inner-local {line, ch} numbering
+	// is not unique across different cells — e.g. every single-<br>-segment cell
+	// numbers its own content from {line: 0, ch: 0}, regardless of which cell it
+	// is — so an action that moves to a *different* cell (Tab, a click, etc.) can
+	// coincidentally land on the exact same {line, ch} some earlier, unrelated
+	// chain last returned, without this cm check falsely reading as "continuing."
+	private lastCm: unknown = null;
+	// Outer-document {line, ch} the above lastReturnedPos/lastCm correspond to,
+	// recorded only after a deferred crossing/entry (see resyncAfterDeferredMove)
+	// — a second, independent continuity signal alongside the inner cm/head check.
+	// Needed because inner view identity turns out to be unstable for *empty*
+	// table cells specifically: Obsidian appears to create a fresh inner
+	// EditorView instance every time one is (re-)focused, so cm/lastCm never
+	// matches on the very next keystroke even though nothing else happened in
+	// between. Outer document coordinates don't have that problem — unlike
+	// inner-local numbering, they're globally unique, so matching on them alone
+	// is if anything a *stronger* signal that this is genuinely the same chain.
+	private lastOuterPos: VimPos | null = null;
 
 	// Step 1 of j/k support: plain-text linewise movement with goal-column memory.
 	// The inner EditorView for a table cell already models each <br>-delimited
@@ -211,9 +230,13 @@ export class VimSupport {
 	private readonly moveByLines: VimMotionFn = (cm, head, motionArgs) => {
 		const vcm = cm as VimCm;
 
-		const continuing = this.lastReturnedPos !== null &&
+		const continuingInner = this.lastCm === cm && this.lastReturnedPos !== null &&
 			head.line === this.lastReturnedPos.line &&
 			head.ch === this.lastReturnedPos.ch;
+		const outerNow = getActiveEditor()?.getCursor() ?? null;
+		const continuingOuter = outerNow !== null && this.lastOuterPos !== null &&
+			outerNow.line === this.lastOuterPos.line && outerNow.ch === this.lastOuterPos.ch;
+		const continuing = continuingInner || continuingOuter;
 		const goalCh = continuing && this.goalCh !== null ? this.goalCh : head.ch;
 		const goalCellIndex = continuing && this.goalCellIndex !== null
 			? this.goalCellIndex
@@ -255,6 +278,7 @@ export class VimSupport {
 		this.goalCellIndex = goalCellIndex;
 		const result = { line, ch };
 		this.lastReturnedPos = result;
+		this.lastCm = cm;
 		return result;
 	};
 
@@ -287,7 +311,14 @@ export class VimSupport {
 			// one) — the live re-derive is only a defensive fallback.
 			const cellIndex = goalCellIndex ?? getCellIndex(editor.getLine(editor.getCursor().line), editor.getCursor().ch);
 			const landedOuter = this.host.crossTableRowForCell(editor, cellIndex, forward, goalCh, overshoot);
-			this.resyncAfterDeferredMove(editor, landedOuter, goalCh, cellIndex);
+			// Deferred an extra frame: setCursorViaCm's own RAF-based focus-transfer
+			// fallback can swap in a *different* inner view instance than whatever
+			// editor.activeCM reports in this same setTimeout tick — reading it here
+			// risks resyncing against a transient view that isn't what vim.js will
+			// actually hand the next motion call.
+			requestAnimationFrame(() => {
+				this.resyncAfterDeferredMove(editor, landedOuter, goalCh, cellIndex);
+			});
 		}, 0);
 	}
 
@@ -313,7 +344,11 @@ export class VimSupport {
 			// matching Ctrl-N/P's own table-entry convention.
 			const cellIndex = goalCellIndex ?? 0;
 			const landedOuter = this.host.enterTableAtLine(editor, targetLine, cellIndex, forward, goalCh);
-			this.resyncAfterDeferredMove(editor, landedOuter, goalCh, cellIndex);
+			// See scheduleRowCrossing's own comment on why this read is deferred an
+			// extra frame past the RAF-based focus-transfer fallback.
+			requestAnimationFrame(() => {
+				this.resyncAfterDeferredMove(editor, landedOuter, goalCh, cellIndex);
+			});
 		}, 0);
 	}
 
@@ -329,10 +364,22 @@ export class VimSupport {
 	private resyncAfterDeferredMove(editor: EditorBridge, landedOuter: { line: number; ch: number } | null, goalCh: number, goalCellIndex: number): void {
 		if (!landedOuter) return;
 		const inner = editor.activeCM;
-		if (!inner) return;
-		const head = inner.state.selection.main.head;
-		const innerLine = inner.state.doc.lineAt(head);
-		this.lastReturnedPos = { line: innerLine.number - 1, ch: head - innerLine.from };
+		if (inner) {
+			const head = inner.state.selection.main.head;
+			const innerLine = inner.state.doc.lineAt(head);
+			this.lastReturnedPos = { line: innerLine.number - 1, ch: head - innerLine.from };
+			this.lastCm = inner;
+		} else {
+			// No inner view for this landing (editor.activeCM falls back to the
+			// outer cm even though inTableCell is true) — resync against outer
+			// coordinates directly instead of silently leaving stale state.
+			this.lastReturnedPos = landedOuter;
+			this.lastCm = editor.cm;
+		}
+		// Recorded regardless of whether an inner view was found — this is the
+		// second, cm-identity-independent continuity signal (see lastOuterPos's
+		// own comment).
+		this.lastOuterPos = landedOuter;
 		this.goalCh = goalCh;
 		this.goalCellIndex = goalCellIndex;
 	}
