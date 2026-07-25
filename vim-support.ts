@@ -10,6 +10,7 @@ interface VimApi {
 }
 interface VimCm {
 	getLine(line: number): string;
+	lastLine(): number;
 }
 
 const getVim = (): VimApi | undefined =>
@@ -107,6 +108,7 @@ export class VimSupport {
 
 	private applyHlOverride(): void {
 		getVim()?.defineMotion('moveByCharacters', this.moveByCharacters);
+		getVim()?.defineMotion('moveByLines', this.moveByLines);
 	}
 
 	// Best-effort restore — see the liveApplied field's own note: this does not
@@ -114,7 +116,66 @@ export class VimSupport {
 	// is only ever called from teardown(), never exposed as a live "disable" action.
 	private restoreHlOverride(): void {
 		getVim()?.defineMotion('moveByCharacters', VimSupport.VIM_DEFAULT_MOVE_BY_CHARACTERS);
+		getVim()?.defineMotion('moveByLines', VimSupport.VIM_DEFAULT_MOVE_BY_LINES);
 	}
+
+	// Hardcoded default for 'moveByLines' (see VIM_DEFAULT_MOVE_BY_CHARACTERS for why
+	// this must be hardcoded rather than captured). Deliberately simplified vs.
+	// vim.js's own pixel-based goal column (no tab/wrap-aware column math) — this is
+	// only a restore target, not something a user should notice in practice.
+	private static readonly VIM_DEFAULT_MOVE_BY_LINES: VimMotionFn = (cm, head, motionArgs) => {
+		const vcm = cm as VimCm;
+		const lastLine = vcm.lastLine();
+		const line = Math.max(0, Math.min(lastLine,
+			motionArgs.forward ? head.line + motionArgs.repeat : head.line - motionArgs.repeat));
+		const ch = Math.min(head.ch, VimSupport.maxNormalModeCh(vcm.getLine(line)));
+		return { line, ch };
+	};
+
+	// j/k are normal/visual-mode-only motions, where the cursor may never rest one
+	// past the last character (that position is only valid in insert mode). Clamping
+	// to this (rather than the full line length) matters for goal-column tracking:
+	// if we return the line-length position, vim.js's own invariant enforcement
+	// silently pulls it back by one, and the actual next head then no longer matches
+	// what we stored as lastReturnedPos — breaking the "is this a continuing
+	// vertical-move chain" check on every single-keystroke j/k (though not on a
+	// count-prefixed "3j", which jumps straight to the final line in one call and
+	// never has an intermediate result to mismatch against).
+	private static maxNormalModeCh(lineText: string): number {
+		return Math.max(0, lineText.length - 1);
+	}
+
+	// Goal-column memory for consecutive j/k, kept independent of vim.js's own
+	// internal per-editor state (its property names, e.g. lastHPos, are undocumented
+	// and version-fragile). Instead: a call "continues" a vertical-move chain only if
+	// the incoming head matches what we returned last time — any other motion in
+	// between (h/l, click, edit) breaks the match, and head.ch is correctly treated
+	// as a fresh goal column.
+	private goalCh: number | null = null;
+	private lastReturnedPos: VimPos | null = null;
+
+	// Step 1 of j/k support: plain-text linewise movement with goal-column memory.
+	// Table-cell <br>/row-aware logic is added in later steps — until then this
+	// treats every buffer line as a plain document line, which is correct outside
+	// tables and merely not-yet-table-aware inside them.
+	private readonly moveByLines: VimMotionFn = (cm, head, motionArgs) => {
+		const vcm = cm as VimCm;
+
+		const continuing = this.lastReturnedPos !== null &&
+			head.line === this.lastReturnedPos.line &&
+			head.ch === this.lastReturnedPos.ch;
+		const goalCh = continuing && this.goalCh !== null ? this.goalCh : head.ch;
+
+		const lastLine = vcm.lastLine();
+		const line = Math.max(0, Math.min(lastLine,
+			motionArgs.forward ? head.line + motionArgs.repeat : head.line - motionArgs.repeat));
+		const ch = Math.min(goalCh, VimSupport.maxNormalModeCh(vcm.getLine(line)));
+
+		this.goalCh = goalCh;
+		const result = { line, ch };
+		this.lastReturnedPos = result;
+		return result;
+	};
 }
 
 export function renderVimSupportSetting(containerEl: HTMLElement, vim: VimSupport, rerender: () => void): void {
