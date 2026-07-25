@@ -2139,13 +2139,40 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return { line: landed.line, ch: targetCh };
 		}
 
-		const lineText = e.getLine(targetLine);
+		return this.landInCellSegment(e, targetLine, cellIndex, forward, goalCh);
+	}
+
+	// Full (syntax-tree-based) table-membership check, same one Ctrl-N/P's own
+	// moveCursorUpIntoTable/DownIntoTable use to detect table *entry* specifically
+	// (as opposed to the cheap text-based shortcut used elsewhere for "already
+	// confirmed inside a table"). Exposed as-is for vim-support.ts's
+	// scheduleTableEntry to confirm its own cheap pre-filter before committing to
+	// an entry landing.
+	isLinePartOfTable(editor: unknown, line: number, ch: number): boolean {
+		return this.isPositionInTable(editor as Editor, line, ch);
+	}
+
+	// Lands on cellIndex-0's first (forward) / last (backward) <br>-segment at
+	// goalCh — used when vim-support.ts's moveByLines detects it's about to move
+	// from plain text onto a table row. Always cellIndex 0 (leftmost cell),
+	// matching Ctrl-N/P's own moveCursorUpIntoTable/DownIntoTable convention —
+	// there's no "previous cell" to preserve continuity with when entering fresh
+	// from plain text.
+	enterTableAtLine(editor: unknown, targetLine: number, forward: boolean, goalCh: number): { line: number; ch: number } | null {
+		return this.landInCellSegment(editor as Editor, targetLine, 0, forward, goalCh);
+	}
+
+	// Shared by crossTableRowForCell and enterTableAtLine: given a target row
+	// already known to exist, lands on the specified cell's first <br>-segment
+	// (forward) or last <br>-segment (backward) at goalCh.
+	private landInCellSegment(editor: Editor, targetLine: number, cellIndex: number, forward: boolean, goalCh: number): { line: number; ch: number } | null {
+		const lineText = editor.getLine(targetLine);
 		const cellStartCh = getChByCellIndex(lineText, cellIndex);
 		if (cellStartCh === -1) return null;
 
-		// cellStartCh already lands in the cell's first <br>-segment. Crossing
-		// forward (down) lands there directly; crossing backward (up) needs the
-		// LAST segment instead, so walk forward through segments to reach it.
+		// cellStartCh already lands in the cell's first <br>-segment. Landing
+		// forward (down) uses it directly; landing backward (up) needs the LAST
+		// segment instead, so walk forward through segments to reach it.
 		let segInfo = getInCellLineInfo(lineText, cellStartCh);
 		if (!segInfo) return null;
 		if (!forward) {
@@ -2163,7 +2190,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const segLen = segInfo.endOfInCellLine - segInfo.startOfInCellLine;
 		const maxOffset = Math.max(0, segLen - 1);
 		const targetCh = segInfo.startOfInCellLine + Math.min(goalCh, maxOffset);
-		this.setCursorViaCm(e, targetLine, targetCh);
+		this.setCursorViaCm(editor, targetLine, targetCh);
 		return { line: targetLine, ch: targetCh };
 	}
 

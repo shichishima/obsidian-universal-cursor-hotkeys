@@ -53,6 +53,12 @@ export interface VimSupportHost {
 	// the desired column, relative to the landing <br>-segment's own start.
 	// Returns the outer {line, ch} landed on (or null), for goal-column resync.
 	crossTableRowForCell(editor: unknown, cellIndex: number, forward: boolean, goalCh: number): { line: number; ch: number } | null;
+	// Full (syntax-tree-based) table-membership check — confirms a cheap textual
+	// pre-filter before committing to a table-entry landing (see scheduleTableEntry).
+	isLinePartOfTable(editor: unknown, line: number, ch: number): boolean;
+	// Lands on cellIndex-0's first/last <br>-segment at goalCh, for moving from
+	// plain text onto a table row. Returns the outer {line, ch} landed on (or null).
+	enterTableAtLine(editor: unknown, targetLine: number, forward: boolean, goalCh: number): { line: number; ch: number } | null;
 }
 
 export class VimSupport {
@@ -206,6 +212,14 @@ export class VimSupport {
 
 		if (rawTargetLine < 0 || rawTargetLine > lastLine) {
 			this.scheduleRowCrossing(motionArgs.forward, goalCh);
+		} else if (vcm.getLine(rawTargetLine).trimStart().startsWith('|')) {
+			// Cheap pre-filter (the same shortcut used elsewhere for "already
+			// confirmed inside a table") — only worth a deferred full syntax-tree
+			// check if the target line even looks like it could be a table row.
+			// When already inside a cell, cm is the inner view and its own lines
+			// never start with a literal pipe, so this naturally only fires when
+			// currently in plain text and about to enter a table.
+			this.scheduleTableEntry(rawTargetLine, motionArgs.forward, goalCh);
 		}
 
 		const line = Math.max(0, Math.min(lastLine, rawTargetLine));
@@ -234,24 +248,48 @@ export class VimSupport {
 			const line = editor.getLine(cursor.line);
 			const cellIndex = getCellIndex(line, cursor.ch);
 			const landedOuter = this.host.crossTableRowForCell(editor, cellIndex, forward, goalCh);
-			if (!landedOuter) return;
-
-			// The motion function's own synchronous return already cached a
-			// (now-stale) position in the *old* view. Without re-syncing here, the
-			// next keystroke's head — from the new view — won't match it, the
-			// continuing-chain check fails, and goalCh incorrectly resets to
-			// whatever column this landing happened to clamp to (e.g. a short row
-			// passed through mid-chain). Read back the actual landing position in
-			// the new inner view's own local coordinates and re-sync against that,
-			// keeping goalCh at its original (not clamped) value.
-			const inner = editor.activeCM;
-			if (inner) {
-				const head = inner.state.selection.main.head;
-				const innerLine = inner.state.doc.lineAt(head);
-				this.lastReturnedPos = { line: innerLine.number - 1, ch: head - innerLine.from };
-				this.goalCh = goalCh;
-			}
+			this.resyncAfterDeferredMove(editor, landedOuter, goalCh);
 		}, 0);
+	}
+
+	// Table entry: called when moveByLines' cheap pre-filter suggests the target
+	// line (still in plain-text coordinates) might be a table row. Deferred to a
+	// setTimeout for the same reason as scheduleRowCrossing — entering a table
+	// cell is itself a view-boundary crossing, carrying the same crash risk.
+	private scheduleTableEntry(targetLine: number, forward: boolean, goalCh: number): void {
+		setTimeout(() => {
+			const editor = getActiveEditor();
+			if (!editor) return;
+			// Note: by the time this fires, editor.inTableCell is likely already
+			// true — the motion function's own synchronous return already landed
+			// (incorrectly, at a raw-line ch) inside the table row, and Obsidian
+			// auto-created/focused the inner view in response. That's expected,
+			// not a sign this isn't really an entry; isLinePartOfTable (not
+			// inTableCell) is what confirms targetLine is genuinely a table row
+			// before overriding that temporary landing with the correct one.
+			if (!this.host.isLinePartOfTable(editor, targetLine, 1)) return;
+
+			const landedOuter = this.host.enterTableAtLine(editor, targetLine, forward, goalCh);
+			this.resyncAfterDeferredMove(editor, landedOuter, goalCh);
+		}, 0);
+	}
+
+	// Shared by scheduleRowCrossing and scheduleTableEntry: the motion function's
+	// own synchronous return already cached a (now-stale) position in the *old*
+	// view. Without re-syncing here, the next keystroke's head — from the new
+	// view — won't match it, the continuing-chain check fails, and goalCh
+	// incorrectly resets to whatever column this landing happened to clamp to
+	// (e.g. a short row passed through mid-chain). Read back the actual landing
+	// position in the new inner view's own local coordinates and re-sync against
+	// that, keeping goalCh at its original (not clamped) value.
+	private resyncAfterDeferredMove(editor: EditorBridge, landedOuter: { line: number; ch: number } | null, goalCh: number): void {
+		if (!landedOuter) return;
+		const inner = editor.activeCM;
+		if (!inner) return;
+		const head = inner.state.selection.main.head;
+		const innerLine = inner.state.doc.lineAt(head);
+		this.lastReturnedPos = { line: innerLine.number - 1, ch: head - innerLine.from };
+		this.goalCh = goalCh;
 	}
 }
 
