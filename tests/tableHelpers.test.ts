@@ -5,15 +5,19 @@ vi.mock('@codemirror/language', () => ({
 }))
 
 import UniversalCursorHotkeysPlugin from '../main.ts'
+import {
+	getCellBounds, getStartOfCellContent, getEndOfCellContent, getEndOfCellContentByCellIndex,
+	getRightmostCellIndex, getCellIndex, getInCellLineInfo, getPipePositions,
+} from '../table-cell-utils.ts'
 
 describe('tableHelpers', () => {
 	let plugin: any
 
 	beforeEach(() => {
 		plugin = Object.create(UniversalCursorHotkeysPlugin.prototype)
-		// Class fields are instance properties, not on the prototype.
-		// Initialize them manually so methods that reference `this.*REGEX` work.
-		plugin.CELL_SEPARATOR_REGEX  = /(?<!\\)\|/g
+		// TABLE_DELIMITER_REGEX is still a plugin class field (not extracted);
+		// initialize it manually since class fields are instance properties,
+		// not on the prototype.
 		plugin.TABLE_DELIMITER_REGEX = /^\s*\|?[:\s]*?-+[:\s-]*\|[:\s-|]*$/
 	})
 
@@ -71,7 +75,7 @@ describe('tableHelpers', () => {
 
 		for (const [line, ch, expected] of cases) {
 			it(`"${line}" ch=${ch} → ${JSON.stringify(expected)}`, () => {
-				expect(plugin.getCellBounds(line, ch)).toEqual(expected)
+				expect(getCellBounds(line, ch)).toEqual(expected)
 			})
 		}
 	})
@@ -114,8 +118,8 @@ describe('tableHelpers', () => {
 
 		for (const [line, ch, start, end] of cases) {
 			it(`"${line}" ch=${ch} → start=${start}, end=${end}`, () => {
-				expect(plugin.getStartOfCellContent(line, ch)).toBe(start)
-				expect(plugin.getEndOfCellContent(line, ch)).toBe(end)
+				expect(getStartOfCellContent(line, ch)).toBe(start)
+				expect(getEndOfCellContent(line, ch)).toBe(end)
 			})
 		}
 	})
@@ -133,7 +137,7 @@ describe('tableHelpers', () => {
 
 		for (const [line, expected] of cases) {
 			it(`"${line}" → [${expected}]`, () => {
-				expect(plugin.getPipePositions(line)).toEqual(expected)
+				expect(getPipePositions(line)).toEqual(expected)
 			})
 		}
 	})
@@ -150,7 +154,7 @@ describe('tableHelpers', () => {
 
 		for (const [line, expected] of cases) {
 			it(`"${line}" → ${expected}`, () => {
-				expect(plugin.getRightmostCellIndex(line)).toBe(expected)
+				expect(getRightmostCellIndex(line)).toBe(expected)
 			})
 		}
 	})
@@ -171,7 +175,7 @@ describe('tableHelpers', () => {
 
 		for (const [ch, expected] of cases) {
 			it(`ch=${ch} → ${expected}`, () => {
-				expect(plugin.getCellIndex(line, ch)).toBe(expected)
+				expect(getCellIndex(line, ch)).toBe(expected)
 			})
 		}
 	})
@@ -194,7 +198,7 @@ describe('tableHelpers', () => {
 
 		for (const [cellIndex, expected] of cases) {
 			it(`cellIndex=${cellIndex} → ${expected}`, () => {
-				expect(plugin.getEndOfCellContentByCellIndex(line, cellIndex)).toBe(expected)
+				expect(getEndOfCellContentByCellIndex(line, cellIndex)).toBe(expected)
 			})
 		}
 	})
@@ -205,7 +209,7 @@ describe('tableHelpers', () => {
 
 	describe('getInCellLineInfo(line, ch)', () => {
 		it('no <br>: lineType single, correct start/end, isEmpty false', () => {
-			expect(plugin.getInCellLineInfo('| hello |', 3)).toEqual({
+			expect(getInCellLineInfo('| hello |', 3)).toEqual({
 				lineType: 'single',
 				startOfInCellLine: 2,
 				endOfInCellLine: 7,
@@ -214,7 +218,7 @@ describe('tableHelpers', () => {
 		})
 
 		it('spaces-only cell: lineType single, isEmpty true', () => {
-			expect(plugin.getInCellLineInfo('|   |', 2)).toEqual({
+			expect(getInCellLineInfo('|   |', 2)).toEqual({
 				lineType: 'single',
 				startOfInCellLine: 1,
 				endOfInCellLine: 1,
@@ -223,11 +227,11 @@ describe('tableHelpers', () => {
 		})
 
 		it('ch before any pipe — returns null', () => {
-			expect(plugin.getInCellLineInfo('| hello |', 0)).toBeNull()
+			expect(getInCellLineInfo('| hello |', 0)).toBeNull()
 		})
 
 		it('one <br>: ch in first segment — lineType first', () => {
-			expect(plugin.getInCellLineInfo('| hello<br>world |', 3)).toEqual({
+			expect(getInCellLineInfo('| hello<br>world |', 3)).toEqual({
 				lineType: 'first',
 				startOfInCellLine: 2,
 				endOfInCellLine: 7,
@@ -236,7 +240,7 @@ describe('tableHelpers', () => {
 		})
 
 		it('one <br>: ch in last segment — lineType last', () => {
-			expect(plugin.getInCellLineInfo('| hello<br>world |', 13)).toEqual({
+			expect(getInCellLineInfo('| hello<br>world |', 13)).toEqual({
 				lineType: 'last',
 				startOfInCellLine: 11,
 				endOfInCellLine: 16,
@@ -245,7 +249,7 @@ describe('tableHelpers', () => {
 		})
 
 		it('two <br>: ch in middle segment — lineType middle', () => {
-			expect(plugin.getInCellLineInfo('| a<br>b<br>c |', 7)).toEqual({
+			expect(getInCellLineInfo('| a<br>b<br>c |', 7)).toEqual({
 				lineType: 'middle',
 				startOfInCellLine: 7,
 				endOfInCellLine: 8,
@@ -254,7 +258,7 @@ describe('tableHelpers', () => {
 		})
 
 		it('ch inside a <br> tag — assigned to preceding segment', () => {
-			expect(plugin.getInCellLineInfo('| hello<br>world |', 9)).toEqual({
+			expect(getInCellLineInfo('| hello<br>world |', 9)).toEqual({
 				lineType: 'first',
 				startOfInCellLine: 2,
 				endOfInCellLine: 7,
@@ -263,7 +267,7 @@ describe('tableHelpers', () => {
 		})
 
 		it('<BR> uppercase is also recognized', () => {
-			expect(plugin.getInCellLineInfo('| a<BR>b |', 3)).toMatchObject({
+			expect(getInCellLineInfo('| a<BR>b |', 3)).toMatchObject({
 				lineType: 'first',
 			})
 		})
