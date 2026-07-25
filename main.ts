@@ -1127,16 +1127,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// (*2)->(*1) if above is outside table (header row), go out.
 	// (*3)->(*2) if above is delimiter line, go to cursor.line-2.
 	// (*4)->(*3) go to cursor.line-1.
-	// VimSupportHost bridge — see vim-support.ts's scheduleRowCrossingTest. Delegates
-	// straight to the same row-crossing primitives Ctrl-N/P already rely on daily;
-	// no new navigation logic here, just exposing it across the file boundary.
-	crossTableRowForCell(editor: unknown, cellIndex: number, forward: boolean): void {
-		const e = editor as Editor;
-		if (forward) this.setCursorToNextRow(e, cellIndex);
-		else this.setCursorToPrevRow(e, cellIndex);
-	}
-
-
 	private setCursorToPrevRow(editor: Editor, cellIndex: number) {
 		const cursor = editor.getCursor();
 		const targetLine = this.getPrevRowLine(editor);
@@ -2103,6 +2093,78 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		} else {
 			editor.replaceSelection(text);
 		}
+	}
+
+
+	//===========================================================================
+	// VimSupportHost bridge implementation
+	//
+	// Methods vim-support.ts calls through the VimSupportHost duck-typed interface,
+	// grouped here (rather than scattered near whichever existing method each one
+	// happens to reuse) since more are expected as table-entry/multi-row-crossing
+	// support is added. These exist only because vim-support.ts deliberately does
+	// not import main.ts (file-split risk-isolation) but still needs to reuse
+	// private, stateful methods below (setCursorViaCm depends on this._inScrollPage
+	// and dispatches to CM6 directly) that can't be pure-function-extracted the way
+	// table-cell-utils.ts's string helpers were.
+	//===========================================================================
+
+	// See vim-support.ts's scheduleRowCrossing. Reuses the same row-finding logic
+	// Ctrl-N/P rely on (getNextRowLine/getPrevRowLine), but lands on the target
+	// cell's first/last <br>-segment at goalCh, rather than always at
+	// cell-content-start — Vim's j/k need the column preserved across the row
+	// boundary, which Ctrl-N/P's own setCursorToNextRow/PrevRow don't do.
+	// Returns the outer {line, ch} landed on (or null if it couldn't compute one),
+	// so vim-support.ts can re-sync its own goal-column continuity cache against
+	// the actual post-crossing position — see scheduleRowCrossing's own comment
+	// for why that resync is necessary.
+	crossTableRowForCell(editor: unknown, cellIndex: number, forward: boolean, goalCh: number): { line: number; ch: number } | null {
+		const e = editor as Editor;
+		const targetLine = forward ? this.getNextRowLine(e) : this.getPrevRowLine(e);
+		if (targetLine === -1) {
+			// Exiting the table entirely. Reuse the existing exit logic (line-finding,
+			// delimiter-row skipping, EOF newline insertion) as-is, then separately
+			// correct the column — setCursorToNextRow/PrevRow hardcode ch=0, which is
+			// fine for Ctrl-N/P but loses goalCh for Vim. This follow-up move stays
+			// within the (now plain-text) line we just landed on, so it doesn't cross
+			// any view boundary and carries none of the row-crossing crash risk.
+			if (forward) this.setCursorToNextRow(e, cellIndex);
+			else this.setCursorToPrevRow(e, cellIndex);
+			const landed = e.getCursor();
+			const landedLineText = e.getLine(landed.line);
+			const targetCh = Math.min(goalCh, Math.max(0, landedLineText.length - 1));
+			if (targetCh !== landed.ch) {
+				this.setCursorViaCm(e, landed.line, targetCh);
+			}
+			return { line: landed.line, ch: targetCh };
+		}
+
+		const lineText = e.getLine(targetLine);
+		const cellStartCh = getChByCellIndex(lineText, cellIndex);
+		if (cellStartCh === -1) return null;
+
+		// cellStartCh already lands in the cell's first <br>-segment. Crossing
+		// forward (down) lands there directly; crossing backward (up) needs the
+		// LAST segment instead, so walk forward through segments to reach it.
+		let segInfo = getInCellLineInfo(lineText, cellStartCh);
+		if (!segInfo) return null;
+		if (!forward) {
+			while (segInfo && (segInfo.lineType === 'first' || segInfo.lineType === 'middle')) {
+				const brLen = lineText.slice(segInfo.endOfInCellLine).match(/^<[bB][rR]>/)?.[0].length ?? 0;
+				if (brLen === 0) break;
+				segInfo = getInCellLineInfo(lineText, segInfo.endOfInCellLine + brLen);
+			}
+			if (!segInfo) return null;
+		}
+
+		// Same normal-mode "can't rest past last char" clamp as vim-support.ts's
+		// maxNormalModeCh — this position is read back as vim's next head once
+		// focus moves to the new inner view, so it must already be vim-legal.
+		const segLen = segInfo.endOfInCellLine - segInfo.startOfInCellLine;
+		const maxOffset = Math.max(0, segLen - 1);
+		const targetCh = segInfo.startOfInCellLine + Math.min(goalCh, maxOffset);
+		this.setCursorViaCm(e, targetLine, targetCh);
+		return { line: targetLine, ch: targetCh };
 	}
 
 }

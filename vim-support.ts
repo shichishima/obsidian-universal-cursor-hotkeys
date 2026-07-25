@@ -17,14 +17,25 @@ interface VimCm {
 const getVim = (): VimApi | undefined =>
 	(window as unknown as { CodeMirrorAdapter?: { Vim?: VimApi } }).CodeMirrorAdapter?.Vim;
 
+// The inner EditorView, as seen from outside a synchronous vim motion callback —
+// just enough to read back the post-crossing cursor position (see
+// scheduleRowCrossing's resync step).
+interface InnerCmLike {
+	state: {
+		doc: { lineAt(pos: number): { number: number; from: number } };
+		selection: { main: { head: number } };
+	};
+}
+
 // Minimal shape needed to read the current table-cell cursor position from
-// outside a synchronous vim motion callback (see scheduleRowCrossingTest).
+// outside a synchronous vim motion callback (see scheduleRowCrossing).
 // Kept duck-typed against Obsidian's real Editor rather than imported, for the
 // same reason as VimSupportHost below.
 interface EditorBridge {
 	inTableCell: boolean;
 	getCursor(): VimPos;
 	getLine(line: number): string;
+	activeCM?: InnerCmLike;
 }
 
 const getActiveEditor = (): EditorBridge | undefined =>
@@ -38,8 +49,10 @@ export interface VimSupportHost {
 	settings: { vimHlSupport: boolean };
 	saveSettings(): Promise<void>;
 	// editor/cellIndex are passed through untyped (see EditorBridge) — the host's
-	// real implementation casts back to its own Editor type internally.
-	crossTableRowForCell(editor: unknown, cellIndex: number, forward: boolean): void;
+	// real implementation casts back to its own Editor type internally. goalCh is
+	// the desired column, relative to the landing <br>-segment's own start.
+	// Returns the outer {line, ch} landed on (or null), for goal-column resync.
+	crossTableRowForCell(editor: unknown, cellIndex: number, forward: boolean, goalCh: number): { line: number; ch: number } | null;
 }
 
 export class VimSupport {
@@ -192,7 +205,7 @@ export class VimSupport {
 		const rawTargetLine = motionArgs.forward ? head.line + motionArgs.repeat : head.line - motionArgs.repeat;
 
 		if (rawTargetLine < 0 || rawTargetLine > lastLine) {
-			this.scheduleRowCrossingTest(motionArgs.forward);
+			this.scheduleRowCrossing(motionArgs.forward, goalCh);
 		}
 
 		const line = Math.max(0, Math.min(lastLine, rawTargetLine));
@@ -204,20 +217,40 @@ export class VimSupport {
 		return result;
 	};
 
-	// HYPOTHESIS TEST ONLY — not yet real Phase 3 behavior (no goal-column
-	// carry-over, no multi-row repeat handling). Purpose: check whether calling
-	// the existing, already-reliable row-crossing primitive (the same one Ctrl-N/P
-	// use) from *outside* vim's synchronous motion call stack — via setTimeout 0 —
-	// avoids the clipCursorToContent crash seen earlier when row-crossing was
-	// attempted directly inside the motion function's own return.
-	private scheduleRowCrossingTest(forward: boolean): void {
+	// Row-crossing: called when repeat carries head past the current cell's own
+	// <br>-segment range. The actual crossing is deferred to a setTimeout, run
+	// from *outside* vim's synchronous motion call stack — calling the existing
+	// row-crossing primitive (the one Ctrl-N/P also uses) directly inside the
+	// motion function's own return previously crashed in vim.js's
+	// clipCursorToContent; deferring it avoids that. Confirmed working manually
+	// for single-row crossing, including entering/exiting the table entirely.
+	// Not yet handled: a repeat large enough to span more than one row boundary
+	// (e.g. "3j" spanning two rows) only crosses one row.
+	private scheduleRowCrossing(forward: boolean, goalCh: number): void {
 		setTimeout(() => {
 			const editor = getActiveEditor();
 			if (!editor || !editor.inTableCell) return;
 			const cursor = editor.getCursor();
 			const line = editor.getLine(cursor.line);
 			const cellIndex = getCellIndex(line, cursor.ch);
-			this.host.crossTableRowForCell(editor, cellIndex, forward);
+			const landedOuter = this.host.crossTableRowForCell(editor, cellIndex, forward, goalCh);
+			if (!landedOuter) return;
+
+			// The motion function's own synchronous return already cached a
+			// (now-stale) position in the *old* view. Without re-syncing here, the
+			// next keystroke's head — from the new view — won't match it, the
+			// continuing-chain check fails, and goalCh incorrectly resets to
+			// whatever column this landing happened to clamp to (e.g. a short row
+			// passed through mid-chain). Read back the actual landing position in
+			// the new inner view's own local coordinates and re-sync against that,
+			// keeping goalCh at its original (not clamped) value.
+			const inner = editor.activeCM;
+			if (inner) {
+				const head = inner.state.selection.main.head;
+				const innerLine = inner.state.doc.lineAt(head);
+				this.lastReturnedPos = { line: innerLine.number - 1, ch: head - innerLine.from };
+				this.goalCh = goalCh;
+			}
 		}, 0);
 	}
 }
