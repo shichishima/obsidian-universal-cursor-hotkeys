@@ -1,5 +1,6 @@
 import { Setting, sanitizeHTMLToDom } from 'obsidian';
 import { findClusterBreak } from '@codemirror/state';
+import { getCellIndex } from './table-cell-utils';
 
 // Obsidian's built-in Vim mode (codemirror-vim) — not exposed in obsidian.d.ts.
 interface VimPos { line: number; ch: number }
@@ -16,12 +17,29 @@ interface VimCm {
 const getVim = (): VimApi | undefined =>
 	(window as unknown as { CodeMirrorAdapter?: { Vim?: VimApi } }).CodeMirrorAdapter?.Vim;
 
+// Minimal shape needed to read the current table-cell cursor position from
+// outside a synchronous vim motion callback (see scheduleRowCrossingTest).
+// Kept duck-typed against Obsidian's real Editor rather than imported, for the
+// same reason as VimSupportHost below.
+interface EditorBridge {
+	inTableCell: boolean;
+	getCursor(): VimPos;
+	getLine(line: number): string;
+}
+
+const getActiveEditor = (): EditorBridge | undefined =>
+	(window as unknown as { app?: { workspace?: { activeEditor?: { editor?: EditorBridge } } } })
+		.app?.workspace?.activeEditor?.editor;
+
 // Minimal shape VimSupport needs from the host plugin — kept structural (duck-typed)
 // rather than importing the concrete plugin class, so this module has no dependency
 // on main.ts and can be lifted out (e.g. into a separate plugin) without untangling.
 export interface VimSupportHost {
 	settings: { vimHlSupport: boolean };
 	saveSettings(): Promise<void>;
+	// editor/cellIndex are passed through untyped (see EditorBridge) — the host's
+	// real implementation casts back to its own Editor type internally.
+	crossTableRowForCell(editor: unknown, cellIndex: number, forward: boolean): void;
 }
 
 export class VimSupport {
@@ -155,9 +173,13 @@ export class VimSupport {
 	private lastReturnedPos: VimPos | null = null;
 
 	// Step 1 of j/k support: plain-text linewise movement with goal-column memory.
-	// Table-cell <br>/row-aware logic is added in later steps — until then this
-	// treats every buffer line as a plain document line, which is correct outside
-	// tables and merely not-yet-table-aware inside them.
+	// The inner EditorView for a table cell already models each <br>-delimited
+	// segment as its own doc line (confirmed empirically), so this same code,
+	// operating on whichever cm vim handed us, already gives correct <br>-aware
+	// in-cell movement for free — no separate table-cell branch needed for that
+	// part. What remains is: what happens when repeat carries head past this
+	// view's own line range (i.e. past the cell's first/last <br> segment) —
+	// that boundary case is handled by the crossing-test branch below.
 	private readonly moveByLines: VimMotionFn = (cm, head, motionArgs) => {
 		const vcm = cm as VimCm;
 
@@ -167,8 +189,13 @@ export class VimSupport {
 		const goalCh = continuing && this.goalCh !== null ? this.goalCh : head.ch;
 
 		const lastLine = vcm.lastLine();
-		const line = Math.max(0, Math.min(lastLine,
-			motionArgs.forward ? head.line + motionArgs.repeat : head.line - motionArgs.repeat));
+		const rawTargetLine = motionArgs.forward ? head.line + motionArgs.repeat : head.line - motionArgs.repeat;
+
+		if (rawTargetLine < 0 || rawTargetLine > lastLine) {
+			this.scheduleRowCrossingTest(motionArgs.forward);
+		}
+
+		const line = Math.max(0, Math.min(lastLine, rawTargetLine));
 		const ch = Math.min(goalCh, VimSupport.maxNormalModeCh(vcm.getLine(line)));
 
 		this.goalCh = goalCh;
@@ -176,6 +203,23 @@ export class VimSupport {
 		this.lastReturnedPos = result;
 		return result;
 	};
+
+	// HYPOTHESIS TEST ONLY — not yet real Phase 3 behavior (no goal-column
+	// carry-over, no multi-row repeat handling). Purpose: check whether calling
+	// the existing, already-reliable row-crossing primitive (the same one Ctrl-N/P
+	// use) from *outside* vim's synchronous motion call stack — via setTimeout 0 —
+	// avoids the clipCursorToContent crash seen earlier when row-crossing was
+	// attempted directly inside the motion function's own return.
+	private scheduleRowCrossingTest(forward: boolean): void {
+		setTimeout(() => {
+			const editor = getActiveEditor();
+			if (!editor || !editor.inTableCell) return;
+			const cursor = editor.getCursor();
+			const line = editor.getLine(cursor.line);
+			const cellIndex = getCellIndex(line, cursor.ch);
+			this.host.crossTableRowForCell(editor, cellIndex, forward);
+		}, 0);
+	}
 }
 
 export function renderVimSupportSetting(containerEl: HTMLElement, vim: VimSupport, rerender: () => void): void {
