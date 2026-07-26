@@ -5,8 +5,11 @@ import { getCellIndex } from './table-cell-utils';
 interface VimPos { line: number; ch: number }
 // wordEnd/bigWord are moveByWords' own args (w/b/e/W/B/E/ge/gE all share this
 // one motion, differing only by these two flags plus forward) — optional
-// since moveByCharacters/moveByLines never set them.
-interface VimMotionArgs { forward: boolean; repeat: number; wordEnd?: boolean; bigWord?: boolean }
+// since moveByCharacters/moveByLines never set them. repeatIsExplicit is
+// moveToLineOrEdgeOfDocument's own (gg/G) — true for a count-prefixed jump
+// (e.g. "5gg"), where repeat means the target line number itself rather than
+// "how many times".
+interface VimMotionArgs { forward: boolean; repeat: number; wordEnd?: boolean; bigWord?: boolean; repeatIsExplicit?: boolean }
 // vim.js's own evalInput calls motions as (cm, head, motionArgs, vim, inputState) —
 // inputState.operator is set (e.g. 'delete') when this motion is computing an
 // operator's range (e.g. "dw"), not a standalone cursor move (plain "w").
@@ -85,6 +88,7 @@ export interface VimSupportHost {
 		vimJoinSupport: boolean;
 		vimCaretSupport: boolean;
 		vimWordSupport: boolean;
+		vimGgSupport: boolean;
 		smartJoin: boolean;
 		smartHomeStandard: boolean;
 	};
@@ -110,6 +114,18 @@ export interface VimSupportHost {
 	// then refines to the nearest actual word boundary on that landed line
 	// before dispatching. Returns the outer {line, ch} landed on (or null).
 	crossTableRowForWord(editor: unknown, cellIndex: number, forward: boolean, bigWord: boolean, wordEnd: boolean): { line: number; ch: number } | null;
+	// Vim's gg/G (and count-prefixed "5gg"/"5G"). explicitLine is the
+	// 0-indexed absolute target line for a count-prefixed jump (null for
+	// plain gg/G, which targets the document's own first/last line). Checks
+	// whether the target line is itself a table row (isPositionInTable) and,
+	// if so, reuses enterTableAtLine to land inside that row's leftmost cell
+	// rather than on its raw markdown text — a note that happens to start or
+	// end with a table, or a "50gg" landing inside one elsewhere in the
+	// document, are both real possibilities worth getting right, not just the
+	// "currently inside a cell, exiting" case. Otherwise lands at the smart
+	// (Smart Home aware) position via setCursorViaCm. Returns the outer
+	// {line, ch} landed on (or null).
+	jumpToDocumentLine(editor: unknown, forward: boolean, explicitLine: number | null): { line: number; ch: number } | null;
 	// Full (syntax-tree-based) table-membership check — confirms a cheap textual
 	// pre-filter before committing to a table-entry landing (see scheduleTableEntry).
 	isLinePartOfTable(editor: unknown, line: number, ch: number): boolean;
@@ -142,6 +158,7 @@ export class VimSupport {
 		if (this.host.settings.vimJoinSupport) this.applyJoin();
 		if (this.host.settings.vimCaretSupport) this.applyCaret();
 		if (this.host.settings.vimWordSupport) this.applyWords();
+		if (this.host.settings.vimGgSupport) this.applyGg();
 	}
 
 	// Call from the plugin's onunload(). Best-effort only — see each restore*'s own caveat.
@@ -151,6 +168,7 @@ export class VimSupport {
 		this.restoreJoin();
 		this.restoreCaret();
 		this.restoreWords();
+		this.restoreGg();
 	}
 
 	setHlEnabled(on: boolean): void {
@@ -171,6 +189,10 @@ export class VimSupport {
 
 	setWordsEnabled(on: boolean): void {
 		this.setFeature(on, v => { this.host.settings.vimWordSupport = v; }, () => this.applyWords(), () => this.restoreWords());
+	}
+
+	setGgEnabled(on: boolean): void {
+		this.setFeature(on, v => { this.host.settings.vimGgSupport = v; }, () => this.applyGg(), () => this.restoreGg());
 	}
 
 	// Turning on is reliable and immediate. Turning off calls the restore-target
@@ -258,6 +280,14 @@ export class VimSupport {
 
 	private restoreWords(): void {
 		getVim()?.defineMotion('moveByWords', VimSupport.VIM_DEFAULT_MOVE_BY_WORDS);
+	}
+
+	private applyGg(): void {
+		getVim()?.defineMotion('moveToLineOrEdgeOfDocument', this.moveToLineOrEdgeOfDocument);
+	}
+
+	private restoreGg(): void {
+		getVim()?.defineMotion('moveToLineOrEdgeOfDocument', VimSupport.VIM_DEFAULT_MOVE_TO_LINE_OR_EDGE);
 	}
 
 	// --- w/b/e (moveByWords) — faithful port of vim.js's own word-motion
@@ -463,6 +493,71 @@ export class VimSupport {
 			// Word-motion has no goal-column concept to resync (unlike j/k) —
 			// nothing further needed once the crossing itself has landed.
 			void landedOuter;
+		}, 0);
+	}
+
+	// --- gg/G (moveToLineOrEdgeOfDocument) — ports vim.js's own logic
+	// exactly, but the *current* cm's own firstLine()/lastLine() only span
+	// the current view — the whole document's when in plain text (already
+	// correct, matching the same reasoning that ruled out fixing 0/$), but
+	// only the current table cell's own <br>-segment range when inside one
+	// (the real gap: gg/G should always reach the actual document's own
+	// first/last line, per this session's design). Always defers to a host
+	// round-trip (jumpToDocumentLine) rather than only on a boundary hit —
+	// unlike w/b/e, even an *already-correct* plain-text landing still needs
+	// the host's table-membership check (the target line itself might happen
+	// to be a table row, e.g. a note that starts/ends with one, or a
+	// count-prefixed "50gg" landing inside one elsewhere in the document).
+
+	// Restore target — vim.js's own default, hardcoded for the same reason as
+	// VIM_DEFAULT_MOVE_BY_CHARACTERS. No table-awareness: matches vim.js's
+	// real (un-enhanced) behavior, clamped within whatever cm it's handed.
+	private static readonly VIM_DEFAULT_MOVE_TO_LINE_OR_EDGE: VimMotionFn = (cm, _head, motionArgs) => {
+		const vcm = cm as VimCm;
+		const lastLine = vcm.lastLine();
+		const rawLine = motionArgs.repeatIsExplicit ? motionArgs.repeat - 1 : (motionArgs.forward ? lastLine : 0);
+		const line = Math.max(0, Math.min(rawLine, lastLine));
+		return { line, ch: VimSupport.findFirstNonWhiteSpaceCharacter(vcm.getLine(line)) };
+	};
+
+	// Live gg/G. Synchronous return mirrors the default (safe, clamped within
+	// the current cm) *unless* the target line's raw text looks like a table
+	// row (cheap textual pre-filter — same shortcut moveByLines' own
+	// plain-text-to-table walk uses; the host's deferred jump does the real,
+	// syntax-tree-confirmed check). Landing vim.js's own synchronous cursor
+	// dispatch directly inside table markdown text triggers Obsidian's own
+	// auto-creation of that cell's inner view — a *second*, independent
+	// transition racing the deferred jumpToDocumentLine call a tick later,
+	// which corrupted vim's own internal state (crashed in exitInsertMode).
+	// Staying at the unchanged head instead avoids ever landing there
+	// synchronously; the deferred call still performs the real jump either way.
+	// Suppressed when an operator is pending (e.g. "dgg"/"dG"), for the same
+	// reason as moveByWords/moveByLines' own guards: this call would then
+	// only be computing the operator's linewise range, not actually moving
+	// the cursor.
+	private readonly moveToLineOrEdgeOfDocument: VimMotionFn = (cm, head, motionArgs, _vim, inputState) => {
+		const vcm = cm as VimCm;
+		const forward = motionArgs.forward;
+		const lastLine = vcm.lastLine();
+		const rawLine = motionArgs.repeatIsExplicit ? motionArgs.repeat - 1 : (forward ? lastLine : 0);
+		const line = Math.max(0, Math.min(rawLine, lastLine));
+		const targetLineText = vcm.getLine(line);
+		const looksLikeTableRow = targetLineText.trimStart().startsWith('|');
+		const safePos = looksLikeTableRow
+			? head
+			: { line, ch: VimSupport.findFirstNonWhiteSpaceCharacter(targetLineText) };
+		if (!inputState?.operator) {
+			const explicitLine = motionArgs.repeatIsExplicit ? motionArgs.repeat - 1 : null;
+			this.scheduleDocumentEdgeJump(forward, explicitLine);
+		}
+		return safePos;
+	};
+
+	private scheduleDocumentEdgeJump(forward: boolean, explicitLine: number | null): void {
+		window.setTimeout(() => {
+			const editor = getActiveEditor();
+			if (!editor) return;
+			this.host.jumpToDocumentLine(editor, forward, explicitLine);
 		}, 0);
 	}
 

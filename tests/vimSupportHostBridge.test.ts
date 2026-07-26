@@ -22,6 +22,11 @@ function makeStatefulEditor(lines: string[], initialCursor: { line: number; ch: 
 		replaceRange: vi.fn((_text: string, from: any) => {
 			buf.splice(from.line + 1, 0, '')
 		}),
+		// Only used directly by jumpToDocumentLine's own scroll-into-view
+		// follow-up dispatch — every other landing goes through
+		// plugin.setCursorViaCm, which is itself mocked out below.
+		posToOffset: vi.fn((pos: { line: number; ch: number }) => pos.line * 1000 + pos.ch),
+		cm: { dispatch: vi.fn() },
 		_setCursor: (c: { line: number; ch: number }) => { cursor = c },
 		_buf: buf,
 	}
@@ -308,6 +313,67 @@ describe('VimSupportHost bridge (main.ts)', () => {
 			const editor = {}
 			expect(plugin.isLinePartOfTable(editor, 3, 1)).toBe(true)
 			expect(plugin.isPositionInTable).toHaveBeenCalledWith(editor, 3, 1)
+		})
+	})
+
+	// ===========================================================================
+	// jumpToDocumentLine (Vim gg/G)
+	// ===========================================================================
+
+	describe('jumpToDocumentLine', () => {
+		beforeEach(() => {
+			plugin.settings = { smartHomeStandard: false }
+		})
+
+		it('lands at the smart position on a non-table target line (smartHomeStandard off -> vim-native whitespace skip)', () => {
+			const editor = makeStatefulEditor(['first', '  middle', 'last'], { line: 0, ch: 0 })
+			plugin.isPositionInTable = vi.fn().mockReturnValue(false)
+			const result = plugin.jumpToDocumentLine(editor, true, 1)
+			expect(result).toEqual({ line: 1, ch: 2 })
+		})
+
+		it('uses getBeginningOfLinePosition when smartHomeStandard is on', () => {
+			plugin.settings = { smartHomeStandard: true }
+			plugin.getBeginningOfLinePosition = vi.fn().mockReturnValue(4)
+			const editor = makeStatefulEditor(['first', '- list item', 'last'], { line: 0, ch: 0 })
+			plugin.isPositionInTable = vi.fn().mockReturnValue(false)
+			const result = plugin.jumpToDocumentLine(editor, true, 1)
+			expect(plugin.getBeginningOfLinePosition).toHaveBeenCalledWith('- list item', '- list item'.length)
+			expect(result).toEqual({ line: 1, ch: 4 })
+		})
+
+		it('follows up with a scrollIntoView dispatch after landing', () => {
+			const editor = makeStatefulEditor(['first', '  middle', 'last'], { line: 0, ch: 0 })
+			plugin.isPositionInTable = vi.fn().mockReturnValue(false)
+			plugin.jumpToDocumentLine(editor, true, 1)
+			expect(editor.cm.dispatch).toHaveBeenCalledWith(
+				expect.objectContaining({ scrollIntoView: true }),
+			)
+		})
+
+		it('reuses enterTableAtLine when the target line is a table row', () => {
+			const editor = makeStatefulEditor(['plain', '| a |'], { line: 0, ch: 0 })
+			plugin.isPositionInTable = vi.fn().mockReturnValue(true)
+			const result = plugin.jumpToDocumentLine(editor, true, 1)
+			expect(result).toEqual({ line: 1, ch: 2 })
+		})
+
+		it('"2G" and "2gg" land identically when the target is a delimiter row', () => {
+			// Regression: enterTableAtLine's own forward param controls which
+			// way a delimiter-row landing redirects (next row vs previous) —
+			// jumpToDocumentLine used to pass the *keystroke's* own forward
+			// (G=true, gg=false) straight through, so "2G"/"2gg" (which target
+			// the identical absolute line) landed in different places. gg/G's
+			// own landing is always "start of content" regardless of
+			// direction, so this must always redirect forward regardless of
+			// which key was actually pressed.
+			plugin.isPositionInTable = vi.fn().mockReturnValue(true)
+			const editorForG = makeStatefulEditor(['| header |', '| --- |', '| data |'], { line: 0, ch: 0 })
+			const resultG = plugin.jumpToDocumentLine(editorForG, true, 1) // "2G"
+			const editorForGg = makeStatefulEditor(['| header |', '| --- |', '| data |'], { line: 0, ch: 0 })
+			const resultGg = plugin.jumpToDocumentLine(editorForGg, false, 1) // "2gg"
+			expect(resultG).toEqual({ line: 2, ch: 2 }) // redirected to the data row
+			expect(resultGg).toEqual(resultG)
 		})
 	})
 })

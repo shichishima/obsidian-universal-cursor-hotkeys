@@ -466,6 +466,22 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				}));
 		vimSectionEls.push(words.settingEl);
 
+		const gg = new Setting(containerEl)
+			.setClass('uch-vim-item')
+			.then(setting => {
+				this.setKeyChipName(setting, ['gg', 'G'], 'Document start/end')
+				this.setHtmlDesc(setting, '' +
+					'<b>ON:</b> Always reaches the note\'s actual first/last line — including exiting a table cell entirely, and landing correctly inside a table row if the note happens to start or end with one.<br>' +
+					'<b>OFF:</b> Vim\'s own native <span class="uch-kbd">gg</span> <span class="uch-kbd">G</span>, unchanged — stops at the current table cell\'s own boundary instead of reaching the note\'s real start/end.');
+			})
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.vimGgSupport)
+				.onChange((value) => {
+					this.plugin.vimSupport.setGgEnabled(value);
+					this.display();
+				}));
+		vimSectionEls.push(gg.settingEl);
+
 		const caret = new Setting(containerEl)
 			.setClass('uch-vim-item')
 			.then(setting => {

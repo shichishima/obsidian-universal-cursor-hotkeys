@@ -34,10 +34,11 @@ function makeVimCm(lines: string[], cursor: { line: number; ch: number }, visual
 }
 
 const makeHost = (overrides: Partial<VimSupportHost> = {}): VimSupportHost => ({
-	settings: { vimHlSupport: false, vimJkSupport: false, vimJoinSupport: false, vimCaretSupport: false, vimWordSupport: false, smartJoin: false, smartHomeStandard: false },
+	settings: { vimHlSupport: false, vimJkSupport: false, vimJoinSupport: false, vimCaretSupport: false, vimWordSupport: false, vimGgSupport: false, smartJoin: false, smartHomeStandard: false },
 	saveSettings: async () => {},
 	crossTableRowForCell: vi.fn().mockReturnValue(null),
 	crossTableRowForWord: vi.fn().mockReturnValue(null),
+	jumpToDocumentLine: vi.fn().mockReturnValue(null),
 	isLinePartOfTable: vi.fn().mockReturnValue(false),
 	enterTableAtLine: vi.fn().mockReturnValue(null),
 	getBeginningOfLinePosition: vi.fn().mockReturnValue(0),
@@ -74,7 +75,7 @@ describe('Vim J (joinLines)', () => {
 	describe('smartJoin on — Markdown-aware stripping, still space-joined', () => {
 		it('strips the next line\'s leading Markdown syntax via getBeginningOfLinePosition', () => {
 			// '- item' -> strip 2 chars ('- ') to reach 'item'.
-			const host = makeHost({ settings: { vimHlSupport: false, vimJkSupport: false, vimJoinSupport: false, vimCaretSupport: false, vimWordSupport: false, smartJoin: true, smartHomeStandard: false }, getBeginningOfLinePosition: () => 2 })
+			const host = makeHost({ settings: { vimHlSupport: false, vimJkSupport: false, vimJoinSupport: false, vimCaretSupport: false, vimWordSupport: false, vimGgSupport: false, smartJoin: true, smartHomeStandard: false }, getBeginningOfLinePosition: () => 2 })
 			const vim = new VimSupport(host) as any
 			const cm = makeVimCm(['hello', '- item'], { line: 0, ch: 0 })
 			vim.joinLines(cm, { repeat: 1 }, undefined)
@@ -84,7 +85,7 @@ describe('Vim J (joinLines)', () => {
 		it('still inserts a space even when the stripped remainder is empty', () => {
 			// Unlike the off path, on always inserts the space — regardless of
 			// whether anything is left after stripping.
-			const host = makeHost({ settings: { vimHlSupport: false, vimJkSupport: false, vimJoinSupport: false, vimCaretSupport: false, vimWordSupport: false, smartJoin: true, smartHomeStandard: false }, getBeginningOfLinePosition: () => 2 })
+			const host = makeHost({ settings: { vimHlSupport: false, vimJkSupport: false, vimJoinSupport: false, vimCaretSupport: false, vimWordSupport: false, vimGgSupport: false, smartJoin: true, smartHomeStandard: false }, getBeginningOfLinePosition: () => 2 })
 			const vim = new VimSupport(host) as any
 			const cm = makeVimCm(['hello', '- '], { line: 0, ch: 0 })
 			vim.joinLines(cm, { repeat: 1 }, undefined)
@@ -92,7 +93,7 @@ describe('Vim J (joinLines)', () => {
 		})
 
 		it('applies inside a table cell\'s <br>-segment lines the same way', () => {
-			const host = makeHost({ settings: { vimHlSupport: false, vimJkSupport: false, vimJoinSupport: false, vimCaretSupport: false, vimWordSupport: false, smartJoin: true, smartHomeStandard: false }, getBeginningOfLinePosition: () => 2 })
+			const host = makeHost({ settings: { vimHlSupport: false, vimJkSupport: false, vimJoinSupport: false, vimCaretSupport: false, vimWordSupport: false, vimGgSupport: false, smartJoin: true, smartHomeStandard: false }, getBeginningOfLinePosition: () => 2 })
 			const vim = new VimSupport(host) as any
 			// Inner view already models <br>-segments as separate lines (established
 			// elsewhere) — same join logic applies with no table-specific branch.

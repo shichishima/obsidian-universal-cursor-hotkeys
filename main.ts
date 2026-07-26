@@ -34,6 +34,7 @@ interface UniversalCursorHotkeysSettings {
 	vimJoinSupport: boolean;
 	vimCaretSupport: boolean;
 	vimWordSupport: boolean;
+	vimGgSupport: boolean;
 	vimSectionVisible: boolean;
 	// Whether the settings tab has already auto-expanded the Vim support
 	// section once in response to Obsidian's own "Vim key bindings" core
@@ -56,6 +57,7 @@ const DEFAULT_SETTINGS: UniversalCursorHotkeysSettings = {
 	vimJoinSupport: false,
 	vimCaretSupport: false,
 	vimWordSupport: false,
+	vimGgSupport: false,
 	vimSectionVisible: false,
 	vimAutoExpandDone: false,
 };
@@ -2200,6 +2202,58 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const landed = this.landInCellSegment(e, startLine, targetCellIndex, forward, 0, forward ? 0 : Number.MAX_SAFE_INTEGER);
 		if (!landed) return null;
 		return this.refineWordLanding(e, landed, forward, bigWord, wordEnd);
+	}
+
+	// Vim's gg/G (and count-prefixed "5gg"/"5G"). explicitLine is the
+	// 0-indexed absolute target line for a count-prefixed jump; null targets
+	// the document's own first/last line. Checks whether the target is itself
+	// a table row and, if so, reuses enterTableAtLine to land inside that
+	// row's leftmost cell rather than on its raw markdown text.
+	jumpToDocumentLine(editor: unknown, forward: boolean, explicitLine: number | null): { line: number; ch: number } | null {
+		const e = editor as Editor;
+		const lastLine = e.lineCount() - 1;
+		const targetLine = explicitLine !== null
+			? Math.max(0, Math.min(explicitLine, lastLine))
+			: (forward ? lastLine : 0);
+
+		let result: { line: number; ch: number } | null;
+		if (this.isPositionInTable(e, targetLine, 1)) {
+			// gg/G always land at the *start* of the target line's content
+			// (first non-blank), regardless of forward/backward — so an
+			// explicit-count jump ("2gg"/"2G") landing on the same target
+			// line must land identically either way. enterTableAtLine's own
+			// forward param controls its delimiter-row redirect direction
+			// (and which <br>-segment to land on) — hardcoding true here
+			// (not the keystroke's own forward) keeps that landing consistent
+			// regardless of which key was actually pressed.
+			result = this.enterTableAtLine(e, targetLine, 0, true, 0, 0);
+		} else {
+			const lineText = e.getLine(targetLine);
+			// Same std/adv-aware position `^` itself uses when Smart home
+			// (standard) is on; vim's own native whitespace-only skip otherwise —
+			// matches moveToFirstNonWhiteSpaceCharacter's own two-path design
+			// (getBeginningOfLinePosition hardcodes 0, not whitespace-skip, when
+			// smartHomeStandard is off, so it can't be used unconditionally here).
+			const targetCh = this.settings.smartHomeStandard
+				? this.getBeginningOfLinePosition(lineText, lineText.length || 1)
+				: (lineText.search(/\S/) === -1 ? lineText.length : lineText.search(/\S/));
+			this.setCursorViaCm(e, targetLine, targetCh);
+			result = { line: targetLine, ch: targetCh };
+		}
+
+		// gg/G can jump across the whole document — unlike the short,
+		// already-on-screen hops setCursorViaCm's other callers make (row/
+		// cell crossings), this one needs an explicit scroll-into-view.
+		// setCursorViaCm itself doesn't request one (left as-is to avoid
+		// changing behavior for its other, already-working callers); done as
+		// its own follow-up dispatch to the same (already landed-on)
+		// position instead.
+		if (result) {
+			const cm = e.cm;
+			const pos = e.posToOffset(result);
+			cm.dispatch({ selection: { anchor: pos, head: pos }, scrollIntoView: true, userEvent: 'move' });
+		}
+		return result;
 	}
 
 	// Full (syntax-tree-based) table-membership check, same one Ctrl-N/P's own
