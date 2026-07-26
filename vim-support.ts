@@ -15,6 +15,7 @@ type VimActionFn = (cm: unknown, actionArgs: VimActionArgs, vim?: unknown) => vo
 interface VimApi {
 	defineMotion(name: string, fn: VimMotionFn): void;
 	defineAction(name: string, fn: VimActionFn): void;
+	exitVisualMode(cm: unknown, moveHead?: boolean): void;
 }
 interface VimCm {
 	getLine(line: number): string;
@@ -261,6 +262,13 @@ export class VimSupport {
 			vcm.replaceRange(text, { line: curStart.line, ch: finalCh }, { line: curStart.line + 1, ch: nextStartCh });
 		}
 		vcm.setCursor({ line: curStart.line, ch: finalCh });
+
+		// Mirror vim.js's own joinLines: leave Visual mode once the join is
+		// done. Without this, the editor stays in Visual mode afterwards,
+		// where e.g. 'u' means "lowercase selection", not undo.
+		if (vim?.visualMode) {
+			getVim()?.exitVisualMode(vcm, false);
+		}
 	}
 
 	// Hardcoded default for 'moveByLines' (see VIM_DEFAULT_MOVE_BY_CHARACTERS for why
