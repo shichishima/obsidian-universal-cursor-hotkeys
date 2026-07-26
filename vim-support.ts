@@ -63,13 +63,19 @@ export interface VimSupportHost {
 	// the same underlying stripping logic (getBeginningOfLinePosition) rather
 	// than introducing a separate setting, applying regardless of whether J is
 	// used inside or outside a table cell.
-	settings: { vimHlSupport: boolean; smartJoin: boolean };
+	// smartHomeStandard gates Vim's `^` override the same way it gates the
+	// physical Home key: off leaves `^` as vim's own native (whitespace-only)
+	// behavior untouched; on (whether smartHomeAdvanced is also on or not)
+	// routes through getBeginningOfLinePosition, whose own std/adv branching
+	// then applies with no extra logic needed here.
+	settings: { vimHlSupport: boolean; smartJoin: boolean; smartHomeStandard: boolean };
 	saveSettings(): Promise<void>;
 	// Markdown-aware "smart" line-start position (list markers, blockquotes,
 	// headings, etc. — see main.ts's own doc comment), used by Vim's J when
-	// smartJoin is on. Returns 0 (no stripping) when Smart Home itself
-	// (settings.smartHomeStandard) is off — J's smart-join enhancement is built
-	// on the same position-detection logic, so it naturally goes quiet too.
+	// smartJoin is on, and by Vim's `^` when smartHomeStandard is on. Returns 0
+	// (no stripping) when Smart Home itself (settings.smartHomeStandard) is off
+	// — J's smart-join enhancement is built on the same position-detection
+	// logic, so it naturally goes quiet too.
 	getBeginningOfLinePosition(line: string, ch: number): number;
 	// editor/cellIndex are passed through untyped (see EditorBridge) — the host's
 	// real implementation casts back to its own Editor type internally. goalCh is
@@ -175,6 +181,7 @@ export class VimSupport {
 		getVim()?.defineMotion('moveByCharacters', this.moveByCharacters);
 		getVim()?.defineMotion('moveByLines', this.moveByLines);
 		getVim()?.defineAction('joinLines', this.joinLines);
+		getVim()?.defineMotion('moveToFirstNonWhiteSpaceCharacter', this.moveToFirstNonWhiteSpaceCharacter);
 	}
 
 	// Best-effort restore — see the liveApplied field's own note: this does not
@@ -184,7 +191,41 @@ export class VimSupport {
 		getVim()?.defineMotion('moveByCharacters', VimSupport.VIM_DEFAULT_MOVE_BY_CHARACTERS);
 		getVim()?.defineMotion('moveByLines', VimSupport.VIM_DEFAULT_MOVE_BY_LINES);
 		getVim()?.defineAction('joinLines', VimSupport.VIM_DEFAULT_JOIN_LINES);
+		getVim()?.defineMotion('moveToFirstNonWhiteSpaceCharacter', VimSupport.VIM_DEFAULT_MOVE_TO_FIRST_NON_WS);
 	}
+
+	// vim.js's own findFirstNonWhiteSpaceCharacter: first non-whitespace char,
+	// or line end if the line is entirely whitespace. Shared by the live
+	// override's off-path (smartHomeStandard off — vim's native `^` must stay
+	// untouched) and the hardcoded restore-target default below.
+	private static findFirstNonWhiteSpaceCharacter(line: string): number {
+		const firstNonWs = line.search(/\S/);
+		return firstNonWs === -1 ? line.length : firstNonWs;
+	}
+
+	// Restore target for `^` on toggle-off/unload — vim.js's own default,
+	// hardcoded for the same reason as VIM_DEFAULT_MOVE_BY_CHARACTERS.
+	private static readonly VIM_DEFAULT_MOVE_TO_FIRST_NON_WS: VimMotionFn = (cm, head) => {
+		const line = (cm as VimCm).getLine(head.line);
+		return { line: head.line, ch: VimSupport.findFirstNonWhiteSpaceCharacter(line) };
+	};
+
+	// Vim's `^`. When smartHomeStandard is off, vim's own native behavior is
+	// left untouched (whitespace-only skip) — unlike J's smartJoin, there is no
+	// "off means UCH's own position logic" here, since getBeginningOfLinePosition
+	// itself hardcodes 0 when smartHomeStandard is off (matching the physical
+	// Home key's own off-state, which is vim's `0` — not `^`). When on (std or
+	// adv — getBeginningOfLinePosition's own branching covers that), route
+	// through the same Markdown-aware position Home/J already use, called with
+	// line.length as ch so it always resolves past any prefix (non-toggling,
+	// matching vim's own non-toggling `^`).
+	private readonly moveToFirstNonWhiteSpaceCharacter: VimMotionFn = (cm, head) => {
+		const line = (cm as VimCm).getLine(head.line);
+		if (!this.host.settings.smartHomeStandard) {
+			return { line: head.line, ch: VimSupport.findFirstNonWhiteSpaceCharacter(line) };
+		}
+		return { line: head.line, ch: this.host.getBeginningOfLinePosition(line, line.length || 1) };
+	};
 
 	// Vim's own joinLines default (see VIM_DEFAULT_MOVE_BY_CHARACTERS for why this
 	// must be hardcoded rather than captured) — restore target for J on
