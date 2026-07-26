@@ -11,7 +11,8 @@ import { installVimWindow, uninstallVimWindow, type FakeEditor } from './__helpe
 // ephemeral inner views, and Tab-jump coincidental {line,ch} matches).
 
 const makeHost = (overrides: Partial<VimSupportHost> = {}): VimSupportHost => ({
-	settings: { vimHlSupport: false },
+	settings: { vimHlSupport: false, smartJoin: false },
+	getBeginningOfLinePosition: () => 0,
 	saveSettings: async () => {},
 	crossTableRowForCell: vi.fn().mockReturnValue(null),
 	isLinePartOfTable: vi.fn().mockReturnValue(false),
