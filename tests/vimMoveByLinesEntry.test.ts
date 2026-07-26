@@ -10,10 +10,11 @@ import { installVimWindow, uninstallVimWindow, type FakeEditor } from './__helpe
 // here — 3j/4j/5j against the same fixture that caught it.
 
 const makeHost = (overrides: Partial<VimSupportHost> = {}): VimSupportHost => ({
-	settings: { vimHlSupport: false, vimJkSupport: false, vimJoinSupport: false, vimCaretSupport: false, smartJoin: false, smartHomeStandard: false },
+	settings: { vimHlSupport: false, vimJkSupport: false, vimJoinSupport: false, vimCaretSupport: false, vimWordSupport: false, smartJoin: false, smartHomeStandard: false },
 	getBeginningOfLinePosition: () => 0,
 	saveSettings: async () => {},
 	crossTableRowForCell: vi.fn().mockReturnValue(null),
+	crossTableRowForWord: vi.fn().mockReturnValue(null),
 	isLinePartOfTable: vi.fn().mockReturnValue(true),
 	enterTableAtLine: vi.fn().mockReturnValue(null),
 	...overrides,
