@@ -1,4 +1,3 @@
-import { Setting, sanitizeHTMLToDom } from 'obsidian';
 import { findClusterBreak } from '@codemirror/state';
 import { getCellIndex } from './table-cell-utils';
 
@@ -68,7 +67,14 @@ export interface VimSupportHost {
 	// behavior untouched; on (whether smartHomeAdvanced is also on or not)
 	// routes through getBeginningOfLinePosition, whose own std/adv branching
 	// then applies with no extra logic needed here.
-	settings: { vimHlSupport: boolean; smartJoin: boolean; smartHomeStandard: boolean };
+	settings: {
+		vimHlSupport: boolean;
+		vimJkSupport: boolean;
+		vimJoinSupport: boolean;
+		vimCaretSupport: boolean;
+		smartJoin: boolean;
+		smartHomeStandard: boolean;
+	};
 	saveSettings(): Promise<void>;
 	// Markdown-aware "smart" line-start position (list markers, blockquotes,
 	// headings, etc. — see main.ts's own doc comment), used by Vim's J when
@@ -98,52 +104,60 @@ export interface VimSupportHost {
 export class VimSupport {
 	private readonly host: VimSupportHost;
 
-	// Not persisted — whether the Vim h/l override is actually active in the
-	// current running session. Re-enabling always works live; disabling does not
-	// (see restoreHlOverride), so this only ever flips true → it goes back to
-	// false only via a fresh app start where settings.vimHlSupport is already off.
-	liveApplied = false;
+	// Session-only (not persisted) — set once any feature is turned off, since
+	// restoring vim's own default doesn't reliably take effect mid-session (see
+	// each restore*'s own caveat). Turning that same feature (or another) back on
+	// afterward does *not* clear this — once a restart is genuinely needed to
+	// guarantee a clean state, it stays needed for the rest of the session.
+	needsRestart = false;
 
 	constructor(host: VimSupportHost) {
 		this.host = host;
 	}
 
-	get wantsOn(): boolean {
-		return this.host.settings.vimHlSupport;
-	}
-
 	// Call from the plugin's onload().
 	setup(): void {
-		if (this.host.settings.vimHlSupport) {
-			this.applyHlOverride();
-			this.liveApplied = true;
-		}
+		if (this.host.settings.vimHlSupport) this.applyHl();
+		if (this.host.settings.vimJkSupport) this.applyJk();
+		if (this.host.settings.vimJoinSupport) this.applyJoin();
+		if (this.host.settings.vimCaretSupport) this.applyCaret();
 	}
 
-	// Call from the plugin's onunload(). Best-effort only — see restoreHlOverride's own caveat.
+	// Call from the plugin's onunload(). Best-effort only — see each restore*'s own caveat.
 	teardown(): void {
-		this.restoreHlOverride();
+		this.restoreHl();
+		this.restoreJk();
+		this.restoreJoin();
+		this.restoreCaret();
 	}
 
-	// State A -> B. Applies immediately; reliable.
-	enableHlSupport(): void {
-		this.host.settings.vimHlSupport = true;
-		this.applyHlOverride();
-		this.liveApplied = true;
-		void this.host.saveSettings();
+	setHlEnabled(on: boolean): void {
+		this.setFeature(on, v => { this.host.settings.vimHlSupport = v; }, () => this.applyHl(), () => this.restoreHl());
 	}
 
-	// State B -> C. Does not touch the live override (disabling isn't reliable
-	// mid-session) — only schedules it to stay off from the next app start.
-	scheduleDisableHlSupport(): void {
-		this.host.settings.vimHlSupport = false;
-		void this.host.saveSettings();
+	setJkEnabled(on: boolean): void {
+		this.setFeature(on, v => { this.host.settings.vimJkSupport = v; }, () => this.applyJk(), () => this.restoreJk());
 	}
 
-	// State C -> B. The override was never actually removed, so this is just
-	// cancelling the pending disable — reliable, no re-apply needed.
-	cancelDisableHlSupport(): void {
-		this.host.settings.vimHlSupport = true;
+	setJoinEnabled(on: boolean): void {
+		this.setFeature(on, v => { this.host.settings.vimJoinSupport = v; }, () => this.applyJoin(), () => this.restoreJoin());
+	}
+
+	setCaretEnabled(on: boolean): void {
+		this.setFeature(on, v => { this.host.settings.vimCaretSupport = v; }, () => this.applyCaret(), () => this.restoreCaret());
+	}
+
+	// Turning on is reliable and immediate. Turning off calls the restore-target
+	// default, but per the caveat on each restore* function, that isn't guaranteed
+	// to fully take effect until an app reload — so needsRestart latches on.
+	private setFeature(on: boolean, setFlag: (v: boolean) => void, apply: () => void, restore: () => void): void {
+		setFlag(on);
+		if (on) {
+			apply();
+		} else {
+			restore();
+			this.needsRestart = true;
+		}
 		void this.host.saveSettings();
 	}
 
@@ -177,20 +191,38 @@ export class VimSupport {
 		return { line: head.line, ch };
 	};
 
-	private applyHlOverride(): void {
+	private applyHl(): void {
 		getVim()?.defineMotion('moveByCharacters', this.moveByCharacters);
+	}
+
+	// Best-effort restore — see needsRestart's own note: this does not reliably
+	// take effect within a running session (cause unconfirmed), so a restart is
+	// always offered as the guaranteed fix rather than relying on this alone.
+	private restoreHl(): void {
+		getVim()?.defineMotion('moveByCharacters', VimSupport.VIM_DEFAULT_MOVE_BY_CHARACTERS);
+	}
+
+	private applyJk(): void {
 		getVim()?.defineMotion('moveByLines', this.moveByLines);
+	}
+
+	private restoreJk(): void {
+		getVim()?.defineMotion('moveByLines', VimSupport.VIM_DEFAULT_MOVE_BY_LINES);
+	}
+
+	private applyJoin(): void {
 		getVim()?.defineAction('joinLines', this.joinLines);
+	}
+
+	private restoreJoin(): void {
+		getVim()?.defineAction('joinLines', VimSupport.VIM_DEFAULT_JOIN_LINES);
+	}
+
+	private applyCaret(): void {
 		getVim()?.defineMotion('moveToFirstNonWhiteSpaceCharacter', this.moveToFirstNonWhiteSpaceCharacter);
 	}
 
-	// Best-effort restore — see the liveApplied field's own note: this does not
-	// reliably take effect within a running session (cause unconfirmed), so it
-	// is only ever called from teardown(), never exposed as a live "disable" action.
-	private restoreHlOverride(): void {
-		getVim()?.defineMotion('moveByCharacters', VimSupport.VIM_DEFAULT_MOVE_BY_CHARACTERS);
-		getVim()?.defineMotion('moveByLines', VimSupport.VIM_DEFAULT_MOVE_BY_LINES);
-		getVim()?.defineAction('joinLines', VimSupport.VIM_DEFAULT_JOIN_LINES);
+	private restoreCaret(): void {
 		getVim()?.defineMotion('moveToFirstNonWhiteSpaceCharacter', VimSupport.VIM_DEFAULT_MOVE_TO_FIRST_NON_WS);
 	}
 
@@ -467,6 +499,20 @@ export class VimSupport {
 		const result = { line, ch };
 		this.lastReturnedPos = result;
 		this.lastCm = cm;
+
+		// Temporary diagnostic for an intermittent "single j/k moves 2 lines"
+		// report — not yet reproduced on demand. Silent unless
+		// window.__uchVimDebug is set (e.g. from the DevTools console).
+		// Remove once root-caused.
+		if ((window as unknown as { __uchVimDebug?: boolean }).__uchVimDebug) {
+			console.debug('[UCH vim j/k]', {
+				headIn: head, repeat: motionArgs.repeat, forward: motionArgs.forward,
+				inTableCell: editorNow?.inTableCell ?? false,
+				continuingInner, continuingOuter, goalCh, goalCellIndex,
+				result,
+			});
+		}
+
 		return result;
 	};
 
@@ -570,47 +616,5 @@ export class VimSupport {
 		this.lastOuterPos = landedOuter;
 		this.goalCh = goalCh;
 		this.goalCellIndex = goalCellIndex;
-	}
-}
-
-export function renderVimSupportSetting(containerEl: HTMLElement, vim: VimSupport, rerender: () => void): void {
-	// State A: never enabled this session. B: enabled and live. C: disable scheduled for next restart.
-	const state: 'A' | 'B' | 'C' = !vim.liveApplied ? 'A' : (vim.wantsOn ? 'B' : 'C');
-
-	const baseDesc = 'Fixes two native bugs in Obsidian\'s Vim mode inside Live Preview table cells — ' +
-		'h/l miscounting multi-byte characters (e.g. emoji), and h/l incorrectly jumping to the adjacent ' +
-		'cell instead of stopping at the line boundary.<br>' +
-		'Off by default: if you already customize h/l via your own vimrc or another Vim plugin, enabling this will override that.';
-
-	const setting = new Setting(containerEl).setName('Vim h/l support (experimental)');
-	const setDesc = (html: string) => setting.setDesc(sanitizeHTMLToDom(html));
-
-	if (state === 'A') {
-		setDesc(baseDesc);
-		setting.addButton(btn => btn
-			.setButtonText('Enable')
-			.setCta()
-			.onClick(() => {
-				vim.enableHlSupport();
-				rerender();
-			}));
-	} else if (state === 'B') {
-		setDesc('✅ <b>Enabled</b> — takes effect immediately.<br>' + baseDesc);
-		setting.addButton(btn => btn
-			.setButtonText('Disable (after restart)')
-			.setCta()
-			.onClick(() => {
-				vim.scheduleDisableHlSupport();
-				rerender();
-			}));
-	} else {
-		setDesc('⏳ <b>Will disable after you restart Obsidian.</b> Still active for the rest of this session.<br>' + baseDesc);
-		setting.addButton(btn => btn
-			.setButtonText('Keep enabled')
-			.setCta()
-			.onClick(() => {
-				vim.cancelDisableHlSupport();
-				rerender();
-			}));
 	}
 }
