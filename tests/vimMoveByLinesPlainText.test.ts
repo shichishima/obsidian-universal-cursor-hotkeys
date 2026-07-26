@@ -9,7 +9,7 @@ import { installVimWindow, uninstallVimWindow, type FakeEditor } from './__helpe
 // (see vimMoveByLinesInCell.test.ts / vimMoveByLinesEntry.test.ts for those).
 
 const makeHost = (overrides: Partial<VimSupportHost> = {}): VimSupportHost => ({
-	settings: { vimHlSupport: false, smartJoin: false, smartHomeStandard: false },
+	settings: { vimHlSupport: false, vimJkSupport: false, vimJoinSupport: false, vimCaretSupport: false, smartJoin: false, smartHomeStandard: false },
 	getBeginningOfLinePosition: () => 0,
 	saveSettings: async () => {},
 	crossTableRowForCell: vi.fn().mockReturnValue(null),
