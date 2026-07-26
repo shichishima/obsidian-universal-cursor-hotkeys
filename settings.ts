@@ -450,6 +450,22 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				}));
 		vimSectionEls.push(jk.settingEl);
 
+		const words = new Setting(containerEl)
+			.setClass('uch-vim-item')
+			.then(setting => {
+				this.setKeyChipName(setting, ['w', 'b', 'e'], 'Word motion');
+				this.setHtmlDesc(setting, '' +
+					'<b>ON:</b> Crosses cell/row boundaries the same way vim\'s own word motions cross lines — reaching the end of the table exits into the surrounding text, matching vim\'s own document-wide behavior.<br>' +
+					'<b>OFF:</b> Vim\'s own native <span class="uch-kbd">w</span> <span class="uch-kbd">b</span> <span class="uch-kbd">e</span> (and <span class="uch-kbd">W</span>/<span class="uch-kbd">B</span>/<span class="uch-kbd">E</span>/<span class="uch-kbd">ge</span>/<span class="uch-kbd">gE</span>), unchanged.');
+			})
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.vimWordSupport)
+				.onChange((value) => {
+					this.plugin.vimSupport.setWordsEnabled(value);
+					this.display();
+				}));
+		vimSectionEls.push(words.settingEl);
+
 		const caret = new Setting(containerEl)
 			.setClass('uch-vim-item')
 			.then(setting => {
@@ -500,6 +516,13 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		jkLi.appendText(' ');
 		jkLi.createSpan({ text: 'k', cls: 'uch-kbd' });
 		jkLi.appendText(': count-prefixed movement across more than one row isn\'t fully precise yet.');
+		const wordLi = list.createEl('li');
+		wordLi.createSpan({ text: 'w', cls: 'uch-kbd' });
+		wordLi.appendText(' ');
+		wordLi.createSpan({ text: 'b', cls: 'uch-kbd' });
+		wordLi.appendText(' ');
+		wordLi.createSpan({ text: 'e', cls: 'uch-kbd' });
+		wordLi.appendText(': crosses one cell/row boundary at a time — a count spanning more than one isn\'t fully precise yet.');
 		vimSectionEls.push(limitationsEl);
 
 		for (const el of vimSectionEls) el.toggleClass('uch-hidden', !this.vimSectionVisible);

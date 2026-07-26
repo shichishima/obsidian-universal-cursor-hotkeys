@@ -33,6 +33,7 @@ interface UniversalCursorHotkeysSettings {
 	vimJkSupport: boolean;
 	vimJoinSupport: boolean;
 	vimCaretSupport: boolean;
+	vimWordSupport: boolean;
 	vimSectionVisible: boolean;
 	// Whether the settings tab has already auto-expanded the Vim support
 	// section once in response to Obsidian's own "Vim key bindings" core
@@ -54,6 +55,7 @@ const DEFAULT_SETTINGS: UniversalCursorHotkeysSettings = {
 	vimJkSupport: false,
 	vimJoinSupport: false,
 	vimCaretSupport: false,
+	vimWordSupport: false,
 	vimSectionVisible: false,
 	vimAutoExpandDone: false,
 };
@@ -2157,6 +2159,49 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		return this.walkTableRows(e, cellIndex, forward, startLine, overshoot, goalCh);
 	}
 
+	// Vim's w/b/e cell-crossing. Unlike Ctrl-N/P and Vim's own j/k (which move
+	// between *rows*, same column), w/b/e read a table row the same way vim
+	// reads any line — linearly, left to right through the row's raw markdown
+	// text. So the adjacent cell in the *same row* comes first; only once
+	// that row's own leftmost/rightmost cell is exhausted does this move to
+	// the next/prev row at all (landing on that row's opposite edge cell —
+	// forward wraps to the next row's leftmost cell, backward to the prev
+	// row's rightmost, mirroring how the raw text would read one row into the
+	// next). Single cell/row crossing only (no multi-cell count precision),
+	// mirroring crossTableRowForCell's own "known gap" scope cut.
+	crossTableRowForWord(editor: unknown, cellIndex: number, forward: boolean, bigWord: boolean, wordEnd: boolean): { line: number; ch: number } | null {
+		const e = editor as Editor;
+		const currentLine = e.getCursor().line;
+		const lineText = e.getLine(currentLine);
+		const rightmostCellIndex = getRightmostCellIndex(lineText);
+
+		if (forward && cellIndex < rightmostCellIndex) {
+			const landed = this.landInCellSegment(e, currentLine, cellIndex + 1, true, 0, 0);
+			if (!landed) return null;
+			return this.refineWordLanding(e, landed, forward, bigWord, wordEnd);
+		}
+		if (!forward && cellIndex > 0) {
+			const landed = this.landInCellSegment(e, currentLine, cellIndex - 1, false, 0, Number.MAX_SAFE_INTEGER);
+			if (!landed) return null;
+			return this.refineWordLanding(e, landed, forward, bigWord, wordEnd);
+		}
+
+		// Already at this row's own edge cell — cross to the next/prev row's
+		// opposite edge cell (or exit the table if there is no next/prev row).
+		const startLine = forward ? this.getNextRowLine(e) : this.getPrevRowLine(e);
+		if (startLine === -1) {
+			return this.exitTableWithWord(e, cellIndex, forward, bigWord, wordEnd, currentLine);
+		}
+		const adjacentRowText = e.getLine(startLine);
+		const targetCellIndex = forward ? 0 : getRightmostCellIndex(adjacentRowText);
+		// goalCh: 0 lands at the first segment's own start (forward); a large
+		// sentinel clamps to the last segment's own end (backward) — landInCellSegment's
+		// own maxOffset clamp handles that, same as exitTableWithColumn's goalCh does.
+		const landed = this.landInCellSegment(e, startLine, targetCellIndex, forward, 0, forward ? 0 : Number.MAX_SAFE_INTEGER);
+		if (!landed) return null;
+		return this.refineWordLanding(e, landed, forward, bigWord, wordEnd);
+	}
+
 	// Full (syntax-tree-based) table-membership check, same one Ctrl-N/P's own
 	// moveCursorUpIntoTable/DownIntoTable use to detect table *entry* specifically
 	// (as opposed to the cheap text-based shortcut used elsewhere for "already
@@ -2238,6 +2283,70 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			this.setCursorViaCm(editor, landed.line, targetCh);
 		}
 		return { line: landed.line, ch: targetCh };
+	}
+
+	// Word-motion's own table-exit — same setCursorToNextRow/PrevRow reuse as
+	// exitTableWithColumn, but refines to the nearest word afterward instead
+	// of clamping to a remembered goal column (Vim's w/b/e have no goal-column
+	// concept; landing at the cell's own content-start/end isn't precise
+	// enough since real vim always lands exactly on a word).
+	private exitTableWithWord(editor: Editor, cellIndex: number, forward: boolean, bigWord: boolean, wordEnd: boolean, fromLine: number): { line: number; ch: number } | null {
+		if (forward) this.setCursorToNextRow(editor, cellIndex, fromLine);
+		else this.setCursorToPrevRow(editor, cellIndex, fromLine);
+		return this.refineWordLanding(editor, editor.getCursor(), forward, bigWord, wordEnd);
+	}
+
+	// Narrows a landing at a cell's/line's own content-start/end (from
+	// crossTableRowForWord/exitTableWithWord) down to the actual nearest word
+	// on that line, re-dispatching only if the refined position differs.
+	// Bug fixed here: scanning the *whole* raw row line (rather than just the
+	// landed <br>-segment) always found the leftmost cell's first word,
+	// regardless of which cell was actually landed on — getInCellLineInfo
+	// scopes the scan to the landed cell/segment's own [start, end) range;
+	// null (plain text, not a table row at all) falls back to the whole line.
+	// wordEnd (Vim's `e`/`ge`) lands on the first/last word's own *end*,
+	// matching w/b's own word-*start* convention only when wordEnd is false.
+	private refineWordLanding(editor: Editor, landed: { line: number; ch: number }, forward: boolean, bigWord: boolean, wordEnd: boolean): { line: number; ch: number } {
+		const lineText = editor.getLine(landed.line);
+		const segInfo = getInCellLineInfo(lineText, landed.ch);
+		const scopeStart = segInfo ? segInfo.startOfInCellLine : 0;
+		const scopeEnd = segInfo ? segInfo.endOfInCellLine : lineText.length;
+		const scopedText = lineText.slice(scopeStart, scopeEnd);
+		const targetCh = scopeStart + this.findWordBoundaryOnLine(scopedText, forward, bigWord, wordEnd);
+		if (targetCh !== landed.ch) {
+			this.setCursorViaCm(editor, landed.line, targetCh);
+		}
+		return { line: landed.line, ch: targetCh };
+	}
+
+	// Matches vim-support.ts's own isWordChar exactly (kept as a separate small
+	// copy here — this is a single-line scan for the landing line only, not
+	// the full cross-line findWord vim-support.ts needs for in-cell motion).
+	private static readonly WORD_CHAR_REGEX = /[\w\p{Alphabetic}\p{Number}_]/u;
+
+	private findWordBoundaryOnLine(lineText: string, forward: boolean, bigWord: boolean, wordEnd: boolean): number {
+		const isWordCh = (ch: string) => bigWord ? /\S/.test(ch) : universalCursorHotkeysPlugin.WORD_CHAR_REGEX.test(ch);
+		if (forward) {
+			let i = 0;
+			while (i < lineText.length && !isWordCh(lineText[i])) i++;
+			if (i >= lineText.length) return 0; // entirely whitespace — vim's own "empty line is a word" convention
+			if (!wordEnd) return i; // w: the word's own start
+			// e: walk to the end of this same word-char run.
+			while (i + 1 < lineText.length && isWordCh(lineText[i + 1])) i++;
+			return i;
+		}
+		if (wordEnd) {
+			// ge: scanning from the end, the first word-char hit *is* the last
+			// word's own end (no need to walk further, unlike the forward case).
+			for (let i = lineText.length - 1; i >= 0; i--) {
+				if (isWordCh(lineText[i])) return i;
+			}
+			return Math.max(0, lineText.length - 1);
+		}
+		for (let i = lineText.length - 1; i >= 0; i--) {
+			if (isWordCh(lineText[i]) && (i === 0 || !isWordCh(lineText[i - 1]))) return i;
+		}
+		return Math.max(0, lineText.length - 1);
 	}
 
 	// Shared by crossTableRowForCell and enterTableAtLine: given a target row

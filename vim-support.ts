@@ -3,8 +3,18 @@ import { getCellIndex } from './table-cell-utils';
 
 // Obsidian's built-in Vim mode (codemirror-vim) — not exposed in obsidian.d.ts.
 interface VimPos { line: number; ch: number }
-interface VimMotionArgs { forward: boolean; repeat: number }
-type VimMotionFn = (cm: unknown, head: VimPos, motionArgs: VimMotionArgs) => VimPos;
+// wordEnd/bigWord are moveByWords' own args (w/b/e/W/B/E/ge/gE all share this
+// one motion, differing only by these two flags plus forward) — optional
+// since moveByCharacters/moveByLines never set them.
+interface VimMotionArgs { forward: boolean; repeat: number; wordEnd?: boolean; bigWord?: boolean }
+// vim.js's own evalInput calls motions as (cm, head, motionArgs, vim, inputState) —
+// inputState.operator is set (e.g. 'delete') when this motion is computing an
+// operator's range (e.g. "dw"), not a standalone cursor move (plain "w").
+// Captured *before* vim.js's own clearInputState() replaces vim.inputState with
+// a fresh object, so it reliably reflects the pending operator (or lack of one)
+// regardless of when our motion actually runs.
+interface VimInputState { operator?: string }
+type VimMotionFn = (cm: unknown, head: VimPos, motionArgs: VimMotionArgs, vim?: unknown, inputState?: VimInputState) => VimPos;
 // Actions (unlike motions) don't return a new head — they perform their own
 // side-effecting cm.setCursor()/replaceRange() calls directly. repeat here is
 // "J"'s own meaning: how many lines to join (vim.js's own default is 2, i.e.
@@ -23,6 +33,8 @@ interface VimCm {
 	setCursor(pos: VimPos): void;
 	replaceRange(text: string, from: VimPos, to: VimPos): void;
 }
+// A found word's span, from vim.js's own findWord (see moveByWords).
+interface VimWordSpan { from: number; to: number; line: number }
 
 const getVim = (): VimApi | undefined =>
 	(window as unknown as { CodeMirrorAdapter?: { Vim?: VimApi } }).CodeMirrorAdapter?.Vim;
@@ -72,6 +84,7 @@ export interface VimSupportHost {
 		vimJkSupport: boolean;
 		vimJoinSupport: boolean;
 		vimCaretSupport: boolean;
+		vimWordSupport: boolean;
 		smartJoin: boolean;
 		smartHomeStandard: boolean;
 	};
@@ -90,6 +103,13 @@ export interface VimSupportHost {
 	// current cell's own range still need to be consumed — see moveByLines.
 	// Returns the outer {line, ch} landed on (or null), for goal-column resync.
 	crossTableRowForCell(editor: unknown, cellIndex: number, forward: boolean, goalCh: number, overshoot: number): { line: number; ch: number } | null;
+	// Vim's w/b/e cell-crossing (single cell only — no multi-cell count
+	// precision, a deliberate scope cut mirroring j/k's own "known gap").
+	// Finds the next/prev row (or exits the table entirely if there is none),
+	// lands at the target cell's first/last <br>-segment content-start/end,
+	// then refines to the nearest actual word boundary on that landed line
+	// before dispatching. Returns the outer {line, ch} landed on (or null).
+	crossTableRowForWord(editor: unknown, cellIndex: number, forward: boolean, bigWord: boolean, wordEnd: boolean): { line: number; ch: number } | null;
 	// Full (syntax-tree-based) table-membership check — confirms a cheap textual
 	// pre-filter before committing to a table-entry landing (see scheduleTableEntry).
 	isLinePartOfTable(editor: unknown, line: number, ch: number): boolean;
@@ -121,6 +141,7 @@ export class VimSupport {
 		if (this.host.settings.vimJkSupport) this.applyJk();
 		if (this.host.settings.vimJoinSupport) this.applyJoin();
 		if (this.host.settings.vimCaretSupport) this.applyCaret();
+		if (this.host.settings.vimWordSupport) this.applyWords();
 	}
 
 	// Call from the plugin's onunload(). Best-effort only — see each restore*'s own caveat.
@@ -129,6 +150,7 @@ export class VimSupport {
 		this.restoreJk();
 		this.restoreJoin();
 		this.restoreCaret();
+		this.restoreWords();
 	}
 
 	setHlEnabled(on: boolean): void {
@@ -145,6 +167,10 @@ export class VimSupport {
 
 	setCaretEnabled(on: boolean): void {
 		this.setFeature(on, v => { this.host.settings.vimCaretSupport = v; }, () => this.applyCaret(), () => this.restoreCaret());
+	}
+
+	setWordsEnabled(on: boolean): void {
+		this.setFeature(on, v => { this.host.settings.vimWordSupport = v; }, () => this.applyWords(), () => this.restoreWords());
 	}
 
 	// Turning on is reliable and immediate. Turning off calls the restore-target
@@ -224,6 +250,220 @@ export class VimSupport {
 
 	private restoreCaret(): void {
 		getVim()?.defineMotion('moveToFirstNonWhiteSpaceCharacter', VimSupport.VIM_DEFAULT_MOVE_TO_FIRST_NON_WS);
+	}
+
+	private applyWords(): void {
+		getVim()?.defineMotion('moveByWords', this.moveByWords);
+	}
+
+	private restoreWords(): void {
+		getVim()?.defineMotion('moveByWords', VimSupport.VIM_DEFAULT_MOVE_BY_WORDS);
+	}
+
+	// --- w/b/e (moveByWords) — faithful port of vim.js's own word-motion
+	// algorithm (src/vim.js's findWord/moveToWord + src/cm_adapter.ts's
+	// isWordChar), since defineMotion is write-only and there is no API to
+	// call through to vim.js's real implementation for the plain-text case.
+	// w/b/e/W/B/E/ge/gE all share this one motion, distinguished only by
+	// motionArgs (forward/wordEnd/bigWord).
+
+	// Matches cm_adapter.ts's own wordChar regex exactly.
+	private static readonly isWordChar = (ch: string): boolean => {
+		return /[\w\p{Alphabetic}\p{Number}_]/u.test(ch);
+	};
+
+	// [0]: word chars. [1]: "punctuation" — not a word char, not whitespace.
+	private static readonly WORD_CHAR_TEST: Array<(ch: string) => boolean> = [
+		VimSupport.isWordChar,
+		(ch: string) => !!ch && !VimSupport.isWordChar(ch) && !/\s/.test(ch),
+	];
+	// vim's WORD (bigWord): any non-whitespace run counts as one word.
+	private static readonly BIG_WORD_CHAR_TEST: Array<(ch: string) => boolean> = [
+		(ch: string) => /\S/.test(ch),
+	];
+
+	private static isLine(vcm: VimCm, line: number): boolean {
+		return line >= 0 && line <= vcm.lastLine();
+	}
+
+	// Faithful port of vim.js's own findWord: locates the next/prev word span
+	// from `cur`, walking line by line within this view's own bounds. Returns
+	// null once it runs off the end/start of the view (cm's own line range) —
+	// the live moveByWords override treats that as "hit a cell/buffer
+	// boundary" and (inside a table cell) triggers a crossing; the
+	// restore-target default leaves it as vim's own boundary-clamped behavior.
+	private static findWord(
+		vcm: VimCm, cur: VimPos, forward: boolean, bigWord: boolean, emptyLineIsWord: boolean,
+	): VimWordSpan | null {
+		let lineNum = cur.line;
+		let pos = cur.ch;
+		let line = vcm.getLine(lineNum);
+		const dir = forward ? 1 : -1;
+		const charTests = bigWord ? VimSupport.BIG_WORD_CHAR_TEST : VimSupport.WORD_CHAR_TEST;
+
+		if (emptyLineIsWord && line === '') {
+			lineNum += dir;
+			line = vcm.getLine(lineNum);
+			if (!VimSupport.isLine(vcm, lineNum)) return null;
+			pos = forward ? 0 : line.length;
+		}
+
+		for (;;) {
+			if (emptyLineIsWord && line === '') {
+				return { from: 0, to: 0, line: lineNum };
+			}
+			const stop = dir > 0 ? line.length : -1;
+			let wordStart = stop;
+			let wordEnd = stop;
+			while (pos !== stop) {
+				let foundWord = false;
+				for (let i = 0; i < charTests.length && !foundWord; i++) {
+					if (charTests[i](line.charAt(pos))) {
+						wordStart = pos;
+						while (pos !== stop && charTests[i](line.charAt(pos))) {
+							pos += dir;
+						}
+						wordEnd = pos;
+						foundWord = wordStart !== wordEnd;
+						if (wordStart === cur.ch && lineNum === cur.line && wordEnd === wordStart + dir) {
+							// Started at the end of a word — keep looking for the next one.
+							continue;
+						}
+						return {
+							from: Math.min(wordStart, wordEnd + 1),
+							to: Math.max(wordStart, wordEnd),
+							line: lineNum,
+						};
+					}
+				}
+				if (!foundWord) pos += dir;
+			}
+			lineNum += dir;
+			if (!VimSupport.isLine(vcm, lineNum)) return null;
+			line = vcm.getLine(lineNum);
+			pos = dir > 0 ? 0 : line.length;
+		}
+	}
+
+	// Faithful port of vim.js's own moveToWord. Returns the computed position
+	// (null only in the degenerate repeat<1 case, never reached in practice)
+	// plus shortCircuit — true when the walk ran out of words before
+	// consuming the full (possibly +1, per wordEnd/forward below) repeat
+	// count, i.e. it hit findWord's boundary-clamped fallback.
+	private static runMoveToWord(
+		vcm: VimCm, cur: VimPos, repeat: number, forward: boolean, wordEnd: boolean, bigWord: boolean,
+	): { pos: VimPos | null; shortCircuit: boolean; hitBoundary: boolean } {
+		const curStart: VimPos = { line: cur.line, ch: cur.ch };
+		const words: VimWordSpan[] = [];
+		// w/b overshoot by one word on purpose (vim.js's own quirk) so it can
+		// tell "started mid-word" apart from "started exactly on a word start".
+		let effectiveRepeat = repeat;
+		if ((forward && !wordEnd) || (!forward && wordEnd)) effectiveRepeat++;
+		const emptyLineIsWord = !(forward && wordEnd);
+		let walkCur = cur;
+		// True the moment any findWord call in the loop genuinely finds
+		// nothing left in this view — a more reliable "hit the view's own
+		// boundary" signal than shortCircuit below, which (for the b/e cases,
+		// where effectiveRepeat isn't incremented) can misreport false even
+		// when the very first call already came back empty, since the single
+		// synthesized fallback entry still happens to match effectiveRepeat's
+		// own count.
+		let hitBoundary = false;
+		for (let i = 0; i < effectiveRepeat; i++) {
+			const word = VimSupport.findWord(vcm, walkCur, forward, bigWord, emptyLineIsWord);
+			if (!word) {
+				hitBoundary = true;
+				const eodCh = vcm.getLine(vcm.lastLine()).length;
+				words.push(forward
+					? { line: vcm.lastLine(), from: eodCh, to: eodCh }
+					: { line: 0, from: 0, to: 0 });
+				break;
+			}
+			words.push(word);
+			walkCur = { line: word.line, ch: forward ? word.to - 1 : word.from };
+		}
+		const shortCircuit = words.length !== effectiveRepeat;
+		const firstWord = words[0];
+		let lastWord = words.pop();
+		if (forward && !wordEnd) {
+			// w
+			if (!shortCircuit && firstWord && (firstWord.from !== curStart.ch || firstWord.line !== curStart.line)) {
+				lastWord = words.pop();
+			}
+			return { pos: lastWord ? { line: lastWord.line, ch: lastWord.from } : null, shortCircuit, hitBoundary };
+		} else if (forward && wordEnd) {
+			// e
+			return { pos: lastWord ? { line: lastWord.line, ch: lastWord.to - 1 } : null, shortCircuit, hitBoundary };
+		} else if (!forward && wordEnd) {
+			// ge
+			if (!shortCircuit && firstWord && (firstWord.to !== curStart.ch || firstWord.line !== curStart.line)) {
+				lastWord = words.pop();
+			}
+			return { pos: lastWord ? { line: lastWord.line, ch: lastWord.to } : null, shortCircuit, hitBoundary };
+		} else {
+			// b
+			return { pos: lastWord ? { line: lastWord.line, ch: lastWord.from } : null, shortCircuit, hitBoundary };
+		}
+	}
+
+	// Restore target — vim.js's own default moveByWords, hardcoded for the
+	// same reason as VIM_DEFAULT_MOVE_BY_CHARACTERS. No crossing: a boundary
+	// hit just clamps to the buffer's own edge, matching vim.js's real
+	// (un-enhanced) behavior.
+	private static readonly VIM_DEFAULT_MOVE_BY_WORDS: VimMotionFn = (cm, head, motionArgs) => {
+		const vcm = cm as VimCm;
+		const { pos } = VimSupport.runMoveToWord(
+			vcm, head, motionArgs.repeat, motionArgs.forward, !!motionArgs.wordEnd, !!motionArgs.bigWord,
+		);
+		return pos ?? head;
+	};
+
+	// Live w/b/e/W/B/E/ge/gE. Same as the default everywhere except: inside a
+	// table cell, hitting the cell's own boundary (hitBoundary) schedules a
+	// crossing into the adjacent cell/row (or out of the table entirely),
+	// deferred the same way scheduleRowCrossing is — the synchronous return
+	// here is just the boundary-clamped placeholder vim.js's own clipping
+	// already expects. Scoped to a single cell crossing (matches a plain
+	// keystroke's repeat, effectively 1 boundary) — a count spanning more
+	// than one cell/row isn't precisely handled, mirroring j/k's own
+	// documented gap for the same reason (this session's scope decision).
+	//
+	// Crossing is only scheduled for a *standalone* motion keystroke (plain
+	// w/b/e) — never when inputState.operator is set (e.g. "dw"/"cw"/"yw"),
+	// since then this call is only computing the operator's target range, not
+	// actually moving the cursor. Without this guard, e.g. "dw" on a cell's
+	// last word would correctly empty the cell but then the deferred crossing
+	// would *still* fire afterward, leaving the cursor in the next cell —
+	// wrong regardless of table context, and it also stranded undo (u) in the
+	// wrong cell's own vim state.
+	private readonly moveByWords: VimMotionFn = (cm, head, motionArgs, _vim, inputState) => {
+		const vcm = cm as VimCm;
+		const forward = motionArgs.forward;
+		const bigWord = !!motionArgs.bigWord;
+		const wordEnd = !!motionArgs.wordEnd;
+		const { pos, hitBoundary } = VimSupport.runMoveToWord(
+			vcm, head, motionArgs.repeat, forward, wordEnd, bigWord,
+		);
+		const editorNow = getActiveEditor();
+		if (hitBoundary && !inputState?.operator && editorNow?.inTableCell) {
+			this.scheduleWordCrossing(forward, bigWord, wordEnd);
+		}
+		return pos ?? head;
+	};
+
+	// Deferred for the same crash-avoidance reason as scheduleRowCrossing —
+	// crossing a view boundary from inside vim.js's own synchronous motion
+	// call previously crashed clipCursorToContent.
+	private scheduleWordCrossing(forward: boolean, bigWord: boolean, wordEnd: boolean): void {
+		window.setTimeout(() => {
+			const editor = getActiveEditor();
+			if (!editor || !editor.inTableCell) return;
+			const cellIndex = VimSupport.currentCellIndex() ?? getCellIndex(editor.getLine(editor.getCursor().line), editor.getCursor().ch);
+			const landedOuter = this.host.crossTableRowForWord(editor, cellIndex, forward, bigWord, wordEnd);
+			// Word-motion has no goal-column concept to resync (unlike j/k) —
+			// nothing further needed once the crossing itself has landed.
+			void landedOuter;
+		}, 0);
 	}
 
 	// vim.js's own findFirstNonWhiteSpaceCharacter: first non-whitespace char,
@@ -411,8 +651,16 @@ export class VimSupport {
 	// part. What remains is: what happens when repeat carries head past this
 	// view's own line range (i.e. past the cell's first/last <br> segment) —
 	// that boundary case is handled by the crossing-test branch below.
-	private readonly moveByLines: VimMotionFn = (cm, head, motionArgs) => {
+	// Crossing (scheduleRowCrossing/scheduleTableEntry below) only ever runs
+	// for a standalone j/k keystroke — never when inputState.operator is set
+	// (e.g. "dj"), since then this call is only computing the operator's
+	// linewise range, not actually moving the cursor. See moveByWords' own
+	// identical guard for why: the deferred crossing would otherwise still
+	// fire after the delete, leaving the cursor in the wrong cell/row and
+	// stranding undo (u) in that cell's own vim state.
+	private readonly moveByLines: VimMotionFn = (cm, head, motionArgs, _vim, inputState) => {
 		const vcm = cm as VimCm;
+		const isOperatorPending = !!inputState?.operator;
 
 		const continuingInner = this.lastCm === cm && this.lastReturnedPos !== null &&
 			head.line === this.lastReturnedPos.line &&
@@ -440,7 +688,7 @@ export class VimSupport {
 				// consuming — e.g. a repeat of 5 from line 3 of a 4-line (0..3)
 				// cell overshoots by 1 (needs 1 more logical line beyond this cell).
 				const overshoot = motionArgs.forward ? rawTargetLine - lastLine : -rawTargetLine;
-				this.scheduleRowCrossing(motionArgs.forward, goalCh, goalCellIndex, overshoot);
+				if (!isOperatorPending) this.scheduleRowCrossing(motionArgs.forward, goalCh, goalCellIndex, overshoot);
 				line = Math.max(0, Math.min(lastLine, rawTargetLine));
 			} else {
 				line = rawTargetLine;
@@ -478,7 +726,7 @@ export class VimSupport {
 				remaining -= 1;
 			}
 			if (enteredAt !== -1) {
-				this.scheduleTableEntry(enteredAt, motionArgs.forward, goalCh, goalCellIndex, remaining);
+				if (!isOperatorPending) this.scheduleTableEntry(enteredAt, motionArgs.forward, goalCh, goalCellIndex, remaining);
 				// Stay put rather than jumping straight to enteredAt: unlike
 				// row-crossing (naturally clamped within the current cell's own
 				// safe range above), plain text has no such bound, so this would
