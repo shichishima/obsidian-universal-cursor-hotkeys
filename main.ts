@@ -30,6 +30,15 @@ interface UniversalCursorHotkeysSettings {
 	qsaSectionVisible: boolean;
 	qsaIndividualVisible: boolean;
 	vimHlSupport: boolean;
+	vimJkSupport: boolean;
+	vimJoinSupport: boolean;
+	vimCaretSupport: boolean;
+	vimSectionVisible: boolean;
+	// Whether the settings tab has already auto-expanded the Vim support
+	// section once in response to Obsidian's own "Vim key bindings" core
+	// setting being on. Fires at most once ever, so it never fights a user's
+	// own subsequent manual Show/Hide choice.
+	vimAutoExpandDone: boolean;
 }
 
 const DEFAULT_SETTINGS: UniversalCursorHotkeysSettings = {
@@ -42,6 +51,11 @@ const DEFAULT_SETTINGS: UniversalCursorHotkeysSettings = {
 	qsaSectionVisible: true,
 	qsaIndividualVisible: false,
 	vimHlSupport: false,
+	vimJkSupport: false,
+	vimJoinSupport: false,
+	vimCaretSupport: false,
+	vimSectionVisible: false,
+	vimAutoExpandDone: false,
 };
 
 

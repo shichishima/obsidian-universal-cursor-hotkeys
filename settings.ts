@@ -1,6 +1,5 @@
 import { App, ButtonComponent, Hotkey, Modifier, Platform, PluginSettingTab, Setting, ToggleComponent, sanitizeHTMLToDom } from 'obsidian';
 import type universalCursorHotkeysPlugin from './main';
-import { renderVimSupportSetting } from './vim-support';
 
 const PLUGIN_ID = 'universal-cursor-hotkeys';
 
@@ -31,11 +30,14 @@ interface HotkeySettingTab {
 }
 interface ObsidianInternals {
 	hotkeyManager: HotkeyManager;
-	commands?: { commands: Record<string, { name: string }> };
+	commands?: { commands: Record<string, { name: string }>; executeCommandById?(id: string): boolean };
 	setting: {
 		open(): void;
 		openTabById(id: string): HotkeySettingTab | null;
 	};
+	// Core config store (vault-level app settings, e.g. Obsidian's own "Vim key
+	// bindings" toggle under key 'vimMode') — undocumented, read-only use here.
+	vault: { getConfig?(key: string): unknown };
 }
 
 const MAC_MOD:  Record<string, string> = { Ctrl: '⌃', Shift: '⇧', Alt: '⌥', Meta: '⌘', Mod: '⌘' };
@@ -215,6 +217,8 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 	private set individualVisible(v: boolean) { this.plugin.settings.qsaIndividualVisible = v; void this.plugin.saveSettings(); }
 	private get sectionVisible() { return this.plugin.settings.qsaSectionVisible; }
 	private set sectionVisible(v: boolean) { this.plugin.settings.qsaSectionVisible = v; void this.plugin.saveSettings(); }
+	private get vimSectionVisible() { return this.plugin.settings.vimSectionVisible; }
+	private set vimSectionVisible(v: boolean) { this.plugin.settings.vimSectionVisible = v; void this.plugin.saveSettings(); }
 
 	constructor(app: App, plugin: universalCursorHotkeysPlugin) {
 		super(app, plugin);
@@ -248,11 +252,17 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		let advancedToggle: ToggleComponent;
 		let smartJoinEl: HTMLElement;
 		let smartJoinToggle: ToggleComponent;
+		let vimCaretEl: HTMLElement;
+		let vimCaretToggle: ToggleComponent;
+		let vimJoinEl: HTMLElement;
+		let vimJoinToggle: ToggleComponent;
 		const setStandardDisabled = (disabled: boolean) => {
 			advancedEl.style.opacity       = disabled ? '0.4' : '';
 			advancedEl.style.pointerEvents = disabled ? 'none' : '';
 			smartJoinEl.style.opacity       = disabled ? '0.4' : '';
 			smartJoinEl.style.pointerEvents = disabled ? 'none' : '';
+			vimCaretEl.style.opacity       = disabled ? '0.4' : '';
+			vimCaretEl.style.pointerEvents = disabled ? 'none' : '';
 			if (disabled && this.plugin.settings.smartHomeAdvanced) {
 				this.plugin.settings.smartHomeAdvanced = false;
 				advancedToggle.setValue(false);
@@ -262,6 +272,21 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				this.plugin.settings.smartJoin = false;
 				smartJoinToggle.setValue(false);
 				void this.plugin.saveSettings();
+			}
+			if (disabled && this.plugin.settings.vimCaretSupport) {
+				this.plugin.vimSupport.setCaretEnabled(false);
+				vimCaretToggle.setValue(false);
+			}
+		};
+		// ^ only does anything beyond vim's own native `^` when Smart home
+		// (standard) is on; J only does anything beyond vim's own native join
+		// when Smart join is on — mirrors setStandardDisabled just above.
+		const setSmartJoinDisabled = (disabled: boolean) => {
+			vimJoinEl.style.opacity       = disabled ? '0.4' : '';
+			vimJoinEl.style.pointerEvents = disabled ? 'none' : '';
+			if (disabled && this.plugin.settings.vimJoinSupport) {
+				this.plugin.vimSupport.setJoinEnabled(false);
+				vimJoinToggle.setValue(false);
 			}
 		};
 
@@ -304,12 +329,11 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				toggle.setValue(this.plugin.settings.smartJoin)
 					.onChange(async (value) => {
 						this.plugin.settings.smartJoin = value;
+						setSmartJoinDisabled(!value);
 						await this.plugin.saveSettings();
 					});
 			})
 			.settingEl;
-
-		setStandardDisabled(!this.plugin.settings.smartHomeStandard);
 
 		new Setting(containerEl)
 			.setName('Cross-row navigation')
@@ -323,8 +347,162 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 
-		renderVimSupportSetting(containerEl, this.plugin.vimSupport, () => this.display());
+		this.renderVimSection(containerEl, { vimCaretEl: e => { vimCaretEl = e; }, vimCaretToggle: t => { vimCaretToggle = t; }, vimJoinEl: e => { vimJoinEl = e; }, vimJoinToggle: t => { vimJoinToggle = t; } });
 
+		setStandardDisabled(!this.plugin.settings.smartHomeStandard);
+		setSmartJoinDisabled(!this.plugin.settings.smartJoin);
+	}
+
+	// One-time nudge: if the user opens settings with Obsidian's own "Vim key
+	// bindings" core setting on and has never seen this auto-expand fire
+	// before, expand the Vim support section for visibility. Never fires
+	// again afterward, so it never fights a user's own later Show/Hide choice
+	// (see the vimAutoExpandDone doc comment in main.ts).
+	private maybeAutoExpandVimSection(): void {
+		if (this.plugin.settings.vimAutoExpandDone) return;
+		const vault = (this.app as unknown as ObsidianInternals).vault;
+		const vimModeOn = vault.getConfig?.('vimMode') === true;
+		if (!vimModeOn) return;
+		this.vimSectionVisible = true;
+		this.plugin.settings.vimAutoExpandDone = true;
+		void this.plugin.saveSettings();
+	}
+
+	// keys: e.g. ['h','l','x']. label: e.g. 'Character movement'.
+	private setKeyChipName(setting: Setting, keys: string[], label: string): void {
+		const nameEl = setting.nameEl;
+		nameEl.empty();
+		for (const key of keys) {
+			nameEl.createSpan({ text: key, cls: 'uch-kbd' });
+			nameEl.appendText(' ');
+		}
+		nameEl.appendText(label);
+	}
+
+	private renderVimSection(containerEl: HTMLElement, refs: {
+		vimCaretEl: (el: HTMLElement) => void; vimCaretToggle: (t: ToggleComponent) => void;
+		vimJoinEl: (el: HTMLElement) => void; vimJoinToggle: (t: ToggleComponent) => void;
+	}): void {
+		this.maybeAutoExpandVimSection();
+
+		const vimSectionEls: HTMLElement[] = [];
+
+		new Setting(containerEl)
+			.setName('Vim support')
+			.then(setting => {
+				setting.nameEl.createSpan({ text: 'experimental', cls: 'uch-vim-badge' });
+				this.setHtmlDesc(setting,
+					'Fixes native gaps in Obsidian\'s built-in Vim mode inside Live Preview table cells, ' +
+					'and extends a few motions with this plugin\'s Smart home / Smart join.');
+			})
+			.addButton(btn => {
+				btn.setButtonText(this.vimSectionVisible ? 'Hide' : 'Show');
+				btn.onClick(() => {
+					this.vimSectionVisible = !this.vimSectionVisible;
+					btn.setButtonText(this.vimSectionVisible ? 'Hide' : 'Show');
+					for (const el of vimSectionEls) el.toggleClass('uch-hidden', !this.vimSectionVisible);
+				});
+			});
+
+		const restartBannerEl = containerEl.createDiv({ cls: 'uch-vim-restart-banner' });
+		restartBannerEl.toggleClass('uch-hidden', !this.plugin.vimSupport.needsRestart);
+		restartBannerEl.createSpan({
+			text: 'A Vim item was turned off — restart Obsidian to fully apply it.',
+			cls: 'uch-vim-restart-text',
+		});
+		new ButtonComponent(restartBannerEl)
+			.setButtonText('Restart')
+			.setCta()
+			.onClick(() => {
+				(this.app as unknown as ObsidianInternals).commands?.executeCommandById?.('app:reload');
+			});
+
+		const hl = new Setting(containerEl)
+			.setClass('uch-vim-item')
+			.then(setting => {
+				this.setKeyChipName(setting, ['h', 'l', 'x'], 'Character movement');
+				this.setHtmlDesc(setting, '' +
+					'<b>ON:</b> Fixes multi-byte character miscounting and incorrect cell-jumping at line boundaries inside table cells. ' +
+					'Also fixes <span class="uch-kbd">x</span> at cell boundaries.<br>' +
+					'<b>OFF:</b> Vim\'s own native <span class="uch-kbd">h</span> <span class="uch-kbd">l</span> <span class="uch-kbd">x</span>, unchanged.');
+			})
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.vimHlSupport)
+				.onChange((value) => {
+					this.plugin.vimSupport.setHlEnabled(value);
+					this.display();
+				}));
+		vimSectionEls.push(hl.settingEl);
+
+		const jk = new Setting(containerEl)
+			.setClass('uch-vim-item')
+			.then(setting => {
+				this.setKeyChipName(setting, ['j', 'k'], 'Line movement');
+				this.setHtmlDesc(setting, '' +
+					'<b>ON:</b> Crosses row boundaries the same way Ctrl+N/P already do, and stops correctly inside multi-line cells — preserving column position throughout.<br>' +
+					'<b>OFF:</b> Vim\'s own native <span class="uch-kbd">j</span> <span class="uch-kbd">k</span>, unchanged.');
+			})
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.vimJkSupport)
+				.onChange((value) => {
+					this.plugin.vimSupport.setJkEnabled(value);
+					this.display();
+				}));
+		vimSectionEls.push(jk.settingEl);
+
+		const caret = new Setting(containerEl)
+			.setClass('uch-vim-item')
+			.then(setting => {
+				this.setKeyChipName(setting, ['^', 'I'], 'First non-blank (Smart home)');
+				this.setHtmlDesc(setting, '' +
+					'<b>ON:</b> Reuses Smart home above — skips leading Markdown syntax instead of just whitespace, to reach the real content start.<br>' +
+					'<b>OFF:</b> Vim\'s own native <span class="uch-kbd">^</span> <span class="uch-kbd">I</span>, unchanged.<br>' +
+					'<i>Requires <b>Smart home (standard)</b> to be enabled — also follows whatever <b>Smart home (advanced)</b> is set to.</i>');
+			})
+			.addToggle(toggle => {
+				refs.vimCaretToggle(toggle);
+				toggle.setValue(this.plugin.settings.vimCaretSupport)
+					.onChange((value) => {
+						this.plugin.vimSupport.setCaretEnabled(value);
+						this.display();
+					});
+			});
+		vimSectionEls.push(caret.settingEl);
+		refs.vimCaretEl(caret.settingEl);
+
+		const join = new Setting(containerEl)
+			.setClass('uch-vim-item')
+			.then(setting => {
+				this.setKeyChipName(setting, ['J'], 'Join lines (Smart join)');
+				this.setHtmlDesc(setting, '' +
+					'<b>ON:</b> Reuses Smart join above — strips the next line\'s Markdown syntax instead of just whitespace, still inserting vim\'s usual single space.<br>' +
+					'<b>OFF:</b> Vim\'s own native join, unchanged.<br>' +
+					'<i>Requires <b>Smart join</b> to be enabled.</i>');
+			})
+			.addToggle(toggle => {
+				refs.vimJoinToggle(toggle);
+				toggle.setValue(this.plugin.settings.vimJoinSupport)
+					.onChange((value) => {
+						this.plugin.vimSupport.setJoinEnabled(value);
+						this.display();
+					});
+			});
+		vimSectionEls.push(join.settingEl);
+		refs.vimJoinEl(join.settingEl);
+
+		const limitationsEl = containerEl.createDiv({ cls: 'uch-vim-limitations' });
+		limitationsEl.createDiv({ text: 'Limitations', cls: 'uch-vim-limitations-title' });
+		const list = limitationsEl.createEl('ul');
+		list.appendChild(sanitizeHTMLToDom('<li>For Obsidian\'s built-in Vim mode specifically — not intended for use alongside a plugin that replaces or manages Vim\'s table-cell behavior on its own.</li>'));
+		list.createEl('li', { text: 'Off by default — if you\'ve already customized one of these keys yourself, turning its toggle on will override your binding.' });
+		const jkLi = list.createEl('li');
+		jkLi.createSpan({ text: 'j', cls: 'uch-kbd' });
+		jkLi.appendText(' ');
+		jkLi.createSpan({ text: 'k', cls: 'uch-kbd' });
+		jkLi.appendText(': count-prefixed movement across more than one row isn\'t fully precise yet.');
+		vimSectionEls.push(limitationsEl);
+
+		for (const el of vimSectionEls) el.toggleClass('uch-hidden', !this.vimSectionVisible);
 	}
 
 	private openHotkeysPanelFor(query: string): void {
