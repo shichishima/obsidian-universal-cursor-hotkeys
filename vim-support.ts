@@ -6,12 +6,23 @@ import { getCellIndex } from './table-cell-utils';
 interface VimPos { line: number; ch: number }
 interface VimMotionArgs { forward: boolean; repeat: number }
 type VimMotionFn = (cm: unknown, head: VimPos, motionArgs: VimMotionArgs) => VimPos;
+// Actions (unlike motions) don't return a new head — they perform their own
+// side-effecting cm.setCursor()/replaceRange() calls directly. repeat here is
+// "J"'s own meaning: how many lines to join (vim.js's own default is 2, i.e.
+// join the current line with just the next one).
+interface VimActionArgs { repeat: number }
+type VimActionFn = (cm: unknown, actionArgs: VimActionArgs, vim?: unknown) => void;
 interface VimApi {
 	defineMotion(name: string, fn: VimMotionFn): void;
+	defineAction(name: string, fn: VimActionFn): void;
+	exitVisualMode(cm: unknown, moveHead?: boolean): void;
 }
 interface VimCm {
 	getLine(line: number): string;
 	lastLine(): number;
+	getCursor(mode?: string): VimPos;
+	setCursor(pos: VimPos): void;
+	replaceRange(text: string, from: VimPos, to: VimPos): void;
 }
 
 const getVim = (): VimApi | undefined =>
@@ -47,8 +58,19 @@ const getActiveEditor = (): EditorBridge | undefined =>
 // rather than importing the concrete plugin class, so this module has no dependency
 // on main.ts and can be lifted out (e.g. into a separate plugin) without untangling.
 export interface VimSupportHost {
-	settings: { vimHlSupport: boolean };
+	// smartJoin here is the *existing* Emacs-side setting (Kill Line's
+	// cross-line join already reuses it) — Vim's J reuses the same toggle and
+	// the same underlying stripping logic (getBeginningOfLinePosition) rather
+	// than introducing a separate setting, applying regardless of whether J is
+	// used inside or outside a table cell.
+	settings: { vimHlSupport: boolean; smartJoin: boolean };
 	saveSettings(): Promise<void>;
+	// Markdown-aware "smart" line-start position (list markers, blockquotes,
+	// headings, etc. — see main.ts's own doc comment), used by Vim's J when
+	// smartJoin is on. Returns 0 (no stripping) when Smart Home itself
+	// (settings.smartHomeStandard) is off — J's smart-join enhancement is built
+	// on the same position-detection logic, so it naturally goes quiet too.
+	getBeginningOfLinePosition(line: string, ch: number): number;
 	// editor/cellIndex are passed through untyped (see EditorBridge) — the host's
 	// real implementation casts back to its own Editor type internally. goalCh is
 	// the desired column, relative to the landing <br>-segment's own start.
@@ -152,6 +174,7 @@ export class VimSupport {
 	private applyHlOverride(): void {
 		getVim()?.defineMotion('moveByCharacters', this.moveByCharacters);
 		getVim()?.defineMotion('moveByLines', this.moveByLines);
+		getVim()?.defineAction('joinLines', this.joinLines);
 	}
 
 	// Best-effort restore — see the liveApplied field's own note: this does not
@@ -160,6 +183,92 @@ export class VimSupport {
 	private restoreHlOverride(): void {
 		getVim()?.defineMotion('moveByCharacters', VimSupport.VIM_DEFAULT_MOVE_BY_CHARACTERS);
 		getVim()?.defineMotion('moveByLines', VimSupport.VIM_DEFAULT_MOVE_BY_LINES);
+		getVim()?.defineAction('joinLines', VimSupport.VIM_DEFAULT_JOIN_LINES);
+	}
+
+	// Vim's own joinLines default (see VIM_DEFAULT_MOVE_BY_CHARACTERS for why this
+	// must be hardcoded rather than captured) — restore target for J on
+	// toggle-off/unload. Mirrors vim.js's own default exactly: strip the next
+	// line's leading whitespace only, insert one space (join with nothing if the
+	// next line is entirely whitespace).
+	private static readonly VIM_DEFAULT_JOIN_LINES: VimActionFn = (cm, actionArgs, vim) => {
+		VimSupport.runJoinLines(cm as VimCm, actionArgs, vim as { visualMode?: boolean } | undefined, false, () => 0);
+	};
+
+	// Markdown-aware replacement for J (joinLines). When settings.smartJoin is on,
+	// strips the next line's leading Markdown syntax (list markers, blockquotes,
+	// headings, etc. — via host.getBeginningOfLinePosition, the same logic Kill
+	// Line's own cross-line join already uses) instead of just whitespace, while
+	// still inserting the same single space vim.js's own default does — keeping
+	// J's familiar "space-joined" feel while adding the same smarter stripping
+	// Kill Line already has. Off (the vim.js default) leaves J untouched.
+	// Applies both inside and outside table cells — unlike h/l/j/k, this isn't a
+	// Live-Preview-architecture fix, so there's no table-specific gap to scope to.
+	private readonly joinLines: VimActionFn = (cm, actionArgs, vim) => {
+		VimSupport.runJoinLines(
+			cm as VimCm, actionArgs, vim as { visualMode?: boolean } | undefined,
+			this.host.settings.smartJoin,
+			(line, ch) => this.host.getBeginningOfLinePosition(line, ch),
+		);
+	};
+
+	// Shared by joinLines and its restore-target default. Mirrors vim.js's own
+	// joinLines structure (see vim.js source, action 'joinLines') — both the
+	// normal-mode (repeat lines from cursor) and visual-mode (anchor..head)
+	// paths converge on the same per-line join loop; only the per-join
+	// whitespace-vs-Markdown-stripping decision differs by smartJoin.
+	private static runJoinLines(
+		vcm: VimCm, actionArgs: VimActionArgs, vim: { visualMode?: boolean } | undefined,
+		smartJoin: boolean, getSmartPosition: (line: string, ch: number) => number,
+	): void {
+		let curStart: VimPos;
+		let curEndLine: number;
+
+		if (vim?.visualMode) {
+			const anchor = vcm.getCursor('anchor');
+			const head = vcm.getCursor('head');
+			const anchorFirst = anchor.line < head.line || (anchor.line === head.line && anchor.ch <= head.ch);
+			curStart = anchorFirst ? anchor : head;
+			curEndLine = anchorFirst ? head.line : anchor.line;
+		} else {
+			// Repeat is the number of lines to join; vim.js's own minimum is 2
+			// (plain "J" joins the current line with just the next one).
+			const repeat = Math.max(actionArgs.repeat, 2);
+			curStart = vcm.getCursor();
+			curEndLine = Math.min(curStart.line + repeat - 1, vcm.lastLine());
+		}
+
+		let finalCh = 0;
+		for (let i = curStart.line; i < curEndLine; i++) {
+			// Re-read every iteration: a multi-line join (repeat > 2) grows
+			// curStart.line's own length after each preceding join.
+			finalCh = vcm.getLine(curStart.line).length;
+			const nextLine = vcm.getLine(curStart.line + 1);
+			let nextStartCh: number;
+			let text: string;
+			if (smartJoin) {
+				nextStartCh = getSmartPosition(nextLine, nextLine.length || 1);
+				text = ' ';
+			} else {
+				const firstNonSpace = nextLine.search(/\S/);
+				if (firstNonSpace === -1) {
+					nextStartCh = nextLine.length;
+					text = '';
+				} else {
+					nextStartCh = firstNonSpace;
+					text = ' ';
+				}
+			}
+			vcm.replaceRange(text, { line: curStart.line, ch: finalCh }, { line: curStart.line + 1, ch: nextStartCh });
+		}
+		vcm.setCursor({ line: curStart.line, ch: finalCh });
+
+		// Mirror vim.js's own joinLines: leave Visual mode once the join is
+		// done. Without this, the editor stays in Visual mode afterwards,
+		// where e.g. 'u' means "lowercase selection", not undo.
+		if (vim?.visualMode) {
+			getVim()?.exitVisualMode(vcm, false);
+		}
 	}
 
 	// Hardcoded default for 'moveByLines' (see VIM_DEFAULT_MOVE_BY_CHARACTERS for why

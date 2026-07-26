@@ -1629,7 +1629,9 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	// Returns the ch position of the content-start for smart Home in non-table lines.
 	// When smartHomeStandard is OFF, always returns 0 (plain logical line start).
-	private getBeginningOfLinePosition(line: string, ch: number): number {
+	// Public: also used by vim-support.ts's Vim J (joinLines) override, via the
+	// VimSupportHost bridge.
+	getBeginningOfLinePosition(line: string, ch: number): number {
 
 		if (!this.settings.smartHomeStandard) {
 			return 0;

@@ -6,7 +6,8 @@ import type { VimSupportHost } from '../vim-support'
 // like the rest of this test suite accesses private plugin methods.
 
 const makeHost = (): VimSupportHost => ({
-	settings: { vimHlSupport: false },
+	settings: { vimHlSupport: false, smartJoin: false },
+	getBeginningOfLinePosition: () => 0,
 	saveSettings: async () => {},
 	crossTableRowForCell: () => null,
 	isLinePartOfTable: () => false,
