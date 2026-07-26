@@ -325,11 +325,30 @@ describe('VimSupportHost bridge (main.ts)', () => {
 			plugin.settings = { smartHomeStandard: false }
 		})
 
-		it('lands at the smart position on a non-table target line', () => {
+		it('lands at the smart position on a non-table target line (smartHomeStandard off -> vim-native whitespace skip)', () => {
 			const editor = makeStatefulEditor(['first', '  middle', 'last'], { line: 0, ch: 0 })
 			plugin.isPositionInTable = vi.fn().mockReturnValue(false)
 			const result = plugin.jumpToDocumentLine(editor, true, 1)
 			expect(result).toEqual({ line: 1, ch: 2 })
+		})
+
+		it('uses getBeginningOfLinePosition when smartHomeStandard is on', () => {
+			plugin.settings = { smartHomeStandard: true }
+			plugin.getBeginningOfLinePosition = vi.fn().mockReturnValue(4)
+			const editor = makeStatefulEditor(['first', '- list item', 'last'], { line: 0, ch: 0 })
+			plugin.isPositionInTable = vi.fn().mockReturnValue(false)
+			const result = plugin.jumpToDocumentLine(editor, true, 1)
+			expect(plugin.getBeginningOfLinePosition).toHaveBeenCalledWith('- list item', '- list item'.length)
+			expect(result).toEqual({ line: 1, ch: 4 })
+		})
+
+		it('follows up with a scrollIntoView dispatch after landing', () => {
+			const editor = makeStatefulEditor(['first', '  middle', 'last'], { line: 0, ch: 0 })
+			plugin.isPositionInTable = vi.fn().mockReturnValue(false)
+			plugin.jumpToDocumentLine(editor, true, 1)
+			expect(editor.cm.dispatch).toHaveBeenCalledWith(
+				expect.objectContaining({ scrollIntoView: true }),
+			)
 		})
 
 		it('reuses enterTableAtLine when the target line is a table row', () => {

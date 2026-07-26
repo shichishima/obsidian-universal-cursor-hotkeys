@@ -54,13 +54,15 @@ describe('VimSupport per-feature toggles', () => {
 
 	describe('setup()', () => {
 		it('applies only the features whose setting is on', () => {
-			const host = makeHost(makeSettings({ vimHlSupport: true, vimJoinSupport: true }))
+			const host = makeHost(makeSettings({ vimHlSupport: true, vimJoinSupport: true, vimGgSupport: true }))
 			const vim = new VimSupport(host)
 			vim.setup()
 			expect(lastRegistered('moveByCharacters')).toBe((vim as any).moveByCharacters)
 			expect(lastRegistered('joinLines')).toBe((vim as any).joinLines)
+			expect(lastRegistered('moveToLineOrEdgeOfDocument')).toBe((vim as any).moveToLineOrEdgeOfDocument)
 			expect(wasRegistered('moveByLines')).toBe(false)
 			expect(wasRegistered('moveToFirstNonWhiteSpaceCharacter')).toBe(false)
+			expect(wasRegistered('moveByWords')).toBe(false)
 		})
 
 		it('applies nothing when every feature is off', () => {
@@ -72,13 +74,15 @@ describe('VimSupport per-feature toggles', () => {
 	})
 
 	describe('teardown()', () => {
-		it('restores all 4 overrides regardless of their setting state', () => {
+		it('restores all 6 overrides regardless of their setting state', () => {
 			const vim = new VimSupport(makeHost())
 			vim.teardown()
 			expect(wasRegistered('moveByCharacters')).toBe(true)
 			expect(wasRegistered('moveByLines')).toBe(true)
 			expect(wasRegistered('joinLines')).toBe(true)
 			expect(wasRegistered('moveToFirstNonWhiteSpaceCharacter')).toBe(true)
+			expect(wasRegistered('moveByWords')).toBe(true)
+			expect(wasRegistered('moveToLineOrEdgeOfDocument')).toBe(true)
 		})
 
 		it('restore target for h/l matches vim.js\'s own native default (no line-boundary clamp, unlike the live override)', () => {
@@ -158,6 +162,38 @@ describe('VimSupport per-feature toggles', () => {
 			const vim = new VimSupport(makeHost(makeSettings({ vimCaretSupport: true })))
 			vim.setCaretEnabled(false)
 			expect(lastRegistered('moveToFirstNonWhiteSpaceCharacter')).not.toBe((vim as any).moveToFirstNonWhiteSpaceCharacter)
+			expect(vim.needsRestart).toBe(true)
+		})
+	})
+
+	describe('setWordsEnabled', () => {
+		it('turning on applies the live override and does not need a restart', () => {
+			const vim = new VimSupport(makeHost())
+			vim.setWordsEnabled(true)
+			expect(lastRegistered('moveByWords')).toBe((vim as any).moveByWords)
+			expect(vim.needsRestart).toBe(false)
+		})
+
+		it('turning off restores the default and flags needsRestart', () => {
+			const vim = new VimSupport(makeHost(makeSettings({ vimWordSupport: true })))
+			vim.setWordsEnabled(false)
+			expect(lastRegistered('moveByWords')).not.toBe((vim as any).moveByWords)
+			expect(vim.needsRestart).toBe(true)
+		})
+	})
+
+	describe('setGgEnabled', () => {
+		it('turning on applies the live override and does not need a restart', () => {
+			const vim = new VimSupport(makeHost())
+			vim.setGgEnabled(true)
+			expect(lastRegistered('moveToLineOrEdgeOfDocument')).toBe((vim as any).moveToLineOrEdgeOfDocument)
+			expect(vim.needsRestart).toBe(false)
+		})
+
+		it('turning off restores the default and flags needsRestart', () => {
+			const vim = new VimSupport(makeHost(makeSettings({ vimGgSupport: true })))
+			vim.setGgEnabled(false)
+			expect(lastRegistered('moveToLineOrEdgeOfDocument')).not.toBe((vim as any).moveToLineOrEdgeOfDocument)
 			expect(vim.needsRestart).toBe(true)
 		})
 	})
