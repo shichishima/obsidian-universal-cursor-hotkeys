@@ -172,6 +172,25 @@ describe('VimSupportHost bridge (main.ts)', () => {
 			expect(plugin.getPrevRowLine(editor, 1)).toBe(0)
 		})
 
+		// Regression: a real, reproducible crash — pressing k on a table's own
+		// header row when that row is the document's first line. getPrevRowLine
+		// unconditionally called isPositionInTable/getLine(fromLine - 1) without
+		// checking fromLine > 0 first; fromLine=0 makes that -1, and
+		// editor.getLine(-1) throws ("Invalid line number 0 in N-line document" —
+		// CM6's own 1-indexed line() call underneath 0-indexed getLine(-1)).
+		it('getPrevRowLine returns -1 (not a crash) when fromLine is the document\'s first line', () => {
+			// getLine(-1) throws for real (CM6's own 1-indexed line() call
+			// underneath) — mirrored here (makeStatefulEditor's own getLine just
+			// returns '' out of range, which wouldn't actually exercise the guard).
+			const editor = {
+				getLine: vi.fn((n: number) => { if (n < 0) throw new RangeError(`Invalid line number ${n + 1} in 1-line document`); return ROWS[n] ?? '' }),
+				lineCount: () => ROWS.length,
+			}
+			expect(() => plugin.getPrevRowLine(editor, 0)).not.toThrow()
+			expect(plugin.getPrevRowLine(editor, 0)).toBe(-1)
+			expect(editor.getLine).not.toHaveBeenCalledWith(-1)
+		})
+
 		it('setCursorToNextRow\'s exit branch uses fromLine, not the live cursor, to find the exit line', () => {
 			// Live cursor sits at line 0 (as if the real cursor never moved during
 			// a multi-row walk), but fromLine says we've conceptually reached the
@@ -185,6 +204,19 @@ describe('VimSupportHost bridge (main.ts)', () => {
 			const editor = makeStatefulEditor(['plain text before', ...ROWS], { line: 3, ch: 0 })
 			plugin.setCursorToPrevRow(editor, 0, 1) // fromLine=1 is the header (first) row
 			expect(plugin.setCursorViaCm).toHaveBeenCalledWith(editor, 0, 0)
+		})
+
+		// Regression: pressing k/Ctrl-P on a table's own header row when that row
+		// is the document's own first line (fromLine=0) landed the cursor at an
+		// unrelated position — setCursorToPrevRow's "header row: go outside
+		// table" branch unconditionally dispatched to fromLine-1 (=-1) with no
+		// bounds check, unlike setCursorToNextRow's own symmetric "append a
+		// blank line at EOF" handling for the last-row case. Fixed to just stay
+		// put (matching real vim: k on the document's first line is a no-op).
+		it('setCursorToPrevRow does not dispatch anywhere when fromLine is the document\'s first line', () => {
+			const editor = makeStatefulEditor(ROWS, { line: 0, ch: 0 })
+			plugin.setCursorToPrevRow(editor, 0, 0)
+			expect(plugin.setCursorViaCm).not.toHaveBeenCalled()
 		})
 	})
 
@@ -211,6 +243,22 @@ describe('VimSupportHost bridge (main.ts)', () => {
 			const editor = makeStatefulEditor(['above', '| row |'], { line: 1, ch: 0 })
 			const result = plugin.exitTableWithColumn(editor, 0, false, 2, 1)
 			expect(result).toEqual({ line: 0, ch: 2 })
+		})
+
+		// Regression: setCursorToPrevRow correctly stays put (no-op) when
+		// fromLine=0 (a header row that's the document's own first line — no
+		// line above it to exit to). This unconditionally "corrected" the
+		// column to goalCh afterward anyway, moving ch even though nothing was
+		// actually supposed to happen (k on such a header row should be a
+		// complete no-op, matching real vim's own "k on the first line does
+		// nothing"). Fixed by detecting the no-op (cursor unchanged) and
+		// returning null before ever attempting the column correction.
+		it('returns null (no column correction) when setCursorToPrevRow was a genuine no-op (header row = document\'s first line)', () => {
+			const editor = makeStatefulEditor(['| row |'], { line: 0, ch: 4 })
+			const result = plugin.exitTableWithColumn(editor, 0, false, 1, 0)
+			expect(result).toBeNull()
+			expect(plugin.setCursorViaCm).not.toHaveBeenCalled()
+			expect(editor.getCursor()).toEqual({ line: 0, ch: 4 }) // completely untouched
 		})
 	})
 
