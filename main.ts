@@ -1085,6 +1085,13 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// multi-row crossing passes an explicit line to walk multiple rows without
 	// moving the real cursor between steps.
 	private getPrevRowLine(editor: Editor, fromLine: number = editor.getCursor().line): number {
+		// fromLine - 1 doesn't exist when the table's own header row is the
+		// document's first line — same bounds guard getPrevRowLineSourceMode
+		// already has. Without it, isPositionInTable/getLine(-1) throws
+		// ("Invalid line number 0 in N-line document", CM6's own 1-indexed
+		// line() call underneath) — a real, reproducible crash pressing k on
+		// such a header row.
+		if (fromLine <= 0) return -1;
 		return this.computePrevRowLine(
 			fromLine,
 			this.isPositionInTable(editor, fromLine - 1, 1, true),
@@ -1154,8 +1161,15 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const targetLine = this.getPrevRowLine(editor, fromLine);
 
 		if (targetLine === -1) {
-			// Header row: go outside table
-			this.setCursorViaCm(editor, fromLine - 1, 0);
+			// Header row: go outside table — but only if there's a line above to
+			// go to. When the table's own header row is the document's first
+			// line, fromLine - 1 doesn't exist; unlike setCursorToNextRow's own
+			// "append a blank line at EOF" symmetric fix for the last-row case,
+			// there's no equivalent "prepend a line" convention here, so this
+			// just stays put (matches real vim: k on the document's first line
+			// is a no-op) instead of dispatching to an invalid negative line
+			// (previously landed the cursor at an unrelated position).
+			if (fromLine > 0) this.setCursorViaCm(editor, fromLine - 1, 0);
 			return;
 		}
 		const targetCh = getChByCellIndex(editor.getLine(targetLine), cellIndex);
@@ -2327,10 +2341,24 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// the row-crossing crash risk. fromLine is passed explicitly rather than
 	// relying on setCursorToNextRow/PrevRow's own live-cursor default, since the
 	// real cursor hasn't moved from its original (pre-walk) position yet.
+	//
+	// setCursorToPrevRow (backward) can itself be a genuine no-op — when
+	// fromLine is the document's own first line, there's no line above the
+	// table to exit to at all, so it deliberately stays put (see its own
+	// comment) rather than dispatching to an invalid negative line.
+	// Unconditionally "correcting" the column afterward regardless would
+	// override that no-op with a goalCh-driven move that was never supposed
+	// to happen (reported: k on the header row of a document-first table left
+	// the line alone but still changed ch). Comparing against the position
+	// from *before* calling setCursorToPrevRow/NextRow detects that case and
+	// skips the correction (and the resync it would otherwise trigger via the
+	// returned null — see resyncAfterDeferredMove's own `if (!landedOuter)`).
 	private exitTableWithColumn(editor: Editor, cellIndex: number, forward: boolean, goalCh: number, fromLine: number): { line: number; ch: number } | null {
+		const before = editor.getCursor();
 		if (forward) this.setCursorToNextRow(editor, cellIndex, fromLine);
 		else this.setCursorToPrevRow(editor, cellIndex, fromLine);
 		const landed = editor.getCursor();
+		if (landed.line === before.line && landed.ch === before.ch) return null;
 		const landedLineText = editor.getLine(landed.line);
 		const targetCh = Math.min(goalCh, Math.max(0, landedLineText.length - 1));
 		if (targetCh !== landed.ch) {
