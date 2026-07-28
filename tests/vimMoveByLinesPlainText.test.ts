@@ -110,4 +110,83 @@ describe('moveByLines: plain text', () => {
 		vim.moveByLines(cm, { line: 0, ch: 0 }, { forward: true, repeat: 1 })
 		expect(vim.goalCellIndex).toBeNull()
 	})
+
+	// vim.js curswant integration: same-view continuity delegates to the
+	// caller's own vim state (lastHPos/lastMotion) instead of UCH's external
+	// tracking, matching vim.js's own moveByLines tail exactly. See
+	// vim-support.ts's own comment on `nativeContinuing`.
+	describe('vim.js native curswant integration', () => {
+		it('uses vim.lastHPos instead of head.ch when vim.lastMotion === this.moveByLines', () => {
+			const { cm, editor } = makeCmAndEditor()
+			win.setEditor(editor)
+			const cmWithCoords = { ...cm, charCoords: (pos: { ch: number }) => ({ left: pos.ch * 10 }) }
+			// head.ch (1) reflects a clamped landing on the short 'bb' line, but
+			// vim.lastHPos (8) is the true, wider goal from before that clamp —
+			// nativeContinuing must prefer it over head.ch.
+			const vimState: any = { lastHPos: 8, lastHSPos: -1, lastMotion: vim.moveByLines }
+			const result = vim.moveByLines(cmWithCoords, { line: 1, ch: 1 }, { forward: true, repeat: 1 }, vimState)
+			expect(result).toEqual({ line: 2, ch: 8 })
+		})
+
+		it('falls back to head.ch when vim.lastMotion is not this.moveByLines', () => {
+			const { cm, editor } = makeCmAndEditor()
+			win.setEditor(editor)
+			const cmWithCoords = { ...cm, charCoords: (pos: { ch: number }) => ({ left: pos.ch * 10 }) }
+			const vimState: any = { lastHPos: 8, lastHSPos: -1, lastMotion: null }
+			const result = vim.moveByLines(cmWithCoords, { line: 1, ch: 1 }, { forward: true, repeat: 1 }, vimState)
+			expect(result).toEqual({ line: 2, ch: 1 })
+		})
+
+		it('writes vim.lastHPos/vim.lastHSPos back on return, matching vim.js\'s own tail', () => {
+			const { cm, editor } = makeCmAndEditor()
+			win.setEditor(editor)
+			const cmWithCoords = { ...cm, charCoords: (pos: { ch: number }) => ({ left: pos.ch * 7 }) }
+			const vimState: any = { lastHPos: -1, lastHSPos: -1, lastMotion: null }
+			// line 1 = 'bb' (len 2) -> maxNormalModeCh = 1, so the *returned*
+			// position clamps to ch 1 — but lastHPos/lastHSPos must still
+			// reflect the wide, unclamped goal (5, the starting ch on a fresh
+			// motion), matching vim.js's own tail: it only narrows lastHPos on
+			// a fresh motion (to the pre-move ch, not the post-clamp one), and
+			// never re-narrows it while continuing.
+			const result = vim.moveByLines(cmWithCoords, { line: 0, ch: 5 }, { forward: true, repeat: 1 }, vimState)
+			expect(result).toEqual({ line: 1, ch: 1 })
+			expect(vimState.lastHPos).toBe(5)
+			expect(vimState.lastHSPos).toBe(35)
+			expect(vim.goalHSPos).toBe(35)
+		})
+
+		it('regression: external continuity wins over native when both agree it is continuing, even if native was clobbered by a stale/racy vim.lastHPos', () => {
+			// Simulates the real, observed race: Obsidian's own async settling
+			// after a row-crossing can fire another cursorActivity after our own
+			// resync already seeded vim.lastHPos correctly, silently re-narrowing
+			// it to the landing ch — while vim.lastMotion (never touched by that
+			// path) stays stale-true. External tracking (this.goalHPos, set by
+			// our own tail every call) isn't exposed to that race at all, so it
+			// must win whenever both continuity signals agree the chain continues.
+			const { cm, editor } = makeCmAndEditor()
+			win.setEditor(editor)
+			const cmWithCoords = { ...cm, charCoords: (pos: { ch: number }) => ({ left: pos.ch * 10 }) }
+			const vimState: any = { lastHPos: -1, lastHSPos: -1, lastMotion: null }
+			const first = vim.moveByLines(cmWithCoords, { line: 0, ch: 8 }, { forward: true, repeat: 1 }, vimState)
+			expect(first).toEqual({ line: 1, ch: 1 }) // clamped landing; true goal (8) carried externally
+			expect(vim.goalHPos).toBe(8)
+
+			// Corrupt native state as the race would: lastHPos reset to the
+			// clamped landing ch, but lastMotion left pointing at our own
+			// override (both continuity checks would independently say "yes").
+			vimState.lastHPos = 0
+			vimState.lastMotion = vim.moveByLines
+			const second = vim.moveByLines(cmWithCoords, first, { forward: true, repeat: 1 }, vimState)
+			// line 2 = 'cccccccccc' (len 10) — wide enough that native's
+			// corrupted 0 and external's correct 8 land on visibly different ch.
+			expect(second).toEqual({ line: 2, ch: 8 })
+		})
+
+		it('does not touch vim state or goalHSPos when no vim state is passed (native override not yet active)', () => {
+			const { cm, editor } = makeCmAndEditor()
+			win.setEditor(editor)
+			expect(() => vim.moveByLines(cm, { line: 0, ch: 5 }, { forward: true, repeat: 1 })).not.toThrow()
+			expect(vim.goalHSPos).toBeNull()
+		})
+	})
 })

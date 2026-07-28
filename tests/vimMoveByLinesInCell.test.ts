@@ -87,7 +87,7 @@ describe('moveByLines: inside a table cell', () => {
 		win.flush()
 		// resyncAfterDeferredMove's `if (!landedOuter) return` fires — state
 		// stays exactly what moveByLines' own synchronous tail end set.
-		expect(vim.goalCh).toBe(2)
+		expect(vim.goalHPos).toBe(2)
 		expect(vim.lastCm).toBe(cm)
 		expect(vim.lastReturnedPos).toEqual(result)
 		expect(vim.lastOuterPos).toBeNull()
@@ -105,7 +105,7 @@ describe('moveByLines: inside a table cell', () => {
 		)
 	})
 
-	it('resyncs lastReturnedPos/lastCm/goalCh from the landed inner view, preserving the wide goal despite a clamped landing', () => {
+	it('resyncs lastReturnedPos/lastCm/goalHPos from the landed inner view, preserving the wide goal despite a clamped landing', () => {
 		// Landing cell is only 2 chars ('zz') — a wide goalCh of 5 clamps to 1
 		// there, but the *true* goal (5) must survive for the next crossing.
 		const landedInner = makeInnerCm('zz', 1)
@@ -119,7 +119,7 @@ describe('moveByLines: inside a table cell', () => {
 		vim.moveByLines(wideCm, { line: 0, ch: 5 }, { forward: true, repeat: 1 }) // goalCh=5
 		win.flush()
 
-		expect(vim.goalCh).toBe(5)
+		expect(vim.goalHPos).toBe(5)
 		expect(vim.lastCm).toBe(landedInner)
 		expect(vim.lastReturnedPos).toEqual({ line: 0, ch: 1 })
 		expect(vim.lastOuterPos).toEqual({ line: 6, ch: 1 })
@@ -149,7 +149,7 @@ describe('moveByLines: inside a table cell', () => {
 		vim.moveByLines(wideCm, { line: 0, ch: 5 }, { forward: true, repeat: 1 }) // goalCh=5
 		win.flush()
 
-		expect(vim.goalCh).toBe(5)
+		expect(vim.goalHPos).toBe(5)
 		expect(vim.lastCm).toBe(outerCm)
 		expect(vim.lastReturnedPos).toEqual({ line: 6, ch: 0 })
 		expect(vim.lastOuterPos).toEqual({ line: 6, ch: 0 })
@@ -197,5 +197,62 @@ describe('moveByLines: inside a table cell', () => {
 		// unrelated earlier chain had leaked through, the result would differ
 		// from simply clamping firstResult.ch against cmB's own line.
 		expect(secondResult.ch).toBe(Math.min(firstResult.ch, 9))
+	})
+
+	// vim.js curswant integration: resyncAfterDeferredMove seeds the landed
+	// view's own native vim state, so a subsequent unmodified vim.js motion in
+	// that same cell sees the right goal even before this override runs again.
+	it('seeds the landed inner view\'s own native vim.lastHPos when its vim state already exists', () => {
+		const landedInner: any = makeInnerCm('zz', 1)
+		landedInner.state.vim = { lastHPos: -1, lastHSPos: -1, lastMotion: null }
+		const host = makeHost({
+			crossTableRowForCell: vi.fn().mockReturnValue({ line: 6, ch: 1 }),
+		})
+		const vim = new VimSupport(host) as any
+		const editor = makeCellEditor({ line: 5, ch: 9 }, landedInner)
+		win = installVimWindow(editor)
+		const wideCm = { getLine: () => 'cccccc', lastLine: () => 0 }
+		vim.moveByLines(wideCm, { line: 0, ch: 5 }, { forward: true, repeat: 1 }) // goalHPos=5, clamped landing ch=1
+		win.flush()
+
+		// Seeded with the wide, unclamped goal (5) — not the clamped landing
+		// ch (1, matching lastReturnedPos) — so a same-view continuation right
+		// after landing (before this override runs again) still sees the true
+		// goal, not a narrowed one.
+		expect(landedInner.state.vim.lastHPos).toBe(5)
+	})
+
+	it('also seeds the outer cm\'s own native vim.lastHPos on a full table exit (no inner view for the landing)', () => {
+		const outerCm: any = { getLine: () => '', lastLine: () => 0 }
+		outerCm.state = { vim: { lastHPos: -1, lastHSPos: -1, lastMotion: null } }
+		const host = makeHost({
+			crossTableRowForCell: vi.fn().mockReturnValue({ line: 6, ch: 0 }),
+		})
+		const vim = new VimSupport(host) as any
+		// No activeCM (undefined) — exiting the table into plain text, same as
+		// the empty-cell case, but this time editor.cm carries its own vim state.
+		const editor = makeCellEditor({ line: 5, ch: 9 }, undefined, outerCm)
+		win = installVimWindow(editor)
+		const wideCm = { getLine: () => 'cccccc', lastLine: () => 0 }
+		vim.moveByLines(wideCm, { line: 0, ch: 5 }, { forward: true, repeat: 1 }) // goalHPos=5, clamped landing ch=0
+		win.flush()
+
+		expect(outerCm.state.vim.lastHPos).toBe(5)
+	})
+
+	it('skips seeding silently when the landed inner view has no vim state yet', () => {
+		const landedInner = makeInnerCm('zz', 1) // no state.vim — maybeInitVimState hasn't run there yet
+		const host = makeHost({
+			crossTableRowForCell: vi.fn().mockReturnValue({ line: 6, ch: 1 }),
+		})
+		const vim = new VimSupport(host) as any
+		const editor = makeCellEditor({ line: 5, ch: 9 }, landedInner)
+		win = installVimWindow(editor)
+		const wideCm = { getLine: () => 'cccccc', lastLine: () => 0 }
+		expect(() => {
+			vim.moveByLines(wideCm, { line: 0, ch: 5 }, { forward: true, repeat: 1 })
+			win.flush()
+		}).not.toThrow()
+		expect((landedInner as any).state.vim).toBeUndefined()
 	})
 })
