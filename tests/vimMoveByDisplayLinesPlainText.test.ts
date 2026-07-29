@@ -183,6 +183,45 @@ describe('moveByDisplayLines: plain text', () => {
 			expect(host.refineDisplayLineColumn).toHaveBeenCalledWith(expect.anything(), 999)
 		})
 
+		it('regression: entry pixel-goal converts the already-correct (preserved, continuing) goalHSPos, rather than reading cur\'s own position directly — cur stays degenerate (ch 0) when the entry is detected on the very first findPosV step, e.g. right after landing on a too-short/empty preceding line', () => {
+			// Reported live: gj entering a table from plain text landed at
+			// ch 0 inside the cell, discarding the real (wide) goal — the
+			// entry-detection loop's own convention is that cur never
+			// advances past head on the step where enteredAt is found (see
+			// its own "remaining is not decremented" comment), so cur is
+			// whatever ch head already had — here, deliberately 0, as if
+			// landed on an empty line one step earlier. The *previous* fix
+			// read cur's own viewport-relative position directly
+			// (charCoordsLeft(vcm, cur, editor.cm)) — silently 0-ish exactly
+			// because cur itself is degenerate. Converting the
+			// already-established (continuing) goalHSPos instead is immune
+			// to cur's own degeneracy, using cur only as the reference point
+			// for the space-conversion offset, not as the value's own source.
+			const host = makeHost({
+				isLinePartOfTable: vi.fn().mockReturnValue(true),
+				enterTableAtLine: vi.fn().mockReturnValue({ line: 2, ch: 2 }),
+			})
+			const vimLocal = new VimSupport(host) as any
+			const { cm, editor } = makeTableCmAndEditor()
+			// Distinct, offset-only viewport measurement (ignores its own
+			// input position) — simulates the outer view's own wrapper
+			// sitting away from the viewport's origin.
+			editor.cm = { coordsAtPos: vi.fn().mockReturnValue({ left: 5 }), state: { doc: { line: (_n: number) => ({ from: 0 }) } } }
+			win.setEditor(editor)
+			// Establish a continuing chain carrying a wide, already-correct
+			// goalHSPos (40, div-relative) from before this call.
+			vimLocal.goalHSPos = 40
+			vimLocal.lastCm = cm
+			vimLocal.lastReturnedPos = { line: 1, ch: 0 }
+			vimLocal.moveByDisplayLines(cm, { line: 1, ch: 0 }, { forward: true, repeat: 1 })
+			win.flush()
+			// offset = viewportAtCur(5) - divAtCur(charCoords({ch:0}).left=0) = 5.
+			// entryPixelGoal = goalHSPos(40) + offset(5) = 45 — not 5 (the bug:
+			// reading cur's own degenerate position directly) and not 40
+			// (unconverted, wrong space for the entered cell's own posAtCoords).
+			expect(host.refineDisplayLineColumn).toHaveBeenCalledWith(expect.anything(), 45)
+		})
+
 		it('does not schedule entry when isLinePartOfTable rejects the cheap pre-filter match', () => {
 			const host = makeHost({ isLinePartOfTable: vi.fn().mockReturnValue(false) })
 			const vimLocal = new VimSupport(host) as any
