@@ -266,6 +266,39 @@ export class VimSupport {
 		return vcm.charCoords(pos, 'div').left;
 	}
 
+	// Converts a pixel goal between vim.js's own div-relative space and raw
+	// CM6's viewport-relative space, via a same-reference-point offset rather
+	// than replicating vim.js's own div-relative math from scratch:
+	// `referencePos`'s own position is computable in *both* spaces via
+	// charCoordsLeft (div-relative by omitting a view; viewport-relative by
+	// passing a real CM6 view as `inner`), and the difference between them is
+	// exactly the constant shift (the outer editor's own wrapper position)
+	// that separates the two conventions — the same regardless of which
+	// specific position is used as the reference, so this works identically
+	// even when the only reference position at hand happens to be
+	// degenerate/meaningless on its own (e.g. ch 0, forced by landing on a
+	// too-short/empty line to visually test a goal against at all) — unlike
+	// recomputing the goal itself "fresh" from that position would.
+	private static convertPixelGoalSpace(vcm: VimCm, referencePos: VimPos, outerView: InnerCmLike, toSpace: 'div' | 'viewport', value: number): number {
+		const divAtRef = VimSupport.charCoordsLeft(vcm, referencePos, undefined);
+		const viewportAtRef = VimSupport.charCoordsLeft(vcm, referencePos, outerView);
+		const offset = toSpace === 'div' ? divAtRef - viewportAtRef : viewportAtRef - divAtRef;
+		return value + offset;
+	}
+
+	// Converts a stored *viewport-relative* pixel goal (carried across a
+	// genuine table exit — see goalHSPosNeedsDivConversion's own comment)
+	// into whichever space the *current* call's own consumer actually needs.
+	// Still in-cell (a re-entry before ever landing on a usable plain-text
+	// line): viewport-relative is already the right space, used as-is — no
+	// conversion needed. Plain text: needs vim.js's own div-relative space
+	// instead, via convertPixelGoalSpace.
+	private static resolveViewportGoalForCurrentContext(vcm: VimCm, head: VimPos, editorNow: EditorBridge | undefined, viewportGoal: number): number {
+		if (editorNow?.inTableCell) return viewportGoal;
+		if (!editorNow?.cm) return VimSupport.charCoordsLeft(vcm, head, undefined);
+		return VimSupport.convertPixelGoalSpace(vcm, head, editorNow.cm, 'div', viewportGoal);
+	}
+
 	// Call from the plugin's onload().
 	setup(): void {
 		if (this.host.settings.vimHlSupport) this.applyHl();
@@ -849,17 +882,22 @@ export class VimSupport {
 	// but kept in sync so a *future* gj/gk override can carry a valid pixel
 	// goal across the same view boundaries this field already handles for ch.
 	private goalHSPos: number | null = null;
-	// Set only by resyncAfterDeferredMove's own genuine-exit case (see its
-	// own comment): null here has two different, otherwise-indistinguishable
-	// meanings — "never computed yet" (a fresh VimSupport instance, where
-	// vim.js's own nativeContinuing/vim.lastHSPos is still perfectly
-	// trustworthy) vs. "explicitly invalidated because the pixel goal used to
-	// get here doesn't apply on the far side of a coordinate-space boundary"
-	// (where vim.lastHSPos can *also* be stale, and must not be trusted
-	// either). This flag disambiguates the two — checked first in
-	// moveByDisplayLines' own goalHSPos ternary, ahead of both external and
-	// native continuity, and cleared the moment a fresh value is committed.
-	private goalHSPosInvalidated = false;
+	// Set only by resyncAfterDeferredMove's own genuine-exit case (see its own
+	// comment): true means this.goalHSPos is still expressed in the *inner*
+	// (viewport-relative, raw-CM6-coordsAtPos) space it had while crossing
+	// out of a table cell — valid as-is for a subsequent posAtCoords
+	// consumer (still/again in-cell), but needing conversion to vim.js's own
+	// div-relative charCoords space before a plain-text findPosV call can use
+	// it. Deliberately does *not* discard the value itself (an earlier
+	// attempt did — see moveByDisplayLines' own goalHSPos ternary comment for
+	// why that broke curswant-style preservation through an intervening
+	// short/empty line, unlike moveByLines' own ch-based goalHPos, which
+	// needs no such conversion and so survives those lines "for free"):
+	// resolveViewportGoalForCurrentContext converts it on demand, checked
+	// first in moveByDisplayLines' own ternary, ahead of both external and
+	// native continuity, and cleared only once that conversion has actually
+	// been applied.
+	private goalHSPosNeedsDivConversion = false;
 	// Same idea, for which table cell (column-wise) to prefer — e.g. exiting a
 	// table below and re-entering it (or a different, narrower table) further
 	// down a continuing chain should return to the same cell, not always the
@@ -1087,7 +1125,7 @@ export class VimSupport {
 			// exceeds the landed line's length.
 			const clampedGoalCh = Math.min(goalHPos, VimSupport.maxNormalModeCh(vcm.getLine(line)));
 			this.goalHSPos = VimSupport.charCoordsLeft(vcm, { line, ch: clampedGoalCh }, editorNow?.inTableCell ? editorNow.activeCM : undefined);
-			this.goalHSPosInvalidated = false;
+			this.goalHSPosNeedsDivConversion = false;
 			vim.lastHSPos = this.goalHSPos;
 		}
 
@@ -1218,37 +1256,27 @@ export class VimSupport {
 			this.lastReturnedPos = landedOuter;
 			this.lastCm = editor.cm;
 			seedTarget = editor.cm;
-			// A genuine exit into plain text must not carry the *incoming*
-			// goalHSPos through unconverted: that value was computed for
-			// whichever raw-CM6 posAtCoords consumer led to this landing (a
-			// cell-to-cell crossing, or an in-cell boundary step) —
-			// viewport-relative space — but a *later* gj/gk continuing in
-			// plain text feeds this same stored value into vim.js's own
-			// findPosV, which needs vim.js's own div-relative charCoords space
-			// instead (confirmed live: a viewport-relative ~442 fed into
-			// findPosV landed at ch 67 on an ordinary line — consistent with
-			// findPosV reading it as "px from this line's own start" rather
-			// than "px from the whole viewport's own left edge"). Converting
-			// it here would need vim.js's own cm adapter for the *outer*
-			// document, but the only one in scope is whichever cm
-			// *originated* this crossing — the *inner* cell's own adapter for
-			// a cell-to-cell/exit crossing, no longer valid for an outer-doc
-			// coordinate lookup once we've left that cell. Rather than
-			// replicate vim.js's own div-relative math independently, simply
-			// don't carry a pixel goal across this specific boundary at all:
-			// leaving it null here means the *next* continuing call's own
-			// already-correct "fresh computation" fallback
-			// (VimSupport.charCoordsLeft(vcm, head, ...), using *that* call's
-			// own guaranteed-valid vcm) computes it instead — deferred by one
-			// keystroke, but correct. goalHPos (ch, carried via the tail below
-			// regardless) is unaffected — only the pixel side resets here.
-			// Left alone for a genuine empty cell (editor.inTableCell still
-			// true) — no coordinate-space mismatch there, since a subsequent
-			// gj/gk still in-cell expects the same viewport-relative space
-			// this value already carries.
+			// A genuine exit into plain text must not let the *incoming*
+			// goalHSPos be fed unconverted into a later plain-text findPosV
+			// call: that value was computed for whichever raw-CM6 posAtCoords
+			// consumer led to this landing (a cell-to-cell crossing, or an
+			// in-cell boundary step) — viewport-relative space — but findPosV
+			// needs vim.js's own div-relative charCoords space instead
+			// (confirmed live: a viewport-relative ~442 fed into findPosV
+			// landed at ch 67 on an ordinary line). goalHSPosNeedsDivConversion
+			// flags this *without discarding the value itself* (see that
+			// field's own comment for why a first attempt — nulling it out so
+			// the next call recomputes "fresh" from wherever it landed —
+			// broke curswant-style preservation whenever that landing was on
+			// a too-short/empty line to test a pixel goal against: the
+			// "fresh" value was then just that degenerate line's own ch 0,
+			// permanently losing the real goal even once a longer line was
+			// reached later). Left alone for a genuine empty cell
+			// (editor.inTableCell still true) — no coordinate-space mismatch
+			// there, since a subsequent gj/gk still in-cell expects the same
+			// viewport-relative space this value already carries.
 			if (!editor.inTableCell) {
-				resolvedGoalHSPos = null;
-				this.goalHSPosInvalidated = true;
+				this.goalHSPosNeedsDivConversion = true;
 			}
 		}
 		// Seed the landed view's own native vim state with the carried-over,
@@ -1347,17 +1375,21 @@ export class VimSupport {
 			outerNow.line === this.lastOuterPos.line && outerNow.ch === this.lastOuterPos.ch;
 		const externalContinuing = continuingInner || continuingOuter;
 		const continuing = nativeContinuing || externalContinuing;
-		// goalHSPosInvalidated (see its own comment) takes priority over both
-		// external and native continuity — bug fixed here: initially this
-		// checked `this.goalHSPos === null` directly instead, but that value
-		// is null for two different reasons (a genuinely fresh VimSupport
-		// instance, where vim.lastHSPos via nativeContinuing is still
-		// perfectly valid, vs. resyncAfterDeferredMove's own deliberate
-		// invalidation) — forcing fresh in *both* cases broke the legitimate
-		// nativeContinuing-only case (no external bookkeeping yet, but a real
-		// vim.js continuation). The dedicated flag disambiguates them.
-		const goalHSPos = this.goalHSPosInvalidated
-			? VimSupport.charCoordsLeft(vcm, head, editorNow?.inTableCell ? editorNow.activeCM : undefined)
+		// goalHSPosNeedsDivConversion (see its own comment) takes priority over
+		// both external and native continuity. Bug fixed here (second
+		// attempt): the first attempt recomputed goalHSPos "fresh from head"
+		// in this branch instead of converting the preserved value — correct
+		// only when head is a genuinely meaningful position, but wrong
+		// whenever the exit landed on a too-short/empty line to test a pixel
+		// goal against at all (refineDisplayLineColumn's own outer branch
+		// gives up there, leaving head at that degenerate line's own ch 0) —
+		// confirmed live via a direct comparison to moveByLines' own (ch-based,
+		// no conversion needed) goalHPos, which *does* survive an identical
+		// empty-line crossing unscathed. resolveViewportGoalForCurrentContext
+		// converts the *original* preserved goal instead, which works
+		// regardless of the current line's own length.
+		const goalHSPos = this.goalHSPosNeedsDivConversion && this.goalHSPos !== null
+			? VimSupport.resolveViewportGoalForCurrentContext(vcm, head, editorNow, this.goalHSPos)
 			: externalContinuing && this.goalHSPos !== null ? this.goalHSPos
 			: nativeContinuing && vim ? vim.lastHSPos
 			: VimSupport.charCoordsLeft(vcm, head, editorNow?.inTableCell ? editorNow.activeCM : undefined);
@@ -1429,7 +1461,7 @@ export class VimSupport {
 			// that resyncAfterDeferredMove will correct once the crossing settles.
 			this.goalHPos = result.ch;
 			this.goalHSPos = goalHSPos;
-			this.goalHSPosInvalidated = false;
+			this.goalHSPosNeedsDivConversion = false;
 			this.goalCellIndex = goalCellIndex;
 			this.lastReturnedPos = result;
 			this.lastCm = cm;
@@ -1497,17 +1529,28 @@ export class VimSupport {
 				// (scheduleDisplayLineEntry -> scheduleDisplayLineRefinement ->
 				// refineDisplayLineColumn) reads raw CM6 coordsAtPos/posAtCoords
 				// on the newly-entered *inner* view, a different (viewport-
-				// relative) space. Recompute a viewport-relative equivalent from
+				// relative) space. Convert via convertPixelGoalSpace (a
+				// same-reference-point offset, using cur as the reference and
 				// the *outer* cm — still a real, already-rendered CM6 view even
-				// in plain text, unlike activeCM — at cur (the last plain-text
-				// position findPosV actually landed on, whose ch approximates
-				// goalHSPos on that line), reusing charCoordsLeft the same way
-				// the in-cell branch already does for its own inner view.
-				// Bug fixed here: passing the 'div'-relative goalHSPos straight
-				// through silently resolved to the wrong (col-0) column once
-				// inside the entered cell, exactly like the coordinate-space
-				// mismatch already fixed for cell-to-cell crossing.
-				const entryPixelGoal = editorNow ? VimSupport.charCoordsLeft(vcm, cur, editorNow.cm) : goalHSPos;
+				// in plain text, unlike activeCM) rather than recomputing a
+				// fresh value directly from cur's own position.
+				//
+				// Bug fixed here (second attempt): the first attempt did
+				// exactly that — VimSupport.charCoordsLeft(vcm, cur,
+				// editorNow.cm), reading cur's own viewport-relative position
+				// as the goal — silently resolving to the wrong (col-0) column
+				// once inside the entered cell whenever cur itself happened to
+				// be a degenerate ch-0 position (e.g. findPosV's own loop
+				// breaking on the entry-detection step *before* ever advancing
+				// cur off of a preceding too-short/empty plain-text line — cur
+				// stays at head in that case, see this loop's own remaining/
+				// enteredAt convention comment). Converting the already-correct
+				// goalHSPos (valid for wherever we actually are, regardless of
+				// cur's own degeneracy) is the same fix already applied to the
+				// exit-side coordinate-space bug, applied here to entry.
+				const entryPixelGoal = editorNow?.cm
+					? VimSupport.convertPixelGoalSpace(vcm, cur, editorNow.cm, 'viewport', goalHSPos)
+					: goalHSPos;
 				this.scheduleDisplayLineEntry(enteredAt, motionArgs.forward, entryPixelGoal, goalCellIndex);
 			}
 			// Stay put rather than jumping straight to enteredAt — same
@@ -1521,7 +1564,7 @@ export class VimSupport {
 
 		this.goalHPos = result.ch;
 		this.goalHSPos = goalHSPos;
-		this.goalHSPosInvalidated = false;
+		this.goalHSPosNeedsDivConversion = false;
 		this.goalCellIndex = goalCellIndex;
 		this.lastReturnedPos = result;
 		this.lastCm = cm;

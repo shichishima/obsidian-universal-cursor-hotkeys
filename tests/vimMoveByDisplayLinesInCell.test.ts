@@ -209,29 +209,36 @@ describe('moveByDisplayLines: inside a table cell', () => {
 		expect(host.refineDisplayLineColumn).toHaveBeenCalledWith(expect.anything(), 10 /* goalHSPos = ch1 * 10 */)
 	})
 
-	it('regression: exiting the table does not carry the viewport-relative pixel goal into plain text — resets it instead, so a later gj/gk continuing in plain text recomputes it fresh via *that* call\'s own guaranteed-valid vcm', () => {
+	it('regression: exiting the table preserves the viewport-relative pixel goal (not discarded, not left unconverted) — a later gj/gk continuing in plain text converts it via a same-reference-point offset, using *that* call\'s own guaranteed-valid vcm', () => {
 		// Reported live: right after exiting a table, the column was correct,
 		// but a *second* gj/gk continuing in plain text lost the column badly
-		// (landed at ch 67 instead of ~7). Two root causes stacked here, both
-		// confirmed via a dedicated diagnostic log (not guessed):
+		// (landed at ch 67 instead of ~7). Root causes, all confirmed via
+		// dedicated diagnostic logs (not guessed):
 		// (1) resyncAfterDeferredMove used to seed goalHSPos with whatever was
 		//     passed in (viewport-relative, from crossTableRowForCell's own
 		//     posAtCoords-based rough landing/refinement) even when the
 		//     landing turned out to be a genuine exit — findPosV needs
-		//     vim.js's own div-relative charCoords space instead (confirmed
-		//     live: a viewport-relative ~442 fed into findPosV landed at ch 67
-		//     on an ordinary line).
-		// (2) The *first* fix for (1) never actually ran: resyncAfterDeferredMove's
+		//     vim.js's own div-relative charCoords space instead.
+		// (2) A first fix for (1) never actually ran: resyncAfterDeferredMove's
 		//     own `if (inner)` check used editor.activeCM's bare truthiness,
 		//     but activeCM was confirmed live to still equal editor.cm itself
-		//     right after a genuine exit (an existing, already-documented
-		//     Obsidian convention — activeCM falls back to cm when there's no
-		//     genuine inner focus) — so the check wrongly took the "still has
-		//     an inner view" branch and skipped the exit handling entirely.
-		//     Needs the identical `inner !== e.cm` guard refineDisplayLineColumn
-		//     (main.ts) already has.
+		//     right after a genuine exit (activeCM falls back to cm when
+		//     there's no genuine inner focus) — needs the identical
+		//     `inner !== e.cm` guard refineDisplayLineColumn (main.ts) has.
+		// (3) A second fix for (1) — nulling goalHSPos out so the next call
+		//     recomputes it "fresh from head" — broke curswant-style
+		//     preservation whenever the exit landed on a too-short/empty line
+		//     (confirmed live via direct comparison: moveByLines' own ch-based
+		//     goalHPos *does* survive an identical empty-line crossing, since
+		//     it needs no space conversion at all). The real fix: preserve the
+		//     original viewport-relative value and convert it on demand via a
+		//     same-reference-point offset, which works regardless of the
+		//     current line's own length.
 		let cursor = { line: 5, ch: 9 }
-		const outerCm = {}
+		const outerCm: any = {
+			state: { doc: { line: (_n: number) => ({ from: 0 }) } },
+			coordsAtPos: vi.fn().mockReturnValue({ left: 50 }), // head's own viewport-relative x
+		}
 		const editor: any = {
 			inTableCell: true,
 			getCursor: () => cursor,
@@ -253,25 +260,84 @@ describe('moveByDisplayLines: inside a table cell', () => {
 		const cm1 = { getLine: () => 'aaa', lastLine: () => 0, charCoords: (pos: { ch: number }) => ({ left: pos.ch * 10 }) }
 		vim.moveByDisplayLines(cm1, { line: 0, ch: 1 }, { forward: true, repeat: 1 })
 		win.flush()
-		expect(vim.goalHSPos).toBeNull()
+		// Preserved as-is (10 = ch1 * 10, cm1's own viewport-relative scale),
+		// not discarded — flagged as still needing conversion instead.
+		expect(vim.goalHSPos).toBe(10)
+		expect(vim.goalHSPosNeedsDivConversion).toBe(true)
 
 		// Second gj, continuing in plain text (editor.getCursor() now matches
 		// the exit landing above) — vim.js hands a *fresh* vcm for this call,
 		// distinct scale (x100) from cm1's own (x10) to disambiguate which one
-		// actually gets used for the recompute. Also passes a real vim.js vim
-		// state with nativeContinuing true (lastMotion already ours, matching
-		// what vim.js sets automatically after any motion call) and a stale
-		// lastHSPos (-1, vim.js's own default/never-set value) — reproducing
-		// the exact live scenario where goalHSPosInvalidated was still needed:
-		// without it, this stale -1 would win via the nativeContinuing
-		// fallback even though this.goalHSPos was correctly nulled above.
+		// actually gets used. Also passes a real vim.js vim state with
+		// nativeContinuing true (lastMotion already ours, matching what
+		// vim.js sets automatically after any motion call) and a stale
+		// lastHSPos (-1, vim.js's own default/never-set value) — confirming
+		// goalHSPosNeedsDivConversion still wins over both external and
+		// native continuity.
 		const outerCharCoords = vi.fn((pos: { ch: number }) => ({ left: pos.ch * 100 }))
 		const findPosV = vi.fn((cur: { line: number; ch: number }, dir: number) => ({ line: cur.line + dir, ch: 30, hitSide: false }))
 		const cm2 = { getLine: () => 'plain text line', lastLine: () => 99, charCoords: outerCharCoords, findPosV }
 		const vimState: any = { lastHPos: 3, lastHSPos: -1, lastMotion: vim.moveByDisplayLines }
 		vim.moveByDisplayLines(cm2, { line: 6, ch: 3 }, { forward: true, repeat: 1 }, vimState)
+		// divAtHead = cm2.charCoords({line:6,ch:3},'div').left = 3*100 = 300.
+		// viewportAtHead = outerCm.coordsAtPos(...).left = 50 (fixed).
+		// offset = 300 - 50 = 250; converted goal = 10 (preserved) + 250 = 260.
 		expect(outerCharCoords).toHaveBeenCalledWith({ line: 6, ch: 3 }, 'div')
-		expect(findPosV).toHaveBeenCalledWith({ line: 6, ch: 3 }, 1, 'line', 300)
+		expect(outerCm.coordsAtPos).toHaveBeenCalled()
+		expect(findPosV).toHaveBeenCalledWith({ line: 6, ch: 3 }, 1, 'line', 260)
+		expect(vim.goalHSPosNeedsDivConversion).toBe(false)
+	})
+
+	it('regression: the preserved viewport-relative goal survives crossing a too-short/empty plain-text line entirely — recovering the original wide column once a longer line is reached, matching moveByLines\' own ch-based curswant', () => {
+		// The precise scenario reported live: gk exits a table upward onto a
+		// genuinely empty plain-text line (nothing to test a pixel goal
+		// against at all — refineDisplayLineColumn's own outer branch
+		// necessarily gives up, landing at that line's only possible
+		// position, ch 0). A second gk then reaches a longer line — the wide
+		// goal must still be honored there, not permanently lost to the
+		// intervening empty line's own ch 0.
+		let cursor = { line: 5, ch: 9 }
+		const outerCm: any = {
+			state: { doc: { line: (_n: number) => ({ from: 0 }) } },
+			coordsAtPos: vi.fn().mockReturnValue({ left: 20 }),
+		}
+		const editor: any = {
+			inTableCell: true,
+			getCursor: () => cursor,
+			getLine: () => ROW,
+			activeCM: makeInner(['aaa'], 1),
+			cm: outerCm,
+		}
+		const host = makeHost({
+			crossTableRowForCell: vi.fn(() => {
+				editor.inTableCell = false
+				editor.activeCM = outerCm
+				cursor = { line: 10, ch: 0 } // landed on the empty line
+				return { line: 10, ch: 0 }
+			}),
+			// The empty line has nothing to refine against — outer branch
+			// gives up, returning the unrefined landing (ch 0) unchanged.
+			refineDisplayLineColumn: vi.fn().mockReturnValue({ line: 10, ch: 0 }),
+		})
+		const vim = new VimSupport(host) as any
+		win = installVimWindow(editor)
+		const cm1 = { getLine: () => 'aaa', lastLine: () => 0, charCoords: (pos: { ch: number }) => ({ left: pos.ch * 10 }) }
+		vim.moveByDisplayLines(cm1, { line: 0, ch: 4 }, { forward: false, repeat: 1 })
+		win.flush()
+		expect(vim.goalHSPos).toBe(40) // ch4 * 10, preserved as-is
+		expect(vim.goalHSPosNeedsDivConversion).toBe(true)
+
+		// gk again, still on the empty line (head matches the landing above) —
+		// findPosV steps to the next (longer) line; goalColumn must reflect
+		// the *converted original* goal (40 + offset), not the empty line's
+		// own ch 0.
+		const charCoords2 = vi.fn((pos: { ch: number }) => ({ left: pos.ch * 5 }))
+		const findPosV = vi.fn((cur: { line: number; ch: number }, dir: number) => ({ line: cur.line + dir, ch: 12, hitSide: false }))
+		const cm2 = { getLine: () => 'a longer plain-text line here', lastLine: () => 99, charCoords: charCoords2, findPosV }
+		vim.moveByDisplayLines(cm2, { line: 10, ch: 0 }, { forward: false, repeat: 1 })
+		// divAtHead = charCoords2({ch:0},'div').left = 0. viewportAtHead = 20.
+		// offset = 0 - 20 = -20; converted goal = 40 + (-20) = 20.
+		expect(findPosV).toHaveBeenCalledWith({ line: 10, ch: 0 }, -1, 'line', 20)
 	})
 
 	it('does not schedule any host call when an operator is pending (falls back to logical-line arithmetic)', () => {
