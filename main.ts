@@ -253,12 +253,33 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 			const editor = view?.editor;
 			const cm = editor?.activeCM ?? editor?.cm;
-			const vimState = (cm?.state as unknown as { vim?: { insertMode?: boolean; visualMode?: boolean } } | undefined)?.vim;
+			type VimStateShape = {
+				insertMode?: boolean; visualMode?: boolean;
+				inputState?: {
+					keyBuffer?: string[]; prefixRepeat?: string[]; motionRepeat?: string[];
+					operator?: string | null; motion?: string | null;
+				};
+			};
+			const vimState = (cm?.state as unknown as { vim?: VimStateShape } | undefined)?.vim;
+			const inputState = vimState?.inputState;
 			// eslint-disable-next-line obsidianmd/rule-custom-message -- console.log requested explicitly for this temporary diagnostic.
 			console.log('[UCH keydown]', JSON.stringify({
 				t: performance.now(), key: evt.key, code: evt.code, repeat: evt.repeat,
 				inTableCell: editor?.inTableCell ?? null,
 				insertMode: vimState?.insertMode ?? null, visualMode: vimState?.visualMode ?? null,
+				// vim.js's own pending multi-key command state (InputState),
+				// read *before* this keydown reaches vim.js's own handler
+				// (capture:true) — a non-empty keyBuffer/prefixRepeat/
+				// motionRepeat sitting here across keystrokes that should have
+				// been independent (e.g. two full "gg" presses in a row) is
+				// exactly the kind of stuck state that would explain a single
+				// "g"/"j"/"k" being reinterpreted as completing a stale
+				// pending command from a previous, already-finished keystroke.
+				keyBuffer: inputState?.keyBuffer ?? null,
+				prefixRepeat: inputState?.prefixRepeat ?? null,
+				motionRepeat: inputState?.motionRepeat ?? null,
+				operator: inputState?.operator ?? null,
+				motion: inputState?.motion ?? null,
 			}));
 		}, { capture: true });
 
