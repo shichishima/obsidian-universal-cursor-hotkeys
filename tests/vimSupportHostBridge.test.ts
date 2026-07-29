@@ -260,6 +260,36 @@ describe('VimSupportHost bridge (main.ts)', () => {
 			expect(plugin.setCursorViaCm).not.toHaveBeenCalled()
 			expect(editor.getCursor()).toEqual({ line: 0, ch: 4 }) // completely untouched
 		})
+
+		// Regression: reported live — a table sitting at the edge of the
+		// viewport left the cursor invisible off-screen after exiting via j/gj
+		// or k/gk, in both directions. setCursorViaCm (used for the exit
+		// landing and the column correction above) deliberately never requests
+		// a scroll (see jumpToDocumentLine's own identical comment on why) —
+		// exiting the table can land somewhere the viewport was never scrolled
+		// to show, unlike crossing between rows that stay within an
+		// already-onscreen table. Follows jumpToDocumentLine's own pattern: an
+		// explicit follow-up dispatch with scrollIntoView, to the same
+		// (already landed-on) final position.
+		it('follows up with a scrollIntoView dispatch to the final landed position, both when the column needed correcting and when it didn\'t', () => {
+			const editorForward = makeStatefulEditor(['| row |', 'short'], { line: 0, ch: 0 })
+			plugin.exitTableWithColumn(editorForward, 0, true, 3, 0)
+			expect(editorForward.cm.dispatch).toHaveBeenCalledWith(
+				expect.objectContaining({ scrollIntoView: true, selection: { anchor: 1003, head: 1003 } }),
+			)
+
+			const editorBackward = makeStatefulEditor(['above', '| row |'], { line: 1, ch: 0 })
+			plugin.exitTableWithColumn(editorBackward, 0, false, 2, 1)
+			expect(editorBackward.cm.dispatch).toHaveBeenCalledWith(
+				expect.objectContaining({ scrollIntoView: true }),
+			)
+		})
+
+		it('does not dispatch a scrollIntoView follow-up on the no-op (already-first-line) case', () => {
+			const editor = makeStatefulEditor(['| row |'], { line: 0, ch: 4 })
+			plugin.exitTableWithColumn(editor, 0, false, 1, 0)
+			expect(editor.cm.dispatch).not.toHaveBeenCalled()
+		})
 	})
 
 	// ===========================================================================
