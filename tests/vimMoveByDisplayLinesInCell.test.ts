@@ -172,6 +172,26 @@ describe('moveByDisplayLines: inside a table cell', () => {
 		expect(host.crossTableRowForCell).toHaveBeenCalled()
 	})
 
+	it('regression: preserves goalHSPos (does not null it out) when the no-inner landing is still genuinely a table row (an empty cell), not a real exit', () => {
+		// isLinePartOfTable (ground truth on the landed line's own content) is
+		// what distinguishes "empty cell, still in the table" from "genuine
+		// exit" now — not editor.inTableCell, which was confirmed live to
+		// still read true right after an actual exit at this exact tick (see
+		// the dedicated exit regression test below for why that check was
+		// replaced).
+		const host = makeHost({
+			isLinePartOfTable: vi.fn().mockReturnValue(true), // still a table row
+			crossTableRowForCell: vi.fn().mockReturnValue({ line: 6, ch: 0 }),
+			refineDisplayLineColumn: vi.fn().mockReturnValue({ line: 6, ch: 0 }),
+		})
+		const vim = new VimSupport(host) as any
+		win = installVimWindow(makeCellEditor({ line: 5, ch: 9 })) // no activeCM — empty cell
+		const cm = { getLine: () => 'bbb', lastLine: () => 0, charCoords: (pos: { ch: number }) => ({ left: pos.ch * 10 }) }
+		vim.moveByDisplayLines(cm, { line: 0, ch: 1 }, { forward: true, repeat: 1 })
+		win.flush()
+		expect(vim.goalHSPos).toBe(10) // ch1 * 10 — preserved, not nulled
+	})
+
 	it('regression: still calls refineDisplayLineColumn when the rough landing already exited the table entirely, so the plain-text column gets pixel-corrected too (not just left at exitTableWithColumn\'s own hardcoded ch)', () => {
 		const editor = makeCellEditor({ line: 5, ch: 9 }, makeInner(['aaa'], 1))
 		const host = makeHost({
@@ -187,6 +207,71 @@ describe('moveByDisplayLines: inside a table cell', () => {
 		vim.moveByDisplayLines(cm, { line: 0, ch: 1 }, { forward: true, repeat: 1 })
 		win.flush()
 		expect(host.refineDisplayLineColumn).toHaveBeenCalledWith(expect.anything(), 10 /* goalHSPos = ch1 * 10 */)
+	})
+
+	it('regression: exiting the table does not carry the viewport-relative pixel goal into plain text — resets it instead, so a later gj/gk continuing in plain text recomputes it fresh via *that* call\'s own guaranteed-valid vcm', () => {
+		// Reported live: right after exiting a table, the column was correct,
+		// but a *second* gj/gk continuing in plain text lost the column badly
+		// (landed at ch 67 instead of ~7). Two root causes stacked here, both
+		// confirmed via a dedicated diagnostic log (not guessed):
+		// (1) resyncAfterDeferredMove used to seed goalHSPos with whatever was
+		//     passed in (viewport-relative, from crossTableRowForCell's own
+		//     posAtCoords-based rough landing/refinement) even when the
+		//     landing turned out to be a genuine exit — findPosV needs
+		//     vim.js's own div-relative charCoords space instead (confirmed
+		//     live: a viewport-relative ~442 fed into findPosV landed at ch 67
+		//     on an ordinary line).
+		// (2) The *first* fix for (1) never actually ran: resyncAfterDeferredMove's
+		//     own `if (inner)` check used editor.activeCM's bare truthiness,
+		//     but activeCM was confirmed live to still equal editor.cm itself
+		//     right after a genuine exit (an existing, already-documented
+		//     Obsidian convention — activeCM falls back to cm when there's no
+		//     genuine inner focus) — so the check wrongly took the "still has
+		//     an inner view" branch and skipped the exit handling entirely.
+		//     Needs the identical `inner !== e.cm` guard refineDisplayLineColumn
+		//     (main.ts) already has.
+		let cursor = { line: 5, ch: 9 }
+		const outerCm = {}
+		const editor: any = {
+			inTableCell: true,
+			getCursor: () => cursor,
+			getLine: () => ROW,
+			activeCM: makeInner(['aaa'], 1),
+			cm: outerCm,
+		}
+		const host = makeHost({
+			crossTableRowForCell: vi.fn(() => {
+				editor.inTableCell = false
+				editor.activeCM = outerCm // genuine exit — activeCM falls back to cm itself
+				cursor = { line: 6, ch: 3 } // simulates the actual exit landing
+				return { line: 6, ch: 3 }
+			}),
+			refineDisplayLineColumn: vi.fn().mockReturnValue({ line: 6, ch: 3 }),
+		})
+		const vim = new VimSupport(host) as any
+		win = installVimWindow(editor)
+		const cm1 = { getLine: () => 'aaa', lastLine: () => 0, charCoords: (pos: { ch: number }) => ({ left: pos.ch * 10 }) }
+		vim.moveByDisplayLines(cm1, { line: 0, ch: 1 }, { forward: true, repeat: 1 })
+		win.flush()
+		expect(vim.goalHSPos).toBeNull()
+
+		// Second gj, continuing in plain text (editor.getCursor() now matches
+		// the exit landing above) — vim.js hands a *fresh* vcm for this call,
+		// distinct scale (x100) from cm1's own (x10) to disambiguate which one
+		// actually gets used for the recompute. Also passes a real vim.js vim
+		// state with nativeContinuing true (lastMotion already ours, matching
+		// what vim.js sets automatically after any motion call) and a stale
+		// lastHSPos (-1, vim.js's own default/never-set value) — reproducing
+		// the exact live scenario where goalHSPosInvalidated was still needed:
+		// without it, this stale -1 would win via the nativeContinuing
+		// fallback even though this.goalHSPos was correctly nulled above.
+		const outerCharCoords = vi.fn((pos: { ch: number }) => ({ left: pos.ch * 100 }))
+		const findPosV = vi.fn((cur: { line: number; ch: number }, dir: number) => ({ line: cur.line + dir, ch: 30, hitSide: false }))
+		const cm2 = { getLine: () => 'plain text line', lastLine: () => 99, charCoords: outerCharCoords, findPosV }
+		const vimState: any = { lastHPos: 3, lastHSPos: -1, lastMotion: vim.moveByDisplayLines }
+		vim.moveByDisplayLines(cm2, { line: 6, ch: 3 }, { forward: true, repeat: 1 }, vimState)
+		expect(outerCharCoords).toHaveBeenCalledWith({ line: 6, ch: 3 }, 'div')
+		expect(findPosV).toHaveBeenCalledWith({ line: 6, ch: 3 }, 1, 'line', 300)
 	})
 
 	it('does not schedule any host call when an operator is pending (falls back to logical-line arithmetic)', () => {

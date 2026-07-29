@@ -2242,6 +2242,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const outerCursor = e.getCursor();
 		const head = e.posToOffset(outerCursor);
 		const resolved = universalCursorHotkeysPlugin.resolveSameLineOffset(outer, head, pixelGoal);
+		// eslint-disable-next-line obsidianmd/rule-custom-message -- console.log requested explicitly for this temporary diagnostic.
+		console.log('[UCH refineDisplayLineColumn outer]', JSON.stringify({ pixelGoal, outerCursor, head, resolved }));
 		if (resolved === null) return outerCursor;
 		const headLine = outer.state.doc.lineAt(head);
 		this.setCursorViaCm(e, outerCursor.line, resolved - headLine.from);
@@ -2455,6 +2457,21 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (targetCh !== landed.ch) {
 			this.setCursorViaCm(editor, landed.line, targetCh);
 		}
+		// eslint-disable-next-line obsidianmd/rule-custom-message -- console.log requested explicitly for this temporary diagnostic.
+		console.log('[UCH exitTableWithColumn]', JSON.stringify({ forward, goalCh, before, landed, targetCh, landedLineLength: landedLineText.length }));
+		// A table's own last/first row can itself sit right at the screen's
+		// edge, with the plain-text line just beyond it entirely off-screen —
+		// unlike crossing *between* rows (movement that stays within an
+		// already-onscreen table), exiting can land the cursor somewhere the
+		// viewport was never scrolled to show. setCursorViaCm (used just above
+		// and by setCursorToNextRow/PrevRow themselves) deliberately doesn't
+		// request a scroll — see jumpToDocumentLine's own identical comment on
+		// why — so this follows the same pattern it uses: an explicit
+		// follow-up dispatch to the already-landed (and possibly just-
+		// corrected) position, requesting scrollIntoView only here.
+		const cm = editor.cm;
+		const pos = editor.posToOffset({ line: landed.line, ch: targetCh });
+		cm.dispatch({ selection: { anchor: pos, head: pos }, scrollIntoView: true, userEvent: 'move' });
 		return { line: landed.line, ch: targetCh };
 	}
 
