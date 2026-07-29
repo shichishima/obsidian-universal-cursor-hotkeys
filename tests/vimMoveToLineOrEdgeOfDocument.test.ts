@@ -9,13 +9,14 @@ import { installVimWindow, uninstallVimWindow } from './__helpers__/vimWindow'
 // host's table-membership check (the target line might itself be a table row).
 
 const makeHost = (overrides: Partial<VimSupportHost> = {}): VimSupportHost => ({
-	settings: { vimHlSupport: false, vimJkSupport: false, vimJoinSupport: false, vimCaretSupport: false, vimWordSupport: false, vimGgSupport: false, smartJoin: false, smartHomeStandard: false },
+	settings: { vimHlSupport: false, vimJkSupport: false, vimJoinSupport: false, vimCaretSupport: false, vimWordSupport: false, vimGgSupport: false, vimDisplayLineSupport: false, smartJoin: false, smartHomeStandard: false },
 	saveSettings: async () => {},
 	crossTableRowForCell: vi.fn().mockReturnValue(null),
 	crossTableRowForWord: vi.fn().mockReturnValue(null),
 	jumpToDocumentLine: vi.fn().mockReturnValue(null),
 	isLinePartOfTable: vi.fn().mockReturnValue(false),
 	enterTableAtLine: vi.fn().mockReturnValue(null),
+	refineDisplayLineColumn: vi.fn().mockReturnValue(null),
 	getBeginningOfLinePosition: vi.fn().mockReturnValue(0),
 	...overrides,
 })

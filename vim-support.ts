@@ -52,6 +52,15 @@ interface VimCm {
 	// own findPosV goalColumn) expects, since Markdown's proportional-width
 	// text means a raw ch index isn't a stable visual column.
 	charCoords(pos: VimPos, mode: 'div'): { left: number };
+	// vim.js's own real gj/gk primitive — a genuine public method on the cm
+	// adapter (unlike moveByScroll/moveToColumn/moveToEol, this is not part of
+	// the private, unexposed `motions` table), so the plain-text case can
+	// delegate to it directly rather than reimplementing visual-line stepping.
+	// Confirmed unreliable specifically inside Obsidian's embedded table-cell
+	// views (inconsistent hitSide/boundary detection) — the in-cell branch
+	// uses lower-level coordsAtPos/posAtCoords (via InnerCmLike) instead,
+	// bypassing this method's own flaky boundary heuristics for that case.
+	findPosV(cur: VimPos, dir: number, unit: 'line', goalColumn: number): VimPos & { hitSide?: boolean };
 }
 // A found word's span, from vim.js's own findWord (see moveByWords).
 interface VimWordSpan { from: number; to: number; line: number }
@@ -64,7 +73,14 @@ const getVim = (): VimApi | undefined =>
 // scheduleRowCrossing's resync step).
 interface InnerCmLike {
 	state: {
-		doc: { lineAt(pos: number): { number: number; from: number } };
+		doc: {
+			lineAt(pos: number): { number: number; from: number };
+			// 1-indexed, mirroring CM6's own Text.line(n) — needed to convert a
+			// {line, ch} (0-indexed, vim's own convention) into a flat doc offset
+			// for coordsAtPos/posAtCoords (see moveByDisplayLines' own in-cell
+			// branch, which does this conversion in both directions every step).
+			line(n: number): { from: number };
+		};
 		selection: { main: { head: number } };
 		// vim.js's own per-view vim state — a plain property vim.js itself
 		// assigns directly onto the CM6 state object (`cm.state.vim = {...}`,
@@ -75,6 +91,13 @@ interface InnerCmLike {
 		// own guard for why seeding is skipped when absent.
 		vim?: VimState;
 	};
+	// Real CM6 EditorView methods (this interface is duck-typed against the
+	// actual inner EditorView, not vim.js's own cm adapter — see moveByDisplayLines'
+	// own comment on why these lower-level primitives are used instead of
+	// vim.js's own findPosV for the in-cell case). null signals the coordinate
+	// couldn't be resolved (e.g. out of the rendered viewport).
+	coordsAtPos(pos: number): { top: number; bottom: number; left: number; right: number } | null;
+	posAtCoords(coords: { x: number; y: number }, precise: boolean): number | null;
 }
 
 // Minimal shape needed to read the current table-cell cursor position from
@@ -114,6 +137,7 @@ export interface VimSupportHost {
 		vimCaretSupport: boolean;
 		vimWordSupport: boolean;
 		vimGgSupport: boolean;
+		vimDisplayLineSupport: boolean;
 		smartJoin: boolean;
 		smartHomeStandard: boolean;
 	};
@@ -160,6 +184,32 @@ export interface VimSupportHost {
 	// moving from plain text onto a table row. cellIndex is goalCellIndex, or 0
 	// as a fallback. Returns the outer {line, ch} landed on (or null).
 	enterTableAtLine(editor: unknown, targetLine: number, cellIndex: number, forward: boolean, goalCh: number, remaining: number): { line: number; ch: number } | null;
+	// Vim's gj/gk row-crossing refinement — step 2, always preceded by a plain
+	// crossTableRowForCell(editor, cellIndex, forward, 0, 1) call for step 1
+	// (the "rough landing": land at the target row's own cellIndex, first/
+	// last <br>-segment, ch clamped to 0 — no meaningful ch-based goal exists
+	// for a pixel-driven motion, and single-row-crossing only, matching
+	// crossTableRowForWord's own identical "no multi-row count precision"
+	// scope cut, since gj/gk's own "remaining visual lines" count doesn't map
+	// onto crossTableRowForCell's own <br>-segment-unit "overshoot" anyway —
+	// one <br>-segment can span a different number of visual lines than
+	// logical ones). vim-support.ts calls this step only after an additional
+	// tick past that rough landing, once the newly-entered cell has had a
+	// chance to actually render — gj/gk needs the target row's own *rendered*
+	// layout to land on the correct visual line/pixel column, not knowable
+	// until then. Reads the *current* inner view's own coordsAtPos/posAtCoords
+	// to find the real x=pixelGoal position, and if it differs from the rough
+	// landing, dispatches a *second* setCursorViaCm call to correct it —
+	// reusing the same already-proven-safe function for both dispatches
+	// (never a separate raw EditorView.dispatch) is the key architectural
+	// change from the discarded prior attempt; see this branch's own design
+	// notes for why an uncoordinated raw dispatch, layered on top of Ctrl-N/
+	// P's own moveCursorUpInTable/DownInTable engine, is the likely cause of a
+	// real, repeated vim.js key-dispatch corruption observed live. Never lets
+	// the correction change which line the cursor is on (purely horizontal).
+	// Returns the outer {line, ch} after correction (or the unchanged rough
+	// landing if no correction was possible/needed).
+	refineDisplayLineColumn(editor: unknown, pixelGoal: number): { line: number; ch: number } | null;
 }
 
 export class VimSupport {
@@ -176,6 +226,46 @@ export class VimSupport {
 		this.host = host;
 	}
 
+	// Temporary diagnostic for the key-double-dispatch investigation (a single
+	// physical keystroke sometimes reaching vim.js's own processCommand/
+	// processMotion more than once — confirmed via Chrome's own repeat-count
+	// log-collapsing badge showing an identical moveByLines call logged twice
+	// in a row for one keystroke). Called as the very first line of every
+	// motion/action override below, so the sequence/timestamp here can be
+	// cross-referenced against main.ts's own raw keydown log (which fires
+	// regardless of vim mode, including when a keystroke is wrongly falling
+	// through to plain text insertion instead of being interpreted as a
+	// motion at all). Remove once root-caused.
+	private static dispatchSeq = 0;
+	private logDispatch(name: string, extra: Record<string, unknown>): void {
+		VimSupport.dispatchSeq += 1;
+		// eslint-disable-next-line obsidianmd/rule-custom-message -- console.log requested explicitly for this temporary diagnostic.
+		console.log('[UCH dispatch]', JSON.stringify({ seq: VimSupport.dispatchSeq, t: performance.now(), name, ...extra }));
+	}
+
+	// Pixel x-coordinate of pos, in whichever coordinate space the *other* end
+	// of a given pixel-goal computation will consume it in. vim.js's own
+	// cm.charCoords(pos, 'div') (CM5-compat "div" mode) returns coordinates
+	// relative to the editor's own wrapper element; CM6's own real
+	// coordsAtPos/posAtCoords (used directly by moveByDisplayLines' own in-cell
+	// stepping, and by main.ts's refineDisplayLineColumn) return viewport-
+	// relative coordinates instead — two different coordinate spaces. Mixing
+	// them (computing a "fresh" goal via charCoords, then feeding it into
+	// posAtCoords) was confirmed live to silently resolve to the wrong column
+	// (always landing at ch 0). Whenever an inner table-cell view is
+	// available, this uses the same raw coordsAtPos API those consumers use,
+	// so the two stay in the same coordinate space; only when there's no inner
+	// view at all (plain text) does it fall back to vim.js's own charCoords,
+	// which findPosV's own real vim.js internals expect for that case.
+	private static charCoordsLeft(vcm: VimCm, pos: VimPos, inner: InnerCmLike | undefined): number {
+		if (inner) {
+			const offset = inner.state.doc.line(pos.line + 1).from + pos.ch;
+			const coords = inner.coordsAtPos(offset);
+			if (coords) return coords.left;
+		}
+		return vcm.charCoords(pos, 'div').left;
+	}
+
 	// Call from the plugin's onload().
 	setup(): void {
 		if (this.host.settings.vimHlSupport) this.applyHl();
@@ -184,6 +274,7 @@ export class VimSupport {
 		if (this.host.settings.vimCaretSupport) this.applyCaret();
 		if (this.host.settings.vimWordSupport) this.applyWords();
 		if (this.host.settings.vimGgSupport) this.applyGg();
+		if (this.host.settings.vimDisplayLineSupport) this.applyDisplayLines();
 	}
 
 	// Call from the plugin's onunload(). Best-effort only — see each restore*'s own caveat.
@@ -193,6 +284,7 @@ export class VimSupport {
 		this.restoreJoin();
 		this.restoreCaret();
 		this.restoreWords();
+		this.restoreDisplayLines();
 		this.restoreGg();
 	}
 
@@ -254,6 +346,7 @@ export class VimSupport {
 	//     ourselves, we never hand vim.js an out-of-range Pos for it to "fix" —
 	//     which is where the cell-crossing appears to happen.
 	private readonly moveByCharacters: VimMotionFn = (cm, head, motionArgs) => {
+		this.logDispatch('moveByCharacters', { head, motionArgs });
 		const lineText = (cm as VimCm).getLine(head.line);
 		let ch = head.ch;
 		for (let i = 0; i < motionArgs.repeat; i++) {
@@ -492,6 +585,7 @@ export class VimSupport {
 	// wrong regardless of table context, and it also stranded undo (u) in the
 	// wrong cell's own vim state.
 	private readonly moveByWords: VimMotionFn = (cm, head, motionArgs, _vim, inputState) => {
+		this.logDispatch('moveByWords', { head, motionArgs, operator: inputState?.operator ?? null });
 		const vcm = cm as VimCm;
 		const forward = motionArgs.forward;
 		const bigWord = !!motionArgs.bigWord;
@@ -561,6 +655,7 @@ export class VimSupport {
 	// only be computing the operator's linewise range, not actually moving
 	// the cursor.
 	private readonly moveToLineOrEdgeOfDocument: VimMotionFn = (cm, head, motionArgs, _vim, inputState) => {
+		this.logDispatch('moveToLineOrEdgeOfDocument', { head, motionArgs, operator: inputState?.operator ?? null });
 		const vcm = cm as VimCm;
 		const forward = motionArgs.forward;
 		const lastLine = vcm.lastLine();
@@ -612,6 +707,7 @@ export class VimSupport {
 	// line.length as ch so it always resolves past any prefix (non-toggling,
 	// matching vim's own non-toggling `^`).
 	private readonly moveToFirstNonWhiteSpaceCharacter: VimMotionFn = (cm, head) => {
+		this.logDispatch('moveToFirstNonWhiteSpaceCharacter', { head });
 		const line = (cm as VimCm).getLine(head.line);
 		if (!this.host.settings.smartHomeStandard) {
 			return { line: head.line, ch: VimSupport.findFirstNonWhiteSpaceCharacter(line) };
@@ -638,6 +734,7 @@ export class VimSupport {
 	// Applies both inside and outside table cells — unlike h/l/j/k, this isn't a
 	// Live-Preview-architecture fix, so there's no table-specific gap to scope to.
 	private readonly joinLines: VimActionFn = (cm, actionArgs, vim) => {
+		this.logDispatch('joinLines', { actionArgs });
 		VimSupport.runJoinLines(
 			cm as VimCm, actionArgs, vim as { visualMode?: boolean } | undefined,
 			this.host.settings.smartJoin,
@@ -794,6 +891,7 @@ export class VimSupport {
 	// fire after the delete, leaving the cursor in the wrong cell/row and
 	// stranding undo (u) in that cell's own vim state.
 	private readonly moveByLines: VimMotionFn = (cm, head, motionArgs, vim, inputState) => {
+		this.logDispatch('moveByLines', { head, motionArgs, operator: inputState?.operator ?? null });
 		const vcm = cm as VimCm;
 		const isOperatorPending = !!inputState?.operator;
 
@@ -801,11 +899,12 @@ export class VimSupport {
 		// ours? This is the *same-view* continuity signal — see VimState's own
 		// comment for why it can't cover a row-crossing (a fresh inner view
 		// resets its own vim state), which is what the external check below is
-		// still needed for. Only this.moveByLines is checked here — a future
-		// gj/gk override (moveByDisplayLines) will extend this to an OR,
-		// matching vim.js's own real switch-case, which lists both as one
-		// continuity family.
-		const nativeContinuing = !!vim && vim.lastMotion === this.moveByLines;
+		// still needed for. Checks both j/k and gj/gk's own overrides — real
+		// vim.js's own switch-case lists moveByLines and moveByDisplayLines as
+		// one continuity family (plus moveByScroll/moveToColumn/moveToEol,
+		// which aren't overridden here and so can never match this comparison
+		// — see VimState's own comment on that accepted asymmetry).
+		const nativeContinuing = !!vim && (vim.lastMotion === this.moveByLines || vim.lastMotion === this.moveByDisplayLines);
 
 		const continuingInner = this.lastCm === cm && this.lastReturnedPos !== null &&
 			head.line === this.lastReturnedPos.line &&
@@ -848,7 +947,21 @@ export class VimSupport {
 				// consuming — e.g. a repeat of 5 from line 3 of a 4-line (0..3)
 				// cell overshoots by 1 (needs 1 more logical line beyond this cell).
 				const overshoot = motionArgs.forward ? rawTargetLine - lastLine : -rawTargetLine;
-				if (!isOperatorPending) this.scheduleRowCrossing(motionArgs.forward, goalHPos, goalCellIndex, overshoot);
+				if (!isOperatorPending) {
+					// Computed here (not read from this.goalHSPos) because the tail
+					// below hasn't run yet for *this* call — this.goalHSPos still
+					// holds the previous call's value at this point.
+					// goalHPos is a *carried-over* goal column (curswant) — it can
+					// legitimately be wider than this specific segment's own actual
+					// length (e.g. continuing from a longer line/cell). Bug fixed
+					// here: passing it straight through to coordsAtPos crashed
+					// ("No tile at position N") once a wide-enough goal actually
+					// exceeded the segment's real length — clamp first, same as
+					// every other consumer of a carried-over ch against this line.
+					const clampedGoalCh = Math.min(goalHPos, VimSupport.maxNormalModeCh(vcm.getLine(head.line)));
+					const goalHSPosNow = VimSupport.charCoordsLeft(vcm, { line: head.line, ch: clampedGoalCh }, editorNow.activeCM);
+					this.scheduleRowCrossing(motionArgs.forward, goalHPos, goalHSPosNow, goalCellIndex, overshoot);
+				}
 				line = Math.max(0, Math.min(lastLine, rawTargetLine));
 			} else {
 				line = rawTargetLine;
@@ -886,7 +999,31 @@ export class VimSupport {
 				remaining -= 1;
 			}
 			if (enteredAt !== -1) {
-				if (!isOperatorPending) this.scheduleTableEntry(enteredAt, motionArgs.forward, goalHPos, goalCellIndex, remaining);
+				if (!isOperatorPending) {
+					// vcm.charCoords(...,'div') here would be vim.js's own
+					// div-relative space — fine for *this* call's own findPosV-free
+					// plain-text arithmetic (which doesn't use it at all), but wrong
+					// for what scheduleTableEntry's own resyncAfterDeferredMove goes
+					// on to seed (vim.lastHSPos / this.goalHSPos) once landed inside
+					// the entered cell: a *later* gj/gk call continuing from there
+					// feeds that seeded value straight into raw CM6 posAtCoords,
+					// which needs viewport-relative coordinates. Recompute via the
+					// outer cm's own coordsAtPos instead (still real/rendered even in
+					// plain text, unlike activeCM), matching the identical fix
+					// already applied to moveByDisplayLines' own plain-text entry.
+					// Bug fixed here: a "k" that entered a table from plain text,
+					// followed by a "gj" still inside that same cell, silently
+					// reset the column — the div-relative value seeded by this call
+					// site was fed straight into gj/gk's viewport-relative posAtCoords.
+					// goalHPos is a carried-over goal column (curswant) — clamp
+					// against head.line's own actual length before the coordsAtPos
+					// lookup, same as scheduleRowCrossing's own identical clamp
+					// (an unclamped wide goal crashed coordsAtPos with "No tile at
+					// position N" once it genuinely exceeded the line's length).
+					const clampedGoalCh = Math.min(goalHPos, VimSupport.maxNormalModeCh(vcm.getLine(head.line)));
+					const goalHSPosNow = editorNow ? VimSupport.charCoordsLeft(vcm, { line: head.line, ch: clampedGoalCh }, editorNow.cm) : goalHPos;
+					this.scheduleTableEntry(enteredAt, motionArgs.forward, goalHPos, goalHSPosNow, goalCellIndex, remaining);
+				}
 				// Stay put rather than jumping straight to enteredAt: unlike
 				// row-crossing (naturally clamped within the current cell's own
 				// safe range above), plain text has no such bound, so this would
@@ -929,7 +1066,16 @@ export class VimSupport {
 		// it for the rest of the same-view chain.
 		if (vim) {
 			vim.lastHPos = goalHPos;
-			this.goalHSPos = vcm.charCoords({ line, ch: goalHPos }, 'div').left;
+			// goalHPos is deliberately the wide, unclamped goal (see the
+			// comment above) — but `line` here is the *actual landed* line,
+			// which can be shorter than that goal (the same curswant scenario
+			// the comment above describes). Clamp before the coordsAtPos
+			// lookup (same fix as scheduleRowCrossing's and scheduleTableEntry's
+			// identical call sites) — an unclamped wide goal here crashes
+			// coordsAtPos with "No tile at position N" once it genuinely
+			// exceeds the landed line's length.
+			const clampedGoalCh = Math.min(goalHPos, VimSupport.maxNormalModeCh(vcm.getLine(line)));
+			this.goalHSPos = VimSupport.charCoordsLeft(vcm, { line, ch: clampedGoalCh }, editorNow?.inTableCell ? editorNow.activeCM : undefined);
 			vim.lastHSPos = this.goalHSPos;
 		}
 
@@ -969,7 +1115,7 @@ export class VimSupport {
 	// clipCursorToContent; deferring it avoids that. Confirmed working manually
 	// for single-row crossing, including entering/exiting the table entirely, and
 	// (via overshoot) multi-row crossing for count-prefixed motions.
-	private scheduleRowCrossing(forward: boolean, goalHPos: number, goalCellIndex: number | null, overshoot: number): void {
+	private scheduleRowCrossing(forward: boolean, goalHPos: number, goalHSPos: number, goalCellIndex: number | null, overshoot: number): void {
 		window.setTimeout(() => {
 			const editor = getActiveEditor();
 			if (!editor || !editor.inTableCell) return;
@@ -984,7 +1130,7 @@ export class VimSupport {
 			// risks resyncing against a transient view that isn't what vim.js will
 			// actually hand the next motion call.
 			window.requestAnimationFrame(() => {
-				this.resyncAfterDeferredMove(editor, landedOuter, goalHPos, cellIndex);
+				this.resyncAfterDeferredMove(editor, landedOuter, goalHPos, goalHSPos, cellIndex);
 			});
 		}, 0);
 	}
@@ -993,7 +1139,7 @@ export class VimSupport {
 	// line (still in plain-text coordinates) might be a table row. Deferred to a
 	// setTimeout for the same reason as scheduleRowCrossing — entering a table
 	// cell is itself a view-boundary crossing, carrying the same crash risk.
-	private scheduleTableEntry(targetLine: number, forward: boolean, goalHPos: number, goalCellIndex: number | null, remaining: number): void {
+	private scheduleTableEntry(targetLine: number, forward: boolean, goalHPos: number, goalHSPos: number, goalCellIndex: number | null, remaining: number): void {
 		window.setTimeout(() => {
 			const editor = getActiveEditor();
 			if (!editor) return;
@@ -1014,7 +1160,7 @@ export class VimSupport {
 			// See scheduleRowCrossing's own comment on why this read is deferred an
 			// extra frame past the RAF-based focus-transfer fallback.
 			window.requestAnimationFrame(() => {
-				this.resyncAfterDeferredMove(editor, landedOuter, goalHPos, cellIndex);
+				this.resyncAfterDeferredMove(editor, landedOuter, goalHPos, goalHSPos, cellIndex);
 			});
 		}, 0);
 	}
@@ -1028,7 +1174,7 @@ export class VimSupport {
 	// back the actual landing position in the new inner view's own local
 	// coordinates and re-sync against that, keeping goalHPos/goalCellIndex at their
 	// original (not clamped) values.
-	private resyncAfterDeferredMove(editor: EditorBridge, landedOuter: { line: number; ch: number } | null, goalHPos: number, goalCellIndex: number): void {
+	private resyncAfterDeferredMove(editor: EditorBridge, landedOuter: { line: number; ch: number } | null, goalHPos: number, goalHSPos: number | null, goalCellIndex: number): void {
 		if (!landedOuter) return;
 		const inner = editor.activeCM;
 		let seedTarget: InnerCmLike | undefined;
@@ -1060,15 +1206,342 @@ export class VimSupport {
 		// possible if vim.js's own maybeInitVimState has already run for this
 		// view (i.e. at least one vim command has been dispatched to it
 		// already) — skipped silently otherwise, matching the interface's own
-		// optional `vim?`.
+		// optional `vim?`. lastHSPos is seeded alongside it (when known) for
+		// the same reason, on the pixel side — needed for gj/gk's own goal to
+		// survive a crossing that j/k itself initiated (a "j" then "gj" chain).
 		if (seedTarget?.state?.vim) {
 			seedTarget.state.vim.lastHPos = goalHPos;
+			if (goalHSPos !== null) seedTarget.state.vim.lastHSPos = goalHSPos;
 		}
 		// Recorded regardless of whether an inner view was found — this is the
 		// second, cm-identity-independent continuity signal (see lastOuterPos's
 		// own comment).
 		this.lastOuterPos = landedOuter;
 		this.goalHPos = goalHPos;
+		if (goalHSPos !== null) this.goalHSPos = goalHSPos;
 		this.goalCellIndex = goalCellIndex;
+	}
+
+	// --- gj/gk (moveByDisplayLines) — builds directly on j/k's own curswant
+	// integration above, sharing every field (goalHPos/goalHSPos/goalCellIndex/
+	// lastReturnedPos/lastCm/lastOuterPos) rather than a parallel gj/gk-only
+	// copy. This is what gives j/k↔gj/gk cross-family continuity and click
+	// detection "for free" — see moveByLines' own nativeContinuing comment.
+	//
+	// Third implementation attempt. The first two both deferred *every*
+	// in-cell keystroke to a host round-trip (reusing Ctrl-N/P's own
+	// moveCursorUpInTable/DownInTable engine, then a separate raw
+	// EditorView.dispatch to pixel-correct). Live testing traced a repeated
+	// vim.js key-dispatch corruption (confirmed via Chrome's own log-repeat
+	// badge showing moveByLines fired twice for one keystroke, plus a single
+	// "g" behaving like "gg", plus Normal-mode "l" inserting literal
+	// characters) to that combination specifically — a `dd` press-and-hold
+	// (a real vim.js 2-key command, zero UCH code involved) never reproduced
+	// it, ruling out "2-key commands in general" as the cause. This version
+	// instead computes the common (same-cell) case *synchronously*, via
+	// direct coordsAtPos/posAtCoords calls on the current (already-rendered,
+	// not being swapped) inner view — no dispatch, no defer, exactly like any
+	// other motion. Only a genuine cell-boundary crossing still defers, and
+	// even then only ever dispatches through setCursorViaCm (the same
+	// function j/k's own crossing already uses safely), never a separate raw
+	// dispatch.
+
+	// Hardcoded default for 'moveByDisplayLines' (see VIM_DEFAULT_MOVE_BY_CHARACTERS
+	// for why this must be hardcoded rather than captured). Deliberately simplified
+	// vs. the live override: no goal-column persistence across separate keystrokes
+	// (each call's own goal is just wherever *this* call started) — only a restore
+	// target, not something a user should notice in practice.
+	private static readonly VIM_DEFAULT_MOVE_BY_DISPLAY_LINES: VimMotionFn = (cm, head, motionArgs) => {
+		const vcm = cm as VimCm;
+		const repeat = Math.round(motionArgs.repeat);
+		const goalHSPos = vcm.charCoords(head, 'div').left;
+		let cur = head;
+		for (let i = 0; i < repeat; i++) {
+			const res = vcm.findPosV(cur, motionArgs.forward ? 1 : -1, 'line', goalHSPos);
+			if (res.hitSide) break;
+			cur = res;
+		}
+		const ch = Math.min(cur.ch, VimSupport.maxNormalModeCh(vcm.getLine(cur.line)));
+		return { line: cur.line, ch };
+	};
+
+	// Live gj/gk. Continuity/goal-computation block mirrors moveByLines' own
+	// exactly (same external-first/native-fallback priority, same reasoning
+	// for why — see moveByLines' own comment on the race that priority order
+	// avoids), just driven by goalHSPos (pixel) instead of goalHPos (ch).
+	private readonly moveByDisplayLines: VimMotionFn = (cm, head, motionArgs, vim, inputState) => {
+		this.logDispatch('moveByDisplayLines', { head, motionArgs, operator: inputState?.operator ?? null });
+		const vcm = cm as VimCm;
+		const isOperatorPending = !!inputState?.operator;
+		const editorNow = getActiveEditor();
+
+		const nativeContinuing = !!vim && (vim.lastMotion === this.moveByLines || vim.lastMotion === this.moveByDisplayLines);
+		const continuingInner = this.lastCm === cm && this.lastReturnedPos !== null &&
+			head.line === this.lastReturnedPos.line &&
+			head.ch === this.lastReturnedPos.ch;
+		const outerNow = editorNow?.getCursor() ?? null;
+		const continuingOuter = outerNow !== null && this.lastOuterPos !== null &&
+			outerNow.line === this.lastOuterPos.line && outerNow.ch === this.lastOuterPos.ch;
+		const externalContinuing = continuingInner || continuingOuter;
+		const continuing = nativeContinuing || externalContinuing;
+		const goalHSPos = externalContinuing && this.goalHSPos !== null ? this.goalHSPos
+			: nativeContinuing && vim ? vim.lastHSPos
+			: VimSupport.charCoordsLeft(vcm, head, editorNow?.inTableCell ? editorNow.activeCM : undefined);
+		const goalCellIndex = continuing && this.goalCellIndex !== null
+			? this.goalCellIndex
+			: VimSupport.currentCellIndex();
+
+		if (editorNow?.inTableCell) {
+			if (isOperatorPending) {
+				// No synchronous visual-line computation is attempted in-cell for
+				// an operator's own target (e.g. "dgj") — approximate via the same
+				// logical-line arithmetic moveByLines' own in-cell branch uses.
+				// Exact for a non-wrapped cell, imperfect for a wrapped one —
+				// a documented, narrow scope cut (matches moveByWords'/
+				// moveByLines' own precedent) rather than building a second
+				// synchronous path just for the operator+gj/gk case.
+				const lastLine = vcm.lastLine();
+				const rawTargetLine = motionArgs.forward ? head.line + motionArgs.repeat : head.line - motionArgs.repeat;
+				const line = Math.max(0, Math.min(lastLine, rawTargetLine));
+				const ch = Math.min(head.ch, VimSupport.maxNormalModeCh(vcm.getLine(line)));
+				return { line, ch };
+			}
+
+			// Synchronous same-cell stepping: vim.js's own findPosV is unreliable
+			// specifically inside Obsidian's embedded table-cell views (confirmed
+			// via live testing of real, unmodified vim.js), so this uses the
+			// lower-level coordsAtPos/posAtCoords directly on the current inner
+			// view instead — a real, already-rendered view (not one that's being
+			// swapped), so no deferral is needed here, unlike a crossing.
+			const inner = editorNow.activeCM;
+			let cur = head;
+			let remaining = Math.round(motionArgs.repeat);
+			if (inner) {
+				while (remaining > 0) {
+					const headOffset = inner.state.doc.line(cur.line + 1).from + cur.ch;
+					const coords = inner.coordsAtPos(headOffset);
+					if (!coords) break; // can't resolve — treat as a cell boundary
+					const targetY = motionArgs.forward ? coords.bottom + 9 : coords.top - 9;
+					const targetOffset = inner.posAtCoords({ x: goalHSPos, y: targetY }, false);
+					if (targetOffset === null) break; // outside the rendered cell — boundary
+					const targetCoords = inner.coordsAtPos(targetOffset);
+					// Same-top means posAtCoords couldn't actually move to a new
+					// visual line (clipped back to the current one) — the same
+					// "did this actually move" check real vim.js's own hitSide
+					// signals, just derived manually since findPosV itself isn't
+					// trustworthy here.
+					if (!targetCoords || targetCoords.top === coords.top) break;
+					const targetLine = inner.state.doc.lineAt(targetOffset);
+					cur = { line: targetLine.number - 1, ch: targetOffset - targetLine.from };
+					remaining -= 1;
+				}
+			}
+			// remaining > 0 means either there's no inner view at all (an empty
+			// cell — nothing to step through, matching moveCursorUpInTable's/
+			// DownInTable's own "empty cell: go directly to next/prev row" fast
+			// path) or a genuine cell-boundary was hit before repeat was fully
+			// consumed — either way, a crossing is needed. Only a single row is
+			// ever crossed per keystroke regardless of how large remaining is
+			// (see crossTableRowForDisplayLine's own scope-cut comment).
+			if (remaining > 0) {
+				this.scheduleDisplayLineCrossing(motionArgs.forward, goalHSPos, goalCellIndex);
+			}
+			const ch = Math.min(cur.ch, VimSupport.maxNormalModeCh(vcm.getLine(cur.line)));
+			const result = { line: cur.line, ch };
+
+			// External (cross-view) carry — same fields j/k uses. Written
+			// unconditionally (matching moveByLines' own tail): even when a
+			// crossing was also scheduled, this is a safe, temporary placeholder
+			// that resyncAfterDeferredMove will correct once the crossing settles.
+			this.goalHPos = result.ch;
+			this.goalHSPos = goalHSPos;
+			this.goalCellIndex = goalCellIndex;
+			this.lastReturnedPos = result;
+			this.lastCm = cm;
+
+			// Native write-back — mirror image of moveByLines' own tail: here
+			// goalHSPos (the driver) is preserved across a continuing chain
+			// (only refreshed fresh), while lastHPos is unconditionally
+			// overwritten to wherever this actually landed (matching real
+			// vim.js's own `if (cur != head) vim.lastHPos = cur.ch;` — no
+			// "preserve the wide ch goal" behavior here; switching from gj/gk
+			// back to j/k picks up wherever gj/gk actually left the cursor).
+			if (vim) {
+				if (result.line !== head.line || result.ch !== head.ch) vim.lastHPos = result.ch;
+				if (!continuing) vim.lastHSPos = goalHSPos;
+			}
+
+			return result;
+		}
+
+		// Plain text: mirrors real vim.js's own moveByDisplayLines exactly —
+		// findPosV is a genuine public method (unlike moveByScroll/moveToColumn/
+		// moveToEol), so no reimplementation is needed for the movement itself.
+		// Looped one line at a time (matching real vim.js's own loop) so each
+		// hop can be checked against the same "does the landing line look like
+		// a table row" prefilter moveByLines' own plain-text walk uses —
+		// landing directly on raw table markdown text synchronously triggers
+		// Obsidian's own inner-view auto-creation, racing the deferred jump a
+		// tick later (see moveToLineOrEdgeOfDocument's own comment on the exact
+		// crash this avoids). remaining/enteredAt mirror moveByLines' own
+		// convention exactly: a step that turns out to be the entry itself
+		// doesn't consume a unit of remaining.
+		const repeat = Math.round(motionArgs.repeat);
+		let cur = head;
+		let remaining = repeat;
+		let enteredAt = -1;
+		while (remaining > 0) {
+			const res = vcm.findPosV(cur, motionArgs.forward ? 1 : -1, 'line', goalHSPos);
+			if (res.hitSide) break;
+			if (vcm.getLine(res.line).trimStart().startsWith('|')) {
+				enteredAt = res.line;
+				break;
+			}
+			cur = res;
+			remaining -= 1;
+		}
+
+		let line: number;
+		if (enteredAt !== -1) {
+			if (!isOperatorPending) {
+				// goalHSPos here is in vim.js's own 'div'-relative space (see
+				// charCoordsLeft's own comment) — correct for the findPosV steps
+				// above, but the entry's own pixel-refinement
+				// (scheduleDisplayLineEntry -> scheduleDisplayLineRefinement ->
+				// refineDisplayLineColumn) reads raw CM6 coordsAtPos/posAtCoords
+				// on the newly-entered *inner* view, a different (viewport-
+				// relative) space. Recompute a viewport-relative equivalent from
+				// the *outer* cm — still a real, already-rendered CM6 view even
+				// in plain text, unlike activeCM — at cur (the last plain-text
+				// position findPosV actually landed on, whose ch approximates
+				// goalHSPos on that line), reusing charCoordsLeft the same way
+				// the in-cell branch already does for its own inner view.
+				// Bug fixed here: passing the 'div'-relative goalHSPos straight
+				// through silently resolved to the wrong (col-0) column once
+				// inside the entered cell, exactly like the coordinate-space
+				// mismatch already fixed for cell-to-cell crossing.
+				const entryPixelGoal = editorNow ? VimSupport.charCoordsLeft(vcm, cur, editorNow.cm) : goalHSPos;
+				this.scheduleDisplayLineEntry(enteredAt, motionArgs.forward, entryPixelGoal, goalCellIndex);
+			}
+			// Stay put rather than jumping straight to enteredAt — same
+			// reasoning as moveByLines' own identical branch.
+			line = head.line;
+		} else {
+			line = cur.line;
+		}
+		const ch = Math.min(cur.ch, VimSupport.maxNormalModeCh(vcm.getLine(line)));
+		const result = { line, ch };
+
+		this.goalHPos = result.ch;
+		this.goalHSPos = goalHSPos;
+		this.goalCellIndex = goalCellIndex;
+		this.lastReturnedPos = result;
+		this.lastCm = cm;
+
+		if (vim) {
+			if (result.line !== head.line || result.ch !== head.ch) vim.lastHPos = result.ch;
+			if (!continuing) vim.lastHSPos = goalHSPos;
+		}
+
+		return result;
+	};
+
+	private applyDisplayLines(): void {
+		getVim()?.defineMotion('moveByDisplayLines', this.moveByDisplayLines);
+	}
+
+	private restoreDisplayLines(): void {
+		getVim()?.defineMotion('moveByDisplayLines', VimSupport.VIM_DEFAULT_MOVE_BY_DISPLAY_LINES);
+	}
+
+	setDisplayLinesEnabled(on: boolean): void {
+		this.setFeature(on, v => { this.host.settings.vimDisplayLineSupport = v; }, () => this.applyDisplayLines(), () => this.restoreDisplayLines());
+	}
+
+	// Deferred for the same crash-avoidance reason as scheduleRowCrossing — a
+	// cell-boundary crossing cannot be resolved synchronously. Two host calls,
+	// one tick apart: crossTableRowForCell lands roughly (a single
+	// setCursorViaCm dispatch, enough to make the target cell's inner view
+	// actually exist/render); refineDisplayLineColumn then reads that
+	// now-rendered view's own layout and, only if needed, dispatches a
+	// *second* setCursorViaCm call to pixel-correct it. Never a separate raw
+	// EditorView.dispatch — see this override's own class comment for why.
+	private scheduleDisplayLineCrossing(forward: boolean, goalHSPos: number, goalCellIndex: number | null): void {
+		window.setTimeout(() => {
+			const editor = getActiveEditor();
+			if (!editor || !editor.inTableCell) return;
+			const cellIndex = goalCellIndex ?? getCellIndex(editor.getLine(editor.getCursor().line), editor.getCursor().ch);
+			// Rough landing: reuses j/k's own crossTableRowForCell as-is (single
+			// row only, so overshoot=1 — see refineDisplayLineColumn's own
+			// comment on both). goalCh itself isn't a real pixel-aware goal, but
+			// its direction still matters: landInCellSegment lands at the target
+			// segment's own *start* (forward) or, via this large sentinel,
+			// clamps to its own *end* (backward) — same convention
+			// crossTableRowForWord's own goalCh already uses. This matters for a
+			// wrapped (multi-visual-line) target segment specifically:
+			// refineDisplayLineColumn only ever corrects the *column* on
+			// whichever (inner) line the rough landing already put it on — it
+			// never changes lines — so gk crossing backward into a wrapped
+			// segment must land on that segment's own *last* character (its
+			// bottom visual line) up front, not its first (which forward's
+			// own start-of-segment landing already correctly targets: gj
+			// entering a row from above should land on the segment's own top
+			// visual line).
+			const roughLanding = this.host.crossTableRowForCell(editor, cellIndex, forward, forward ? 0 : Number.MAX_SAFE_INTEGER, 1);
+			if (!roughLanding) return;
+			this.scheduleDisplayLineRefinement(editor, goalHSPos, cellIndex);
+		}, 0);
+	}
+
+	// Table entry from plain text (mirrors moveByLines' own scheduleTableEntry
+	// row-finding, but as a separate, gj/gk-only method rather than sharing
+	// that one — j/k's own scheduleTableEntry has no pixel-refinement step at
+	// all, and adding one there would be meaningless for a ch-only motion).
+	// Same two-step (rough landing via enterTableAtLine, then
+	// scheduleDisplayLineRefinement) shape as scheduleDisplayLineCrossing —
+	// entering a table row is just as much a view-boundary crossing as moving
+	// between two already-inside-the-table rows, so it needs the same
+	// pixel-correction follow-up, not just a rough, uncorrected landing.
+	// Single-row precision only (remaining=0), matching
+	// crossTableRowForCell's own scope cut above.
+	private scheduleDisplayLineEntry(targetLine: number, forward: boolean, goalHSPos: number, goalCellIndex: number | null): void {
+		window.setTimeout(() => {
+			const editor = getActiveEditor();
+			if (!editor) return;
+			// See scheduleTableEntry's own identical check: confirms targetLine
+			// is genuinely a table row (not just text that starts with '|')
+			// before committing to this landing.
+			if (!this.host.isLinePartOfTable(editor, targetLine, 1)) return;
+			const cellIndex = goalCellIndex ?? 0;
+			const roughLanding = this.host.enterTableAtLine(editor, targetLine, cellIndex, forward, forward ? 0 : Number.MAX_SAFE_INTEGER, 0);
+			if (!roughLanding) return;
+			this.scheduleDisplayLineRefinement(editor, goalHSPos, cellIndex);
+		}, 0);
+	}
+
+	// Shared by scheduleDisplayLineCrossing and scheduleDisplayLineEntry: waits
+	// one more tick for the rough landing's own inner view to actually render
+	// before reading its layout (the same class of wait scheduleTableEntry's
+	// own comment describes — Obsidian's inner-view creation in response to a
+	// dispatch isn't necessarily synchronous with that dispatch returning),
+	// then pixel-corrects via refineDisplayLineColumn. Bug fixed here:
+	// this used to skip refineDisplayLineColumn entirely whenever the rough
+	// landing had already exited the table into plain text (!editor.inTableCell),
+	// resyncing against the live (uncorrected, exitTableWithColumn's own
+	// hardcoded ch=0/MAX_SAFE_INTEGER) cursor instead — the "column not
+	// preserved when exiting the table's last row" report. refineDisplayLineColumn
+	// (main.ts) now handles that exact case itself (falling back to the outer
+	// view's own coordsAtPos/posAtCoords when there's no distinct inner view —
+	// an empty cell or a genuine exit alike), so it can always be called here.
+	private scheduleDisplayLineRefinement(editor: EditorBridge, goalHSPos: number, cellIndex: number): void {
+		window.setTimeout(() => {
+			const refined = this.host.refineDisplayLineColumn(editor, goalHSPos);
+			// See scheduleRowCrossing's own comment on why this final read is
+			// deferred an extra frame past setCursorViaCm's own RAF-based
+			// focus-transfer fallback.
+			window.requestAnimationFrame(() => {
+				this.resyncAfterDeferredMove(editor, refined, refined?.ch ?? 0, goalHSPos, cellIndex);
+			});
+		}, 0);
 	}
 }

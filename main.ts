@@ -35,6 +35,7 @@ interface UniversalCursorHotkeysSettings {
 	vimCaretSupport: boolean;
 	vimWordSupport: boolean;
 	vimGgSupport: boolean;
+	vimDisplayLineSupport: boolean;
 	vimSectionVisible: boolean;
 	// Whether the settings tab has already auto-expanded the Vim support
 	// section once in response to Obsidian's own "Vim key bindings" core
@@ -58,6 +59,7 @@ const DEFAULT_SETTINGS: UniversalCursorHotkeysSettings = {
 	vimCaretSupport: false,
 	vimWordSupport: false,
 	vimGgSupport: false,
+	vimDisplayLineSupport: false,
 	vimSectionVisible: false,
 	vimAutoExpandDone: false,
 };
@@ -235,6 +237,30 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			this.isKillChaining = false;
 			this._recenterStep = 0;
 		});
+
+		// Temporary diagnostic for the key-double-dispatch investigation — fires
+		// regardless of vim mode (including when a keystroke wrongly falls
+		// through to plain text insertion instead of being interpreted as a
+		// motion at all, e.g. 'l' inserting a literal 'l' while apparently still
+		// in Normal mode). capture:true so this sees the event before vim.js's
+		// own handler can stop propagation. Cross-reference this log's own `seq`/
+		// timestamp against vim-support.ts's own '[UCH dispatch]' log (one entry
+		// per actual motion/action override invocation) to see whether a given
+		// keydown really did reach our own code more than once, or reached it
+		// zero times (e.g. swallowed by an unexpected mode). Remove once
+		// root-caused.
+		this.registerDomEvent(activeDocument, 'keydown', (evt: KeyboardEvent) => {
+			const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+			const editor = view?.editor;
+			const cm = editor?.activeCM ?? editor?.cm;
+			const vimState = (cm?.state as unknown as { vim?: { insertMode?: boolean; visualMode?: boolean } } | undefined)?.vim;
+			// eslint-disable-next-line obsidianmd/rule-custom-message -- console.log requested explicitly for this temporary diagnostic.
+			console.log('[UCH keydown]', JSON.stringify({
+				t: performance.now(), key: evt.key, code: evt.code, repeat: evt.repeat,
+				inTableCell: editor?.inTableCell ?? null,
+				insertMode: vimState?.insertMode ?? null, visualMode: vimState?.visualMode ?? null,
+			}));
+		}, { capture: true });
 
 		this.registerDomEvent(activeDocument, 'copy', () => {
 			this.killCache = '';
@@ -2173,6 +2199,71 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return this.exitTableWithColumn(e, cellIndex, forward, goalCh, e.getCursor().line);
 		}
 		return this.walkTableRows(e, cellIndex, forward, startLine, overshoot, goalCh);
+	}
+
+	// See vim-support.ts's own VimSupportHost.refineDisplayLineColumn doc
+	// comment for the full rationale (step 2 of gj/gk's own row-crossing,
+	// always preceded by a crossTableRowForCell(..., 0, 1) rough landing).
+	// Re-finds the actual x=pixelGoal position on the cell's own newly-landed
+	// visual line via coordsAtPos/posAtCoords (the same idiom
+	// moveCursorUpInTable's/moveCursorDownInTable's own assoc-correction
+	// already uses — see their own comments for why a small +9 y-offset
+	// reliably samples a point within the line's own visual band), and
+	// re-dispatches via setCursorViaCm — never a raw EditorView.dispatch — if
+	// it differs from the rough landing. Never lets the correction change
+	// which (inner) line the cursor is on; its job is purely horizontal.
+	refineDisplayLineColumn(editor: unknown, pixelGoal: number): { line: number; ch: number } | null {
+		const e = editor as Editor;
+		const inner = e.activeCM;
+		if (inner && inner !== e.cm) {
+			const head = inner.state.selection.main.head;
+			const resolved = universalCursorHotkeysPlugin.resolveSameLineOffset(inner, head, pixelGoal);
+			if (resolved === null) return e.getCursor();
+
+			// Convert the (confirmed same-line) refined inner ch back into an
+			// outer {line, ch} — setCursorViaCm dispatches via the *outer*
+			// document, same as every other table-cell landing in this file.
+			const headLine = inner.state.doc.lineAt(head);
+			const outerCursor = e.getCursor();
+			const outerLineText = e.getLine(outerCursor.line);
+			const segInfo = getInCellLineInfo(outerLineText, outerCursor.ch);
+			if (!segInfo) return e.getCursor(); // shouldn't happen — we're inside a cell
+			const targetOuterCh = segInfo.startOfInCellLine + (resolved - headLine.from);
+			this.setCursorViaCm(e, outerCursor.line, targetOuterCh);
+			return e.getCursor();
+		}
+
+		// No distinct inner view — either an empty cell, or (more commonly
+		// here) the rough landing already exited the table entirely into
+		// plain text, where there's no cell view left to refine against.
+		// Correct directly against the outer view instead — same idiom, no
+		// inner-to-outer ch conversion needed since outer ch is already real.
+		const outer = e.cm;
+		const outerCursor = e.getCursor();
+		const head = e.posToOffset(outerCursor);
+		const resolved = universalCursorHotkeysPlugin.resolveSameLineOffset(outer, head, pixelGoal);
+		if (resolved === null) return outerCursor;
+		const headLine = outer.state.doc.lineAt(head);
+		this.setCursorViaCm(e, outerCursor.line, resolved - headLine.from);
+		return e.getCursor();
+	}
+
+	// Shared by both branches of refineDisplayLineColumn above: finds the
+	// pixel-correct, same-line, offset on `view` by sampling within the
+	// current line's own visual band (see refineDisplayLineColumn's own
+	// comment for the +9 y-offset rationale). Returns null if no correction
+	// should be applied (unresolvable, would cross a line, or unchanged).
+	private static resolveSameLineOffset(view: EditorView, head: number, pixelGoal: number): number | null {
+		const coords = view.coordsAtPos(head);
+		if (!coords) return null;
+		const targetPos = view.posAtCoords({ x: pixelGoal, y: coords.top + 9 }, false);
+		if (targetPos === null) return null;
+		const headLine = view.state.doc.lineAt(head);
+		const targetLine = view.state.doc.lineAt(targetPos);
+		if (targetLine.number !== headLine.number) return null;
+		const maxCh = Math.max(0, headLine.length - 1);
+		const clamped = Math.min(targetPos, headLine.from + maxCh);
+		return clamped === head ? null : clamped;
 	}
 
 	// Vim's w/b/e cell-crossing. Unlike Ctrl-N/P and Vim's own j/k (which move
