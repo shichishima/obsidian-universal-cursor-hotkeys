@@ -138,6 +138,7 @@ export interface VimSupportHost {
 		vimWordSupport: boolean;
 		vimGgSupport: boolean;
 		vimDisplayLineSupport: boolean;
+		vimEolSupport: boolean;
 		smartJoin: boolean;
 		smartHomeStandard: boolean;
 	};
@@ -308,6 +309,7 @@ export class VimSupport {
 		if (this.host.settings.vimWordSupport) this.applyWords();
 		if (this.host.settings.vimGgSupport) this.applyGg();
 		if (this.host.settings.vimDisplayLineSupport) this.applyDisplayLines();
+		if (this.host.settings.vimEolSupport) this.applyEol();
 	}
 
 	// Call from the plugin's onunload(). Best-effort only — see each restore*'s own caveat.
@@ -319,6 +321,7 @@ export class VimSupport {
 		this.restoreWords();
 		this.restoreDisplayLines();
 		this.restoreGg();
+		this.restoreEol();
 	}
 
 	setHlEnabled(on: boolean): void {
@@ -343,6 +346,10 @@ export class VimSupport {
 
 	setGgEnabled(on: boolean): void {
 		this.setFeature(on, v => { this.host.settings.vimGgSupport = v; }, () => this.applyGg(), () => this.restoreGg());
+	}
+
+	setEolEnabled(on: boolean): void {
+		this.setFeature(on, v => { this.host.settings.vimEolSupport = v; }, () => this.applyEol(), () => this.restoreEol());
 	}
 
 	// Turning on is reliable and immediate. Turning off calls the restore-target
@@ -439,6 +446,14 @@ export class VimSupport {
 
 	private restoreGg(): void {
 		getVim()?.defineMotion('moveToLineOrEdgeOfDocument', VimSupport.VIM_DEFAULT_MOVE_TO_LINE_OR_EDGE);
+	}
+
+	private applyEol(): void {
+		getVim()?.defineMotion('moveToEol', this.moveToEol);
+	}
+
+	private restoreEol(): void {
+		getVim()?.defineMotion('moveToEol', VimSupport.VIM_DEFAULT_MOVE_TO_EOL);
 	}
 
 	// --- w/b/e (moveByWords) — faithful port of vim.js's own word-motion
@@ -948,12 +963,18 @@ export class VimSupport {
 		// ours? This is the *same-view* continuity signal — see VimState's own
 		// comment for why it can't cover a row-crossing (a fresh inner view
 		// resets its own vim state), which is what the external check below is
-		// still needed for. Checks both j/k and gj/gk's own overrides — real
-		// vim.js's own switch-case lists moveByLines and moveByDisplayLines as
-		// one continuity family (plus moveByScroll/moveToColumn/moveToEol,
-		// which aren't overridden here and so can never match this comparison
-		// — see VimState's own comment on that accepted asymmetry).
-		const nativeContinuing = !!vim && (vim.lastMotion === this.moveByLines || vim.lastMotion === this.moveByDisplayLines);
+		// still needed for. Checks j/k, gj/gk, and $'s own overrides — real
+		// vim.js's own switch-case lists moveByLines/moveByDisplayLines/
+		// moveByScroll/moveToColumn/moveToEol as one continuity family; $ is
+		// the only one of those three this plugin also overrides (bug fixed
+		// here: this used to check only moveByLines/moveByDisplayLines, so
+		// "$" then "j"/"k" lost real vim's own "sticky end of line" — $ needs
+		// to be recognized as continuing here too, matching vim.js's own
+		// source, for its Infinity goalHPos to actually take effect).
+		// moveByScroll/moveToColumn remain unoverridden and so can never
+		// match this comparison — see VimState's own comment on that accepted
+		// asymmetry.
+		const nativeContinuing = !!vim && (vim.lastMotion === this.moveByLines || vim.lastMotion === this.moveByDisplayLines || vim.lastMotion === this.moveToEol);
 
 		const continuingInner = this.lastCm === cm && this.lastReturnedPos !== null &&
 			head.line === this.lastReturnedPos.line &&
@@ -1141,6 +1162,75 @@ export class VimSupport {
 			vimLastMotionIsOurs: !!vim && vim.lastMotion === this.moveByLines,
 			result,
 		}));
+
+		return result;
+	};
+
+	// Restore target for `$` on toggle-off/unload — vim.js's own default,
+	// hardcoded for the same reason as VIM_DEFAULT_MOVE_BY_LINES. Deliberately
+	// simplified vs. the live override: no goal-column persistence (matching
+	// VIM_DEFAULT_MOVE_BY_DISPLAY_LINES' own precedent) — only a restore
+	// target, not something a user should notice in practice. Single-row
+	// precision only (vcm.lastLine() is the *current* cell's own local line
+	// count when in-cell, so a count-prefixed "3$" clamps within it rather
+	// than crossing rows) — a documented scope cut matching the same
+	// precedent used throughout this file for less-common count-prefixed
+	// cases (crossTableRowForCell/crossTableRowForWord's own single-row-only
+	// scope, operator+gj/gk's logical-line approximation, etc.).
+	private static readonly VIM_DEFAULT_MOVE_TO_EOL: VimMotionFn = (cm, head, motionArgs) => {
+		const vcm = cm as VimCm;
+		const line = Math.max(0, Math.min(vcm.lastLine(), head.line + motionArgs.repeat - 1));
+		return { line, ch: VimSupport.maxNormalModeCh(vcm.getLine(line)) };
+	};
+
+	// Vim's `$` — also the motion D/C's own delete-to-eol/change-to-eol
+	// share (real vim.js's own keymap: both are `{ motion: 'moveToEol' }`),
+	// so overriding this one function covers all three keys. Real vim.js's
+	// own moveToEol sets vim.lastHPos = Infinity — its own "sticky end of
+	// line" goal-column sentinel, explicitly recognized by real vim.js's own
+	// moveByLines/moveByDisplayLines switch-case as part of the SAME
+	// curswant-continuity family moveByLines/moveByScroll/moveToColumn share
+	// (see nativeContinuing's own comment in both overrides here) — and
+	// vim.lastHSPos to the actual end-of-line's own *concrete* pixel
+	// position (not Infinity — only the ch-based goal is "always this line's
+	// own end"; the pixel goal a later gj/gk reads is an ordinary, finite
+	// curswant value, matching real vim.js's own source exactly).
+	//
+	// Overridden here — unlike most of vim.js's own motions this plugin
+	// leaves completely untouched — specifically so `$` participates in this
+	// plugin's own *external* goalHPos/goalHSPos tracking: real vim.js's own
+	// per-view lastHPos/lastHSPos alone can't survive a table row-crossing/
+	// entry/exit (a fresh inner view resets its own vim state), the exact
+	// same reason moveByLines/moveByDisplayLines already need their own
+	// external carry. Using `Infinity` itself as the stored goal needs no
+	// special-casing anywhere else in this file — every existing consumer
+	// already clamps via `Math.min(goalHPos, maxNormalModeCh(...))`, which
+	// resolves to "this line's own last character" for free when goalHPos is
+	// Infinity, exactly matching real vim's own behavior.
+	//
+	// Not gated on isOperatorPending (unlike some of this file's own
+	// multi-branch motions) — real vim.js's own moveToEol never checks
+	// inputState.operator either; D/C's own goal-tracking side effects
+	// should be identical to a plain `$`, matching source exactly.
+	private readonly moveToEol: VimMotionFn = (cm, head, motionArgs, vim, inputState) => {
+		this.logDispatch('moveToEol', { head, motionArgs, operator: inputState?.operator ?? null });
+		const vcm = cm as VimCm;
+		const line = Math.max(0, Math.min(vcm.lastLine(), head.line + motionArgs.repeat - 1));
+		const ch = VimSupport.maxNormalModeCh(vcm.getLine(line));
+		const result = { line, ch };
+
+		const editorNow = getActiveEditor();
+		this.goalHPos = Infinity;
+		this.goalHSPos = VimSupport.charCoordsLeft(vcm, result, editorNow?.inTableCell ? editorNow.activeCM : undefined);
+		this.goalHSPosNeedsDivConversion = false;
+		this.goalCellIndex = VimSupport.currentCellIndex();
+		this.lastReturnedPos = result;
+		this.lastCm = cm;
+
+		if (vim) {
+			vim.lastHPos = Infinity;
+			vim.lastHSPos = this.goalHSPos;
+		}
 
 		return result;
 	};
@@ -1366,7 +1456,10 @@ export class VimSupport {
 		const isOperatorPending = !!inputState?.operator;
 		const editorNow = getActiveEditor();
 
-		const nativeContinuing = !!vim && (vim.lastMotion === this.moveByLines || vim.lastMotion === this.moveByDisplayLines);
+		// See moveByLines' own identical comment — $ (moveToEol) is part of
+		// the same curswant-continuity family real vim.js's own switch-case
+		// recognizes, so gj/gk must check for it too.
+		const nativeContinuing = !!vim && (vim.lastMotion === this.moveByLines || vim.lastMotion === this.moveByDisplayLines || vim.lastMotion === this.moveToEol);
 		const continuingInner = this.lastCm === cm && this.lastReturnedPos !== null &&
 			head.line === this.lastReturnedPos.line &&
 			head.ch === this.lastReturnedPos.ch;

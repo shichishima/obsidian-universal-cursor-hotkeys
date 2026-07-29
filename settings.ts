@@ -498,6 +498,22 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				}));
 		vimSectionEls.push(displayLine.settingEl);
 
+		const eol = new Setting(containerEl)
+			.setClass('uch-vim-item')
+			.then(setting => {
+				this.setKeyChipName(setting, ['$', 'D', 'C'], 'End of line (sticky column)');
+				this.setHtmlDesc(setting, '' +
+					'<b>ON:</b> <span class="uch-kbd">$</span>/<span class="uch-kbd">D</span>/<span class="uch-kbd">C</span> (three keys, one shared underlying motion) stick to each line\'s own end when followed by j/k or gj/gk, matching real vim\'s own "always this line\'s end" goal column — including across table row crossings.<br>' +
+					'<b>OFF:</b> Vim\'s own native <span class="uch-kbd">$</span>/<span class="uch-kbd">D</span>/<span class="uch-kbd">C</span>, unchanged — combined with this plugin\'s own j/k (or gj/gk) support, they may not stick to each line\'s end the way real vim does.');
+			})
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.vimEolSupport)
+				.onChange((value) => {
+					this.plugin.vimSupport.setEolEnabled(value);
+					this.display();
+				}));
+		vimSectionEls.push(eol.settingEl);
+
 		const caret = new Setting(containerEl)
 			.setClass('uch-vim-item')
 			.then(setting => {
@@ -560,6 +576,11 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		displayLineLi.appendText(' ');
 		displayLineLi.createSpan({ text: 'gk', cls: 'uch-kbd' });
 		displayLineLi.appendText(': crosses one row boundary at a time — a count spanning more than one row isn\'t fully precise yet.');
+		const eolLi = list.createEl('li');
+		eolLi.createSpan({ text: '$', cls: 'uch-kbd' });
+		eolLi.appendText(': a count-prefixed ');
+		eolLi.createSpan({ text: '3$', cls: 'uch-kbd' });
+		eolLi.appendText(' stays within the current table cell rather than crossing rows.');
 		vimSectionEls.push(limitationsEl);
 
 		for (const el of vimSectionEls) el.toggleClass('uch-hidden', !this.vimSectionVisible);
