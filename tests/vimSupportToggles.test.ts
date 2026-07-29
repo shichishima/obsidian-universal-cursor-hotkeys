@@ -15,6 +15,7 @@ const makeSettings = (overrides: Partial<VimSupportHost['settings']> = {}): VimS
 	vimWordSupport: false,
 	vimGgSupport: false,
 	vimDisplayLineSupport: false,
+	vimEolSupport: false,
 	smartJoin: false,
 	smartHomeStandard: false,
 	...overrides,
@@ -66,6 +67,7 @@ describe('VimSupport per-feature toggles', () => {
 			expect(wasRegistered('moveToFirstNonWhiteSpaceCharacter')).toBe(false)
 			expect(wasRegistered('moveByWords')).toBe(false)
 			expect(wasRegistered('moveByDisplayLines')).toBe(false)
+			expect(wasRegistered('moveToEol')).toBe(false)
 		})
 
 		it('applies nothing when every feature is off', () => {
@@ -77,7 +79,7 @@ describe('VimSupport per-feature toggles', () => {
 	})
 
 	describe('teardown()', () => {
-		it('restores all 7 overrides regardless of their setting state', () => {
+		it('restores all 8 overrides regardless of their setting state', () => {
 			const vim = new VimSupport(makeHost())
 			vim.teardown()
 			expect(wasRegistered('moveByCharacters')).toBe(true)
@@ -87,6 +89,7 @@ describe('VimSupport per-feature toggles', () => {
 			expect(wasRegistered('moveByWords')).toBe(true)
 			expect(wasRegistered('moveToLineOrEdgeOfDocument')).toBe(true)
 			expect(wasRegistered('moveByDisplayLines')).toBe(true)
+			expect(wasRegistered('moveToEol')).toBe(true)
 		})
 
 		it('restore target for h/l matches vim.js\'s own native default (no line-boundary clamp, unlike the live override)', () => {
@@ -98,6 +101,14 @@ describe('VimSupport per-feature toggles', () => {
 			// end — unlike the live override (see vimMoveByCharacters.test.ts),
 			// which would clamp this same input to ch: 2.
 			expect(restored(cm, { line: 0, ch: 1 }, { forward: true, repeat: 5 })).toEqual({ line: 0, ch: 6 })
+		})
+
+		it('restore target for $ lands on the line\'s own last character, with no goal-column persistence (see vimMoveToEol.test.ts for the live override\'s own Infinity-goal behavior)', () => {
+			const vim = new VimSupport(makeHost())
+			vim.teardown()
+			const restored = lastRegistered('moveToEol') as (cm: unknown, head: unknown, args: unknown) => unknown
+			const cm = { getLine: (n: number) => (n === 0 ? 'aaaaa' : 'bb'), lastLine: () => 1 }
+			expect(restored(cm, { line: 0, ch: 2 }, { forward: true, repeat: 1 })).toEqual({ line: 0, ch: 4 })
 		})
 	})
 
@@ -214,6 +225,22 @@ describe('VimSupport per-feature toggles', () => {
 			const vim = new VimSupport(makeHost(makeSettings({ vimDisplayLineSupport: true })))
 			vim.setDisplayLinesEnabled(false)
 			expect(lastRegistered('moveByDisplayLines')).not.toBe((vim as any).moveByDisplayLines)
+			expect(vim.needsRestart).toBe(true)
+		})
+	})
+
+	describe('setEolEnabled', () => {
+		it('turning on applies the live override and does not need a restart', () => {
+			const vim = new VimSupport(makeHost())
+			vim.setEolEnabled(true)
+			expect(lastRegistered('moveToEol')).toBe((vim as any).moveToEol)
+			expect(vim.needsRestart).toBe(false)
+		})
+
+		it('turning off restores the default and flags needsRestart', () => {
+			const vim = new VimSupport(makeHost(makeSettings({ vimEolSupport: true })))
+			vim.setEolEnabled(false)
+			expect(lastRegistered('moveToEol')).not.toBe((vim as any).moveToEol)
 			expect(vim.needsRestart).toBe(true)
 		})
 	})

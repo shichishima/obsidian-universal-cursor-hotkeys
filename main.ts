@@ -36,6 +36,7 @@ interface UniversalCursorHotkeysSettings {
 	vimWordSupport: boolean;
 	vimGgSupport: boolean;
 	vimDisplayLineSupport: boolean;
+	vimEolSupport: boolean;
 	vimSectionVisible: boolean;
 	// Whether the settings tab has already auto-expanded the Vim support
 	// section once in response to Obsidian's own "Vim key bindings" core
@@ -60,6 +61,7 @@ const DEFAULT_SETTINGS: UniversalCursorHotkeysSettings = {
 	vimWordSupport: false,
 	vimGgSupport: false,
 	vimDisplayLineSupport: false,
+	vimEolSupport: false,
 	vimSectionVisible: false,
 	vimAutoExpandDone: false,
 };
@@ -262,11 +264,25 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			};
 			const vimState = (cm?.state as unknown as { vim?: VimStateShape } | undefined)?.vim;
 			const inputState = vimState?.inputState;
+			// New lead, found by reading vim.js's own handleKeyNonInsertMode
+			// dispatch path (not guessed): when cm.isInMultiSelectMode() is true,
+			// vim.js's own handleKey is invoked once *per selection* via
+			// cm.forEachSelection — meaning a single physical keydown, if the
+			// editor happens to have 2+ active selections/cursors (even an
+			// invisible/stray one the user never intended), gets processed by
+			// vim.js's own key-buffer/motion logic *twice*. This would directly
+			// explain all three previously-observed symptoms at once: a single
+			// "g" completing "gg", a single "j"/"k" advancing 2 lines, and
+			// Normal-mode "l" inserting a literal character (each one processed
+			// once per stray selection). selectionRangeCount > 1 here is the
+			// direct, checkable signal for that condition.
+			const selectionRangeCount = (cm?.state as unknown as { selection?: { ranges?: unknown[] } } | undefined)?.selection?.ranges?.length ?? null;
 			// eslint-disable-next-line obsidianmd/rule-custom-message -- console.log requested explicitly for this temporary diagnostic.
 			console.log('[UCH keydown]', JSON.stringify({
 				t: performance.now(), key: evt.key, code: evt.code, repeat: evt.repeat,
 				inTableCell: editor?.inTableCell ?? null,
 				insertMode: vimState?.insertMode ?? null, visualMode: vimState?.visualMode ?? null,
+				selectionRangeCount,
 				// vim.js's own pending multi-key command state (InputState),
 				// read *before* this keydown reaches vim.js's own handler
 				// (capture:true) — a non-empty keyBuffer/prefixRepeat/
