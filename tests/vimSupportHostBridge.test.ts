@@ -424,4 +424,162 @@ describe('VimSupportHost bridge (main.ts)', () => {
 			expect(resultGg).toEqual(resultG)
 		})
 	})
+
+	// ===========================================================================
+	// refineDisplayLineColumn — gj/gk's own step 2, run one tick after a
+	// crossTableRowForCell(..., 0, 1) rough landing (see vim-support.ts's own
+	// VimSupportHost doc comment). Explicit pixel-based re-correction via
+	// coordsAtPos/posAtCoords on the *inner* view, converted back to an outer
+	// {line, ch} via getInCellLineInfo, and re-dispatched only through
+	// setCursorViaCm — never a raw EditorView.dispatch.
+	// ===========================================================================
+
+	describe('refineDisplayLineColumn', () => {
+		const LINE_3SEG = '| a<br>b<br>c |' // 'a' at ch 2, 'b' at ch 7, 'c' at ch 12 (segment starts)
+
+		beforeEach(() => {
+			plugin.setCursorViaCm = vi.fn()
+		})
+
+		function makeInner(head: number, lineLength: number, coordsTop = 100) {
+			return {
+				state: {
+					selection: { main: { head } },
+					doc: { lineAt: (_pos: number) => ({ from: 0, to: lineLength, number: 1, length: lineLength }) },
+				},
+				coordsAtPos: vi.fn().mockReturnValue({ top: coordsTop, bottom: coordsTop + 18, left: 0, right: 100 }),
+				posAtCoords: vi.fn(),
+			}
+		}
+
+		it('dispatches via setCursorViaCm to the pixel-derived outer position when it differs from the current head', () => {
+			const inner = makeInner(2, 5) // head offset 2 on a 5-char inner line
+			inner.posAtCoords.mockReturnValue(4) // resolves to offset 4, same line
+			const editor = {
+				activeCM: inner, cm: {},
+				getCursor: () => ({ line: 3, ch: 2 }), // outer: cellIndex 0's 'a' segment (start=2)
+				getLine: () => LINE_3SEG,
+			}
+			const result = plugin.refineDisplayLineColumn(editor, 999)
+			expect(inner.posAtCoords).toHaveBeenCalledWith({ x: 999, y: 109 }, false)
+			// targetOuterCh = segment start (2) + clampedInnerCh (4) = 6
+			expect(plugin.setCursorViaCm).toHaveBeenCalledWith(editor, 3, 6)
+			expect(result).toEqual({ line: 3, ch: 2 })
+		})
+
+		it('does not dispatch when the pixel-derived position already matches the current head', () => {
+			const inner = makeInner(2, 5)
+			inner.posAtCoords.mockReturnValue(2) // resolves back to the same offset
+			const editor = {
+				activeCM: inner, cm: {},
+				getCursor: () => ({ line: 3, ch: 2 }),
+				getLine: () => LINE_3SEG,
+			}
+			plugin.refineDisplayLineColumn(editor, 999)
+			expect(plugin.setCursorViaCm).not.toHaveBeenCalled()
+		})
+
+		it('clamps to the segment\'s own Normal-mode-legal bound (length - 1), matching maxNormalModeCh', () => {
+			const inner = makeInner(0, 2) // 2-char inner line -> max legal offset = 1
+			inner.posAtCoords.mockReturnValue(2) // resolves to the line's own end, past the legal bound
+			const editor = {
+				activeCM: inner, cm: {},
+				getCursor: () => ({ line: 3, ch: 2 }),
+				getLine: () => LINE_3SEG,
+			}
+			plugin.refineDisplayLineColumn(editor, 999)
+			// clampedInnerCh = min(2, 1) = 1 -> targetOuterCh = 2 + 1 = 3
+			expect(plugin.setCursorViaCm).toHaveBeenCalledWith(editor, 3, 3)
+		})
+
+		it('regression: never lets the correction change lines — returns the unchanged landing when posAtCoords resolves onto an adjacent line', () => {
+			const head = 2
+			const inner = {
+				state: {
+					selection: { main: { head } },
+					doc: {
+						lineAt: (pos: number) => pos === head
+							? { from: 0, to: 5, number: 1, length: 5 }
+							: { from: 10, to: 15, number: 2, length: 5 },
+					},
+				},
+				coordsAtPos: vi.fn().mockReturnValue({ top: 100, bottom: 118, left: 0, right: 100 }),
+				posAtCoords: vi.fn().mockReturnValue(12), // a position on a *different* inner line
+			}
+			const editor = { activeCM: inner, cm: {}, getCursor: () => ({ line: 3, ch: 2 }), getLine: () => LINE_3SEG }
+			const result = plugin.refineDisplayLineColumn(editor, 999)
+			expect(plugin.setCursorViaCm).not.toHaveBeenCalled()
+			expect(result).toEqual({ line: 3, ch: 2 })
+		})
+
+		it('returns the live cursor unchanged when there is no distinct inner view and the outer view cannot resolve a correction (e.g. an empty cell)', () => {
+			const outerCm = {
+				state: { doc: { lineAt: (_pos: number) => ({ from: 0, to: 5, number: 1, length: 5 }) } },
+				coordsAtPos: vi.fn().mockReturnValue(null),
+				posAtCoords: vi.fn(),
+			}
+			const editor = {
+				activeCM: outerCm, cm: outerCm,
+				getCursor: () => ({ line: 3, ch: 3 }),
+				getLine: () => LINE_3SEG,
+				posToOffset: (_pos: { line: number; ch: number }) => 3,
+			}
+			const result = plugin.refineDisplayLineColumn(editor, 999)
+			expect(result).toEqual({ line: 3, ch: 3 })
+			expect(plugin.setCursorViaCm).not.toHaveBeenCalled()
+		})
+
+		it('corrects directly against the outer view when the rough landing already exited the table into plain text', () => {
+			const outerCm = {
+				state: { doc: { lineAt: (_pos: number) => ({ from: 10, to: 20, number: 5, length: 10 }) } },
+				coordsAtPos: vi.fn().mockReturnValue({ top: 100, bottom: 118, left: 0, right: 100 }),
+				posAtCoords: vi.fn().mockReturnValue(15), // resolves to offset 15, same outer line
+			}
+			const editor = {
+				activeCM: outerCm, cm: outerCm,
+				getCursor: () => ({ line: 5, ch: 0 }), // rough landing left us at ch 0
+				getLine: () => 'plain text line below the table',
+				posToOffset: (_pos: { line: number; ch: number }) => 10,
+			}
+			const result = plugin.refineDisplayLineColumn(editor, 999)
+			expect(outerCm.posAtCoords).toHaveBeenCalledWith({ x: 999, y: 109 }, false)
+			// targetCh = resolved (15) - headLine.from (10) = 5
+			expect(plugin.setCursorViaCm).toHaveBeenCalledWith(editor, 5, 5)
+			expect(result).toEqual({ line: 5, ch: 0 })
+		})
+
+		it('does not dispatch against the outer view when the pixel-derived position already matches the current head', () => {
+			const outerCm = {
+				state: { doc: { lineAt: (_pos: number) => ({ from: 10, to: 20, number: 5, length: 10 }) } },
+				coordsAtPos: vi.fn().mockReturnValue({ top: 100, bottom: 118, left: 0, right: 100 }),
+				posAtCoords: vi.fn().mockReturnValue(10), // resolves back to the same offset
+			}
+			const editor = {
+				activeCM: outerCm, cm: outerCm,
+				getCursor: () => ({ line: 5, ch: 0 }),
+				getLine: () => 'plain text line below the table',
+				posToOffset: (_pos: { line: number; ch: number }) => 10,
+			}
+			plugin.refineDisplayLineColumn(editor, 999)
+			expect(plugin.setCursorViaCm).not.toHaveBeenCalled()
+		})
+
+		it('returns the live cursor unchanged when coordsAtPos returns null', () => {
+			const inner = makeInner(2, 5)
+			inner.coordsAtPos.mockReturnValue(null)
+			const editor = { activeCM: inner, cm: {}, getCursor: () => ({ line: 3, ch: 2 }), getLine: () => LINE_3SEG }
+			const result = plugin.refineDisplayLineColumn(editor, 999)
+			expect(result).toEqual({ line: 3, ch: 2 })
+			expect(plugin.setCursorViaCm).not.toHaveBeenCalled()
+		})
+
+		it('returns the live cursor unchanged when posAtCoords returns null', () => {
+			const inner = makeInner(2, 5)
+			inner.posAtCoords.mockReturnValue(null)
+			const editor = { activeCM: inner, cm: {}, getCursor: () => ({ line: 3, ch: 2 }), getLine: () => LINE_3SEG }
+			const result = plugin.refineDisplayLineColumn(editor, 999)
+			expect(result).toEqual({ line: 3, ch: 2 })
+			expect(plugin.setCursorViaCm).not.toHaveBeenCalled()
+		})
+	})
 })

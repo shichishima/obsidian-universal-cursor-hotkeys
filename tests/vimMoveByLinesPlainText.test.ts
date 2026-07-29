@@ -9,7 +9,7 @@ import { installVimWindow, uninstallVimWindow, type FakeEditor } from './__helpe
 // (see vimMoveByLinesInCell.test.ts / vimMoveByLinesEntry.test.ts for those).
 
 const makeHost = (overrides: Partial<VimSupportHost> = {}): VimSupportHost => ({
-	settings: { vimHlSupport: false, vimJkSupport: false, vimJoinSupport: false, vimCaretSupport: false, vimWordSupport: false, vimGgSupport: false, smartJoin: false, smartHomeStandard: false },
+	settings: { vimHlSupport: false, vimJkSupport: false, vimJoinSupport: false, vimCaretSupport: false, vimWordSupport: false, vimGgSupport: false, vimDisplayLineSupport: false, smartJoin: false, smartHomeStandard: false },
 	getBeginningOfLinePosition: () => 0,
 	saveSettings: async () => {},
 	crossTableRowForCell: vi.fn().mockReturnValue(null),
@@ -17,6 +17,7 @@ const makeHost = (overrides: Partial<VimSupportHost> = {}): VimSupportHost => ({
 	jumpToDocumentLine: vi.fn().mockReturnValue(null),
 	isLinePartOfTable: vi.fn().mockReturnValue(false),
 	enterTableAtLine: vi.fn().mockReturnValue(null),
+	refineDisplayLineColumn: vi.fn().mockReturnValue(null),
 	...overrides,
 })
 
@@ -137,22 +138,27 @@ describe('moveByLines: plain text', () => {
 			expect(result).toEqual({ line: 2, ch: 1 })
 		})
 
-		it('writes vim.lastHPos/vim.lastHSPos back on return, matching vim.js\'s own tail', () => {
+		it('writes vim.lastHPos/vim.lastHSPos back on return, matching vim.js\'s own tail — lastHPos stays wide/unclamped (curswant), but lastHSPos is clamped to the landed line\'s own length first', () => {
 			const { cm, editor } = makeCmAndEditor()
 			win.setEditor(editor)
 			const cmWithCoords = { ...cm, charCoords: (pos: { ch: number }) => ({ left: pos.ch * 7 }) }
 			const vimState: any = { lastHPos: -1, lastHSPos: -1, lastMotion: null }
 			// line 1 = 'bb' (len 2) -> maxNormalModeCh = 1, so the *returned*
-			// position clamps to ch 1 — but lastHPos/lastHSPos must still
-			// reflect the wide, unclamped goal (5, the starting ch on a fresh
-			// motion), matching vim.js's own tail: it only narrows lastHPos on
-			// a fresh motion (to the pre-move ch, not the post-clamp one), and
-			// never re-narrows it while continuing.
+			// position clamps to ch 1 — lastHPos must still reflect the wide,
+			// unclamped goal (5, the starting ch on a fresh motion), matching
+			// vim.js's own tail: it only narrows lastHPos on a fresh motion (to
+			// the pre-move ch, not the post-clamp one), and never re-narrows it
+			// while continuing. lastHSPos/goalHSPos, however, are derived via a
+			// coordsAtPos-style pixel lookup and must be computed from the
+			// *clamped* ch (1, not 5) — passing the wide, unclamped ch straight
+			// through crashed real coordsAtPos ("No tile at position N") once it
+			// genuinely exceeded the landed line's own length; a plain ch
+			// comparison (lastHPos's own use) has no such requirement.
 			const result = vim.moveByLines(cmWithCoords, { line: 0, ch: 5 }, { forward: true, repeat: 1 }, vimState)
 			expect(result).toEqual({ line: 1, ch: 1 })
 			expect(vimState.lastHPos).toBe(5)
-			expect(vimState.lastHSPos).toBe(35)
-			expect(vim.goalHSPos).toBe(35)
+			expect(vimState.lastHSPos).toBe(7)
+			expect(vim.goalHSPos).toBe(7)
 		})
 
 		it('regression: external continuity wins over native when both agree it is continuing, even if native was clobbered by a stale/racy vim.lastHPos', () => {

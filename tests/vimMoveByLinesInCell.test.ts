@@ -11,7 +11,7 @@ import { installVimWindow, uninstallVimWindow, type FakeEditor } from './__helpe
 // ephemeral inner views, and Tab-jump coincidental {line,ch} matches).
 
 const makeHost = (overrides: Partial<VimSupportHost> = {}): VimSupportHost => ({
-	settings: { vimHlSupport: false, vimJkSupport: false, vimJoinSupport: false, vimCaretSupport: false, vimWordSupport: false, vimGgSupport: false, smartJoin: false, smartHomeStandard: false },
+	settings: { vimHlSupport: false, vimJkSupport: false, vimJoinSupport: false, vimCaretSupport: false, vimWordSupport: false, vimGgSupport: false, vimDisplayLineSupport: false, smartJoin: false, smartHomeStandard: false },
 	getBeginningOfLinePosition: () => 0,
 	saveSettings: async () => {},
 	crossTableRowForCell: vi.fn().mockReturnValue(null),
@@ -19,6 +19,7 @@ const makeHost = (overrides: Partial<VimSupportHost> = {}): VimSupportHost => ({
 	jumpToDocumentLine: vi.fn().mockReturnValue(null),
 	isLinePartOfTable: vi.fn().mockReturnValue(false),
 	enterTableAtLine: vi.fn().mockReturnValue(null),
+	refineDisplayLineColumn: vi.fn().mockReturnValue(null),
 	...overrides,
 })
 
@@ -29,11 +30,16 @@ const makeHost = (overrides: Partial<VimSupportHost> = {}): VimSupportHost => ({
 function makeInnerCm(text: string, head: number) {
 	return {
 		state: {
-			doc: { lineAt: (_pos: number) => ({ number: 1, from: 0 }) },
+			doc: {
+				lineAt: (_pos: number) => ({ number: 1, from: 0 }),
+				line: (_n: number) => ({ from: 0 }),
+			},
 			selection: { main: { head } },
 		},
+		coordsAtPos: (pos: number) => ({ top: 0, bottom: 18, left: pos * 10, right: 999 }),
 		getLine: (_n: number) => text,
 		lastLine: () => 0,
+		charCoords: (pos: { ch: number }) => ({ left: pos.ch * 10 }),
 	}
 }
 
@@ -59,7 +65,7 @@ describe('moveByLines: inside a table cell', () => {
 		win = installVimWindow(makeCellEditor({ line: 5, ch: 9 })) // inside 'bbb'
 		// single-segment cell, only line 0 exists — moving "down" within it isn't
 		// possible, so use a cell with lastLine>0 to show non-crossing movement.
-		const cmMulti = { getLine: (n: number) => (n === 0 ? 'bbb' : 'ccc'), lastLine: () => 1 }
+		const cmMulti = { getLine: (n: number) => (n === 0 ? 'bbb' : 'ccc'), lastLine: () => 1, charCoords: (pos: { ch: number }) => ({ left: pos.ch * 10 }) }
 		const result = vim.moveByLines(cmMulti, { line: 0, ch: 1 }, { forward: true, repeat: 1 })
 		expect(result).toEqual({ line: 1, ch: 1 })
 		expect(host.crossTableRowForCell).not.toHaveBeenCalled()
@@ -70,7 +76,7 @@ describe('moveByLines: inside a table cell', () => {
 		const vim = new VimSupport(host) as any
 		// Outer cursor sits inside cellIndex 1 ('bbb'), ch=9 (start of 'bbb').
 		win = installVimWindow(makeCellEditor({ line: 5, ch: 9 }))
-		const cm = { getLine: () => 'bbb', lastLine: () => 0 } // single segment
+		const cm = { getLine: () => 'bbb', lastLine: () => 0, charCoords: (pos: { ch: number }) => ({ left: pos.ch * 10 }) } // single segment
 		vim.moveByLines(cm, { line: 0, ch: 2 }, { forward: true, repeat: 1 })
 		win.flush()
 		expect(host.crossTableRowForCell).toHaveBeenCalledWith(
@@ -78,11 +84,42 @@ describe('moveByLines: inside a table cell', () => {
 		)
 	})
 
+	it('regression: crossing with a wide continuing goal (inherited from a longer line/cell) clamps before the coordsAtPos lookup, avoiding a real "No tile at position N" crash on a shorter cell', () => {
+		// Real crash trace: charCoordsLeft -> inner.coordsAtPos -> Obsidian's own
+		// resolveBlock threw "No tile at position N" once a carried-over goal
+		// column (from a *different*, longer line/cell — e.g. a preceding gk)
+		// genuinely exceeded the current cell's own line length. Simulates that
+		// exact failure mode: coordsAtPos below only tolerates offsets 0/1 (this
+		// cell's own 2-char 'zz' content), throwing for anything wider.
+		const activeCM = {
+			state: {
+				doc: {
+					lineAt: (_pos: number) => ({ number: 1, from: 0 }),
+					line: (_n: number) => ({ from: 0 }),
+				},
+				selection: { main: { head: 1 } },
+			},
+			coordsAtPos: (pos: number) => {
+				if (pos > 1) throw new Error(`No tile at position ${pos}`)
+				return { top: 0, bottom: 18, left: pos * 10, right: 999 }
+			},
+		}
+		const host = makeHost({ crossTableRowForCell: vi.fn().mockReturnValue(null) })
+		const vim = new VimSupport(host) as any
+		const editor = makeCellEditor({ line: 0, ch: 1 }, activeCM)
+		win = installVimWindow(editor)
+		const cm = { getLine: () => 'zz', lastLine: () => 0, charCoords: (pos: { ch: number }) => ({ left: pos.ch * 10 }) }
+		// nativeContinuing, carrying a wide goal (5) inherited from elsewhere —
+		// this cell's own line is only 2 chars long.
+		const vimState: any = { lastMotion: vim.moveByLines, lastHPos: 5, lastHSPos: 999 }
+		expect(() => vim.moveByLines(cm, { line: 0, ch: 1 }, { forward: true, repeat: 1 }, vimState)).not.toThrow()
+	})
+
 	it('a crossing that returns null (e.g. genuinely impossible) leaves state at the synchronous fallback, untouched by resync', () => {
 		const host = makeHost({ crossTableRowForCell: vi.fn().mockReturnValue(null) })
 		const vim = new VimSupport(host) as any
 		win = installVimWindow(makeCellEditor({ line: 5, ch: 9 }))
-		const cm = { getLine: () => 'bbb', lastLine: () => 0 }
+		const cm = { getLine: () => 'bbb', lastLine: () => 0, charCoords: (pos: { ch: number }) => ({ left: pos.ch * 10 }) }
 		const result = vim.moveByLines(cm, { line: 0, ch: 2 }, { forward: true, repeat: 1 })
 		win.flush()
 		// resyncAfterDeferredMove's `if (!landedOuter) return` fires — state
@@ -97,7 +134,7 @@ describe('moveByLines: inside a table cell', () => {
 		const host = makeHost({ crossTableRowForCell: vi.fn().mockReturnValue(null) })
 		const vim = new VimSupport(host) as any
 		win = installVimWindow(makeCellEditor({ line: 5, ch: 2 })) // cellIndex 0 ('aaa')
-		const cm = { getLine: () => 'aaa', lastLine: () => 0 }
+		const cm = { getLine: () => 'aaa', lastLine: () => 0, charCoords: (pos: { ch: number }) => ({ left: pos.ch * 10 }) }
 		vim.moveByLines(cm, { line: 0, ch: 1 }, { forward: false, repeat: 3 })
 		win.flush()
 		expect(host.crossTableRowForCell).toHaveBeenCalledWith(
@@ -115,7 +152,7 @@ describe('moveByLines: inside a table cell', () => {
 		const vim = new VimSupport(host) as any
 		const editor = makeCellEditor({ line: 5, ch: 9 }, landedInner)
 		win = installVimWindow(editor)
-		const wideCm = { getLine: () => 'cccccc', lastLine: () => 0 } // 6-char cell
+		const wideCm = { getLine: () => 'cccccc', lastLine: () => 0, charCoords: (pos: { ch: number }) => ({ left: pos.ch * 10 }) } // 6-char cell
 		vim.moveByLines(wideCm, { line: 0, ch: 5 }, { forward: true, repeat: 1 }) // goalCh=5
 		win.flush()
 
@@ -142,10 +179,10 @@ describe('moveByLines: inside a table cell', () => {
 			crossTableRowForCell: vi.fn().mockReturnValue({ line: 6, ch: 0 }),
 		})
 		const vim = new VimSupport(host) as any
-		const outerCm = { getLine: () => '', lastLine: () => 0 }
+		const outerCm = { getLine: () => '', lastLine: () => 0, charCoords: (pos: { ch: number }) => ({ left: pos.ch * 10 }) }
 		const editor = makeCellEditor({ line: 5, ch: 9 }, undefined, outerCm)
 		win = installVimWindow(editor)
-		const wideCm = { getLine: () => 'cccccc', lastLine: () => 0 }
+		const wideCm = { getLine: () => 'cccccc', lastLine: () => 0, charCoords: (pos: { ch: number }) => ({ left: pos.ch * 10 }) }
 		vim.moveByLines(wideCm, { line: 0, ch: 5 }, { forward: true, repeat: 1 }) // goalCh=5
 		win.flush()
 
@@ -170,7 +207,7 @@ describe('moveByLines: inside a table cell', () => {
 		const landedInner = makeInnerCm('x', 0)
 		const editor = makeCellEditor({ line: 5, ch: 9 }, landedInner)
 		win = installVimWindow(editor)
-		const cm = { getLine: () => 'bbb', lastLine: () => 0 }
+		const cm = { getLine: () => 'bbb', lastLine: () => 0, charCoords: (pos: { ch: number }) => ({ left: pos.ch * 10 }) }
 		vim.moveByLines(cm, { line: 0, ch: 5 }, { forward: true, repeat: 1 }) // goalCh=5, clamped landing ch=0
 		win.flush()
 
@@ -183,12 +220,12 @@ describe('moveByLines: inside a table cell', () => {
 		const host = makeHost()
 		const vim = new VimSupport(host) as any
 		win = installVimWindow(makeCellEditor({ line: 5, ch: 9 }))
-		const cmA = { getLine: () => 'bbb', lastLine: () => 0 }
+		const cmA = { getLine: () => 'bbb', lastLine: () => 0, charCoords: (pos: { ch: number }) => ({ left: pos.ch * 10 }) }
 		const firstResult = vim.moveByLines(cmA, { line: 0, ch: 1 }, { forward: true, repeat: 1 })
 
 		// A different cell's inner view can coincidentally report the exact same
 		// {line, ch} (every single-segment cell numbers from {line:0, ch:0}).
-		const cmB = { getLine: () => 'zzzzzzzzzz', lastLine: () => 0 }
+		const cmB = { getLine: () => 'zzzzzzzzzz', lastLine: () => 0, charCoords: (pos: { ch: number }) => ({ left: pos.ch * 10 }) }
 		win.setEditor(makeCellEditor({ line: 8, ch: 2 })) // a genuinely different cell
 		const secondResult = vim.moveByLines(cmB, firstResult, { forward: true, repeat: 1 })
 		// Fresh goal column = head.ch from firstResult, not a stale wide value —
@@ -211,7 +248,7 @@ describe('moveByLines: inside a table cell', () => {
 		const vim = new VimSupport(host) as any
 		const editor = makeCellEditor({ line: 5, ch: 9 }, landedInner)
 		win = installVimWindow(editor)
-		const wideCm = { getLine: () => 'cccccc', lastLine: () => 0 }
+		const wideCm = { getLine: () => 'cccccc', lastLine: () => 0, charCoords: (pos: { ch: number }) => ({ left: pos.ch * 10 }) }
 		vim.moveByLines(wideCm, { line: 0, ch: 5 }, { forward: true, repeat: 1 }) // goalHPos=5, clamped landing ch=1
 		win.flush()
 
@@ -223,7 +260,7 @@ describe('moveByLines: inside a table cell', () => {
 	})
 
 	it('also seeds the outer cm\'s own native vim.lastHPos on a full table exit (no inner view for the landing)', () => {
-		const outerCm: any = { getLine: () => '', lastLine: () => 0 }
+		const outerCm: any = { getLine: () => '', lastLine: () => 0, charCoords: (pos: { ch: number }) => ({ left: pos.ch * 10 }) }
 		outerCm.state = { vim: { lastHPos: -1, lastHSPos: -1, lastMotion: null } }
 		const host = makeHost({
 			crossTableRowForCell: vi.fn().mockReturnValue({ line: 6, ch: 0 }),
@@ -233,7 +270,7 @@ describe('moveByLines: inside a table cell', () => {
 		// the empty-cell case, but this time editor.cm carries its own vim state.
 		const editor = makeCellEditor({ line: 5, ch: 9 }, undefined, outerCm)
 		win = installVimWindow(editor)
-		const wideCm = { getLine: () => 'cccccc', lastLine: () => 0 }
+		const wideCm = { getLine: () => 'cccccc', lastLine: () => 0, charCoords: (pos: { ch: number }) => ({ left: pos.ch * 10 }) }
 		vim.moveByLines(wideCm, { line: 0, ch: 5 }, { forward: true, repeat: 1 }) // goalHPos=5, clamped landing ch=0
 		win.flush()
 
@@ -248,7 +285,7 @@ describe('moveByLines: inside a table cell', () => {
 		const vim = new VimSupport(host) as any
 		const editor = makeCellEditor({ line: 5, ch: 9 }, landedInner)
 		win = installVimWindow(editor)
-		const wideCm = { getLine: () => 'cccccc', lastLine: () => 0 }
+		const wideCm = { getLine: () => 'cccccc', lastLine: () => 0, charCoords: (pos: { ch: number }) => ({ left: pos.ch * 10 }) }
 		expect(() => {
 			vim.moveByLines(wideCm, { line: 0, ch: 5 }, { forward: true, repeat: 1 })
 			win.flush()

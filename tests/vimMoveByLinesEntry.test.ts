@@ -10,7 +10,7 @@ import { installVimWindow, uninstallVimWindow, type FakeEditor } from './__helpe
 // here — 3j/4j/5j against the same fixture that caught it.
 
 const makeHost = (overrides: Partial<VimSupportHost> = {}): VimSupportHost => ({
-	settings: { vimHlSupport: false, vimJkSupport: false, vimJoinSupport: false, vimCaretSupport: false, vimWordSupport: false, vimGgSupport: false, smartJoin: false, smartHomeStandard: false },
+	settings: { vimHlSupport: false, vimJkSupport: false, vimJoinSupport: false, vimCaretSupport: false, vimWordSupport: false, vimGgSupport: false, vimDisplayLineSupport: false, smartJoin: false, smartHomeStandard: false },
 	getBeginningOfLinePosition: () => 0,
 	saveSettings: async () => {},
 	crossTableRowForCell: vi.fn().mockReturnValue(null),
@@ -18,6 +18,7 @@ const makeHost = (overrides: Partial<VimSupportHost> = {}): VimSupportHost => ({
 	jumpToDocumentLine: vi.fn().mockReturnValue(null),
 	isLinePartOfTable: vi.fn().mockReturnValue(true),
 	enterTableAtLine: vi.fn().mockReturnValue(null),
+	refineDisplayLineColumn: vi.fn().mockReturnValue(null),
 	...overrides,
 })
 
@@ -44,6 +45,7 @@ function makeEditor(cursor: { line: number; ch: number }): FakeEditor {
 const cmFor = (lastLine = LINES.length) => ({
 	getLine: (n: number) => LINES[n] ?? '',
 	lastLine: () => lastLine,
+	charCoords: (pos: { ch: number }) => ({ left: pos.ch * 10 }),
 })
 
 describe('moveByLines: plain text entering a table', () => {
@@ -119,6 +121,33 @@ describe('moveByLines: plain text entering a table', () => {
 		vim.moveByLines(cmFor(), { line: 2, ch: 0 }, { forward: true, repeat: 1 })
 		win.flush()
 		expect(host.enterTableAtLine).not.toHaveBeenCalled()
+	})
+
+	it('regression: the pixel-goal seeded into the newly-entered cell is recomputed via the outer view\'s own viewport-relative coordsAtPos, not vim.js\'s div-relative charCoords — a later gj/gk continuing from inside that cell reads this seeded value straight into raw CM6 posAtCoords, which needs viewport-relative coordinates', () => {
+		const outerCoordsAtPos = vi.fn().mockReturnValue({ top: 0, bottom: 18, left: 777 })
+		const editor: any = {
+			inTableCell: false,
+			getCursor: () => ({ line: 2, ch: 0 }),
+			getLine: (n: number) => LINES[n] ?? '',
+			cm: { coordsAtPos: outerCoordsAtPos, state: { doc: { line: (_n: number) => ({ from: 0 }) } } },
+		}
+		const host = makeHost({
+			enterTableAtLine: vi.fn().mockImplementation(() => {
+				editor.inTableCell = true
+				editor.activeCM = {
+					state: { selection: { main: { head: 0 } }, doc: { lineAt: (_p: number) => ({ number: 1, from: 0 }) } },
+				}
+				return { line: 3, ch: 2 }
+			}),
+		})
+		const vim = new VimSupport(host) as any
+		win = installVimWindow(editor)
+		vim.moveByLines(cmFor(), { line: 2, ch: 5 }, { forward: true, repeat: 1 })
+		win.flush()
+		expect(outerCoordsAtPos).toHaveBeenCalled()
+		// The buggy div-relative value here would be 50 (charCoords({ch:5}).left);
+		// the fixed value is the outer view's own viewport-relative left (777).
+		expect(vim.goalHSPos).toBe(777)
 	})
 
 	it('temporary synchronous return stays at head.line rather than jumping to the raw target', () => {

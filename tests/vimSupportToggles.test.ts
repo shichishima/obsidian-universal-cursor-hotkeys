@@ -14,6 +14,7 @@ const makeSettings = (overrides: Partial<VimSupportHost['settings']> = {}): VimS
 	vimCaretSupport: false,
 	vimWordSupport: false,
 	vimGgSupport: false,
+	vimDisplayLineSupport: false,
 	smartJoin: false,
 	smartHomeStandard: false,
 	...overrides,
@@ -27,6 +28,7 @@ const makeHost = (settings: VimSupportHost['settings'] = makeSettings()): VimSup
 	jumpToDocumentLine: vi.fn().mockReturnValue(null),
 	isLinePartOfTable: vi.fn().mockReturnValue(false),
 	enterTableAtLine: vi.fn().mockReturnValue(null),
+	refineDisplayLineColumn: vi.fn().mockReturnValue(null),
 	getBeginningOfLinePosition: vi.fn().mockReturnValue(0),
 })
 
@@ -63,6 +65,7 @@ describe('VimSupport per-feature toggles', () => {
 			expect(wasRegistered('moveByLines')).toBe(false)
 			expect(wasRegistered('moveToFirstNonWhiteSpaceCharacter')).toBe(false)
 			expect(wasRegistered('moveByWords')).toBe(false)
+			expect(wasRegistered('moveByDisplayLines')).toBe(false)
 		})
 
 		it('applies nothing when every feature is off', () => {
@@ -74,7 +77,7 @@ describe('VimSupport per-feature toggles', () => {
 	})
 
 	describe('teardown()', () => {
-		it('restores all 6 overrides regardless of their setting state', () => {
+		it('restores all 7 overrides regardless of their setting state', () => {
 			const vim = new VimSupport(makeHost())
 			vim.teardown()
 			expect(wasRegistered('moveByCharacters')).toBe(true)
@@ -83,6 +86,7 @@ describe('VimSupport per-feature toggles', () => {
 			expect(wasRegistered('moveToFirstNonWhiteSpaceCharacter')).toBe(true)
 			expect(wasRegistered('moveByWords')).toBe(true)
 			expect(wasRegistered('moveToLineOrEdgeOfDocument')).toBe(true)
+			expect(wasRegistered('moveByDisplayLines')).toBe(true)
 		})
 
 		it('restore target for h/l matches vim.js\'s own native default (no line-boundary clamp, unlike the live override)', () => {
@@ -194,6 +198,22 @@ describe('VimSupport per-feature toggles', () => {
 			const vim = new VimSupport(makeHost(makeSettings({ vimGgSupport: true })))
 			vim.setGgEnabled(false)
 			expect(lastRegistered('moveToLineOrEdgeOfDocument')).not.toBe((vim as any).moveToLineOrEdgeOfDocument)
+			expect(vim.needsRestart).toBe(true)
+		})
+	})
+
+	describe('setDisplayLinesEnabled', () => {
+		it('turning on applies the live override and does not need a restart', () => {
+			const vim = new VimSupport(makeHost())
+			vim.setDisplayLinesEnabled(true)
+			expect(lastRegistered('moveByDisplayLines')).toBe((vim as any).moveByDisplayLines)
+			expect(vim.needsRestart).toBe(false)
+		})
+
+		it('turning off restores the default and flags needsRestart', () => {
+			const vim = new VimSupport(makeHost(makeSettings({ vimDisplayLineSupport: true })))
+			vim.setDisplayLinesEnabled(false)
+			expect(lastRegistered('moveByDisplayLines')).not.toBe((vim as any).moveByDisplayLines)
 			expect(vim.needsRestart).toBe(true)
 		})
 	})

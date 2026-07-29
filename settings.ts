@@ -482,6 +482,22 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				}));
 		vimSectionEls.push(gg.settingEl);
 
+		const displayLine = new Setting(containerEl)
+			.setClass('uch-vim-item')
+			.then(setting => {
+				this.setKeyChipName(setting, ['gj', 'gk'], 'Display-line movement');
+				this.setHtmlDesc(setting, '' +
+					'<b>ON:</b> Fixes inconsistent/no-op behavior inside table cells (an upstream Vim/CodeMirror quirk in embedded views) by tracking the visual column across wrapped lines, the same way Ctrl+N/P already do.<br>' +
+					'<b>OFF:</b> Vim\'s own native <span class="uch-kbd">gj</span> <span class="uch-kbd">gk</span>, unchanged.');
+			})
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.vimDisplayLineSupport)
+				.onChange((value) => {
+					this.plugin.vimSupport.setDisplayLinesEnabled(value);
+					this.display();
+				}));
+		vimSectionEls.push(displayLine.settingEl);
+
 		const caret = new Setting(containerEl)
 			.setClass('uch-vim-item')
 			.then(setting => {
@@ -539,6 +555,11 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		wordLi.appendText(' ');
 		wordLi.createSpan({ text: 'e', cls: 'uch-kbd' });
 		wordLi.appendText(': crosses one cell/row boundary at a time — a count spanning more than one isn\'t fully precise yet.');
+		const displayLineLi = list.createEl('li');
+		displayLineLi.createSpan({ text: 'gj', cls: 'uch-kbd' });
+		displayLineLi.appendText(' ');
+		displayLineLi.createSpan({ text: 'gk', cls: 'uch-kbd' });
+		displayLineLi.appendText(': crosses one row boundary at a time — a count spanning more than one row isn\'t fully precise yet.');
 		vimSectionEls.push(limitationsEl);
 
 		for (const el of vimSectionEls) el.toggleClass('uch-hidden', !this.vimSectionVisible);
