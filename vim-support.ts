@@ -849,6 +849,17 @@ export class VimSupport {
 	// but kept in sync so a *future* gj/gk override can carry a valid pixel
 	// goal across the same view boundaries this field already handles for ch.
 	private goalHSPos: number | null = null;
+	// Set only by resyncAfterDeferredMove's own genuine-exit case (see its
+	// own comment): null here has two different, otherwise-indistinguishable
+	// meanings — "never computed yet" (a fresh VimSupport instance, where
+	// vim.js's own nativeContinuing/vim.lastHSPos is still perfectly
+	// trustworthy) vs. "explicitly invalidated because the pixel goal used to
+	// get here doesn't apply on the far side of a coordinate-space boundary"
+	// (where vim.lastHSPos can *also* be stale, and must not be trusted
+	// either). This flag disambiguates the two — checked first in
+	// moveByDisplayLines' own goalHSPos ternary, ahead of both external and
+	// native continuity, and cleared the moment a fresh value is committed.
+	private goalHSPosInvalidated = false;
 	// Same idea, for which table cell (column-wise) to prefer — e.g. exiting a
 	// table below and re-entering it (or a different, narrower table) further
 	// down a continuing chain should return to the same cell, not always the
@@ -1076,6 +1087,7 @@ export class VimSupport {
 			// exceeds the landed line's length.
 			const clampedGoalCh = Math.min(goalHPos, VimSupport.maxNormalModeCh(vcm.getLine(line)));
 			this.goalHSPos = VimSupport.charCoordsLeft(vcm, { line, ch: clampedGoalCh }, editorNow?.inTableCell ? editorNow.activeCM : undefined);
+			this.goalHSPosInvalidated = false;
 			vim.lastHSPos = this.goalHSPos;
 		}
 
@@ -1176,8 +1188,21 @@ export class VimSupport {
 	// original (not clamped) values.
 	private resyncAfterDeferredMove(editor: EditorBridge, landedOuter: { line: number; ch: number } | null, goalHPos: number, goalHSPos: number | null, goalCellIndex: number): void {
 		if (!landedOuter) return;
-		const inner = editor.activeCM;
+		// Root cause (confirmed via a dedicated diagnostic log, not guessed):
+		// editor.activeCM can equal editor.cm itself once there's no genuine
+		// inner focus (see the "no inner" branch's own comment — an existing,
+		// already-documented Obsidian convention) — including right after a
+		// genuine table exit, where activeCM was observed live to still be
+		// truthy (== cm) even though editor.inTableCell was already false and
+		// the landed line's own text was ordinary plain prose. A bare
+		// `if (inner)` check treats that as "still have an inner view" and
+		// takes the wrong branch below, silently skipping the "genuine exit"
+		// handling entirely — refineDisplayLineColumn (main.ts) already
+		// guards against exactly this with its own `inner !== e.cm` check;
+		// this needs the identical guard.
+		const inner = editor.activeCM && editor.activeCM !== editor.cm ? editor.activeCM : undefined;
 		let seedTarget: InnerCmLike | undefined;
+		let resolvedGoalHSPos = goalHSPos;
 		if (inner) {
 			const head = inner.state.selection.main.head;
 			const innerLine = inner.state.doc.lineAt(head);
@@ -1185,13 +1210,46 @@ export class VimSupport {
 			this.lastCm = inner;
 			seedTarget = inner;
 		} else {
-			// No inner view for this landing — either an empty cell (activeCM
-			// falls back to the outer cm even though inTableCell is true), or a
-			// genuine table *exit* into plain text. Either way, resync against
-			// outer coordinates directly instead of silently leaving stale state.
+			// No *distinct* inner view for this landing — either an empty
+			// cell (activeCM falls back to the outer cm even though
+			// inTableCell is true) or a genuine table *exit* into plain text.
+			// Either way, resync against outer coordinates directly instead
+			// of silently leaving stale state.
 			this.lastReturnedPos = landedOuter;
 			this.lastCm = editor.cm;
 			seedTarget = editor.cm;
+			// A genuine exit into plain text must not carry the *incoming*
+			// goalHSPos through unconverted: that value was computed for
+			// whichever raw-CM6 posAtCoords consumer led to this landing (a
+			// cell-to-cell crossing, or an in-cell boundary step) —
+			// viewport-relative space — but a *later* gj/gk continuing in
+			// plain text feeds this same stored value into vim.js's own
+			// findPosV, which needs vim.js's own div-relative charCoords space
+			// instead (confirmed live: a viewport-relative ~442 fed into
+			// findPosV landed at ch 67 on an ordinary line — consistent with
+			// findPosV reading it as "px from this line's own start" rather
+			// than "px from the whole viewport's own left edge"). Converting
+			// it here would need vim.js's own cm adapter for the *outer*
+			// document, but the only one in scope is whichever cm
+			// *originated* this crossing — the *inner* cell's own adapter for
+			// a cell-to-cell/exit crossing, no longer valid for an outer-doc
+			// coordinate lookup once we've left that cell. Rather than
+			// replicate vim.js's own div-relative math independently, simply
+			// don't carry a pixel goal across this specific boundary at all:
+			// leaving it null here means the *next* continuing call's own
+			// already-correct "fresh computation" fallback
+			// (VimSupport.charCoordsLeft(vcm, head, ...), using *that* call's
+			// own guaranteed-valid vcm) computes it instead — deferred by one
+			// keystroke, but correct. goalHPos (ch, carried via the tail below
+			// regardless) is unaffected — only the pixel side resets here.
+			// Left alone for a genuine empty cell (editor.inTableCell still
+			// true) — no coordinate-space mismatch there, since a subsequent
+			// gj/gk still in-cell expects the same viewport-relative space
+			// this value already carries.
+			if (!editor.inTableCell) {
+				resolvedGoalHSPos = null;
+				this.goalHSPosInvalidated = true;
+			}
 		}
 		// Seed the landed view's own native vim state with the carried-over,
 		// *unclamped* goal (not this.lastReturnedPos.ch, which is the clamped
@@ -1211,14 +1269,19 @@ export class VimSupport {
 		// survive a crossing that j/k itself initiated (a "j" then "gj" chain).
 		if (seedTarget?.state?.vim) {
 			seedTarget.state.vim.lastHPos = goalHPos;
-			if (goalHSPos !== null) seedTarget.state.vim.lastHSPos = goalHSPos;
+			if (resolvedGoalHSPos !== null) seedTarget.state.vim.lastHSPos = resolvedGoalHSPos;
 		}
 		// Recorded regardless of whether an inner view was found — this is the
 		// second, cm-identity-independent continuity signal (see lastOuterPos's
 		// own comment).
 		this.lastOuterPos = landedOuter;
 		this.goalHPos = goalHPos;
-		if (goalHSPos !== null) this.goalHSPos = goalHSPos;
+		// Unlike seedTarget.state.vim.lastHSPos above (a non-nullable vim.js
+		// field, so null there just means "leave it untouched"), this.goalHSPos
+		// is nullable and null is exactly the signal a genuine exit needs to
+		// send (see the "no inner" branch's own comment) — always assign,
+		// don't guard it away.
+		this.goalHSPos = resolvedGoalHSPos;
 		this.goalCellIndex = goalCellIndex;
 	}
 
@@ -1284,7 +1347,18 @@ export class VimSupport {
 			outerNow.line === this.lastOuterPos.line && outerNow.ch === this.lastOuterPos.ch;
 		const externalContinuing = continuingInner || continuingOuter;
 		const continuing = nativeContinuing || externalContinuing;
-		const goalHSPos = externalContinuing && this.goalHSPos !== null ? this.goalHSPos
+		// goalHSPosInvalidated (see its own comment) takes priority over both
+		// external and native continuity — bug fixed here: initially this
+		// checked `this.goalHSPos === null` directly instead, but that value
+		// is null for two different reasons (a genuinely fresh VimSupport
+		// instance, where vim.lastHSPos via nativeContinuing is still
+		// perfectly valid, vs. resyncAfterDeferredMove's own deliberate
+		// invalidation) — forcing fresh in *both* cases broke the legitimate
+		// nativeContinuing-only case (no external bookkeeping yet, but a real
+		// vim.js continuation). The dedicated flag disambiguates them.
+		const goalHSPos = this.goalHSPosInvalidated
+			? VimSupport.charCoordsLeft(vcm, head, editorNow?.inTableCell ? editorNow.activeCM : undefined)
+			: externalContinuing && this.goalHSPos !== null ? this.goalHSPos
 			: nativeContinuing && vim ? vim.lastHSPos
 			: VimSupport.charCoordsLeft(vcm, head, editorNow?.inTableCell ? editorNow.activeCM : undefined);
 		const goalCellIndex = continuing && this.goalCellIndex !== null
@@ -1355,6 +1429,7 @@ export class VimSupport {
 			// that resyncAfterDeferredMove will correct once the crossing settles.
 			this.goalHPos = result.ch;
 			this.goalHSPos = goalHSPos;
+			this.goalHSPosInvalidated = false;
 			this.goalCellIndex = goalCellIndex;
 			this.lastReturnedPos = result;
 			this.lastCm = cm;
@@ -1370,6 +1445,18 @@ export class VimSupport {
 				if (result.line !== head.line || result.ch !== head.ch) vim.lastHPos = result.ch;
 				if (!continuing) vim.lastHSPos = goalHSPos;
 			}
+
+			// Temporary diagnostic, mirroring moveByLines' own "[UCH vim j/k]" —
+			// see that one's comment. Remove once verified.
+			// eslint-disable-next-line obsidianmd/rule-custom-message -- console.log requested explicitly for this temporary diagnostic.
+			console.log('[UCH vim gj/gk]', JSON.stringify({
+				headIn: head, repeat: motionArgs.repeat, forward: motionArgs.forward,
+				inTableCell: true,
+				nativeContinuing, continuingInner, continuingOuter, goalHSPos, goalCellIndex,
+				vimHasState: !!vim, vimLastHPos: vim?.lastHPos, vimLastHSPos: vim?.lastHSPos,
+				vimLastMotionIsOurs: !!vim && (vim.lastMotion === this.moveByLines || vim.lastMotion === this.moveByDisplayLines),
+				result,
+			}));
 
 			return result;
 		}
@@ -1434,6 +1521,7 @@ export class VimSupport {
 
 		this.goalHPos = result.ch;
 		this.goalHSPos = goalHSPos;
+		this.goalHSPosInvalidated = false;
 		this.goalCellIndex = goalCellIndex;
 		this.lastReturnedPos = result;
 		this.lastCm = cm;
@@ -1442,6 +1530,18 @@ export class VimSupport {
 			if (result.line !== head.line || result.ch !== head.ch) vim.lastHPos = result.ch;
 			if (!continuing) vim.lastHSPos = goalHSPos;
 		}
+
+		// Temporary diagnostic, mirroring moveByLines' own "[UCH vim j/k]" —
+		// see that one's comment. Remove once verified.
+		// eslint-disable-next-line obsidianmd/rule-custom-message -- console.log requested explicitly for this temporary diagnostic.
+		console.log('[UCH vim gj/gk]', JSON.stringify({
+			headIn: head, repeat: motionArgs.repeat, forward: motionArgs.forward,
+			inTableCell: false,
+			nativeContinuing, continuingInner, continuingOuter, goalHSPos, goalCellIndex,
+			vimHasState: !!vim, vimLastHPos: vim?.lastHPos, vimLastHSPos: vim?.lastHSPos,
+			vimLastMotionIsOurs: !!vim && (vim.lastMotion === this.moveByLines || vim.lastMotion === this.moveByDisplayLines),
+			result,
+		}));
 
 		return result;
 	};
