@@ -2233,7 +2233,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			// Exiting the table entirely without crossing any row first (the
 			// current cell is already the last/first row). fromLine = the live
 			// cursor, since no walk has happened yet.
-			return this.exitTableWithColumn(e, cellIndex, forward, goalCh, e.getCursor().line);
+			return this.exitTableWithColumn(e, cellIndex, forward, goalCh, e.getCursor().line, overshoot);
 		}
 		return this.walkTableRows(e, cellIndex, forward, startLine, overshoot, goalCh);
 	}
@@ -2456,7 +2456,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			fromLine = targetLine;
 			const nextLine = forward ? this.getNextRowLine(editor, fromLine) : this.getPrevRowLine(editor, fromLine);
 			if (nextLine === -1) {
-				return this.exitTableWithColumn(editor, cellIndex, forward, goalCh, fromLine);
+				return this.exitTableWithColumn(editor, cellIndex, forward, goalCh, fromLine, remaining);
 			}
 			targetLine = nextLine;
 		}
@@ -2483,19 +2483,37 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// from *before* calling setCursorToPrevRow/NextRow detects that case and
 	// skips the correction (and the resync it would otherwise trigger via the
 	// returned null — see resyncAfterDeferredMove's own `if (!landedOuter)`).
-	private exitTableWithColumn(editor: Editor, cellIndex: number, forward: boolean, goalCh: number, fromLine: number): { line: number; ch: number } | null {
+	// remaining is the total logical-line count this exit itself must
+	// consume, matching landInCellSegment's own "remaining=1 lands on this
+	// very edge, no further walk" convention: landing on the immediate exit
+	// line consumes 1, and any leftover (remaining > 1) continues as
+	// ordinary plain-text lines beyond the table, clamped at the document's
+	// own edge if it runs out first. Bug fixed here: a count-prefixed
+	// crossing/entry that outlived the table's own rows used to silently
+	// drop this leftover the moment exitTableWithColumn took over — walking
+	// the *table's* own rows respected the count, but the plain-text
+	// continuation beyond the table's own exit line did not.
+	private exitTableWithColumn(editor: Editor, cellIndex: number, forward: boolean, goalCh: number, fromLine: number, remaining: number): { line: number; ch: number } | null {
 		const before = editor.getCursor();
 		if (forward) this.setCursorToNextRow(editor, cellIndex, fromLine);
 		else this.setCursorToPrevRow(editor, cellIndex, fromLine);
 		const landed = editor.getCursor();
 		if (landed.line === before.line && landed.ch === before.ch) return null;
-		const landedLineText = editor.getLine(landed.line);
+		let line = landed.line;
+		let stepsLeft = remaining - 1;
+		while (stepsLeft > 0) {
+			const nextLine = forward ? line + 1 : line - 1;
+			if (nextLine < 0 || nextLine >= editor.lineCount()) break;
+			line = nextLine;
+			stepsLeft -= 1;
+		}
+		const landedLineText = editor.getLine(line);
 		const targetCh = Math.min(goalCh, Math.max(0, landedLineText.length - 1));
-		if (targetCh !== landed.ch) {
-			this.setCursorViaCm(editor, landed.line, targetCh);
+		if (line !== landed.line || targetCh !== landed.ch) {
+			this.setCursorViaCm(editor, line, targetCh);
 		}
 		// eslint-disable-next-line obsidianmd/rule-custom-message -- console.log requested explicitly for this temporary diagnostic.
-		console.log('[UCH exitTableWithColumn]', JSON.stringify({ forward, goalCh, before, landed, targetCh, landedLineLength: landedLineText.length }));
+		console.log('[UCH exitTableWithColumn]', JSON.stringify({ forward, goalCh, remaining, before, landed, line, targetCh, landedLineLength: landedLineText.length }));
 		// A table's own last/first row can itself sit right at the screen's
 		// edge, with the plain-text line just beyond it entirely off-screen —
 		// unlike crossing *between* rows (movement that stays within an
@@ -2507,9 +2525,9 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// follow-up dispatch to the already-landed (and possibly just-
 		// corrected) position, requesting scrollIntoView only here.
 		const cm = editor.cm;
-		const pos = editor.posToOffset({ line: landed.line, ch: targetCh });
+		const pos = editor.posToOffset({ line, ch: targetCh });
 		cm.dispatch({ selection: { anchor: pos, head: pos }, scrollIntoView: true, userEvent: 'move' });
-		return { line: landed.line, ch: targetCh };
+		return { line, ch: targetCh };
 	}
 
 	// Word-motion's own table-exit — same setCursorToNextRow/PrevRow reuse as

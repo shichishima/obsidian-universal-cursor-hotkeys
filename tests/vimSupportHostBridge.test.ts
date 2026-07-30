@@ -227,7 +227,7 @@ describe('VimSupportHost bridge (main.ts)', () => {
 	describe('exitTableWithColumn', () => {
 		it('exits below and corrects the column to goalCh (clamped to the exit line\'s length)', () => {
 			const editor = makeStatefulEditor(['| row |', 'short'], { line: 0, ch: 0 })
-			const result = plugin.exitTableWithColumn(editor, 0, true, 3, 0)
+			const result = plugin.exitTableWithColumn(editor, 0, true, 3, 0, 1)
 			// setCursorToNextRow's own exit lands at ch=0; exitTableWithColumn then
 			// corrects it to goalCh=3, clamped to 'short'.length-1=4 (no clamp needed).
 			expect(result).toEqual({ line: 1, ch: 3 })
@@ -235,13 +235,13 @@ describe('VimSupportHost bridge (main.ts)', () => {
 
 		it('clamps goalCh to the exit line\'s own max when it\'s shorter', () => {
 			const editor = makeStatefulEditor(['| row |', 'ab'], { line: 0, ch: 0 })
-			const result = plugin.exitTableWithColumn(editor, 0, true, 10, 0)
+			const result = plugin.exitTableWithColumn(editor, 0, true, 10, 0, 1)
 			expect(result).toEqual({ line: 1, ch: 1 }) // 'ab'.length-1 = 1
 		})
 
 		it('exits above via setCursorToPrevRow when forward=false', () => {
 			const editor = makeStatefulEditor(['above', '| row |'], { line: 1, ch: 0 })
-			const result = plugin.exitTableWithColumn(editor, 0, false, 2, 1)
+			const result = plugin.exitTableWithColumn(editor, 0, false, 2, 1, 1)
 			expect(result).toEqual({ line: 0, ch: 2 })
 		})
 
@@ -255,7 +255,7 @@ describe('VimSupportHost bridge (main.ts)', () => {
 		// returning null before ever attempting the column correction.
 		it('returns null (no column correction) when setCursorToPrevRow was a genuine no-op (header row = document\'s first line)', () => {
 			const editor = makeStatefulEditor(['| row |'], { line: 0, ch: 4 })
-			const result = plugin.exitTableWithColumn(editor, 0, false, 1, 0)
+			const result = plugin.exitTableWithColumn(editor, 0, false, 1, 0, 1)
 			expect(result).toBeNull()
 			expect(plugin.setCursorViaCm).not.toHaveBeenCalled()
 			expect(editor.getCursor()).toEqual({ line: 0, ch: 4 }) // completely untouched
@@ -273,13 +273,13 @@ describe('VimSupportHost bridge (main.ts)', () => {
 		// (already landed-on) final position.
 		it('follows up with a scrollIntoView dispatch to the final landed position, both when the column needed correcting and when it didn\'t', () => {
 			const editorForward = makeStatefulEditor(['| row |', 'short'], { line: 0, ch: 0 })
-			plugin.exitTableWithColumn(editorForward, 0, true, 3, 0)
+			plugin.exitTableWithColumn(editorForward, 0, true, 3, 0, 1)
 			expect(editorForward.cm.dispatch).toHaveBeenCalledWith(
 				expect.objectContaining({ scrollIntoView: true, selection: { anchor: 1003, head: 1003 } }),
 			)
 
 			const editorBackward = makeStatefulEditor(['above', '| row |'], { line: 1, ch: 0 })
-			plugin.exitTableWithColumn(editorBackward, 0, false, 2, 1)
+			plugin.exitTableWithColumn(editorBackward, 0, false, 2, 1, 1)
 			expect(editorBackward.cm.dispatch).toHaveBeenCalledWith(
 				expect.objectContaining({ scrollIntoView: true }),
 			)
@@ -287,8 +287,33 @@ describe('VimSupportHost bridge (main.ts)', () => {
 
 		it('does not dispatch a scrollIntoView follow-up on the no-op (already-first-line) case', () => {
 			const editor = makeStatefulEditor(['| row |'], { line: 0, ch: 4 })
-			plugin.exitTableWithColumn(editor, 0, false, 1, 0)
+			plugin.exitTableWithColumn(editor, 0, false, 1, 0, 1)
 			expect(editor.cm.dispatch).not.toHaveBeenCalled()
+		})
+
+		// Fixed: a count-prefixed crossing/entry that outlives the table's own
+		// rows used to silently drop the leftover count the moment this
+		// function took over — landing on the immediate exit line regardless
+		// of how much repeat was actually left. remaining > 1 now continues
+		// walking ordinary plain-text lines beyond that exit line (remaining=1
+		// means "land right here, no further walk", matching
+		// landInCellSegment's own identical convention).
+		it('continues walking leftover remaining as plain-text lines beyond the immediate exit line (forward)', () => {
+			const editor = makeStatefulEditor(['| row |', 'line1', 'line2', 'line3', 'line4'], { line: 0, ch: 0 })
+			const result = plugin.exitTableWithColumn(editor, 0, true, 0, 0, 3)
+			expect(result).toEqual({ line: 3, ch: 0 }) // exit lands on line1; 2 more steps -> line3
+		})
+
+		it('continues walking leftover remaining as plain-text lines beyond the immediate exit line (backward)', () => {
+			const editor = makeStatefulEditor(['line0', 'line1', 'line2', 'line3', '| row |'], { line: 4, ch: 0 })
+			const result = plugin.exitTableWithColumn(editor, 0, false, 0, 4, 3)
+			expect(result).toEqual({ line: 1, ch: 0 }) // exit lands on line3; 2 more steps -> line1
+		})
+
+		it('clamps at the document\'s own edge when the leftover remaining overshoots past the last/first line', () => {
+			const editor = makeStatefulEditor(['| row |', 'line1', 'line2'], { line: 0, ch: 0 })
+			const result = plugin.exitTableWithColumn(editor, 0, true, 0, 0, 99)
+			expect(result).toEqual({ line: 2, ch: 0 }) // stops at the document's own last line
 		})
 	})
 
@@ -331,26 +356,25 @@ describe('VimSupportHost bridge (main.ts)', () => {
 		// known gap suspected from reading the code: overshoot only reaches
 		// as far as *table* rows go; it does not hand off any leftover count
 		// to further plain-text lines once the table itself runs out.
-		it('regression/known-gap: leftover remaining is silently dropped once exitTableWithColumn takes over — a count-prefixed crossing that outlives the table under-shoots into plain text', () => {
+		it('fixed: leftover remaining now continues past exitTableWithColumn into plain text — a count-prefixed crossing that outlives the table lands the correct number of lines past the exit', () => {
 			const editor = makeStatefulEditor(
 				['| only |', 'line1', 'line2', 'line3', 'line4'],
 				{ line: 0, ch: 0 },
 			)
-			// 1 segment consumed, remaining=4-1=3 left over — a fully-precise
-			// implementation would land 3 plain-text lines past the exit
-			// (line3, index 3), not just 1 (line1, index 1).
+			// 1 segment consumed, remaining=4-1=3 left over — exit lands on
+			// line1 (1 of the 3), then 2 more steps -> line3.
 			const result = plugin.walkTableRows(editor, 0, true, 0, 4, 0)
-			expect(result).toEqual({ line: 1, ch: 0 }) // current: under-shoots to line1
+			expect(result).toEqual({ line: 3, ch: 0 })
 		})
 
-		it('regression/known-gap: same under-shoot backward (k direction)', () => {
+		it('fixed: same leftover continuation backward (k direction)', () => {
 			const editor = makeStatefulEditor(
 				['line0', 'line1', 'line2', 'line3', '| only |'],
 				{ line: 4, ch: 0 },
 			)
 			// Table's own single row is at line 4; walking backward from there.
 			const result = plugin.walkTableRows(editor, 0, false, 4, 4, 0)
-			expect(result).toEqual({ line: 3, ch: 0 }) // current: under-shoots to line3, not line1
+			expect(result).toEqual({ line: 1, ch: 0 })
 		})
 	})
 
