@@ -320,6 +320,38 @@ describe('VimSupportHost bridge (main.ts)', () => {
 			const result = plugin.walkTableRows(editor, 0, true, 0, 5, 3)
 			expect(result).toEqual({ line: 1, ch: 3 })
 		})
+
+		// Investigating count-prefixed j/k crossing multiple *actual* table rows
+		// (e.g. "5j") — this test documents *current* behavior, not necessarily
+		// desired behavior. remaining=4 against a table with only 1 segment
+		// (1 consumed, 3 left over) should, for a fully-precise "5j", continue
+		// 3 *more* plain-text lines past the table's own exit — instead,
+		// exitTableWithColumn's own single-line landing is used verbatim, and
+		// the leftover remaining (3) is silently discarded. Confirms the
+		// known gap suspected from reading the code: overshoot only reaches
+		// as far as *table* rows go; it does not hand off any leftover count
+		// to further plain-text lines once the table itself runs out.
+		it('regression/known-gap: leftover remaining is silently dropped once exitTableWithColumn takes over — a count-prefixed crossing that outlives the table under-shoots into plain text', () => {
+			const editor = makeStatefulEditor(
+				['| only |', 'line1', 'line2', 'line3', 'line4'],
+				{ line: 0, ch: 0 },
+			)
+			// 1 segment consumed, remaining=4-1=3 left over — a fully-precise
+			// implementation would land 3 plain-text lines past the exit
+			// (line3, index 3), not just 1 (line1, index 1).
+			const result = plugin.walkTableRows(editor, 0, true, 0, 4, 0)
+			expect(result).toEqual({ line: 1, ch: 0 }) // current: under-shoots to line1
+		})
+
+		it('regression/known-gap: same under-shoot backward (k direction)', () => {
+			const editor = makeStatefulEditor(
+				['line0', 'line1', 'line2', 'line3', '| only |'],
+				{ line: 4, ch: 0 },
+			)
+			// Table's own single row is at line 4; walking backward from there.
+			const result = plugin.walkTableRows(editor, 0, false, 4, 4, 0)
+			expect(result).toEqual({ line: 3, ch: 0 }) // current: under-shoots to line3, not line1
+		})
 	})
 
 	// ===========================================================================
