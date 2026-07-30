@@ -276,5 +276,31 @@ Note: (*) indicates behaviors specific to Live Preview mode.
 </details>
 
 
+## Vim support (experimental)
+
+If Obsidian's built-in Vim key bindings are enabled, this plugin fixes several native gaps inside Live Preview table cells by making the affected Vim motions table-aware — the same way Ctrl+P/N/B/F/A/E already are. Off by default; enable individual items under **Settings → Universal Cursor Hotkeys → Vim support**.
+
+### Settings
+
+| Keys | Fixes |
+| :--: | ----- |
+| `h` `l` `x` | Multi-byte character miscounting and incorrect cell-jumping at line boundaries; `x` at cell boundaries. |
+| `j` `k` | Row-boundary crossing (matching Ctrl+N/P), preserving column position throughout. |
+| `w` `b` `e` (and `W`/`B`/`E`/`ge`/`gE`) | Cell/row-boundary crossing, matching vim's own document-wide word-motion behavior. ASCII words only — see [Limitations](#limitations-1). |
+| `gg` `G` | Reaches the note's actual first/last line, including exiting a table cell entirely. |
+| `gj` `gk` | Fixes inconsistent/no-op display-line movement inside table cells (an upstream Vim/CodeMirror quirk), tracking the visual column across wrapped lines. |
+| `$` `D` `C` | Sticky end-of-line goal column when followed by j/k or gj/gk, matching real vim's own behavior. |
+| `^` `I` | Reuses Smart home to skip Markdown syntax, not just whitespace. Requires Smart home (standard). |
+| `J` | Reuses Smart join to strip blockquote/list markers and indentation on join. |
+
+Turning an item off restarts Obsidian to fully restore vim's native behavior (a banner prompts this when needed).
+
+### Limitations
+
+- **A CJK input source can corrupt Vim's own key handling — not caused by this plugin:** With a CJK (e.g. romaji-based Japanese) input source active, a single press of a Vim motion key (commonly `g`, `j`, or `k`) can occasionally be misread — e.g. a single `g` behaving like `gg`, or `j`/`k` moving two lines instead of one. This is a known, upstream issue in Obsidian's underlying `codemirror-vim` engine ([issue #178](https://github.com/replit/codemirror-vim/issues/178)) and reproduces identically in vanilla Obsidian Vim mode with this plugin fully disabled. **Workaround:** switch to an ASCII/alphanumeric input source before using Vim motions.
+- **`gj`/`gk` do not support count prefixes across a crossing:** A count like `5gj` correctly steps through multiple visual lines within a single cell, but once the count needs to cross a row boundary or enter/exit a table, it stops consuming the count after that first crossing.
+- **Word motion (`w`/`b`/`e` and related keys) does not segment CJK text:** These reuse Vim's own native word classification, which does not distinguish Japanese word boundaries — a run of Hiragana/Katakana/Kanji is treated as one long "word" rather than split at natural boundaries. ASCII text is unaffected.
+
+
 ## Acknowledgments
 - The code and documentation for this plugin were developed with the assistance of AI.
