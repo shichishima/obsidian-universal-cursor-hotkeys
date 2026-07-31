@@ -472,7 +472,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				this.setKeyChipName(setting, ['gg', 'G'], 'Document start/end')
 				this.setHtmlDesc(setting, '' +
 					'<b>ON:</b> Always reaches the note\'s actual first/last line — including exiting a table cell entirely, and landing correctly inside a table row if the note happens to start or end with one.<br>' +
-					'<b>OFF:</b> Vim\'s own native <span class="uch-kbd">gg</span> <span class="uch-kbd">G</span>, unchanged — stops at the current table cell\'s own boundary instead of reaching the note\'s real start/end.');
+					'<b>OFF:</b> Vim\'s own native <span class="uch-kbd">gg</span> <span class="uch-kbd">G</span>, unchanged.');
 			})
 			.addToggle(toggle => toggle
 				.setValue(this.plugin.settings.vimGgSupport)
@@ -501,10 +501,10 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		const eol = new Setting(containerEl)
 			.setClass('uch-vim-item')
 			.then(setting => {
-				this.setKeyChipName(setting, ['$', 'D', 'C'], 'End of line (sticky column)');
+				this.setKeyChipName(setting, ['$'], 'End of line (sticky column)');
 				this.setHtmlDesc(setting, '' +
-					'<b>ON:</b> <span class="uch-kbd">$</span>/<span class="uch-kbd">D</span>/<span class="uch-kbd">C</span> (three keys, one shared underlying motion) stick to each line\'s own end when followed by j/k or gj/gk, matching real vim\'s own "always this line\'s end" goal column — including across table row crossings.<br>' +
-					'<b>OFF:</b> Vim\'s own native <span class="uch-kbd">$</span>/<span class="uch-kbd">D</span>/<span class="uch-kbd">C</span>, unchanged — combined with this plugin\'s own j/k (or gj/gk) support, they may not stick to each line\'s end the way real vim does.');
+					'<b>ON:</b> Sticks to each line\'s own end when followed by j/k or gj/gk, matching real vim\'s own "always this line\'s end" goal column — including across table row crossings. Requires j/k or gj/gk to be enabled. (<span class="uch-kbd">D</span>/<span class="uch-kbd">C</span> share this motion but behave the same either way.)<br>' +
+					'<b>OFF:</b> Vim\'s own native <span class="uch-kbd">$</span>, unchanged.');
 			})
 			.addToggle(toggle => toggle
 				.setValue(this.plugin.settings.vimEolSupport)

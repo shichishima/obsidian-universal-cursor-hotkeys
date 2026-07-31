@@ -10,7 +10,7 @@
   - `w`/`b`/`e` (and `W`/`B`/`E`/`ge`/`gE`): Crosses cell/row boundaries the same way vim's own word motions cross lines. ASCII words only.
   - `gg`/`G`: Always reaches the note's actual first/last line, including exiting a table cell entirely.
   - `gj`/`gk`: Fixes inconsistent/no-op display-line movement inside table cells (an upstream Vim/CodeMirror quirk), tracking the visual column across wrapped lines.
-  - `$`/`D`/`C`: Sticky end-of-line goal column when followed by j/k or gj/gk, including across table row crossings.
+  - `$`: Sticky end-of-line goal column when followed by j/k or gj/gk, including across table row crossings. `D`/`C` share the same underlying motion but behave the same either way.
   - `^`/`I`: Reuses Smart home to skip Markdown syntax, not just whitespace.
   - `J`: Reuses Smart join to strip blockquote/list markers and indentation on join.
 
