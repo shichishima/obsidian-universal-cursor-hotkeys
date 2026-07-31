@@ -101,6 +101,56 @@ describe('VimSupportHost bridge (main.ts)', () => {
 	})
 
 	// ===========================================================================
+	// findWordBoundaryOnLine (pure) — used by refineWordLanding to narrow a
+	// table-crossing landing down to the nearest word. Regression: real vim
+	// classifies every non-whitespace character as either a "word" char or its
+	// own "punctuation" class (a punctuation run like "&" or "!!!" is its own
+	// word) — the bug was treating punctuation the same as whitespace, so w
+	// crossing into a cell starting with "&" skipped straight past it to the
+	// next actual word instead of landing on the "&" itself.
+	// ===========================================================================
+
+	describe('findWordBoundaryOnLine', () => {
+		it('forward (w): lands on a leading punctuation run, not the word after it', () => {
+			expect(plugin.findWordBoundaryOnLine('&foo bar', true, false, false)).toBe(0)
+		})
+
+		it('forward (w): skips leading whitespace to land on a word', () => {
+			expect(plugin.findWordBoundaryOnLine('  foo', true, false, false)).toBe(2)
+		})
+
+		it('forward (e): lands on the end of a leading punctuation run, not the word after it', () => {
+			expect(plugin.findWordBoundaryOnLine('&&foo bar', true, false, true)).toBe(1)
+		})
+
+		it('forward (e): word char immediately followed by punctuation stops at the class change', () => {
+			expect(plugin.findWordBoundaryOnLine('foo&bar', true, false, true)).toBe(2)
+		})
+
+		it('forward: an entirely whitespace line returns 0 (empty line is a word)', () => {
+			expect(plugin.findWordBoundaryOnLine('   ', true, false, false)).toBe(0)
+		})
+
+		it('backward (b): lands on the start of a trailing punctuation run, not the word before it', () => {
+			expect(plugin.findWordBoundaryOnLine('foo bar&&', false, false, false)).toBe(7)
+		})
+
+		it('backward (ge): lands on the end of the line\'s own last run, even if it\'s punctuation', () => {
+			expect(plugin.findWordBoundaryOnLine('foo bar&&', false, false, true)).toBe(8)
+		})
+
+		it('bigWord (W/E/B) treats a mixed word+punctuation run as a single class', () => {
+			expect(plugin.findWordBoundaryOnLine('foo&bar baz', true, true, true)).toBe(6) // e: whole "foo&bar" is one WORD
+			expect(plugin.findWordBoundaryOnLine('foo&bar baz', false, true, false)).toBe(8) // b: start of "baz"
+		})
+
+		it('does not regress a plain word landing (no punctuation involved)', () => {
+			expect(plugin.findWordBoundaryOnLine('foo bar', true, false, false)).toBe(0)
+			expect(plugin.findWordBoundaryOnLine('foo bar', false, false, false)).toBe(4)
+		})
+	})
+
+	// ===========================================================================
 	// landInCellSegment
 	// ===========================================================================
 
