@@ -39,9 +39,11 @@ interface UniversalCursorHotkeysSettings {
 	vimEolSupport: boolean;
 	vimSectionVisible: boolean;
 	// Whether the settings tab has already auto-expanded the Vim support
-	// section once in response to Obsidian's own "Vim key bindings" core
-	// setting being on. Fires at most once ever, so it never fights a user's
-	// own subsequent manual Show/Hide choice.
+	// section (and collapsed the QSA section, on the theory that a Vim-mode
+	// user has little use for Emacs-style Ctrl+P/N/B/F/A/E cursor hotkeys)
+	// once in response to Obsidian's own "Vim key bindings" core setting
+	// being on. Fires at most once ever, so it never fights a user's own
+	// subsequent manual Show/Hide choice on either section.
 	vimAutoExpandDone: boolean;
 }
 

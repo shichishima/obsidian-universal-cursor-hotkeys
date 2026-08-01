@@ -5,14 +5,15 @@
 ### Added
 
 - **Vim support (experimental):** New Settings section. Fixes several known gaps in Live Preview table cells for Obsidian's built-in Vim mode. Off by default; each item below is an independent toggle.
-  - `h`/`l`/`x`: Fixes multi-byte character miscounting and incorrect cell-jumping at line boundaries; `x` at cell boundaries.
+  - `h`/`l`/`x`: Moves by character correctly across multi-byte text and at cell/line boundaries.
   - `j`/`k`: Crosses row boundaries the same way Ctrl+N/P already do, preserving column position.
   - `w`/`b`/`e` (and `W`/`B`/`E`/`ge`/`gE`): Crosses cell/row boundaries the same way vim's own word motions cross lines. ASCII words only.
   - `gg`/`G`: Always reaches the note's actual first/last line, including exiting a table cell entirely.
-  - `gj`/`gk`: Fixes inconsistent/no-op display-line movement inside table cells (an upstream Vim/CodeMirror quirk), tracking the visual column across wrapped lines.
+  - `gj`/`gk`: Moves by visual line inside table cells the same way Ctrl+N/P already do, tracking the visual column across wrapped lines.
   - `$`: Sticky end-of-line goal column when followed by j/k or gj/gk, including across table row crossings. `D`/`C` share the same underlying motion but behave the same either way.
   - `^`/`I`: Reuses Smart home to skip Markdown syntax, not just whitespace.
   - `J`: Reuses Smart join to strip blockquote/list markers and indentation on join.
+  - **Apply all:** Turns on everything eligible in one click — skips `^`/`I` or `J` if their own Smart home (standard) / Smart join prerequisite is currently off.
 
 ### Fixed
 
