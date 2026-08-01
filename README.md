@@ -284,6 +284,8 @@ If Obsidian's built-in Vim key bindings are enabled, this plugin fixes several n
 
 ### Settings
 
+**Apply all:** Turns on every item below that can currently be turned on in one click — skips `^`/`I` or `J` if their own Smart home (standard) / Smart join prerequisite is currently off.
+
 | Keys | Fixes |
 | :--: | ----- |
 | `h` `l` `x` | Multi-byte character miscounting and incorrect cell-jumping at line boundaries; `x` at cell boundaries. |

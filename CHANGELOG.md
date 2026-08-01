@@ -13,6 +13,7 @@
   - `$`: Sticky end-of-line goal column when followed by j/k or gj/gk, including across table row crossings. `D`/`C` share the same underlying motion but behave the same either way.
   - `^`/`I`: Reuses Smart home to skip Markdown syntax, not just whitespace.
   - `J`: Reuses Smart join to strip blockquote/list markers and indentation on join.
+  - **Apply all:** Turns on everything eligible in one click — skips `^`/`I` or `J` if their own Smart home (standard) / Smart join prerequisite is currently off.
 
 ### Fixed
 
