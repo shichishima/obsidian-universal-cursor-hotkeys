@@ -227,23 +227,6 @@ export class VimSupport {
 		this.host = host;
 	}
 
-	// Temporary diagnostic for the key-double-dispatch investigation (a single
-	// physical keystroke sometimes reaching vim.js's own processCommand/
-	// processMotion more than once — confirmed via Chrome's own repeat-count
-	// log-collapsing badge showing an identical moveByLines call logged twice
-	// in a row for one keystroke). Called as the very first line of every
-	// motion/action override below, so the sequence/timestamp here can be
-	// cross-referenced against main.ts's own raw keydown log (which fires
-	// regardless of vim mode, including when a keystroke is wrongly falling
-	// through to plain text insertion instead of being interpreted as a
-	// motion at all). Remove once root-caused.
-	private static dispatchSeq = 0;
-	private logDispatch(name: string, extra: Record<string, unknown>): void {
-		VimSupport.dispatchSeq += 1;
-		// eslint-disable-next-line obsidianmd/rule-custom-message -- console.log requested explicitly for this temporary diagnostic.
-		console.log('[UCH dispatch]', JSON.stringify({ seq: VimSupport.dispatchSeq, t: performance.now(), name, ...extra }));
-	}
-
 	// Pixel x-coordinate of pos, in whichever coordinate space the *other* end
 	// of a given pixel-goal computation will consume it in. vim.js's own
 	// cm.charCoords(pos, 'div') (CM5-compat "div" mode) returns coordinates
@@ -386,7 +369,6 @@ export class VimSupport {
 	//     ourselves, we never hand vim.js an out-of-range Pos for it to "fix" —
 	//     which is where the cell-crossing appears to happen.
 	private readonly moveByCharacters: VimMotionFn = (cm, head, motionArgs) => {
-		this.logDispatch('moveByCharacters', { head, motionArgs });
 		const lineText = (cm as VimCm).getLine(head.line);
 		let ch = head.ch;
 		for (let i = 0; i < motionArgs.repeat; i++) {
@@ -633,7 +615,6 @@ export class VimSupport {
 	// wrong regardless of table context, and it also stranded undo (u) in the
 	// wrong cell's own vim state.
 	private readonly moveByWords: VimMotionFn = (cm, head, motionArgs, _vim, inputState) => {
-		this.logDispatch('moveByWords', { head, motionArgs, operator: inputState?.operator ?? null });
 		const vcm = cm as VimCm;
 		const forward = motionArgs.forward;
 		const bigWord = !!motionArgs.bigWord;
@@ -703,7 +684,6 @@ export class VimSupport {
 	// only be computing the operator's linewise range, not actually moving
 	// the cursor.
 	private readonly moveToLineOrEdgeOfDocument: VimMotionFn = (cm, head, motionArgs, _vim, inputState) => {
-		this.logDispatch('moveToLineOrEdgeOfDocument', { head, motionArgs, operator: inputState?.operator ?? null });
 		const vcm = cm as VimCm;
 		const forward = motionArgs.forward;
 		const lastLine = vcm.lastLine();
@@ -755,7 +735,6 @@ export class VimSupport {
 	// line.length as ch so it always resolves past any prefix (non-toggling,
 	// matching vim's own non-toggling `^`).
 	private readonly moveToFirstNonWhiteSpaceCharacter: VimMotionFn = (cm, head) => {
-		this.logDispatch('moveToFirstNonWhiteSpaceCharacter', { head });
 		const line = (cm as VimCm).getLine(head.line);
 		if (!this.host.settings.smartHomeStandard) {
 			return { line: head.line, ch: VimSupport.findFirstNonWhiteSpaceCharacter(line) };
@@ -782,7 +761,6 @@ export class VimSupport {
 	// Applies both inside and outside table cells — unlike h/l/j/k, this isn't a
 	// Live-Preview-architecture fix, so there's no table-specific gap to scope to.
 	private readonly joinLines: VimActionFn = (cm, actionArgs, vim) => {
-		this.logDispatch('joinLines', { actionArgs });
 		VimSupport.runJoinLines(
 			cm as VimCm, actionArgs, vim as { visualMode?: boolean } | undefined,
 			this.host.settings.smartJoin,
@@ -955,7 +933,6 @@ export class VimSupport {
 	// fire after the delete, leaving the cursor in the wrong cell/row and
 	// stranding undo (u) in that cell's own vim state.
 	private readonly moveByLines: VimMotionFn = (cm, head, motionArgs, vim, inputState) => {
-		this.logDispatch('moveByLines', { head, motionArgs, operator: inputState?.operator ?? null });
 		const vcm = cm as VimCm;
 		const isOperatorPending = !!inputState?.operator;
 
@@ -1150,18 +1127,6 @@ export class VimSupport {
 			vim.lastHSPos = this.goalHSPos;
 		}
 
-		// Temporary diagnostic for curswant-integration verification — always
-		// on for now so the vim.js-native state can be inspected without a
-		// console flag. Remove once verified.
-		// eslint-disable-next-line obsidianmd/rule-custom-message -- console.log requested explicitly for this temporary diagnostic; obsidianmd's own no-console rule only allows warn/error/debug otherwise.
-		console.log('[UCH vim j/k]', JSON.stringify({
-			headIn: head, repeat: motionArgs.repeat, forward: motionArgs.forward,
-			inTableCell: editorNow?.inTableCell ?? false,
-			nativeContinuing, continuingInner, continuingOuter, goalHPos, goalCellIndex,
-			vimHasState: !!vim, vimLastHPos: vim?.lastHPos, vimLastHSPos: vim?.lastHSPos,
-			vimLastMotionIsOurs: !!vim && vim.lastMotion === this.moveByLines,
-			result,
-		}));
 
 		return result;
 	};
@@ -1212,8 +1177,7 @@ export class VimSupport {
 	// multi-branch motions) — real vim.js's own moveToEol never checks
 	// inputState.operator either; D/C's own goal-tracking side effects
 	// should be identical to a plain `$`, matching source exactly.
-	private readonly moveToEol: VimMotionFn = (cm, head, motionArgs, vim, inputState) => {
-		this.logDispatch('moveToEol', { head, motionArgs, operator: inputState?.operator ?? null });
+	private readonly moveToEol: VimMotionFn = (cm, head, motionArgs, vim, _inputState) => {
 		const vcm = cm as VimCm;
 		const line = Math.max(0, Math.min(vcm.lastLine(), head.line + motionArgs.repeat - 1));
 		const ch = VimSupport.maxNormalModeCh(vcm.getLine(line));
@@ -1451,7 +1415,6 @@ export class VimSupport {
 	// for why — see moveByLines' own comment on the race that priority order
 	// avoids), just driven by goalHSPos (pixel) instead of goalHPos (ch).
 	private readonly moveByDisplayLines: VimMotionFn = (cm, head, motionArgs, vim, inputState) => {
-		this.logDispatch('moveByDisplayLines', { head, motionArgs, operator: inputState?.operator ?? null });
 		const vcm = cm as VimCm;
 		const isOperatorPending = !!inputState?.operator;
 		const editorNow = getActiveEditor();
@@ -1571,18 +1534,6 @@ export class VimSupport {
 				if (!continuing) vim.lastHSPos = goalHSPos;
 			}
 
-			// Temporary diagnostic, mirroring moveByLines' own "[UCH vim j/k]" —
-			// see that one's comment. Remove once verified.
-			// eslint-disable-next-line obsidianmd/rule-custom-message -- console.log requested explicitly for this temporary diagnostic.
-			console.log('[UCH vim gj/gk]', JSON.stringify({
-				headIn: head, repeat: motionArgs.repeat, forward: motionArgs.forward,
-				inTableCell: true,
-				nativeContinuing, continuingInner, continuingOuter, goalHSPos, goalCellIndex,
-				vimHasState: !!vim, vimLastHPos: vim?.lastHPos, vimLastHSPos: vim?.lastHSPos,
-				vimLastMotionIsOurs: !!vim && (vim.lastMotion === this.moveByLines || vim.lastMotion === this.moveByDisplayLines),
-				result,
-			}));
-
 			return result;
 		}
 
@@ -1666,18 +1617,6 @@ export class VimSupport {
 			if (result.line !== head.line || result.ch !== head.ch) vim.lastHPos = result.ch;
 			if (!continuing) vim.lastHSPos = goalHSPos;
 		}
-
-		// Temporary diagnostic, mirroring moveByLines' own "[UCH vim j/k]" —
-		// see that one's comment. Remove once verified.
-		// eslint-disable-next-line obsidianmd/rule-custom-message -- console.log requested explicitly for this temporary diagnostic.
-		console.log('[UCH vim gj/gk]', JSON.stringify({
-			headIn: head, repeat: motionArgs.repeat, forward: motionArgs.forward,
-			inTableCell: false,
-			nativeContinuing, continuingInner, continuingOuter, goalHSPos, goalCellIndex,
-			vimHasState: !!vim, vimLastHPos: vim?.lastHPos, vimLastHSPos: vim?.lastHSPos,
-			vimLastMotionIsOurs: !!vim && (vim.lastMotion === this.moveByLines || vim.lastMotion === this.moveByDisplayLines),
-			result,
-		}));
 
 		return result;
 	};

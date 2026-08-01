@@ -242,65 +242,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			this._recenterStep = 0;
 		});
 
-		// Temporary diagnostic for the key-double-dispatch investigation — fires
-		// regardless of vim mode (including when a keystroke wrongly falls
-		// through to plain text insertion instead of being interpreted as a
-		// motion at all, e.g. 'l' inserting a literal 'l' while apparently still
-		// in Normal mode). capture:true so this sees the event before vim.js's
-		// own handler can stop propagation. Cross-reference this log's own `seq`/
-		// timestamp against vim-support.ts's own '[UCH dispatch]' log (one entry
-		// per actual motion/action override invocation) to see whether a given
-		// keydown really did reach our own code more than once, or reached it
-		// zero times (e.g. swallowed by an unexpected mode). Remove once
-		// root-caused.
-		this.registerDomEvent(activeDocument, 'keydown', (evt: KeyboardEvent) => {
-			const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-			const editor = view?.editor;
-			const cm = editor?.activeCM ?? editor?.cm;
-			type VimStateShape = {
-				insertMode?: boolean; visualMode?: boolean;
-				inputState?: {
-					keyBuffer?: string[]; prefixRepeat?: string[]; motionRepeat?: string[];
-					operator?: string | null; motion?: string | null;
-				};
-			};
-			const vimState = (cm?.state as unknown as { vim?: VimStateShape } | undefined)?.vim;
-			const inputState = vimState?.inputState;
-			// New lead, found by reading vim.js's own handleKeyNonInsertMode
-			// dispatch path (not guessed): when cm.isInMultiSelectMode() is true,
-			// vim.js's own handleKey is invoked once *per selection* via
-			// cm.forEachSelection — meaning a single physical keydown, if the
-			// editor happens to have 2+ active selections/cursors (even an
-			// invisible/stray one the user never intended), gets processed by
-			// vim.js's own key-buffer/motion logic *twice*. This would directly
-			// explain all three previously-observed symptoms at once: a single
-			// "g" completing "gg", a single "j"/"k" advancing 2 lines, and
-			// Normal-mode "l" inserting a literal character (each one processed
-			// once per stray selection). selectionRangeCount > 1 here is the
-			// direct, checkable signal for that condition.
-			const selectionRangeCount = (cm?.state as unknown as { selection?: { ranges?: unknown[] } } | undefined)?.selection?.ranges?.length ?? null;
-			// eslint-disable-next-line obsidianmd/rule-custom-message -- console.log requested explicitly for this temporary diagnostic.
-			console.log('[UCH keydown]', JSON.stringify({
-				t: performance.now(), key: evt.key, code: evt.code, repeat: evt.repeat,
-				inTableCell: editor?.inTableCell ?? null,
-				insertMode: vimState?.insertMode ?? null, visualMode: vimState?.visualMode ?? null,
-				selectionRangeCount,
-				// vim.js's own pending multi-key command state (InputState),
-				// read *before* this keydown reaches vim.js's own handler
-				// (capture:true) — a non-empty keyBuffer/prefixRepeat/
-				// motionRepeat sitting here across keystrokes that should have
-				// been independent (e.g. two full "gg" presses in a row) is
-				// exactly the kind of stuck state that would explain a single
-				// "g"/"j"/"k" being reinterpreted as completing a stale
-				// pending command from a previous, already-finished keystroke.
-				keyBuffer: inputState?.keyBuffer ?? null,
-				prefixRepeat: inputState?.prefixRepeat ?? null,
-				motionRepeat: inputState?.motionRepeat ?? null,
-				operator: inputState?.operator ?? null,
-				motion: inputState?.motion ?? null,
-			}));
-		}, { capture: true });
-
 		this.registerDomEvent(activeDocument, 'copy', () => {
 			this.killCache = '';
 		});
@@ -2281,8 +2222,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const outerCursor = e.getCursor();
 		const head = e.posToOffset(outerCursor);
 		const resolved = universalCursorHotkeysPlugin.resolveSameLineOffset(outer, head, pixelGoal);
-		// eslint-disable-next-line obsidianmd/rule-custom-message -- console.log requested explicitly for this temporary diagnostic.
-		console.log('[UCH refineDisplayLineColumn outer]', JSON.stringify({ pixelGoal, outerCursor, head, resolved }));
 		if (resolved === null) return outerCursor;
 		const headLine = outer.state.doc.lineAt(head);
 		this.setCursorViaCm(e, outerCursor.line, resolved - headLine.from);
@@ -2514,8 +2453,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (line !== landed.line || targetCh !== landed.ch) {
 			this.setCursorViaCm(editor, line, targetCh);
 		}
-		// eslint-disable-next-line obsidianmd/rule-custom-message -- console.log requested explicitly for this temporary diagnostic.
-		console.log('[UCH exitTableWithColumn]', JSON.stringify({ forward, goalCh, remaining, before, landed, line, targetCh, landedLineLength: landedLineText.length }));
 		// A table's own last/first row can itself sit right at the screen's
 		// edge, with the plain-text line just beyond it entirely off-screen —
 		// unlike crossing *between* rows (movement that stays within an
