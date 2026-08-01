@@ -234,6 +234,13 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 
+		// Must run before renderHotkeyManager: it may flip sectionVisible
+		// (collapsing QSA), and renderHotkeyManager reads that value to decide
+		// how it renders — a later call (its other call site, inside
+		// renderVimSection, kept as a no-op safety net via its own one-time
+		// guard) would be too late to affect this same render pass.
+		this.maybeAutoExpandVimSection();
+
 		this.renderHotkeyManager(containerEl);
 
 		new Setting(containerEl)
@@ -370,15 +377,18 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 
 	// One-time nudge: if the user opens settings with Obsidian's own "Vim key
 	// bindings" core setting on and has never seen this auto-expand fire
-	// before, expand the Vim support section for visibility. Never fires
+	// before, expand the Vim support section for visibility — and collapse
+	// QSA at the same time, since a Vim-mode user has little use for the
+	// Emacs-style Ctrl+P/N/B/F/A/E cursor hotkeys it manages. Never fires
 	// again afterward, so it never fights a user's own later Show/Hide choice
-	// (see the vimAutoExpandDone doc comment in main.ts).
+	// on either section (see the vimAutoExpandDone doc comment in main.ts).
 	private maybeAutoExpandVimSection(): void {
 		if (this.plugin.settings.vimAutoExpandDone) return;
 		const vault = (this.app as unknown as ObsidianInternals).vault;
 		const vimModeOn = vault.getConfig?.('vimMode') === true;
 		if (!vimModeOn) return;
 		this.vimSectionVisible = true;
+		this.sectionVisible = false;
 		this.plugin.settings.vimAutoExpandDone = true;
 		void this.plugin.saveSettings();
 	}
