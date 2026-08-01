@@ -280,7 +280,7 @@ Note: (*) indicates behaviors specific to Live Preview mode.
 
 ## Vim support (experimental)
 
-If Obsidian's built-in Vim key bindings are enabled, this plugin fixes several native gaps inside Live Preview table cells by making the affected Vim motions table-aware — the same way Ctrl+P/N/B/F/A/E already are. Off by default; enable individual items under **Settings → Universal Cursor Hotkeys → Vim support**.
+If Obsidian's built-in Vim key bindings are enabled, this plugin fixes several native gaps inside Live Preview table cells by making the affected Vim motions table-aware — the same way Ctrl+P/N/B/F/A/E already are. Off by default; enable individual items under **Settings → Universal Cursor Hotkeys → Vim support**. If you're using Vim mode, you likely won't need the Quick setup assistant above — that manages this plugin's Emacs-style Ctrl+P/N/B/F/A/E hotkeys instead.
 
 ### Settings
 
