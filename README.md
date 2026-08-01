@@ -290,7 +290,7 @@ If Obsidian's built-in Vim key bindings are enabled, this plugin fixes several n
 | `j` `k` | Row-boundary crossing (matching Ctrl+N/P), preserving column position throughout. |
 | `w` `b` `e` (and `W`/`B`/`E`/`ge`/`gE`) | Cell/row-boundary crossing, matching vim's own document-wide word-motion behavior. ASCII words only — see [Limitations](#limitations-1). |
 | `gg` `G` | Reaches the note's actual first/last line, including exiting a table cell entirely. |
-| `gj` `gk` | Fixes inconsistent/no-op display-line movement inside table cells (an upstream Vim/CodeMirror quirk), tracking the visual column across wrapped lines. |
+| `gj` `gk` | Visual-line movement inside table cells (matching Ctrl+N/P), tracking the visual column across wrapped lines. |
 | `$` | Sticky end-of-line goal column when followed by j/k or gj/gk, matching real vim's own behavior. Requires `j`/`k` or `gj`/`gk` to be enabled. `D`/`C` share the same underlying vim.js motion, so this toggle affects them too, but their own behavior is identical either way. |
 | `^` `I` | Reuses Smart home to skip Markdown syntax, not just whitespace. Requires Smart home (standard). |
 | `J` | Reuses Smart join to strip blockquote/list markers and indentation on join. Requires Smart join. |
