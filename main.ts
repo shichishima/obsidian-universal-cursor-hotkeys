@@ -2383,8 +2383,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// walking further rows via getNextRowLine/PrevRowLine — landing via
 	// landInCellSegment once remaining fits within one row's segments. All reads
 	// only until that final landing; exits the table via exitTableWithColumn if
-	// it runs out of rows first (remaining beyond the table boundary is not
-	// carried into the surrounding plain text — known, deliberate gap).
+	// it runs out of rows first, deferring to exitTableWithColumn — which
+	// itself falls back to landing on this walk's own last-reached row
+	// (fromLine) when even that exit hits a genuine dead end (the table's own
+	// edge row is also the document's own edge, e.g. a table starting at the
+	// document's very first line).
 	private walkTableRows(editor: Editor, cellIndex: number, forward: boolean, startLine: number, remaining: number, goalCh: number): { line: number; ch: number } | null {
 		let targetLine = startLine;
 		let fromLine = startLine;
@@ -2416,14 +2419,27 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// setCursorToPrevRow (backward) can itself be a genuine no-op — when
 	// fromLine is the document's own first line, there's no line above the
 	// table to exit to at all, so it deliberately stays put (see its own
-	// comment) rather than dispatching to an invalid negative line.
-	// Unconditionally "correcting" the column afterward regardless would
-	// override that no-op with a goalCh-driven move that was never supposed
-	// to happen (reported: k on the header row of a document-first table left
-	// the line alone but still changed ch). Comparing against the position
-	// from *before* calling setCursorToPrevRow/NextRow detects that case and
-	// skips the correction (and the resync it would otherwise trigger via the
-	// returned null — see resyncAfterDeferredMove's own `if (!landedOuter)`).
+	// comment) rather than dispatching to an invalid negative line. Comparing
+	// against the position from *before* calling setCursorToPrevRow/NextRow
+	// detects that case.
+	//
+	// Bug fixed here: when detected, this used to return null unconditionally
+	// — correct for a plain (non-walked) call, since fromLine there already
+	// equals the live cursor's own row (before === landed for that reason
+	// alone; see the still-passing regression test below). But
+	// walkTableRows' own multi-row callers never move the real cursor while
+	// walking (fromLine is a purely local variable) — so on that path,
+	// fromLine can be several rows away from the real (stale) cursor, which
+	// the walk had already legitimately reached before hitting this dead end.
+	// Returning null there silently discarded that progress instead of
+	// landing where the walk had actually gotten to. Only fall back to
+	// landing on fromLine's own edge segment (the same "no further walk"
+	// convention landInCellSegment already uses elsewhere) when fromLine
+	// differs from where the walk started (`before`) — a genuine multi-row
+	// walk that dead-ended, matching real vim's own "count overshoots past
+	// the document's edge, land at the edge" behavior. When fromLine equals
+	// before.line (no walk happened), preserve the exact old no-op untouched.
+	//
 	// remaining is the total logical-line count this exit itself must
 	// consume, matching landInCellSegment's own "remaining=1 lands on this
 	// very edge, no further walk" convention: landing on the immediate exit
@@ -2439,7 +2455,12 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (forward) this.setCursorToNextRow(editor, cellIndex, fromLine);
 		else this.setCursorToPrevRow(editor, cellIndex, fromLine);
 		const landed = editor.getCursor();
-		if (landed.line === before.line && landed.ch === before.ch) return null;
+		if (landed.line === before.line && landed.ch === before.ch) {
+			if (fromLine !== before.line) {
+				return this.landInCellSegment(editor, fromLine, cellIndex, forward, 0, goalCh);
+			}
+			return null;
+		}
 		let line = landed.line;
 		let stepsLeft = remaining - 1;
 		while (stepsLeft > 0) {

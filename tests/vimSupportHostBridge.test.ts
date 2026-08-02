@@ -311,6 +311,26 @@ describe('VimSupportHost bridge (main.ts)', () => {
 			expect(editor.getCursor()).toEqual({ line: 0, ch: 4 }) // completely untouched
 		})
 
+		// Regression (live bug report): a count-prefixed k/gk that had already
+		// walked several rows inward (via walkTableRows) before dead-ending at
+		// the table's own edge — which also happened to be the document's own
+		// first line — silently did nothing at all, leaving the cursor at its
+		// stale pre-motion position several rows away, instead of landing on
+		// the last row the walk had actually reached. Distinguished from the
+		// test above by fromLine != the live cursor's own line (a walk
+		// happened) — that plain, no-walk case must still return null exactly
+		// as before.
+		it('lands on fromLine\'s own row when a multi-row walk dead-ends at the document\'s own edge (not a plain no-walk no-op)', () => {
+			// Table starts at the document's very first line (header = line 0);
+			// the live (stale) cursor sits at line 2, several rows away from
+			// fromLine=0 — simulating walkTableRows having already walked
+			// backward from line 2 to line 0 (the header) before discovering
+			// there's nowhere further to go (header = document's own edge).
+			const editor = makeStatefulEditor(['| header |', '| ----- |', '| row |'], { line: 2, ch: 4 })
+			const result = plugin.exitTableWithColumn(editor, 0, false, 1, 0, 3)
+			expect(result).toEqual({ line: 0, ch: 3 }) // lands on the header row, not left stale at line 2
+		})
+
 		// Regression: reported live — a table sitting at the edge of the
 		// viewport left the cursor invisible off-screen after exiting via j/gj
 		// or k/gk, in both directions. setCursorViaCm (used for the exit
