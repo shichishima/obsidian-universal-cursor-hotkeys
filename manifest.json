@@ -1,7 +1,7 @@
 {
 	"id": "universal-cursor-hotkeys",
 	"name": "Universal Cursor Hotkeys",
-	"version": "0.7.0",
+	"version": "0.8.0",
 	"minAppVersion": "1.5.0",
 	"description": "Full cursor navigation for Markdown — whether in tables or out, either on macOS or Windows, be it Emacs keybindings or Vim mode.",
 	"author": "shichishima",
