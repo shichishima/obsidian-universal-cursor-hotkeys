@@ -5,6 +5,7 @@ vi.mock('@codemirror/language', () => ({
 }))
 
 import UniversalCursorHotkeysPlugin from '../main.ts'
+import { getInCellLineInfo } from '../table-cell-utils.ts'
 
 // ---------------------------------------------------------------------------
 // Minimal editor mock helpers
@@ -41,7 +42,6 @@ describe('killLine', () => {
 
 	beforeEach(() => {
 		plugin = Object.create(UniversalCursorHotkeysPlugin.prototype)
-		plugin.CELL_SEPARATOR_REGEX  = /(?<!\\)\|/g
 		plugin.TABLE_DELIMITER_REGEX = /^\s*\|?[:\s]*?-+[:\s-]*\|[:\s-|]*$/
 		plugin.settings = { smartHomeStandard: true, smartHomeAdvanced: true, smartJoin: false, visualLineMovement: true, crossRowNavigation: true }
 		plugin.isKillChaining = false
@@ -189,7 +189,7 @@ describe('killLine', () => {
 		for (const [lineText, ch, expectedLine, expectedNormCache] of cases) {
 			it(`"${lineText}" ch=${ch} → "${expectedLine}", normalized cache="${expectedNormCache}"`, () => {
 				const editor = makeEditor([lineText], 0, ch)
-				const info = plugin.getInCellLineInfo(lineText, ch)
+				const info = getInCellLineInfo(lineText, ch)
 				plugin.killLineInTableSourceMode(editor, info)
 				expect(editor._buf[0]).toBe(expectedLine)
 				expect(plugin.normalizeKillText(plugin.killCache)).toBe(expectedNormCache)
@@ -211,7 +211,7 @@ describe('killLine', () => {
 			// ch=7 = endOfInCellLine of 'first' segment
 			const lineText = '| line1<br>line2 |'
 			const editor = makeEditor([lineText], 0, 7)
-			const info = plugin.getInCellLineInfo(lineText, 7)
+			const info = getInCellLineInfo(lineText, 7)
 			expect(info?.lineType).toBe('first')
 
 			plugin.killLineInTableSourceMode(editor, info)
@@ -232,7 +232,7 @@ describe('killLine', () => {
 			// '| a<br>   b |'
 			const lineText = '| a<br>   b |'
 			const editor = makeEditor([lineText], 0, 3)
-			const info = plugin.getInCellLineInfo(lineText, 3)
+			const info = getInCellLineInfo(lineText, 3)
 			expect(info?.lineType).toBe('first')
 
 			plugin.killLineInTableSourceMode(editor, info)
@@ -249,7 +249,7 @@ describe('killLine', () => {
 			// '| a<br>   b |'
 			const lineText = '| a<br>   b |'
 			const editor = makeEditor([lineText], 0, 3)
-			const info = plugin.getInCellLineInfo(lineText, 3)
+			const info = getInCellLineInfo(lineText, 3)
 			expect(info?.lineType).toBe('first')
 
 			plugin.killLineInTableSourceMode(editor, info)
@@ -266,7 +266,7 @@ describe('killLine', () => {
 			// '| a<br>   - item |'
 			const lineText = '| a<br>   - item |'
 			const editor = makeEditor([lineText], 0, 3)
-			const info = plugin.getInCellLineInfo(lineText, 3)
+			const info = getInCellLineInfo(lineText, 3)
 			expect(info?.lineType).toBe('first')
 
 			plugin.killLineInTableSourceMode(editor, info)
@@ -287,7 +287,7 @@ describe('killLine', () => {
 			// cursor at endOfInCellLine of 'last' segment → no matching branch
 			const lineText = '| line1<br>line2 |'
 			const editor = makeEditor([lineText], 0, 16)
-			const info = plugin.getInCellLineInfo(lineText, 16)
+			const info = getInCellLineInfo(lineText, 16)
 			expect(info?.lineType).toBe('last')
 
 			plugin.killLineInTableSourceMode(editor, info)
@@ -299,7 +299,7 @@ describe('killLine', () => {
 		it('no-op at end of single in-cell line', () => {
 			const lineText = '| hello |'
 			const editor = makeEditor([lineText], 0, 7)
-			const info = plugin.getInCellLineInfo(lineText, 7)
+			const info = getInCellLineInfo(lineText, 7)
 			expect(info?.lineType).toBe('single')
 
 			plugin.killLineInTableSourceMode(editor, info)

@@ -30,11 +30,14 @@ interface HotkeySettingTab {
 }
 interface ObsidianInternals {
 	hotkeyManager: HotkeyManager;
-	commands?: { commands: Record<string, { name: string }> };
+	commands?: { commands: Record<string, { name: string }>; executeCommandById?(id: string): boolean };
 	setting: {
 		open(): void;
 		openTabById(id: string): HotkeySettingTab | null;
 	};
+	// Core config store (vault-level app settings, e.g. Obsidian's own "Vim key
+	// bindings" toggle under key 'vimMode') — undocumented, read-only use here.
+	vault: { getConfig?(key: string): unknown };
 }
 
 const MAC_MOD:  Record<string, string> = { Ctrl: '⌃', Shift: '⇧', Alt: '⌥', Meta: '⌘', Mod: '⌘' };
@@ -214,6 +217,8 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 	private set individualVisible(v: boolean) { this.plugin.settings.qsaIndividualVisible = v; void this.plugin.saveSettings(); }
 	private get sectionVisible() { return this.plugin.settings.qsaSectionVisible; }
 	private set sectionVisible(v: boolean) { this.plugin.settings.qsaSectionVisible = v; void this.plugin.saveSettings(); }
+	private get vimSectionVisible() { return this.plugin.settings.vimSectionVisible; }
+	private set vimSectionVisible(v: boolean) { this.plugin.settings.vimSectionVisible = v; void this.plugin.saveSettings(); }
 
 	constructor(app: App, plugin: universalCursorHotkeysPlugin) {
 		super(app, plugin);
@@ -228,6 +233,13 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 	display(): void {
 		const { containerEl } = this;
 		containerEl.empty();
+
+		// Must run before renderHotkeyManager: it may flip sectionVisible
+		// (collapsing QSA), and renderHotkeyManager reads that value to decide
+		// how it renders — a later call (its other call site, inside
+		// renderVimSection, kept as a no-op safety net via its own one-time
+		// guard) would be too late to affect this same render pass.
+		this.maybeAutoExpandVimSection();
 
 		this.renderHotkeyManager(containerEl);
 
@@ -247,11 +259,26 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		let advancedToggle: ToggleComponent;
 		let smartJoinEl: HTMLElement;
 		let smartJoinToggle: ToggleComponent;
+		let vimCaretEl: HTMLElement;
+		let vimCaretToggle: ToggleComponent;
+		let vimJoinEl: HTMLElement;
+		let vimJoinToggle: ToggleComponent;
+		let applyAllBtn: ButtonComponent;
+		// Apply all's own disabled state depends on smartHomeStandard/smartJoin
+		// (via vimCaretSupport/vimJoinSupport's eligibility) in addition to the
+		// Vim toggles it directly sets — recomputed here too, since
+		// setStandardDisabled/setSmartJoinDisabled (unlike a toggle's own
+		// onChange elsewhere) deliberately skip a full this.display() re-render.
+		const updateApplyAllDisabled = () => {
+			applyAllBtn?.setDisabled(this.eligibleVimSettings().every(v => v));
+		};
 		const setStandardDisabled = (disabled: boolean) => {
 			advancedEl.style.opacity       = disabled ? '0.4' : '';
 			advancedEl.style.pointerEvents = disabled ? 'none' : '';
 			smartJoinEl.style.opacity       = disabled ? '0.4' : '';
 			smartJoinEl.style.pointerEvents = disabled ? 'none' : '';
+			vimCaretEl.style.opacity       = disabled ? '0.4' : '';
+			vimCaretEl.style.pointerEvents = disabled ? 'none' : '';
 			if (disabled && this.plugin.settings.smartHomeAdvanced) {
 				this.plugin.settings.smartHomeAdvanced = false;
 				advancedToggle.setValue(false);
@@ -262,6 +289,23 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				smartJoinToggle.setValue(false);
 				void this.plugin.saveSettings();
 			}
+			if (disabled && this.plugin.settings.vimCaretSupport) {
+				this.plugin.vimSupport.setCaretEnabled(false);
+				vimCaretToggle.setValue(false);
+			}
+			updateApplyAllDisabled();
+		};
+		// ^ only does anything beyond vim's own native `^` when Smart home
+		// (standard) is on; J only does anything beyond vim's own native join
+		// when Smart join is on — mirrors setStandardDisabled just above.
+		const setSmartJoinDisabled = (disabled: boolean) => {
+			vimJoinEl.style.opacity       = disabled ? '0.4' : '';
+			vimJoinEl.style.pointerEvents = disabled ? 'none' : '';
+			if (disabled && this.plugin.settings.vimJoinSupport) {
+				this.plugin.vimSupport.setJoinEnabled(false);
+				vimJoinToggle.setValue(false);
+			}
+			updateApplyAllDisabled();
 		};
 
 		new Setting(containerEl)
@@ -303,12 +347,11 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				toggle.setValue(this.plugin.settings.smartJoin)
 					.onChange(async (value) => {
 						this.plugin.settings.smartJoin = value;
+						setSmartJoinDisabled(!value);
 						await this.plugin.saveSettings();
 					});
 			})
 			.settingEl;
-
-		setStandardDisabled(!this.plugin.settings.smartHomeStandard);
 
 		new Setting(containerEl)
 			.setName('Cross-row navigation')
@@ -322,6 +365,284 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 
+		this.renderVimSection(containerEl, {
+			vimCaretEl: e => { vimCaretEl = e; }, vimCaretToggle: t => { vimCaretToggle = t; },
+			vimJoinEl: e => { vimJoinEl = e; }, vimJoinToggle: t => { vimJoinToggle = t; },
+			applyAllBtn: b => { applyAllBtn = b; },
+		});
+
+		setStandardDisabled(!this.plugin.settings.smartHomeStandard);
+		setSmartJoinDisabled(!this.plugin.settings.smartJoin);
+	}
+
+	// One-time nudge: if the user opens settings with Obsidian's own "Vim key
+	// bindings" core setting on and has never seen this auto-expand fire
+	// before, expand the Vim support section for visibility — and collapse
+	// QSA at the same time, since a Vim-mode user has little use for the
+	// Emacs-style Ctrl+P/N/B/F/A/E cursor hotkeys it manages. Never fires
+	// again afterward, so it never fights a user's own later Show/Hide choice
+	// on either section (see the vimAutoExpandDone doc comment in main.ts).
+	private maybeAutoExpandVimSection(): void {
+		if (this.plugin.settings.vimAutoExpandDone) return;
+		const vault = (this.app as unknown as ObsidianInternals).vault;
+		const vimModeOn = vault.getConfig?.('vimMode') === true;
+		if (!vimModeOn) return;
+		this.vimSectionVisible = true;
+		this.sectionVisible = false;
+		this.plugin.settings.vimAutoExpandDone = true;
+		void this.plugin.saveSettings();
+	}
+
+	// keys: e.g. ['h','l','x']. label: e.g. 'Character movement'.
+	private setKeyChipName(setting: Setting, keys: string[], label: string): void {
+		const nameEl = setting.nameEl;
+		nameEl.empty();
+		for (const key of keys) {
+			nameEl.createSpan({ text: key, cls: 'uch-kbd' });
+			nameEl.appendText(' ');
+		}
+		nameEl.appendText(label);
+	}
+
+	// Which Vim toggles "Apply all" can currently turn on — `^`/`I` and `J`
+	// are only eligible while their own prerequisite (Smart home (standard) /
+	// Smart join, both outside the Vim section) is on. Shared between the
+	// button's own click handler/initial disabled state (renderVimSection)
+	// and updateApplyAllDisabled (display()'s setStandardDisabled/
+	// setSmartJoinDisabled, which don't trigger a full re-render).
+	private eligibleVimSettings(): boolean[] {
+		const s = this.plugin.settings;
+		const eligible = [s.vimHlSupport, s.vimJkSupport, s.vimWordSupport, s.vimGgSupport, s.vimDisplayLineSupport, s.vimEolSupport];
+		if (s.smartHomeStandard) eligible.push(s.vimCaretSupport);
+		if (s.smartJoin) eligible.push(s.vimJoinSupport);
+		return eligible;
+	}
+
+	private renderVimSection(containerEl: HTMLElement, refs: {
+		vimCaretEl: (el: HTMLElement) => void; vimCaretToggle: (t: ToggleComponent) => void;
+		vimJoinEl: (el: HTMLElement) => void; vimJoinToggle: (t: ToggleComponent) => void;
+		applyAllBtn: (b: ButtonComponent) => void;
+	}): void {
+		this.maybeAutoExpandVimSection();
+
+		const vimSectionEls: HTMLElement[] = [];
+
+		new Setting(containerEl)
+			.setName('Vim support')
+			.then(setting => {
+				setting.nameEl.createSpan({ text: 'experimental', cls: 'uch-vim-badge' });
+				this.setHtmlDesc(setting,
+					'Fixes native gaps in Obsidian\'s built-in Vim mode inside Live Preview table cells, ' +
+					'and extends a few motions with this plugin\'s Smart home / Smart join. ' +
+					'If you\'re using Vim mode, you likely won\'t need the Quick setup assistant above — ' +
+					'that manages this plugin\'s Emacs-style Ctrl+P/N/B/F/A/E hotkeys instead.');
+			})
+			.addButton(btn => {
+				btn.setButtonText(this.vimSectionVisible ? 'Hide' : 'Show');
+				btn.onClick(() => {
+					this.vimSectionVisible = !this.vimSectionVisible;
+					btn.setButtonText(this.vimSectionVisible ? 'Hide' : 'Show');
+					for (const el of vimSectionEls) el.toggleClass('uch-hidden', !this.vimSectionVisible);
+				});
+			});
+
+		const restartBanner = new Setting(containerEl)
+			.setClass('uch-vim-item')
+			.setClass('uch-vim-restart-banner')
+			.then(setting => setting.nameEl.createSpan({
+				text: 'A Vim item was turned off — restart Obsidian to fully apply it.',
+				cls: 'uch-vim-restart-text',
+			}))
+			.addButton(btn => btn
+				.setButtonText('Restart')
+				.setCta()
+				.onClick(() => {
+					(this.app as unknown as ObsidianInternals).commands?.executeCommandById?.('app:reload');
+				}));
+		restartBanner.settingEl.toggleClass('uch-hidden', !this.plugin.vimSupport.needsRestart);
+
+		// "Apply all" — turns on every item below that can currently be turned
+		// on. `^`/`I` and `J` are skipped when their own prerequisite (Smart
+		// home (standard) / Smart join, both outside this section) is off,
+		// rather than force-enabling a toggle whose row stays disabled/grey
+		// either way — matches this same button's own "nothing left to apply"
+		// disable check below. `$` has no such gap: its own prerequisite (j/k
+		// or gj/gk) is enabled by this very same click.
+		const applyAll = new Setting(containerEl)
+			.setClass('uch-vim-item')
+			.setName('Apply all')
+			.then(setting => this.setHtmlDesc(setting,
+				'Turns on everything below that can currently be turned on.'))
+			.addButton(btn => {
+				refs.applyAllBtn(btn);
+				btn.setButtonText('Apply all');
+				btn.setCta();
+				btn.setDisabled(this.eligibleVimSettings().every(v => v));
+				btn.onClick(() => {
+					this.plugin.vimSupport.setHlEnabled(true);
+					this.plugin.vimSupport.setJkEnabled(true);
+					this.plugin.vimSupport.setWordsEnabled(true);
+					this.plugin.vimSupport.setGgEnabled(true);
+					this.plugin.vimSupport.setDisplayLinesEnabled(true);
+					this.plugin.vimSupport.setEolEnabled(true);
+					if (this.plugin.settings.smartHomeStandard) this.plugin.vimSupport.setCaretEnabled(true);
+					if (this.plugin.settings.smartJoin) this.plugin.vimSupport.setJoinEnabled(true);
+					this.display();
+				});
+			});
+		vimSectionEls.push(applyAll.settingEl);
+
+		const hl = new Setting(containerEl)
+			.setClass('uch-vim-item')
+			.then(setting => {
+				this.setKeyChipName(setting, ['h', 'l', 'x'], 'Character movement');
+				this.setHtmlDesc(setting, '' +
+					'<b>ON:</b> Moves by character correctly inside table cells — no multi-byte miscounting, no wrong jumps at line boundaries. ' +
+					'<span class="uch-kbd">x</span> behaves the same way at cell boundaries.<br>' +
+					'<b>OFF:</b> Vim\'s own native <span class="uch-kbd">h</span> <span class="uch-kbd">l</span> <span class="uch-kbd">x</span>, unchanged.');
+			})
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.vimHlSupport)
+				.onChange((value) => {
+					this.plugin.vimSupport.setHlEnabled(value);
+					this.display();
+				}));
+		vimSectionEls.push(hl.settingEl);
+
+		const jk = new Setting(containerEl)
+			.setClass('uch-vim-item')
+			.then(setting => {
+				this.setKeyChipName(setting, ['j', 'k'], 'Line movement');
+				this.setHtmlDesc(setting, '' +
+					'<b>ON:</b> Crosses row boundaries the same way Ctrl+N/P already do, and stops correctly inside multi-line cells — preserving column position throughout.<br>' +
+					'<b>OFF:</b> Vim\'s own native <span class="uch-kbd">j</span> <span class="uch-kbd">k</span>, unchanged.');
+			})
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.vimJkSupport)
+				.onChange((value) => {
+					this.plugin.vimSupport.setJkEnabled(value);
+					this.display();
+				}));
+		vimSectionEls.push(jk.settingEl);
+
+		const words = new Setting(containerEl)
+			.setClass('uch-vim-item')
+			.then(setting => {
+				this.setKeyChipName(setting, ['w', 'b', 'e'], 'Word motion');
+				this.setHtmlDesc(setting, '' +
+					'<b>ON:</b> Crosses cell/row boundaries the same way vim\'s own word motions cross lines — reaching the end of the table exits into the surrounding text, matching vim\'s own document-wide behavior.<br>' +
+					'<b>OFF:</b> Vim\'s own native <span class="uch-kbd">w</span> <span class="uch-kbd">b</span> <span class="uch-kbd">e</span> (and <span class="uch-kbd">W</span>/<span class="uch-kbd">B</span>/<span class="uch-kbd">E</span>/<span class="uch-kbd">ge</span>/<span class="uch-kbd">gE</span>), unchanged.');
+			})
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.vimWordSupport)
+				.onChange((value) => {
+					this.plugin.vimSupport.setWordsEnabled(value);
+					this.display();
+				}));
+		vimSectionEls.push(words.settingEl);
+
+		const gg = new Setting(containerEl)
+			.setClass('uch-vim-item')
+			.then(setting => {
+				this.setKeyChipName(setting, ['gg', 'G'], 'Document start/end')
+				this.setHtmlDesc(setting, '' +
+					'<b>ON:</b> Always reaches the note\'s actual first/last line — including exiting a table cell entirely, and landing correctly inside a table row if the note happens to start or end with one.<br>' +
+					'<b>OFF:</b> Vim\'s own native <span class="uch-kbd">gg</span> <span class="uch-kbd">G</span>, unchanged.');
+			})
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.vimGgSupport)
+				.onChange((value) => {
+					this.plugin.vimSupport.setGgEnabled(value);
+					this.display();
+				}));
+		vimSectionEls.push(gg.settingEl);
+
+		const displayLine = new Setting(containerEl)
+			.setClass('uch-vim-item')
+			.then(setting => {
+				this.setKeyChipName(setting, ['gj', 'gk'], 'Display-line movement');
+				this.setHtmlDesc(setting, '' +
+					'<b>ON:</b> Moves by visual line inside table cells the same way Ctrl+N/P already do, tracking the visual column across wrapped lines.<br>' +
+					'<b>OFF:</b> Vim\'s own native <span class="uch-kbd">gj</span> <span class="uch-kbd">gk</span>, unchanged.');
+			})
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.vimDisplayLineSupport)
+				.onChange((value) => {
+					this.plugin.vimSupport.setDisplayLinesEnabled(value);
+					this.display();
+				}));
+		vimSectionEls.push(displayLine.settingEl);
+
+		const eol = new Setting(containerEl)
+			.setClass('uch-vim-item')
+			.then(setting => {
+				this.setKeyChipName(setting, ['$'], 'End of line (sticky column)');
+				this.setHtmlDesc(setting, '' +
+					'<b>ON:</b> Sticks to each line\'s own end when followed by j/k or gj/gk, matching real vim\'s own "always this line\'s end" goal column — including across table row crossings. Requires j/k or gj/gk to be enabled. (<span class="uch-kbd">D</span>/<span class="uch-kbd">C</span> share this motion but behave the same either way.)<br>' +
+					'<b>OFF:</b> Vim\'s own native <span class="uch-kbd">$</span>, unchanged.');
+			})
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.vimEolSupport)
+				.onChange((value) => {
+					this.plugin.vimSupport.setEolEnabled(value);
+					this.display();
+				}));
+		vimSectionEls.push(eol.settingEl);
+
+		const caret = new Setting(containerEl)
+			.setClass('uch-vim-item')
+			.then(setting => {
+				this.setKeyChipName(setting, ['^', 'I'], 'First non-blank (Smart home)');
+				this.setHtmlDesc(setting, '' +
+					'<b>ON:</b> Reuses Smart home above — skips leading Markdown syntax instead of just whitespace, to reach the real content start.<br>' +
+					'<b>OFF:</b> Vim\'s own native <span class="uch-kbd">^</span> <span class="uch-kbd">I</span>, unchanged.<br>' +
+					'<i>Requires <b>Smart home (standard)</b> to be enabled — also follows whatever <b>Smart home (advanced)</b> is set to.</i>');
+			})
+			.addToggle(toggle => {
+				refs.vimCaretToggle(toggle);
+				toggle.setValue(this.plugin.settings.vimCaretSupport)
+					.onChange((value) => {
+						this.plugin.vimSupport.setCaretEnabled(value);
+						this.display();
+					});
+			});
+		vimSectionEls.push(caret.settingEl);
+		refs.vimCaretEl(caret.settingEl);
+
+		const join = new Setting(containerEl)
+			.setClass('uch-vim-item')
+			.then(setting => {
+				this.setKeyChipName(setting, ['J'], 'Join lines (Smart join)');
+				this.setHtmlDesc(setting, '' +
+					'<b>ON:</b> Reuses Smart join above — strips the next line\'s Markdown syntax instead of just whitespace, still inserting vim\'s usual single space.<br>' +
+					'<b>OFF:</b> Vim\'s own native join, unchanged.<br>' +
+					'<i>Requires <b>Smart join</b> to be enabled.</i>');
+			})
+			.addToggle(toggle => {
+				refs.vimJoinToggle(toggle);
+				toggle.setValue(this.plugin.settings.vimJoinSupport)
+					.onChange((value) => {
+						this.plugin.vimSupport.setJoinEnabled(value);
+						this.display();
+					});
+			});
+		vimSectionEls.push(join.settingEl);
+		refs.vimJoinEl(join.settingEl);
+
+		const limitationsEl = containerEl.createDiv({ cls: 'uch-vim-limitations' });
+		limitationsEl.createDiv({ text: 'Limitations', cls: 'uch-vim-limitations-title' });
+		const list = limitationsEl.createEl('ul');
+		list.appendChild(sanitizeHTMLToDom('<li>For Obsidian\'s built-in Vim mode specifically — not intended for use alongside a plugin that replaces or manages Vim\'s table-cell behavior on its own.</li>'));
+		list.createEl('li', { text: 'Off by default — if you\'ve already customized one of these keys yourself, turning its toggle on will override your binding.' });
+		list.appendChild(sanitizeHTMLToDom('<li>A CJK (e.g. romaji-based Japanese) input source can occasionally corrupt Vim\'s own key handling (e.g. a single g/j/k misread) — a known upstream codemirror-vim issue, not caused by this plugin. Switching to an ASCII/alphanumeric input source resolves it.</li>'));
+		const displayLineLi = list.createEl('li');
+		displayLineLi.createSpan({ text: 'gj', cls: 'uch-kbd' });
+		displayLineLi.appendText(' ');
+		displayLineLi.createSpan({ text: 'gk', cls: 'uch-kbd' });
+		displayLineLi.appendText(': a count is not preserved across a row or table crossing — it stops consuming the count after the first crossing.');
+		vimSectionEls.push(limitationsEl);
+
+		for (const el of vimSectionEls) el.toggleClass('uch-hidden', !this.vimSectionVisible);
 	}
 
 	private openHotkeysPanelFor(query: string): void {

@@ -1,15 +1,19 @@
-# Universal Cursor Hotkeys — Emacs keybindings for Markdown
-Cursor navigation shortcuts (Ctrl+P/N/B/F/A/E) and Kill & Yank inside and outside tables, for macOS and Windows.
+# Universal Cursor Hotkeys — Emacs & Vim navigation for Markdown tables
+Emacs keybindings (Ctrl+P/N/B/F/A/E), Kill & Yank, and Vim key bindings — all finally working inside Obsidian's Live Preview tables, for macOS and Windows.
 
 <img width="700" height="385" alt="Image" src="https://github.com/user-attachments/assets/04e77243-e632-4898-8a3d-d2d669a43165" />
 
 ## Overview
 
-On macOS, cursor shortcuts — Ctrl+P (up), Ctrl+N (down), Ctrl+B/F (left/right), Ctrl+A/E (home/end), and Page Down/Up — work natively in Obsidian, but break the moment your cursor enters a Markdown table in Live Preview mode. This plugin restores them inside tables, giving you seamless navigation just as physical cursor keys would.
+Obsidian's Live Preview breaks cursor behavior inside Markdown tables. This plugin fixes cursor navigation around tables — whether you use Emacs keybindings (macOS-style) or Obsidian's built-in Vim mode.
+
+On macOS, cursor shortcuts — Ctrl+P (up), Ctrl+N (down), Ctrl+B/F (left/right), Ctrl+A/E (home/end), and Page Down/Up — work natively in Obsidian. This plugin restores them inside tables too, giving you seamless navigation just as physical cursor keys would — and Shift+Ctrl+P/N/B/F/A/E extend the selection the same way.
 
 Windows users can enable the full set of macOS-style cursor shortcuts throughout Obsidian. The Quick setup assistant assigns all recommended hotkeys in three clicks.
 
 Kill & Yank (Ctrl+K / Ctrl+Y) and Kill Region (Ctrl+W) bring the full Emacs editing workflow to Obsidian — and all three work seamlessly inside table cells, automatically handling newlines and pipe characters. Recenter-top-bottom (Ctrl+L) rounds out the workflow.
+
+If you use Obsidian's built-in Vim mode, this plugin fixes a set of well-known Live Preview table gaps: `h`/`l`/`j`/`k`/`w`/`b`/`e`/`gg`/`G`/`gj`/`gk` now work correctly inside table cells, instead of miscounting characters, refusing to cross rows, or landing in the wrong place. See [Vim support (experimental)](#vim-support-experimental) below.
 
 <table>
   <tr>
@@ -94,9 +98,9 @@ Open **Settings → Universal Cursor Hotkeys** to assign hotkeys without leaving
 
 ## Limitations
 
-- **No Word-Level Navigation:** Movement by word (e.g., Option/Ctrl + Left/Right) is currently not supported.
+- **No Word-Level Navigation:** Movement by word (macOS: Option+Left/Right; Windows: Ctrl+Left/Right; Emacs: Meta-F/B) is currently not supported.
 
-- **No Range Selection:** Shift+modifier combinations (e.g., Shift+Ctrl+P/N/B/F/A/E) for extending the selection are not supported. Use Shift+Arrow keys instead.
+- **Range selection stops at table cell boundaries:** Shift+Ctrl+P/N/B/F/A/E extend the selection normally within plain text and within a single table cell. At a cell boundary, they neither cross into the adjacent cell (unlike plain Ctrl+B/F) nor extend the selection across cells (unlike Shift+Arrow keys). Use Shift+Arrow keys for cross-cell selection.
 
 - **Brief scroll when entering a tall wrapped cell in Live Preview (UP):** When pressing UP into a cell whose wrapped content exceeds the screen height, the view momentarily scrolls to the cell start before jumping to the bottom visual line. This is an inherent side effect of the two-step navigation used to locate the bottom visual line within Obsidian's Live Preview table widget.
 
@@ -274,6 +278,36 @@ Note: (*) indicates behaviors specific to Live Preview mode.
 - Works in plain text and inside Live Preview table cells, including soft-wrapped cells.
 
 </details>
+
+
+## Vim support (experimental)
+
+If Obsidian's built-in Vim key bindings are enabled, this plugin fixes several native gaps inside Live Preview table cells by making the affected Vim motions table-aware — the same way Ctrl+P/N/B/F/A/E already are. Off by default; enable individual items under **Settings → Universal Cursor Hotkeys → Vim support**. If you're using Vim mode, you likely won't need the Quick setup assistant above — that manages this plugin's Emacs-style Ctrl+P/N/B/F/A/E hotkeys instead.
+
+### Settings
+
+**Apply all:** Turns on every item below that can currently be turned on in one click — skips `^`/`I` or `J` if their own Smart home (standard) / Smart join prerequisite is currently off.
+
+| Keys | Fixes |
+| :--: | ----- |
+| `h` `l` `x` | Multi-byte character miscounting and incorrect cell-jumping at line boundaries; `x` at cell boundaries. |
+| `j` `k` | Row-boundary crossing (matching Ctrl+N/P), preserving column position throughout. |
+| `w` `b` `e` (and `W`/`B`/`E`/`ge`/`gE`) | Cell/row-boundary crossing, matching vim's own document-wide word-motion behavior. ASCII words only — see [Limitations](#limitations-1). |
+| `gg` `G` | Reaches the note's actual first/last line, including exiting a table cell entirely. |
+| `gj` `gk` | Visual-line movement inside table cells (matching Ctrl+N/P), tracking the visual column across wrapped lines. |
+| `$` | Sticky end-of-line goal column when followed by j/k or gj/gk, matching real vim's own behavior. Requires `j`/`k` or `gj`/`gk` to be enabled. `D`/`C` share the same underlying vim.js motion, so this toggle affects them too, but their own behavior is identical either way. |
+| `^` `I` | Reuses Smart home to skip Markdown syntax, not just whitespace. Requires Smart home (standard). |
+| `J` | Reuses Smart join to strip blockquote/list markers and indentation on join. Requires Smart join. |
+
+Turning an item off restarts Obsidian to fully restore vim's native behavior (a banner prompts this when needed).
+
+### Limitations
+
+- **A CJK input source can corrupt Vim's own key handling — not caused by this plugin:** With a CJK (e.g. romaji-based Japanese) input source active, a single press of a Vim motion key (commonly `g`, `j`, or `k`) can occasionally be misread — e.g. a single `g` behaving like `gg`, or `j`/`k` moving two lines instead of one. This is a known, upstream issue in Obsidian's underlying `codemirror-vim` engine ([issue #178](https://github.com/replit/codemirror-vim/issues/178)) and reproduces identically in vanilla Obsidian Vim mode with this plugin fully disabled. **Workaround:** switch to an ASCII/alphanumeric input source before using Vim motions.
+- **`w`/`b`/`e` cross only one cell/row boundary per count:** A count like `5w` isn't fully precise once it needs to cross more than one cell or row boundary.
+- **`gj`/`gk` do not support count prefixes across a crossing:** A count like `5gj` correctly steps through multiple visual lines within a single cell, but once the count needs to cross a row boundary or enter/exit a table, it stops consuming the count after that first crossing.
+- **A count-prefixed `$` doesn't cross table rows:** `3$` stays within the current table cell rather than reaching the end of a line further down, the way real vim would outside a table.
+- **Word motion (`w`/`b`/`e` and related keys) does not segment CJK text:** These reuse Vim's own native word classification, which does not distinguish Japanese word boundaries — a run of Hiragana/Katakana/Kanji is treated as one long "word" rather than split at natural boundaries. ASCII text is unaffected.
 
 
 ## Acknowledgments

@@ -91,3 +91,27 @@ tbody.uch-override-active .uch-override-word { font-weight: 700; }
 .uch-special-title   { font-weight: 600; padding: 6px 8px; }
 .uch-special-desc    { padding: 2px 8px 6px; font-size: 0.9em; opacity: 0.5; }
 .uch-special-btns    { display: flex; gap: 8px; padding: 6px 8px; }
+
+/* ── Vim support section ──────────────────────────────────── */
+.uch-vim-badge {
+  font-size: 0.7em;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-accent);
+  background: var(--background-modifier-border);
+  border-radius: var(--radius-s, 4px);
+  padding: 2px 6px;
+  margin-left: 8px;
+}
+/* Compound selector so this reliably wins over the Setting component's own
+   display regardless of source order — .uch-hidden alone has the same
+   specificity as any other single-class rule, so cascade order alone can't
+   be relied on to make it win. */
+.uch-vim-restart-banner.uch-hidden { display: none; }
+.uch-vim-restart-text { color: var(--text-warning); font-weight: 600; }
+.uch-vim-item .setting-item-info { padding-left: 40px; }
+.uch-vim-limitations       { padding: 8px 0 8px 40px; }
+.uch-vim-limitations-title { font-size: 0.8em; font-weight: 600; opacity: 0.6; margin-bottom: 4px; }
+.uch-vim-limitations ul    { margin: 0; padding-left: 1.2em; font-size: 0.9em; opacity: 0.75; }
+.uch-vim-limitations li + li { margin-top: 4px; }
