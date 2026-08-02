@@ -635,23 +635,11 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		list.appendChild(sanitizeHTMLToDom('<li>For Obsidian\'s built-in Vim mode specifically — not intended for use alongside a plugin that replaces or manages Vim\'s table-cell behavior on its own.</li>'));
 		list.createEl('li', { text: 'Off by default — if you\'ve already customized one of these keys yourself, turning its toggle on will override your binding.' });
 		list.appendChild(sanitizeHTMLToDom('<li>A CJK (e.g. romaji-based Japanese) input source can occasionally corrupt Vim\'s own key handling (e.g. a single g/j/k misread) — a known upstream codemirror-vim issue, not caused by this plugin. Switching to an ASCII/alphanumeric input source resolves it.</li>'));
-		const wordLi = list.createEl('li');
-		wordLi.createSpan({ text: 'w', cls: 'uch-kbd' });
-		wordLi.appendText(' ');
-		wordLi.createSpan({ text: 'b', cls: 'uch-kbd' });
-		wordLi.appendText(' ');
-		wordLi.createSpan({ text: 'e', cls: 'uch-kbd' });
-		wordLi.appendText(': crosses one cell/row boundary at a time — a count spanning more than one isn\'t fully precise yet.');
 		const displayLineLi = list.createEl('li');
 		displayLineLi.createSpan({ text: 'gj', cls: 'uch-kbd' });
 		displayLineLi.appendText(' ');
 		displayLineLi.createSpan({ text: 'gk', cls: 'uch-kbd' });
 		displayLineLi.appendText(': a count is not preserved across a row or table crossing — it stops consuming the count after the first crossing.');
-		const eolLi = list.createEl('li');
-		eolLi.createSpan({ text: '$', cls: 'uch-kbd' });
-		eolLi.appendText(': a count-prefixed ');
-		eolLi.createSpan({ text: '3$', cls: 'uch-kbd' });
-		eolLi.appendText(' stays within the current table cell rather than crossing rows.');
 		vimSectionEls.push(limitationsEl);
 
 		for (const el of vimSectionEls) el.toggleClass('uch-hidden', !this.vimSectionVisible);
