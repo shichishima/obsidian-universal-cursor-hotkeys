@@ -1,5 +1,6 @@
 import { findClusterBreak } from '@codemirror/state';
 import { getCellIndex } from './table-cell-utils';
+import { findWordSpanOnLine } from './word-segmentation';
 
 // Obsidian's built-in Vim mode (codemirror-vim) — not exposed in obsidian.d.ts.
 interface VimPos { line: number; ch: number }
@@ -445,31 +446,47 @@ export class VimSupport {
 	// w/b/e/W/B/E/ge/gE all share this one motion, distinguished only by
 	// motionArgs (forward/wordEnd/bigWord).
 
-	// Matches cm_adapter.ts's own wordChar regex exactly.
-	private static readonly isWordChar = (ch: string): boolean => {
-		return /[\w\p{Alphabetic}\p{Number}_]/u.test(ch);
-	};
-
-	// [0]: word chars. [1]: "punctuation" — not a word char, not whitespace.
-	private static readonly WORD_CHAR_TEST: Array<(ch: string) => boolean> = [
-		VimSupport.isWordChar,
-		(ch: string) => !!ch && !VimSupport.isWordChar(ch) && !/\s/.test(ch),
-	];
-	// vim's WORD (bigWord): any non-whitespace run counts as one word.
-	private static readonly BIG_WORD_CHAR_TEST: Array<(ch: string) => boolean> = [
-		(ch: string) => /\S/.test(ch),
-	];
-
 	private static isLine(vcm: VimCm, line: number): boolean {
 		return line >= 0 && line <= vcm.lastLine();
 	}
 
-	// Faithful port of vim.js's own findWord: locates the next/prev word span
-	// from `cur`, walking line by line within this view's own bounds. Returns
-	// null once it runs off the end/start of the view (cm's own line range) —
-	// the live moveByWords override treats that as "hit a cell/buffer
-	// boundary" and (inside a table cell) triggers a crossing; the
-	// restore-target default leaves it as vim's own boundary-clamped behavior.
+	// vim's WORD (bigWord): any non-whitespace run counts as one word — a
+	// plain whitespace-run split, unaffected by the CJK/punctuation concerns
+	// findWordSpanOnLine (word-segmentation.ts) exists for, so it stays on
+	// its own simple regex path rather than going through that module.
+	private static getBigWordSpans(line: string): { from: number; to: number }[] {
+		const spans: { from: number; to: number }[] = [];
+		const re = /\S+/g;
+		let m: RegExpExecArray | null;
+		while ((m = re.exec(line))) spans.push({ from: m.index, to: m.index + m[0].length });
+		return spans;
+	}
+	private static findBigWordSpanOnLine(
+		line: string, fromCh: number, forward: boolean,
+	): { from: number; to: number } | null {
+		const spans = VimSupport.getBigWordSpans(line);
+		if (forward) return spans.find(s => s.to > fromCh) ?? null;
+		let result: { from: number; to: number } | null = null;
+		for (const s of spans) {
+			if (s.from < fromCh) result = s;
+			else break;
+		}
+		return result;
+	}
+
+	// Locates the next/prev word span from `cur`, walking line by line within
+	// this view's own bounds. Returns null once it runs off the end/start of
+	// the view (cm's own line range) — the live moveByWords override treats
+	// that as "hit a cell/buffer boundary" and (inside a table cell) triggers
+	// a crossing; the restore-target default leaves it as vim's own
+	// boundary-clamped behavior.
+	//
+	// Built on findWordSpanOnLine (word-segmentation.ts), which resolves a
+	// span containing cur.ch to its full extent regardless of scan direction
+	// — unlike a char-by-char scan starting at cur.ch, this never produces a
+	// degenerate "1-char" match when cur.ch sits at a word's own near edge,
+	// so (unlike an earlier, now-removed char-scan port) no special-case skip
+	// is needed here.
 	private static findWord(
 		vcm: VimCm, cur: VimPos, forward: boolean, bigWord: boolean, emptyLineIsWord: boolean,
 	): VimWordSpan | null {
@@ -477,7 +494,6 @@ export class VimSupport {
 		let pos = cur.ch;
 		let line = vcm.getLine(lineNum);
 		const dir = forward ? 1 : -1;
-		const charTests = bigWord ? VimSupport.BIG_WORD_CHAR_TEST : VimSupport.WORD_CHAR_TEST;
 
 		if (emptyLineIsWord && line === '') {
 			lineNum += dir;
@@ -490,31 +506,24 @@ export class VimSupport {
 			if (emptyLineIsWord && line === '') {
 				return { from: 0, to: 0, line: lineNum };
 			}
-			const stop = dir > 0 ? line.length : -1;
-			let wordStart = stop;
-			let wordEnd = stop;
-			while (pos !== stop) {
-				let foundWord = false;
-				for (let i = 0; i < charTests.length && !foundWord; i++) {
-					if (charTests[i](line.charAt(pos))) {
-						wordStart = pos;
-						while (pos !== stop && charTests[i](line.charAt(pos))) {
-							pos += dir;
-						}
-						wordEnd = pos;
-						foundWord = wordStart !== wordEnd;
-						if (wordStart === cur.ch && lineNum === cur.line && wordEnd === wordStart + dir) {
-							// Started at the end of a word — keep looking for the next one.
-							continue;
-						}
-						return {
-							from: Math.min(wordStart, wordEnd + 1),
-							to: Math.max(wordStart, wordEnd),
-							line: lineNum,
-						};
-					}
+			const span = bigWord
+				? VimSupport.findBigWordSpanOnLine(line, pos, forward)
+				: findWordSpanOnLine(line, pos, forward);
+			if (span) {
+				// If pos already sits at the resolved span's own far edge (in
+				// the scan direction), *and* pos is still cur's own original,
+				// untouched position — this is a degenerate no-progress
+				// match: cur is already "at" this word from its own
+				// perspective (e.g. `e` while already on a word's last
+				// character), so treat it as not found here and keep
+				// scanning past it, matching vim.js's own w/e/b/ge behavior.
+				const atFarEdge = forward ? pos === span.to - 1 : pos === span.from;
+				const isOriginalPos = lineNum === cur.line && pos === cur.ch;
+				if (!(atFarEdge && isOriginalPos)) {
+					return { from: span.from, to: span.to, line: lineNum };
 				}
-				if (!foundWord) pos += dir;
+				pos = forward ? span.to : span.from - 1;
+				continue;
 			}
 			lineNum += dir;
 			if (!VimSupport.isLine(vcm, lineNum)) return null;
@@ -574,10 +583,15 @@ export class VimSupport {
 			return { pos: lastWord ? { line: lastWord.line, ch: lastWord.to - 1 } : null, shortCircuit, hitBoundary };
 		} else if (!forward && wordEnd) {
 			// ge
-			if (!shortCircuit && firstWord && (firstWord.to !== curStart.ch || firstWord.line !== curStart.line)) {
+			if (!shortCircuit && firstWord && (firstWord.to !== curStart.ch + 1 || firstWord.line !== curStart.line)) {
 				lastWord = words.pop();
 			}
-			return { pos: lastWord ? { line: lastWord.line, ch: lastWord.to } : null, shortCircuit, hitBoundary };
+			// lastWord.to is exclusive for a real word span, but the
+			// emptyLineIsWord marker ({from:0,to:0}) is a genuine zero-length
+			// span (an empty line's only valid position is ch 0) — don't
+			// shift that one.
+			const geCh = lastWord && lastWord.to > lastWord.from ? lastWord.to - 1 : lastWord?.to;
+			return { pos: lastWord ? { line: lastWord.line, ch: geCh! } : null, shortCircuit, hitBoundary };
 		} else {
 			// b
 			return { pos: lastWord ? { line: lastWord.line, ch: lastWord.from } : null, shortCircuit, hitBoundary };

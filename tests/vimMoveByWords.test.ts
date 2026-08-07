@@ -73,6 +73,13 @@ describe('Vim w/b/e (moveByWords)', () => {
 			expect(result).toEqual({ line: 1, ch: 0 })
 		})
 
+		it('w segments Japanese text morphologically, not as one long word', () => {
+			const vim = new VimSupport(makeHost()) as any
+			// 私(0-1) は(1-2) 日本語(2-5) を(5-6) 勉強(6-8) し(8-9) てい(9-11) ます(11-13)
+			const result = vim.moveByWords(cm(['私は日本語を勉強しています']), { line: 0, ch: 0 }, { forward: true, repeat: 2 })
+			expect(result).toEqual({ line: 0, ch: 2 }) // start of '日本語', not one giant run
+		})
+
 		it('repeat=2 skips two words forward', () => {
 			const vim = new VimSupport(makeHost()) as any
 			const result = vim.moveByWords(cm(['one two three']), { line: 0, ch: 0 }, { forward: true, repeat: 2 })
