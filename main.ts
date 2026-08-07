@@ -8,7 +8,7 @@ import { syntaxTree } from '@codemirror/language';
 import { EditorView } from "@codemirror/view";
 import { EditorSelection, Transaction } from '@codemirror/state';
 import { deleteCharForward, cursorPageDown, cursorPageUp } from '@codemirror/commands';
-import { getWordSpans, getBigWordSpans } from './word-segmentation';
+import { getWordSpans, getBigWordSpans, findWordSpanOnLine } from './word-segmentation';
 
 // Extend the Obsidian Editor interface to include the internal CodeMirror 6 instance (EditorView)
 declare module "obsidian" {
@@ -141,6 +141,24 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			repeatable: true,
 			editorCallback: (editor: Editor, _: MarkdownView) => {
 				this.moveCursorRight(editor)
+			}
+		});
+
+		this.addCommand({
+			id: 'word-right',
+			name: 'Word right',
+			repeatable: true,
+			editorCallback: (editor: Editor, _: MarkdownView) => {
+				this.moveCursorWord(editor, true)
+			}
+		});
+
+		this.addCommand({
+			id: 'word-left',
+			name: 'Word left',
+			repeatable: true,
+			editorCallback: (editor: Editor, _: MarkdownView) => {
+				this.moveCursorWord(editor, false)
 			}
 		});
 
@@ -353,6 +371,21 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 		editor.exec('goRight');
+	}
+
+
+	// Alt-F / Alt-B — forward-word/backward-word. forward=true lands the caret
+	// right after the found word's last character (mirroring Emacs's own
+	// "forward-word always stops at a word end" convention); forward=false
+	// lands right before the found word's first character. See
+	// moveCursorWordInTable/moveCursorWordPlainText further below for the two
+	// underlying search strategies (table cell vs. everything else).
+	private moveCursorWord(editor: Editor, forward: boolean) {
+		if (editor.inTableCell) {
+			this.moveCursorWordInTable(editor, forward);
+			return;
+		}
+		this.moveCursorWordPlainText(editor, forward);
 	}
 
 
@@ -2541,6 +2574,82 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const last = spans[spans.length - 1];
 		if (!last) return Math.max(0, lineText.length - 1);
 		return wordEnd ? last.to - 1 : last.from;
+	}
+
+	// Alt-F/Alt-B in plain text (including a table row's raw markdown text in
+	// Source Mode — deliberately untouched here, same as Ctrl-B/F's own
+	// goLeft/goRight, which never special-cases Source Mode tables either).
+	// Walks line by line via getWordSpans until a word is found or the
+	// document's own start/end is reached (a real Emacs buffer would signal
+	// "End/Beginning of buffer" and simply not move further — same here, via
+	// the early return once there's no further line to try). Deliberately
+	// does not detect/enter a Live Preview table row reached this way — Vim's
+	// own w/b/e has the identical gap (see vim-support.ts's moveByWords), so
+	// this keeps the two word-motion engines at parity rather than solving it
+	// only on the Emacs side.
+	private moveCursorWordPlainText(editor: Editor, forward: boolean) {
+		const cursor = editor.getCursor();
+		let lineNum = cursor.line;
+		let ch = cursor.ch;
+		for (;;) {
+			const lineText = editor.getLine(lineNum);
+			const span = findWordSpanOnLine(lineText, ch, forward);
+			if (span) {
+				const targetCh = forward ? span.to : span.from;
+				if (lineNum !== cursor.line || targetCh !== cursor.ch) {
+					this.setCursorViaCm(editor, lineNum, targetCh);
+				}
+				return;
+			}
+			const nextLine = forward ? lineNum + 1 : lineNum - 1;
+			if (nextLine < 0 || nextLine >= editor.lineCount()) return; // document edge — stay put
+			lineNum = nextLine;
+			ch = forward ? 0 : editor.getLine(lineNum).length;
+		}
+	}
+
+	// Alt-F/Alt-B inside a Live Preview table cell. First searches the
+	// cursor's own <br>-segment, then walks further segments within the SAME
+	// cell (walkSegments — mirrors how vim.js's own inner-view line iteration
+	// covers in-cell segments for free, since each <br>-segment is its own
+	// doc line there); only once the whole cell is exhausted does it cross
+	// into the next/prev cell or row via crossTableRowForWord — single
+	// cell/row crossing only, matching that function's own documented "no
+	// multi-cell count precision" scope (see its own comment).
+	// crossTableRowForWord/refineWordLanding land using vim's block-cursor
+	// word-end convention (wordEnd -> last char's own index); this caret
+	// cursor needs one further to the right, hence the +1 correction applied
+	// only on the forward landing.
+	private moveCursorWordInTable(editor: Editor, forward: boolean) {
+		const cursor = editor.getCursor();
+		const lineText = editor.getLine(cursor.line);
+		let segInfo = getInCellLineInfo(lineText, cursor.ch);
+		if (!segInfo) return;
+
+		let localCh = cursor.ch - segInfo.startOfInCellLine;
+		for (;;) {
+			const scopeStart = segInfo.startOfInCellLine;
+			const scopedText = lineText.slice(scopeStart, segInfo.endOfInCellLine);
+			const fromCh = Math.max(0, Math.min(localCh, scopedText.length));
+			const span = findWordSpanOnLine(scopedText, fromCh, forward);
+			if (span) {
+				const targetCh = scopeStart + (forward ? span.to : span.from);
+				if (targetCh !== cursor.ch) this.setCursorViaCm(editor, cursor.line, targetCh);
+				return;
+			}
+			const { segInfo: nextSeg, steps } = this.walkSegments(lineText, segInfo, forward, 1);
+			if (steps === 0) break; // no further segment in this cell
+			segInfo = nextSeg;
+			localCh = forward ? 0 : segInfo.endOfInCellLine - segInfo.startOfInCellLine;
+		}
+
+		const cellIndex = getCellIndex(lineText, cursor.ch);
+		const landed = this.crossTableRowForWord(editor, cellIndex, forward, false, forward);
+		if (landed && forward) {
+			const landedLineText = editor.getLine(landed.line);
+			const targetCh = Math.min(landed.ch + 1, landedLineText.length);
+			if (targetCh !== landed.ch) this.setCursorViaCm(editor, landed.line, targetCh);
+		}
 	}
 
 	// Shared by crossTableRowForCell and enterTableAtLine: given a target row

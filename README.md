@@ -47,6 +47,8 @@ For detailed behavior of each command, see [Command Details](#command-details) b
 | RIGHT | Ctrl + F           | Smart RIGHT: Move by character or jump to the next cell. | ✓ |
 | HOME  | Ctrl + A           | Smart HOME: Moves to the visual line edge, content start, or line start in steps; jumps to the previous cell inside a table. | ✓ |
 | END   | Ctrl + E           | Smart END: Moves to the visual line edge or line end in steps; jumps to the next cell inside a table. | ✓ |
+| Word right | (None)        | Moves forward by word (Emacs `forward-word`). Table-aware, CJK-aware. | ✓ |
+| Word left | (None)         | Moves backward by word (Emacs `backward-word`). Table-aware, CJK-aware. | ✓ |
 | Kill line | Ctrl + K      | Kill from cursor to line end. Consecutive kills accumulate in the kill cache and clipboard. | ✓ |
 | Kill region | Ctrl + W    | Cut the selected region to the kill cache. Table-aware: single-cell only; no-op for multi-row or cross-cell selections. | — |
 | Yank | Ctrl + Y           | Paste from the OS clipboard. Table-aware: converts newlines and pipes automatically. | ✓ |
@@ -97,8 +99,6 @@ Open **Settings → Universal Cursor Hotkeys** to assign hotkeys without leaving
 
 
 ## Limitations
-
-- **No Word-Level Navigation:** Movement by word (macOS: Option+Left/Right; Windows: Ctrl+Left/Right; Emacs: Meta-F/B) is currently not supported.
 
 - **Range selection stops at table cell boundaries:** Shift+Ctrl+P/N/B/F/A/E extend the selection normally within plain text and within a single table cell. At a cell boundary, they neither cross into the adjacent cell (unlike plain Ctrl+B/F) nor extend the selection across cells (unlike Shift+Arrow keys). Use Shift+Arrow keys for cross-cell selection.
 
@@ -196,6 +196,17 @@ Note: (*) indicates behaviors specific to Live Preview mode.
 - **Within a table cell (Source Mode):**
   - **Cursor inside a `<br>` tag:** Jumps to the right edge of the next in-cell line, skipping the `<br>` tag.
   - **Cursor before the first `|` (ch=0):** Snaps to the content start of the first cell.
+
+</details>
+
+<details>
+<summary>Word right / Word left</summary>
+
+- **Within text:** Word right moves to the end of the next word; Word left moves to the start of the previous word — matching Emacs's own `forward-word`/`backward-word`. Crosses line boundaries once no further word remains on the current line; does not stop on blank lines while crossing (only paragraph motion would; this plugin doesn't implement that).
+- **CJK-aware:** Uses real morphological word boundaries, not just whitespace/punctuation splitting — a run of Japanese/Chinese/Korean text is segmented into its actual words rather than treated as one long word.
+- **Within a table cell (*):** Searches the current cell first, including across `<br>`-separated in-cell lines, before crossing out of the cell.
+- **At the edge of a cell's own content (*):** Jumps to the nearest word in the adjacent cell (same row), or, from a row's own edge cell, the adjacent row's opposite edge cell. Single cell/row crossing only.
+- **Does not enter a table from plain text (*):** Reaching a table row from outside Live Preview table cells is not detected.
 
 </details>
 
