@@ -7,9 +7,14 @@
 // run. Intl.Segmenter's own "word" granularity does not merge consecutive
 // punctuation into one segment (e.g. "foo...bar" yields three separate "."
 // entries) — a merge pass over its non-word-like, non-whitespace output
-// restores that convention. Out of scope: Vim's bigWord (W/B/E) — that's a
-// plain whitespace-run split, unaffected by any of this, and stays on its
-// own regex path in vim-support.ts.
+// restores that convention.
+//
+// getBigWordSpans (Vim's bigWord/WORD — any non-whitespace run counts as one
+// word) is unaffected by any of the above and is just a plain regex split —
+// exported here for main.ts's findWordBoundaryOnLine (a from-a-clean-edge
+// scanner, well suited to a spans list). vim-support.ts's own w/b/e port
+// needs an arbitrary-mid-position char-by-char scan instead (see its own
+// isBigWordChar), so it doesn't use this.
 
 export interface WordSpan {
 	from: number; // inclusive, line-local offset
@@ -79,4 +84,13 @@ export function findWordSpanOnLine(
 		else break;
 	}
 	return result;
+}
+
+// Vim's bigWord (W/B/E): any non-whitespace run is one word.
+export function getBigWordSpans(lineText: string): WordSpan[] {
+	const spans: WordSpan[] = [];
+	const re = /\S+/g;
+	let m: RegExpExecArray | null;
+	while ((m = re.exec(lineText))) spans.push({ from: m.index, to: m.index + m[0].length });
+	return spans;
 }

@@ -8,6 +8,7 @@ import { syntaxTree } from '@codemirror/language';
 import { EditorView } from "@codemirror/view";
 import { EditorSelection, Transaction } from '@codemirror/state';
 import { deleteCharForward, cursorPageDown, cursorPageUp } from '@codemirror/commands';
+import { getWordSpans, getBigWordSpans } from './word-segmentation';
 
 // Extend the Obsidian Editor interface to include the internal CodeMirror 6 instance (EditorView)
 declare module "obsidian" {
@@ -2524,49 +2525,22 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		return { line: landed.line, ch: targetCh };
 	}
 
-	// Matches vim-support.ts's own isWordChar/punctuation classification
-	// exactly (kept as a separate small copy here — this is a single-line scan
-	// for the landing line only, not the full cross-line findWord
-	// vim-support.ts needs for in-cell motion). Real vim classifies every
-	// non-whitespace character as either a "word" char or its own "punctuation"
-	// class — a punctuation run (e.g. "&", "!!!") is its own word, not
-	// something w/e/b skips over the way whitespace is skipped. bigWord
-	// (W/E/B) collapses both into a single non-whitespace class.
-	private static readonly WORD_CHAR_REGEX = /[\w\p{Alphabetic}\p{Number}_]/u;
-
-	// Returns 0 (word), 1 (punctuation), or null (whitespace/out of bounds).
-	// bigWord collapses word+punctuation down to a single class (0).
-	private static classOf(ch: string | undefined, bigWord: boolean): number | null {
-		if (!ch || /\s/.test(ch)) return null;
-		if (bigWord) return 0;
-		return universalCursorHotkeysPlugin.WORD_CHAR_REGEX.test(ch) ? 0 : 1;
-	}
-
+	// A from-a-clean-edge-only scan (always starts at this scoped segment's
+	// own start or end, never mid-word — refineWordLanding always hands it a
+	// fresh landing position), so unlike vim-support.ts's own w/b/e port
+	// (which must resolve from an arbitrary mid-line position, and needs a
+	// char-by-char scan for that), this can just take the first/last span
+	// directly from the shared word-segmentation.ts module.
 	private findWordBoundaryOnLine(lineText: string, forward: boolean, bigWord: boolean, wordEnd: boolean): number {
-		const classOf = (ch: string | undefined) => universalCursorHotkeysPlugin.classOf(ch, bigWord);
+		const spans = bigWord ? getBigWordSpans(lineText) : getWordSpans(lineText);
 		if (forward) {
-			let i = 0;
-			while (i < lineText.length && classOf(lineText[i]) === null) i++;
-			if (i >= lineText.length) return 0; // entirely whitespace — vim's own "empty line is a word" convention
-			if (!wordEnd) return i; // w: the word's own start
-			// e: walk to the end of this same class run (word or punctuation).
-			const cls = classOf(lineText[i]);
-			while (i + 1 < lineText.length && classOf(lineText[i + 1]) === cls) i++;
-			return i;
+			const first = spans[0];
+			if (!first) return 0; // entirely whitespace — vim's own "empty line is a word" convention
+			return wordEnd ? first.to - 1 : first.from;
 		}
-		if (wordEnd) {
-			// ge: scanning from the end, the first non-whitespace hit *is* the
-			// last word's own end (no need to walk further, unlike the forward case).
-			for (let i = lineText.length - 1; i >= 0; i--) {
-				if (classOf(lineText[i]) !== null) return i;
-			}
-			return Math.max(0, lineText.length - 1);
-		}
-		for (let i = lineText.length - 1; i >= 0; i--) {
-			const cls = classOf(lineText[i]);
-			if (cls !== null && (i === 0 || classOf(lineText[i - 1]) !== cls)) return i;
-		}
-		return Math.max(0, lineText.length - 1);
+		const last = spans[spans.length - 1];
+		if (!last) return Math.max(0, lineText.length - 1);
+		return wordEnd ? last.to - 1 : last.from;
 	}
 
 	// Shared by crossTableRowForCell and enterTableAtLine: given a target row
