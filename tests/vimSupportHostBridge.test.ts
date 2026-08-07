@@ -148,6 +148,12 @@ describe('VimSupportHost bridge (main.ts)', () => {
 			expect(plugin.findWordBoundaryOnLine('foo bar', true, false, false)).toBe(0)
 			expect(plugin.findWordBoundaryOnLine('foo bar', false, false, false)).toBe(4)
 		})
+
+		it('segments Japanese text morphologically, not as one long word', () => {
+			// 日本語(0-3) です(3-5) — e (wordEnd) must land at the end of the
+			// first morpheme (ch 2), not the end of the whole string.
+			expect(plugin.findWordBoundaryOnLine('日本語です', true, false, true)).toBe(2)
+		})
 	})
 
 	// ===========================================================================

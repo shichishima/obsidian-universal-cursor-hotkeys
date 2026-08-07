@@ -292,7 +292,7 @@ If Obsidian's built-in Vim key bindings are enabled, this plugin fixes several n
 | :--: | ----- |
 | `h` `l` `x` | Multi-byte character miscounting and incorrect cell-jumping at line boundaries; `x` at cell boundaries. |
 | `j` `k` | Row-boundary crossing (matching Ctrl+N/P), preserving column position throughout. |
-| `w` `b` `e` (and `W`/`B`/`E`/`ge`/`gE`) | Cell/row-boundary crossing, matching vim's own document-wide word-motion behavior. ASCII words only — see [Limitations](#limitations-1). |
+| `w` `b` `e` (and `W`/`B`/`E`/`ge`/`gE`) | Cell/row-boundary crossing, matching vim's own document-wide word-motion behavior. |
 | `gg` `G` | Reaches the note's actual first/last line, including exiting a table cell entirely. |
 | `gj` `gk` | Visual-line movement inside table cells (matching Ctrl+N/P), tracking the visual column across wrapped lines. |
 | `$` | Sticky end-of-line goal column when followed by j/k or gj/gk, matching real vim's own behavior. Requires `j`/`k` or `gj`/`gk` to be enabled. `D`/`C` share the same underlying vim.js motion, so this toggle affects them too, but their own behavior is identical either way. |
@@ -307,7 +307,6 @@ Turning an item off restarts Obsidian to fully restore vim's native behavior (a 
 - **`w`/`b`/`e` cross only one cell/row boundary per count:** A count like `5w` isn't fully precise once it needs to cross more than one cell or row boundary.
 - **`gj`/`gk` do not support count prefixes across a crossing:** A count like `5gj` correctly steps through multiple visual lines within a single cell, but once the count needs to cross a row boundary or enter/exit a table, it stops consuming the count after that first crossing.
 - **A count-prefixed `$` doesn't cross table rows:** `3$` stays within the current table cell rather than reaching the end of a line further down, the way real vim would outside a table.
-- **Word motion (`w`/`b`/`e` and related keys) does not segment CJK text:** These reuse Vim's own native word classification, which does not distinguish Japanese word boundaries — a run of Hiragana/Katakana/Kanji is treated as one long "word" rather than split at natural boundaries. ASCII text is unaffected.
 
 
 ## Acknowledgments

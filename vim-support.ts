@@ -1,5 +1,6 @@
 import { findClusterBreak } from '@codemirror/state';
 import { getCellIndex } from './table-cell-utils';
+import { getWordSpans } from './word-segmentation';
 
 // Obsidian's built-in Vim mode (codemirror-vim) — not exposed in obsidian.d.ts.
 interface VimPos { line: number; ch: number }
@@ -445,31 +446,48 @@ export class VimSupport {
 	// w/b/e/W/B/E/ge/gE all share this one motion, distinguished only by
 	// motionArgs (forward/wordEnd/bigWord).
 
-	// Matches cm_adapter.ts's own wordChar regex exactly.
-	private static readonly isWordChar = (ch: string): boolean => {
-		return /[\w\p{Alphabetic}\p{Number}_]/u.test(ch);
-	};
-
-	// [0]: word chars. [1]: "punctuation" — not a word char, not whitespace.
-	private static readonly WORD_CHAR_TEST: Array<(ch: string) => boolean> = [
-		VimSupport.isWordChar,
-		(ch: string) => !!ch && !VimSupport.isWordChar(ch) && !/\s/.test(ch),
-	];
-	// vim's WORD (bigWord): any non-whitespace run counts as one word.
-	private static readonly BIG_WORD_CHAR_TEST: Array<(ch: string) => boolean> = [
-		(ch: string) => /\S/.test(ch),
-	];
-
 	private static isLine(vcm: VimCm, line: number): boolean {
 		return line >= 0 && line <= vcm.lastLine();
 	}
 
+	// vim's WORD (bigWord): any non-whitespace run counts as one word —
+	// unaffected by the CJK/punctuation-class concerns below, so it keeps
+	// its own flat single-class test.
+	private static readonly isBigWordChar = (ch: string): boolean => /\S/.test(ch);
+
+	// Per-line, per-position "word class" lookup: word-char runs are
+	// classified via getWordSpans (word-segmentation.ts, Intl.Segmenter-
+	// based — CJK gets real morphological chunking, and consecutive
+	// punctuation merges into one run, matching vim's own convention).
+	// Whitespace positions get null. Each returned span's own `from` acts as
+	// a cheap, unique-per-run class id — good enough since we only ever
+	// compare two classOf() results for equality, never interpret the value
+	// itself.
+	private static classifyLine(line: string): (pos: number) => number | null {
+		const spans = getWordSpans(line);
+		const classAt: (number | null)[] = new Array<number | null>(line.length).fill(null);
+		for (const s of spans) {
+			for (let i = s.from; i < s.to; i++) classAt[i] = s.from;
+		}
+		return (pos: number) => (pos < 0 || pos >= line.length ? null : classAt[pos]);
+	}
+
 	// Faithful port of vim.js's own findWord: locates the next/prev word span
-	// from `cur`, walking line by line within this view's own bounds. Returns
-	// null once it runs off the end/start of the view (cm's own line range) —
-	// the live moveByWords override treats that as "hit a cell/buffer
+	// from `cur`, walking line by line within this view's own bounds, via a
+	// char-by-char scan that extends while classOf() stays the same. Returns
+	// null once it runs off the end/start of the view (cm's own line range)
+	// — the live moveByWords override treats that as "hit a cell/buffer
 	// boundary" and (inside a table cell) triggers a crossing; the
-	// restore-target default leaves it as vim's own boundary-clamped behavior.
+	// restore-target default leaves it as vim's own boundary-clamped
+	// behavior.
+	//
+	// This keeps the exact scan/overshoot/degenerate-skip shape of vim.js's
+	// own algorithm (see runMoveToWord below, which relies on this scan's
+	// specific quirk of always anchoring wordStart to cur.ch whenever cur.ch
+	// falls inside/at a matching run) — only the classification itself
+	// (word-char vs "other") is swapped from a flat 2-class char predicate to
+	// the Intl.Segmenter-aware classifier above. This is deliberately NOT a
+	// from-scratch reimplementation: the scan shape is load-bearing.
 	private static findWord(
 		vcm: VimCm, cur: VimPos, forward: boolean, bigWord: boolean, emptyLineIsWord: boolean,
 	): VimWordSpan | null {
@@ -477,13 +495,18 @@ export class VimSupport {
 		let pos = cur.ch;
 		let line = vcm.getLine(lineNum);
 		const dir = forward ? 1 : -1;
-		const charTests = bigWord ? VimSupport.BIG_WORD_CHAR_TEST : VimSupport.WORD_CHAR_TEST;
+		let classOf = bigWord
+			? (p: number) => (p >= 0 && p < line.length && VimSupport.isBigWordChar(line.charAt(p)) ? 0 : null)
+			: VimSupport.classifyLine(line);
 
 		if (emptyLineIsWord && line === '') {
 			lineNum += dir;
 			line = vcm.getLine(lineNum);
 			if (!VimSupport.isLine(vcm, lineNum)) return null;
 			pos = forward ? 0 : line.length;
+			classOf = bigWord
+				? (p: number) => (p >= 0 && p < line.length && VimSupport.isBigWordChar(line.charAt(p)) ? 0 : null)
+				: VimSupport.classifyLine(line);
 		}
 
 		for (;;) {
@@ -494,32 +517,31 @@ export class VimSupport {
 			let wordStart = stop;
 			let wordEnd = stop;
 			while (pos !== stop) {
-				let foundWord = false;
-				for (let i = 0; i < charTests.length && !foundWord; i++) {
-					if (charTests[i](line.charAt(pos))) {
-						wordStart = pos;
-						while (pos !== stop && charTests[i](line.charAt(pos))) {
-							pos += dir;
-						}
-						wordEnd = pos;
-						foundWord = wordStart !== wordEnd;
-						if (wordStart === cur.ch && lineNum === cur.line && wordEnd === wordStart + dir) {
-							// Started at the end of a word — keep looking for the next one.
-							continue;
-						}
-						return {
-							from: Math.min(wordStart, wordEnd + 1),
-							to: Math.max(wordStart, wordEnd),
-							line: lineNum,
-						};
-					}
+				const cls = classOf(pos);
+				if (cls === null) {
+					pos += dir;
+					continue;
 				}
-				if (!foundWord) pos += dir;
+				wordStart = pos;
+				while (pos !== stop && classOf(pos) === cls) pos += dir;
+				wordEnd = pos;
+				if (wordStart === cur.ch && lineNum === cur.line && wordEnd === wordStart + dir) {
+					// Started at the tail end of a run — keep looking for the next one.
+					continue;
+				}
+				return {
+					from: Math.min(wordStart, wordEnd + 1),
+					to: Math.max(wordStart, wordEnd),
+					line: lineNum,
+				};
 			}
 			lineNum += dir;
 			if (!VimSupport.isLine(vcm, lineNum)) return null;
 			line = vcm.getLine(lineNum);
 			pos = dir > 0 ? 0 : line.length;
+			classOf = bigWord
+				? (p: number) => (p >= 0 && p < line.length && VimSupport.isBigWordChar(line.charAt(p)) ? 0 : null)
+				: VimSupport.classifyLine(line);
 		}
 	}
 
