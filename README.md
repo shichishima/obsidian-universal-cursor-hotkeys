@@ -53,6 +53,7 @@ For detailed behavior of each command, see [Command Details](#command-details) b
 | Word left | (None)         | Moves backward by word. Table-aware, CJK-aware. | ✓ |
 | Kill line | Ctrl + K      | Kill from cursor to line end. Consecutive kills accumulate in the kill cache and clipboard. | ✓ |
 | Kill region | Ctrl + W    | Cut the selected region to the kill cache. Table-aware: single-cell only; no-op for multi-row or cross-cell selections. | — |
+| Copy region | (None)    | Copy the selected region to the kill cache without deleting it. Same table-aware constraints as Kill region. | — |
 | Yank | Ctrl + Y           | Paste from the OS clipboard. Table-aware: converts newlines and pipes automatically. | ✓ |
 | Delete char | Ctrl + D   | Forward-delete one character. Stops at cell boundary; joins sub-lines at `<br>` in Live Preview. | ✓ |
 | Recenter-top-bottom | Ctrl + L | Cycle the view so the cursor appears at the center, top, or bottom of the screen on successive presses. Resets on any other action. | — |
@@ -106,7 +107,7 @@ Open **Settings → Universal Cursor Hotkeys** to assign hotkeys without leaving
 
 - **Brief scroll when entering a tall wrapped cell in Live Preview (UP):** When pressing UP into a cell whose wrapped content exceeds the screen height, the view momentarily scrolls to the cell start before jumping to the bottom visual line. This is an inherent side effect of the two-step navigation used to locate the bottom visual line within Obsidian's Live Preview table widget.
 
-- **Multi-cell cut, copy, and paste are not supported (Kill Line / Kill Region / Yank):** Kill Line, Kill Region, and Yank are text-level operations; inside a table, they work on the text content within individual cells. Selecting multiple cells and attempting to cut or paste with these commands is not supported. For multi-cell cut, copy, and paste operations, use the right-click context menu instead.
+- **Multi-cell cut, copy, and paste are not supported (Kill Line / Kill Region / Copy Region / Yank):** Kill Line, Kill Region, Copy Region, and Yank are text-level operations; inside a table, they work on the text content within individual cells. Selecting multiple cells and attempting to cut, copy, or paste with these commands is not supported. For multi-cell cut, copy, and paste operations, use the right-click context menu instead.
 
 - **Source Mode table detection is heuristic:** In Source Mode, table rows are identified by a simple string check (line starts and ends with `|`). Unlike Live Preview mode, which uses the syntax tree, this approach may produce unexpected behavior on lines that coincidentally match the pattern but are not part of a Markdown table.
 
@@ -252,9 +253,18 @@ Note: (*) indicates behaviors specific to Live Preview mode.
 </details>
 
 <details>
+<summary>Copy Region</summary>
+
+- Same selection validation as Kill Region (empty selection: no operation; within a table, single-cell selection only — multi-row or cross-cell selections: no operation), but never deletes anything — the selection stays exactly as it was.
+- Copies to the kill cache and the system clipboard, same table-normalized text (`<br>` → `\n`, `\|` → `|`) as Kill Region.
+- **Kill chain:** Like Kill Region, always resets the consecutive-kill chain rather than appending to it.
+
+</details>
+
+<details>
 <summary>Yank</summary>
 
-- **Pastes from the OS clipboard** at the cursor position. Content copied via standard Ctrl+C / Ctrl+X, Kill Line, or Kill Region is accessible through Yank.
+- **Pastes from the OS clipboard** at the cursor position. Content copied via standard Ctrl+C / Ctrl+X, Kill Line, Kill Region, or Copy Region is accessible through Yank.
 - **Outside a table:** Inserts the clipboard text as-is.
 - **Within a table cell (Live Preview or Source Mode):** Newlines (`\n`) are converted to `<br>` and pipe characters (`|`) are escaped to `\|` before insertion to prevent breaking the table structure.
 - **Empty clipboard:** No operation.
