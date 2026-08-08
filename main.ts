@@ -206,6 +206,14 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		});
 
 		this.addCommand({
+			id: 'copy-region',
+			name: 'Copy region',
+			editorCallback: (editor: Editor) => {
+				this.copyRegion(editor);
+			}
+		});
+
+		this.addCommand({
 			id: 'kill-line',
 			name: 'Kill line',
 			repeatable: true,
@@ -2037,14 +2045,15 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 
-	//===========================================================================
-	// Kill region (Ctrl-W)
-	//===========================================================================
-
-	private killRegion(editor: Editor) {
+	// Shared by Kill Region (Ctrl-W) and Copy Region: validates the current
+	// selection (non-empty; inside a table, single-cell/single-line only —
+	// same constraint both commands share, see their own README docs) and
+	// returns its table-normalized text, or null if the selection is empty
+	// or spans something invalid (multi-row/cross-cell).
+	private getValidatedRegionText(editor: Editor): string | null {
 		const from = editor.getCursor('from');
 		const to   = editor.getCursor('to');
-		if (from.line === to.line && from.ch === to.ch) return;
+		if (from.line === to.line && from.ch === to.ch) return null;
 
 		const fromLine = editor.getLine(from.line);
 		const toLine   = editor.getLine(to.line);
@@ -2056,18 +2065,50 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		);
 
 		if (inLPTable || inSourceTable) {
-			if (from.line !== to.line) return;
+			if (from.line !== to.line) return null;
 
 			const line        = fromLine;
 			const fromBounds  = getCellBounds(line, from.ch);
 			const toBounds    = getCellBounds(line, to.ch);
-			if (!fromBounds || !toBounds || fromBounds.open !== toBounds.open) return;
+			if (!fromBounds || !toBounds || fromBounds.open !== toBounds.open) return null;
 		}
 
 		const rawText = editor.getSelection();
-		const text = (inLPTable || inSourceTable)
-			? this.normalizeKillText(rawText)
-			: rawText;
+		return (inLPTable || inSourceTable) ? this.normalizeKillText(rawText) : rawText;
+	}
+
+
+	//===========================================================================
+	// Copy region (Alt-W)
+	//===========================================================================
+
+	// Non-destructive kill-ring-save: same validation/normalization as Kill
+	// Region, breaks any in-progress Kill Line chain the same way Kill Region
+	// does (a copy is not a "kill", so it shouldn't silently append to a
+	// pending kill-line sequence), but never mutates the editor — the
+	// selection stays exactly as the user left it, matching a plain Copy.
+	private copyRegion(editor: Editor) {
+		const text = this.getValidatedRegionText(editor);
+		if (text === null) return;
+
+		this.isKillChaining = false;
+		this.updateKillCache(text);
+		navigator.clipboard.writeText(this.killCache).catch(() => {});
+	}
+
+
+	//===========================================================================
+	// Kill region (Ctrl-W)
+	//===========================================================================
+
+	private killRegion(editor: Editor) {
+		const from = editor.getCursor('from');
+		const to   = editor.getCursor('to');
+		const text = this.getValidatedRegionText(editor);
+		if (text === null) return;
+
+		const inLPTable = editor.inTableCell;
+		const fromLine  = editor.getLine(from.line);
 
 		this.isKillChaining = false;
 		this.updateKillCache(text);
