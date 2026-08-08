@@ -2364,6 +2364,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			// (not the keystroke's own forward) keeps that landing consistent
 			// regardless of which key was actually pressed.
 			result = this.enterTableAtLine(e, targetLine, 0, true, 0, 0);
+			if (result) result = this.refineTableLandingForSmartHome(e, result);
 		} else {
 			const lineText = e.getLine(targetLine);
 			// Same std/adv-aware position `^` itself uses when Smart home
@@ -2391,6 +2392,32 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			cm.dispatch({ selection: { anchor: pos, head: pos }, scrollIntoView: true, userEvent: 'move' });
 		}
 		return result;
+	}
+
+	// gg/G's own table-landing refinement: enterTableAtLine's shared landing
+	// (via landInCellSegment) only ever skips leading whitespace
+	// (getInCellLineInfo's own startOfInCellLine) — never Smart Home, unlike
+	// gg/G's plain-text landing just above, which respects it. landInCellSegment
+	// is also shared by crossTableRowForCell (Ctrl-N/P and Vim j/k's own
+	// goal-column-preserving row crossing), which must NOT gain Smart Home, so
+	// this can't be baked into that shared primitive itself — mirrors
+	// refineWordLanding's own "land roughly via the shared primitive, then
+	// refine for this caller's own needs" shape instead. No-op when Smart Home
+	// (standard) is off; when it's on but the segment's own content has
+	// nothing for it to skip past (the common case — table cells rarely start
+	// with list/checkbox/blockquote/heading syntax), targetCh just comes back
+	// equal to landed.ch and no re-dispatch happens.
+	private refineTableLandingForSmartHome(editor: Editor, landed: { line: number; ch: number }): { line: number; ch: number } {
+		if (!this.settings.smartHomeStandard) return landed;
+		const lineText = editor.getLine(landed.line);
+		const segInfo = getInCellLineInfo(lineText, landed.ch);
+		if (!segInfo) return landed;
+		const segmentText = lineText.slice(segInfo.startOfInCellLine, segInfo.endOfInCellLine);
+		const targetCh = segInfo.startOfInCellLine + this.getBeginningOfLinePosition(segmentText, segmentText.length || 1);
+		if (targetCh !== landed.ch) {
+			this.setCursorViaCm(editor, landed.line, targetCh);
+		}
+		return { line: landed.line, ch: targetCh };
 	}
 
 	// Alt-Shift-,/. (Emacs beginning-of-buffer/end-of-buffer). Deliberately
