@@ -145,6 +145,24 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		});
 
 		this.addCommand({
+			id: 'cursor-top',
+			name: 'TOP',
+			repeatable: true,
+			editorCallback: (editor: Editor, _: MarkdownView) => {
+				this.jumpToBufferEdge(editor, false)
+			}
+		});
+
+		this.addCommand({
+			id: 'cursor-bottom',
+			name: 'BOTTOM',
+			repeatable: true,
+			editorCallback: (editor: Editor, _: MarkdownView) => {
+				this.jumpToBufferEdge(editor, true)
+			}
+		});
+
+		this.addCommand({
 			id: 'word-right',
 			name: 'Word right',
 			repeatable: true,
@@ -2367,6 +2385,45 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// changing behavior for its other, already-working callers); done as
 		// its own follow-up dispatch to the same (already landed-on)
 		// position instead.
+		if (result) {
+			const cm = e.cm;
+			const pos = e.posToOffset(result);
+			cm.dispatch({ selection: { anchor: pos, head: pos }, scrollIntoView: true, userEvent: 'move' });
+		}
+		return result;
+	}
+
+	// Alt-Shift-,/. (Emacs beginning-of-buffer/end-of-buffer). Deliberately
+	// separate from jumpToDocumentLine (Vim's gg/G, left untouched) — real
+	// vim's gg/G always land at a line's own first non-blank character
+	// (optionally Smart-Home-enhanced), but real Emacs has no such concept
+	// for buffer edges: it's the true edge of the buffer, full stop. So
+	// forward=false (TOP) lands at literal ch=0 of the first line, no skip
+	// of any kind; forward=true (BOTTOM) lands at the end of the last line.
+	// Table-aware, but asymmetrically so, matching the same "true edge"
+	// framing: TOP lands in the leftmost cell's own content start (there's
+	// no position "before" that inside a rendered cell — already the true
+	// edge there), while BOTTOM lands in the *rightmost* cell's own content
+	// *end* (the actual end of that row's raw text) — unlike gg/G, which
+	// always targets the leftmost cell regardless of direction.
+	jumpToBufferEdge(editor: unknown, forward: boolean): { line: number; ch: number } | null {
+		const e = editor as Editor;
+		const targetLine = forward ? e.lineCount() - 1 : 0;
+
+		let result: { line: number; ch: number } | null;
+		if (this.isPositionInTable(e, targetLine, 1)) {
+			result = forward
+				? this.enterTableAtLine(e, targetLine, getRightmostCellIndex(e.getLine(targetLine)), false, Number.MAX_SAFE_INTEGER, 0)
+				: this.enterTableAtLine(e, targetLine, 0, true, 0, 0);
+		} else {
+			const lineText = e.getLine(targetLine);
+			const targetCh = forward ? lineText.length : 0;
+			this.setCursorViaCm(e, targetLine, targetCh);
+			result = { line: targetLine, ch: targetCh };
+		}
+
+		// Same reasoning as jumpToDocumentLine's own identical follow-up: a
+		// buffer-edge jump can land far outside the current viewport.
 		if (result) {
 			const cm = e.cm;
 			const pos = e.posToOffset(result);
