@@ -47,8 +47,8 @@ For detailed behavior of each command, see [Command Details](#command-details) b
 | RIGHT | Ctrl + F           | Smart RIGHT: Move by character or jump to the next cell. | ✓ |
 | HOME  | Ctrl + A           | Smart HOME: Moves to the visual line edge, content start, or line start in steps; jumps to the previous cell inside a table. | ✓ |
 | END   | Ctrl + E           | Smart END: Moves to the visual line edge or line end in steps; jumps to the next cell inside a table. | ✓ |
-| TOP | (None)           | Jumps to the document's first line, landing at content start. Table-aware. | ✓ |
-| BOTTOM | (None)        | Jumps to the document's last line, landing at content start. Table-aware. | ✓ |
+| TOP | (None)           | Jumps to the very start of the document. Table-aware. | ✓ |
+| BOTTOM | (None)        | Jumps to the very end of the document. Table-aware. | ✓ |
 | Word right | (None)        | Moves forward by word. Table-aware, CJK-aware. | ✓ |
 | Word left | (None)         | Moves backward by word. Table-aware, CJK-aware. | ✓ |
 | Kill line | Ctrl + K      | Kill from cursor to line end. Consecutive kills accumulate in the kill cache and clipboard. | ✓ |
@@ -204,15 +204,15 @@ Note: (*) indicates behaviors specific to Live Preview mode.
 <details>
 <summary>Cursor TOP / Cursor BOTTOM</summary>
 
-- Jumps to the document's absolute first (TOP) or last (BOTTOM) line, landing at content start using the same Smart Home logic as Cursor HOME. (→ **Smart home** settings)
-- **Table-aware (*):** If the target line is itself a table row, lands inside its leftmost cell content start rather than on the raw Markdown text. Without this, a note starting with a table can land at the table's *last* row instead of its first when jumping to TOP; a note ending with a table can land at the *header* row instead of its last when jumping to BOTTOM.
+- Jumps to the document's true beginning (TOP) or end (BOTTOM) — the buffer's own edge, not the current line's, so unlike Cursor HOME/END this does not apply Smart Home or skip any leading/trailing whitespace.
+- **Table-aware (*):** If the target line is itself a table row, lands inside a cell's content rather than on the raw Markdown text — TOP in the **leftmost** cell (there's no position "before" that inside a rendered cell), BOTTOM in the **rightmost** cell's own end (the actual end of that row). Without this, a note starting with a table can land at the table's *last* row instead of its first when jumping to TOP; a note ending with a table can land at the *header* row instead of its last when jumping to BOTTOM.
 
 </details>
 
 <details>
 <summary>Word right / Word left</summary>
 
-- **Within text:** Word right moves to the end of the next word; Word left moves to the start of the previous word — matching Emacs's own `forward-word`/`backward-word`. Crosses line boundaries once no further word remains on the current line; does not stop on blank lines while crossing (only paragraph motion would; this plugin doesn't implement that).
+- **Within text:** Word right moves to the end of the next word; Word left moves to the start of the previous word — like Emacs's own `forward-word`/`backward-word`. Crosses line boundaries once no further word remains on the current line; does not stop on blank lines while crossing (only paragraph motion would; this plugin doesn't implement that).
 - **CJK-aware:** Uses real morphological word boundaries, not just whitespace/punctuation splitting — a run of Japanese/Chinese/Korean text is segmented into its actual words rather than treated as one long word.
 - **Within a table cell (*):** Searches the current cell first, including across `<br>`-separated in-cell lines, before crossing out of the cell.
 - **At the edge of a cell's own content (*):** Jumps to the nearest word in the adjacent cell (same row), or, from a row's own edge cell, the adjacent row's opposite edge cell. Single cell/row crossing only.

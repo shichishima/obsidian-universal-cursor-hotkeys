@@ -4,8 +4,8 @@
 
 ### Added
 
-- **Word right / Word left:** New commands, matching Emacs's own `forward-word`/`backward-word`. Table-aware, crossing cell/row boundaries the same way Ctrl+B/F already do; CJK-aware, using real morphological word boundaries.
-- **Cursor TOP / Cursor BOTTOM:** New commands, matching Emacs's own `beginning-of-buffer`/`end-of-buffer`. Table-aware: lands inside a table row's leftmost cell when the target line is one.
+- **Word right / Word left:** New commands, like Emacs's own `forward-word`/`backward-word`. Table-aware, crossing cell/row boundaries the same way Ctrl+B/F already do; CJK-aware, using real morphological word boundaries.
+- **Cursor TOP / Cursor BOTTOM:** New commands, like Emacs's own `beginning-of-buffer`/`end-of-buffer` — the buffer's true edge, not Smart-Home-adjusted like Cursor HOME/END. Table-aware: TOP lands in a table row's leftmost cell, BOTTOM in its rightmost cell's own end.
 
 ### Fixed
 

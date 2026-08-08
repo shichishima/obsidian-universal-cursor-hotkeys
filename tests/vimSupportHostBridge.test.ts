@@ -588,6 +588,52 @@ describe('VimSupportHost bridge (main.ts)', () => {
 	})
 
 	// ===========================================================================
+	// jumpToBufferEdge — Alt-Shift-,/. (Emacs beginning-of-buffer/end-of-buffer).
+	// Deliberately different landing rules from jumpToDocumentLine (Vim's gg/G,
+	// above): no Smart Home / first-non-blank concept at all — TOP is the
+	// buffer's literal first character, BOTTOM its literal last.
+	// ===========================================================================
+
+	describe('jumpToBufferEdge', () => {
+		it('TOP: lands at literal ch=0 of the first line, ignoring leading whitespace/content', () => {
+			const editor = makeStatefulEditor(['  indented first', 'middle', 'last'], { line: 2, ch: 0 })
+			plugin.isPositionInTable = vi.fn().mockReturnValue(false)
+			const result = plugin.jumpToBufferEdge(editor, false)
+			expect(result).toEqual({ line: 0, ch: 0 })
+		})
+
+		it('BOTTOM: lands at the literal end of the last line', () => {
+			const editor = makeStatefulEditor(['first', 'middle', 'last line here'], { line: 0, ch: 0 })
+			plugin.isPositionInTable = vi.fn().mockReturnValue(false)
+			const result = plugin.jumpToBufferEdge(editor, true)
+			expect(result).toEqual({ line: 2, ch: 'last line here'.length })
+		})
+
+		it('follows up with a scrollIntoView dispatch after landing', () => {
+			const editor = makeStatefulEditor(['first', 'last'], { line: 0, ch: 0 })
+			plugin.isPositionInTable = vi.fn().mockReturnValue(false)
+			plugin.jumpToBufferEdge(editor, true)
+			expect(editor.cm.dispatch).toHaveBeenCalledWith(
+				expect.objectContaining({ scrollIntoView: true }),
+			)
+		})
+
+		it('TOP: table row at the start lands in the leftmost cell\'s own content start', () => {
+			const editor = makeStatefulEditor(['| a |', 'plain'], { line: 1, ch: 0 })
+			plugin.isPositionInTable = vi.fn().mockReturnValue(true)
+			const result = plugin.jumpToBufferEdge(editor, false)
+			expect(result).toEqual({ line: 0, ch: 2 })
+		})
+
+		it('BOTTOM: table row at the end lands in the RIGHTMOST cell\'s own content END, unlike gg/G\'s own leftmost-cell convention', () => {
+			const editor = makeStatefulEditor(['plain', '| a | bb |'], { line: 0, ch: 0 })
+			plugin.isPositionInTable = vi.fn().mockReturnValue(true)
+			const result = plugin.jumpToBufferEdge(editor, true)
+			expect(result).toEqual({ line: 1, ch: 7 }) // rests on the final 'b' of the rightmost cell
+		})
+	})
+
+	// ===========================================================================
 	// refineDisplayLineColumn — gj/gk's own step 2, run one tick after a
 	// crossTableRowForCell(..., 0, 1) rough landing (see vim-support.ts's own
 	// VimSupportHost doc comment). Explicit pixel-based re-correction via
