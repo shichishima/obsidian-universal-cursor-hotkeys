@@ -47,6 +47,8 @@ For detailed behavior of each command, see [Command Details](#command-details) b
 | RIGHT | Ctrl + F           | Smart RIGHT: Move by character or jump to the next cell. | ✓ |
 | HOME  | Ctrl + A           | Smart HOME: Moves to the visual line edge, content start, or line start in steps; jumps to the previous cell inside a table. | ✓ |
 | END   | Ctrl + E           | Smart END: Moves to the visual line edge or line end in steps; jumps to the next cell inside a table. | ✓ |
+| TOP | (None)           | Jumps to the document's first line, landing at content start (Emacs `beginning-of-buffer`). Table-aware. | ✓ |
+| BOTTOM | (None)        | Jumps to the document's last line, landing at content start (Emacs `end-of-buffer`). Table-aware. | ✓ |
 | Word right | (None)        | Moves forward by word (Emacs `forward-word`). Table-aware, CJK-aware. | ✓ |
 | Word left | (None)         | Moves backward by word (Emacs `backward-word`). Table-aware, CJK-aware. | ✓ |
 | Kill line | Ctrl + K      | Kill from cursor to line end. Consecutive kills accumulate in the kill cache and clipboard. | ✓ |
@@ -196,6 +198,14 @@ Note: (*) indicates behaviors specific to Live Preview mode.
 - **Within a table cell (Source Mode):**
   - **Cursor inside a `<br>` tag:** Jumps to the right edge of the next in-cell line, skipping the `<br>` tag.
   - **Cursor before the first `|` (ch=0):** Snaps to the content start of the first cell.
+
+</details>
+
+<details>
+<summary>Cursor TOP / Cursor BOTTOM</summary>
+
+- Jumps to the document's absolute first (TOP) or last (BOTTOM) line, landing at content start using the same Smart Home logic as Cursor HOME. (→ **Smart home** settings)
+- **Table-aware (*):** If the target line is itself a table row, lands inside its leftmost cell content start rather than on the raw Markdown text. Without this, a note starting with a table can land at the table's *last* row instead of its first when jumping to TOP; a note ending with a table can land at the *header* row instead of its last when jumping to BOTTOM.
 
 </details>
 
