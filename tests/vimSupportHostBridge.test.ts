@@ -585,6 +585,51 @@ describe('VimSupportHost bridge (main.ts)', () => {
 			expect(resultG).toEqual({ line: 2, ch: 2 }) // redirected to the data row
 			expect(resultGg).toEqual(resultG)
 		})
+
+		it('applies Smart Home to a table-row landing when smartHomeStandard is on', () => {
+			// Regression: enterTableAtLine's own landing (landInCellSegment) only
+			// ever skips leading whitespace, never Smart Home — unlike gg/G's own
+			// plain-text landing just above, which does respect it.
+			plugin.settings = { smartHomeStandard: true, smartHomeAdvanced: false }
+			plugin.isPositionInTable = vi.fn().mockReturnValue(true)
+			const editor = makeStatefulEditor(['plain', '| - foo | bar |'], { line: 0, ch: 0 })
+			const result = plugin.jumpToDocumentLine(editor, true, 1)
+			expect(result).toEqual({ line: 1, ch: 4 }) // skips past "- " to land on "foo"
+		})
+	})
+
+	// ===========================================================================
+	// refineTableLandingForSmartHome — gg/G's own follow-up refinement on top
+	// of enterTableAtLine's shared (whitespace-only) landing. Deliberately NOT
+	// baked into landInCellSegment itself, since that's also shared by
+	// crossTableRowForCell (Ctrl-N/P and Vim j/k's own goal-column-preserving
+	// row crossing), which must not gain Smart Home.
+	// ===========================================================================
+
+	describe('refineTableLandingForSmartHome', () => {
+		it('is a no-op when smartHomeStandard is off', () => {
+			plugin.settings = { smartHomeStandard: false }
+			const editor = makeStatefulEditor(['| - foo |'], { line: 0, ch: 0 })
+			const result = plugin.refineTableLandingForSmartHome(editor, { line: 0, ch: 2 })
+			expect(result).toEqual({ line: 0, ch: 2 })
+			expect(plugin.setCursorViaCm).not.toHaveBeenCalled()
+		})
+
+		it('skips a list-marker prefix within the landed segment when smartHomeStandard is on', () => {
+			plugin.settings = { smartHomeStandard: true, smartHomeAdvanced: false }
+			const editor = makeStatefulEditor(['| - foo |'], { line: 0, ch: 0 })
+			const result = plugin.refineTableLandingForSmartHome(editor, { line: 0, ch: 2 })
+			expect(result).toEqual({ line: 0, ch: 4 })
+			expect(plugin.setCursorViaCm).toHaveBeenCalledWith(editor, 0, 4)
+		})
+
+		it('is a no-op (no re-dispatch) when the segment has nothing to skip past', () => {
+			plugin.settings = { smartHomeStandard: true, smartHomeAdvanced: false }
+			const editor = makeStatefulEditor(['| foo |'], { line: 0, ch: 0 })
+			const result = plugin.refineTableLandingForSmartHome(editor, { line: 0, ch: 2 })
+			expect(result).toEqual({ line: 0, ch: 2 })
+			expect(plugin.setCursorViaCm).not.toHaveBeenCalled()
+		})
 	})
 
 	// ===========================================================================

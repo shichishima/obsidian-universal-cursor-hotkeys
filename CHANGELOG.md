@@ -10,6 +10,7 @@
 ### Fixed
 
 - **Vim `w`/`b`/`e` (and `W`/`B`/`E`/`ge`/`gE`) now segment CJK text properly:** Word motion previously treated a whole run of Japanese/Chinese/Korean characters as one giant word (0.8.0 documented this as "ASCII words only"); it now uses real morphological word boundaries. Applies both to in-cell motion and to landing after a table row/cell crossing.
+- **Vim `gg`/`G` now apply Smart Home inside table cells too:** Landing on a table row previously only skipped leading whitespace, ignoring the Smart home (standard/advanced) settings that already applied everywhere else `gg`/`G` land — e.g. jumping to a note whose first row starts with a list-marker-like cell no longer stops one character early.
 
 ## [0.8.0] - 2026-08-02
 

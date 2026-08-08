@@ -314,7 +314,7 @@ If Obsidian's built-in Vim key bindings are enabled, this plugin fixes several n
 | `h` `l` `x` | Multi-byte character miscounting and incorrect cell-jumping at line boundaries; `x` at cell boundaries. |
 | `j` `k` | Row-boundary crossing (matching Ctrl+N/P), preserving column position throughout. |
 | `w` `b` `e` (and `W`/`B`/`E`/`ge`/`gE`) | Cell/row-boundary crossing, matching vim's own document-wide word-motion behavior. |
-| `gg` `G` | Reaches the note's actual first/last line, including exiting a table cell entirely. |
+| `gg` `G` | Reaches the note's actual first/last line, including exiting a table cell entirely. Lands at the smart (Smart home) content position there too, not just in plain text. |
 | `gj` `gk` | Visual-line movement inside table cells (matching Ctrl+N/P), tracking the visual column across wrapped lines. |
 | `$` | Sticky end-of-line goal column when followed by j/k or gj/gk, matching real vim's own behavior. Requires `j`/`k` or `gj`/`gk` to be enabled. `D`/`C` share the same underlying vim.js motion, so this toggle affects them too, but their own behavior is identical either way. |
 | `^` `I` | Reuses Smart home to skip Markdown syntax, not just whitespace. Requires Smart home (standard). |
