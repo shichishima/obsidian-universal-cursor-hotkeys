@@ -2087,7 +2087,13 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// boundaries (mirroring moveCursorWordPlainText's own plain-text search)
 	// — a plain-text document has no structural segment boundary to respect,
 	// and real Emacs's own kill-word/backward-kill-word don't stop at line
-	// breaks either.
+	// breaks either. Bug fixed here: the search itself doesn't know what a
+	// table is, so without the isPositionInTable guard below it would happily
+	// treat an adjacent table row's raw Markdown (e.g. a leading `|`) as
+	// ordinary word/punctuation text — corrupting the table by killing into
+	// it. Stop at the boundary instead, matching every other kill command in
+	// this file (same "isPositionInTable(..., 1)" check moveCursorRight/Left
+	// already use for the identical plain-text-to-table edge).
 	private killWordNonTable(editor: Editor, forward: boolean) {
 		const cursor = editor.getCursor();
 		let lineNum = cursor.line;
@@ -2102,6 +2108,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			}
 			const nextLine = forward ? lineNum + 1 : lineNum - 1;
 			if (nextLine < 0 || nextLine >= editor.lineCount()) break;
+			if (this.isPositionInTable(editor, nextLine, 1)) break;
 			lineNum = nextLine;
 			ch = forward ? 0 : editor.getLine(lineNum).length;
 		}

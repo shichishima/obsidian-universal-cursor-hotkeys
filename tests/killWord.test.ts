@@ -84,6 +84,7 @@ describe('killWord', () => {
 		plugin.isDispatchingKill = false
 		plugin.killCache         = ''
 		plugin.isLivePreviewMode = vi.fn().mockReturnValue(false)
+		plugin.isPositionInTable = vi.fn().mockReturnValue(false)
 
 		vi.stubGlobal('navigator', {
 			clipboard: { writeText: vi.fn().mockResolvedValue(undefined) },
@@ -130,6 +131,26 @@ describe('killWord', () => {
 
 		it('backward: at the document start with no earlier word — no-op', () => {
 			const editor = makePlainEditor(['foo bar'], 0, 0)
+			plugin.killWordNonTable(editor, false)
+			expect(editor.replaceRange).not.toHaveBeenCalled()
+			expect(plugin.killCache).toBe('')
+		})
+
+		it('forward: stops at a table boundary instead of killing into its raw Markdown', () => {
+			// Regression: without the isPositionInTable guard, the search treated
+			// the table row's raw text (starting with '|') as ordinary
+			// word/punctuation content and killed straight into it, deleting the
+			// table's own opening '|' and corrupting it.
+			plugin.isPositionInTable = vi.fn((_e: any, line: number) => line === 1)
+			const editor = makePlainEditor(['foo', '| a | b |'], 0, 3) // right after "foo"
+			plugin.killWordNonTable(editor, true)
+			expect(editor.replaceRange).not.toHaveBeenCalled()
+			expect(plugin.killCache).toBe('')
+		})
+
+		it('backward: stops at a table boundary instead of killing into its raw Markdown', () => {
+			plugin.isPositionInTable = vi.fn((_e: any, line: number) => line === 0)
+			const editor = makePlainEditor(['| a | b |', 'foo'], 1, 0) // right before "foo"
 			plugin.killWordNonTable(editor, false)
 			expect(editor.replaceRange).not.toHaveBeenCalled()
 			expect(plugin.killCache).toBe('')
