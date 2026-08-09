@@ -1726,6 +1726,23 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}
 	}
 
+	// Explicit scroll-into-view follow-up, same idiom jumpToDocumentLine/
+	// jumpToBufferEdge already use for their own big jumps: setCursorViaCm
+	// itself never requests one (left as-is to avoid changing behavior for
+	// its many other, already-working callers, which are all short,
+	// already-on-screen hops). A cross-line word jump can travel arbitrarily
+	// far — skipping many blank lines, or exiting a table into more blank
+	// lines beyond it — and can land outside the current viewport, so it
+	// needs its own separate follow-up dispatch to the position it already
+	// landed on (read back from the live selection rather than recomputed,
+	// since setCursorViaCm may have already applied a further correction on
+	// top of the original landing).
+	private scrollCursorIntoView(editor: Editor) {
+		const cm = editor.cm;
+		const pos = cm.state.selection.main.head;
+		cm.dispatch({ selection: { anchor: pos }, scrollIntoView: true, userEvent: 'move' });
+	}
+
 
 	// Navigate to (targetLine, targetCh) via editor.exec goLeft/goRight, keeping the
 	// inner CM view active. Dispatching to the outer CM view (setCursorViaCm) causes
@@ -2926,6 +2943,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				const targetCh = forward ? span.to : span.from;
 				if (lineNum !== cursor.line || targetCh !== cursor.ch) {
 					this.setCursorViaCm(editor, lineNum, targetCh);
+					if (lineNum !== cursor.line) this.scrollCursorIntoView(editor);
 				}
 				return;
 			}
@@ -2947,6 +2965,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 					const targetCh = Math.min(landed.ch + 1, landedLineText.length);
 					if (targetCh !== landed.ch) this.setCursorViaCm(editor, landed.line, targetCh);
 				}
+				if (landed) this.scrollCursorIntoView(editor);
 				return;
 			}
 			lineNum = nextLine;
@@ -2995,6 +3014,23 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			const landedLineText = editor.getLine(landed.line);
 			const targetCh = Math.min(landed.ch + 1, landedLineText.length);
 			if (targetCh !== landed.ch) this.setCursorViaCm(editor, landed.line, targetCh);
+		}
+
+		// crossTableRowForWord/exitTableWithWord are shared with Vim's own
+		// w/b/e, and real vim's own word motion treats a blank line as a
+		// word in its own right — correct for Vim, so that shared code is
+		// deliberately left alone. Real Emacs has no such convention: its
+		// own word motion skips blank lines entirely (moveCursorWordPlainText
+		// already does this for the all-plain-text case). So when exiting
+		// the table lands on a genuinely wordless line — the exact situation
+		// where the shared code's own "stop here" fallback kicks in — hand
+		// off to moveCursorWordPlainText to keep searching from here, purely
+		// as a post-processing step on top of the untouched shared landing
+		// (the real cursor is already sitting there; crossTableRowForWord's
+		// own setCursorToPrevRow/NextRow dispatch already moved it).
+		if (landed && !this.isPositionInTable(editor, landed.line, 1)
+				&& getWordSpans(editor.getLine(landed.line)).length === 0) {
+			this.moveCursorWordPlainText(editor, forward);
 		}
 	}
 
