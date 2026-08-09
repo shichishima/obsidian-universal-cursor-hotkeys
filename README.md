@@ -266,7 +266,7 @@ Note: (*) indicates behaviors specific to Live Preview mode.
 <details>
 <summary>Kill Word Left / Kill Word Right</summary>
 
-- **Within text:** Kill word right removes from the cursor to the end of the next word; Kill word left removes from the cursor to the start of the previous word. Unlike Word right/left (plain cursor movement), these cross line boundaries freely — a plain-text document has no structural edge to stop at.
+- **Within text:** Kill word right removes from the cursor to the end of the next word; Kill word left removes from the cursor to the start of the previous word. Crosses line boundaries freely — a plain-text document has no structural edge to stop at — except a table row, which it stops before rather than killing into.
 - **Within a table cell (Live Preview or Source Mode):** Scoped to the current cell's own `<br>`-segment. **No word left in the segment: no operation** — unlike Kill Line, this does not remove the `<br>` and join with the next/previous segment; it stops at the cell/segment edge.
 - **Kill chain:** Participates in the same consecutive-kill chain as Kill Line — repeated Kill word presses (or a mix with Kill Line) accumulate into one kill cache entry. Kill word right appends to the end of the cache; Kill word left prepends to the front, so the accumulated text stays in the same order it appeared in the buffer.
 
