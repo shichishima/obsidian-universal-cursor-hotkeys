@@ -4,10 +4,11 @@
 
 ### Added
 
-- **Word right / Word left:** New commands, like Emacs's own `forward-word`/`backward-word`. Table-aware, crossing cell/row boundaries the same way Ctrl+B/F already do; CJK-aware, using real morphological word boundaries.
+- **Word commands:** New commands, table-aware and CJK-aware (real morphological word boundaries, not just whitespace/punctuation splitting).
+  - **Word right / Word left:** Like Emacs's own `forward-word`/`backward-word`. Crosses cell/row boundaries the same way Ctrl+B/F already do.
+  - **Kill word left / Kill word right:** Like Emacs's own `backward-kill-word`/`kill-word`. Participates in the same consecutive-kill chain as Kill line. Unlike Word right/left, stays within the current cell — stops (no-op) at its edge rather than reaching into a different cell or table row.
 - **Cursor TOP / Cursor BOTTOM:** New commands, like Emacs's own `beginning-of-buffer`/`end-of-buffer` — the buffer's true edge, not Smart-Home-adjusted like Cursor HOME/END. Table-aware: TOP lands in a table row's leftmost cell, BOTTOM in its rightmost cell's own end.
 - **Copy region:** New command, like Emacs's own `kill-ring-save`. Same table-aware validation as Kill region (single-cell only), but never deletes — the selection stays intact.
-- **Kill word left / Kill word right:** New commands, like Emacs's own `backward-kill-word`/`kill-word`. Participate in the same consecutive-kill chain as Kill line. Table-aware: crosses a cell's own `<br>`-separated lines freely (they're one continuous piece of text, same as plain-text lines), but stops (no-op) at the cell's own edge rather than reaching into a different cell; in plain text, also stops before a table row rather than killing into its raw Markdown.
 
 ### Fixed
 
