@@ -51,6 +51,19 @@ function makeLineAt(text: string) {
 	}
 }
 
+function makeLine(text: string) {
+	const parts = text.split('\n')
+	return (n: number) => {
+		let offset = 0
+		for (let i = 0; i < parts.length; i++) {
+			const to = offset + parts[i].length
+			if (i + 1 === n) return { from: offset, to, text: parts[i], number: n }
+			offset = to + 1
+		}
+		throw new Error(`line ${n} out of range`)
+	}
+}
+
 function makeLPEditor(innerText: string, head: number) {
 	const dispatch = vi.fn()
 	const inner = {
@@ -58,6 +71,7 @@ function makeLPEditor(innerText: string, head: number) {
 			doc: {
 				toString: () => innerText,
 				lineAt: makeLineAt(innerText),
+				line: makeLine(innerText),
 				lines: innerText.split('\n').length,
 				sliceString: (from: number, to?: number) => innerText.slice(from, to),
 			},
@@ -213,17 +227,43 @@ describe('killWord', () => {
 			expect(plugin.killCache).toBe('ba')
 		})
 
-		it('forward: no word left in this segment — no-op, does not cross to the next segment', () => {
-			// 'foo\nbar' — two segments 'foo' and 'bar'; cursor at end of 'foo'
+		it('forward: no word left in this segment — crosses the <br> (\\n) into the next segment of the SAME cell', () => {
+			// 'foo\nbar' — two segments 'foo' and 'bar'; cursor at end of 'foo'.
+			// A different segment within the same cell is not a different
+			// document, so this crosses freely, same as a plain-text line.
 			const editor = makeLPEditor('foo\nbar', 3)
+			plugin.killWordInTableLP(editor, true)
+			expect(editor._innerDispatch).toHaveBeenCalledWith({
+				changes: { from: 3, to: 7, insert: '' },
+				selection: { anchor: 3 },
+				userEvent: 'delete',
+			})
+			expect(plugin.killCache).toBe('\nbar')
+		})
+
+		it('backward: no word left in this segment — crosses the <br> (\\n) into the previous segment of the SAME cell', () => {
+			// 'foo\nbar' — cursor at start of 'bar' (segment 2)
+			const editor = makeLPEditor('foo\nbar', 4)
+			plugin.killWordInTableLP(editor, false)
+			expect(editor._innerDispatch).toHaveBeenCalledWith({
+				changes: { from: 0, to: 4, insert: '' },
+				selection: { anchor: 0 },
+				userEvent: 'delete',
+			})
+			expect(plugin.killCache).toBe('foo\n')
+		})
+
+		it('forward: no word left anywhere in the cell — no-op at the true cell edge (last segment)', () => {
+			// 'foo\nbar' — cursor at the end of the LAST segment ('bar')
+			const editor = makeLPEditor('foo\nbar', 7)
 			plugin.killWordInTableLP(editor, true)
 			expect(editor._innerDispatch).not.toHaveBeenCalled()
 			expect(plugin.killCache).toBe('')
 		})
 
-		it('backward: no word left in this segment — no-op, does not cross to the previous segment', () => {
-			// 'foo\nbar' — cursor at start of 'bar' (segment 2)
-			const editor = makeLPEditor('foo\nbar', 4)
+		it('backward: no word left anywhere in the cell — no-op at the true cell edge (first segment)', () => {
+			// 'foo\nbar' — cursor at the start of the FIRST segment ('foo')
+			const editor = makeLPEditor('foo\nbar', 0)
 			plugin.killWordInTableLP(editor, false)
 			expect(editor._innerDispatch).not.toHaveBeenCalled()
 			expect(plugin.killCache).toBe('')
@@ -268,10 +308,37 @@ describe('killWord', () => {
 			expect(editor.replaceRange).toHaveBeenCalledWith('', { line: 0, ch: 6 }, { line: 0, ch: 8 })
 		})
 
-		it('forward: no word left within the scoped in-cell line — no-op', () => {
+		it('forward: no word left within a single-segment cell — no-op at the true cell edge', () => {
 			const line = '| foo |'
 			const editor = makePlainEditor([line], 0, 5) // end of 'foo'
 			const info = { lineType: 'single', startOfInCellLine: 2, endOfInCellLine: 5, isEmpty: false } as any
+			plugin.killWordInTableSourceMode(editor, true, info)
+			expect(editor.replaceRange).not.toHaveBeenCalled()
+			expect(plugin.killCache).toBe('')
+		})
+
+		// '| foo<br>bar |' — one cell, two <br>-segments: "foo" at [2,5), "bar" at [9,12)
+		const BR_LINE = '| foo<br>bar |'
+
+		it('forward: no word left in this segment — crosses the <br> into the next segment of the SAME cell', () => {
+			const editor = makePlainEditor([BR_LINE], 0, 5) // right after "foo", at the <br> boundary
+			const info = { lineType: 'first', startOfInCellLine: 2, endOfInCellLine: 5, isEmpty: false } as any
+			plugin.killWordInTableSourceMode(editor, true, info)
+			expect(plugin.killCache).toBe('\nbar') // '<br>bar' normalized
+			expect(editor.replaceRange).toHaveBeenCalledWith('', { line: 0, ch: 5 }, { line: 0, ch: 12 })
+		})
+
+		it('backward: no word left in this segment — crosses the <br> into the previous segment of the SAME cell', () => {
+			const editor = makePlainEditor([BR_LINE], 0, 9) // start of "bar"
+			const info = { lineType: 'last', startOfInCellLine: 9, endOfInCellLine: 12, isEmpty: false } as any
+			plugin.killWordInTableSourceMode(editor, false, info)
+			expect(plugin.killCache).toBe('foo\n') // 'foo<br>' normalized
+			expect(editor.replaceRange).toHaveBeenCalledWith('', { line: 0, ch: 2 }, { line: 0, ch: 9 })
+		})
+
+		it('forward: no word left anywhere in the cell — no-op at the true cell edge (last segment)', () => {
+			const editor = makePlainEditor([BR_LINE], 0, 12) // end of "bar"
+			const info = { lineType: 'last', startOfInCellLine: 9, endOfInCellLine: 12, isEmpty: false } as any
 			plugin.killWordInTableSourceMode(editor, true, info)
 			expect(editor.replaceRange).not.toHaveBeenCalled()
 			expect(plugin.killCache).toBe('')

@@ -2057,12 +2057,16 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Kill word left / right (Emacs Alt-Backspace / Alt-D)
 	//===========================================================================
 
-	// Unlike Kill Line, deliberately does NOT cross a structural boundary
-	// (cell/segment edge in a table, or — see killWordInTableLP/SourceMode's
-	// own comments — no <br>/line-joining fallback either): a no-op when
-	// there's no word left to kill in the current scope. Word-boundary
-	// lookup reuses the same findWordSpanOnLine primitive Word right/left
-	// (moveCursorWord) already use.
+	// The boundary that matters is the CELL (a different cell/row is a
+	// different document), not the <br>-segment (that's just how one cell's
+	// own single continuous piece of text represents a line break — the
+	// in-cell equivalent of a plain-text newline). So killWordInTableLP/
+	// SourceMode below cross <br>-segments freely within the same cell
+	// (mirroring killWordNonTable's own free line-crossing, and mirroring
+	// moveCursorWordInTable's own walkSegments-based in-cell walk), and only
+	// no-op once genuinely at the cell's own first/last segment edge. Word-
+	// boundary lookup reuses the same findWordSpanOnLine primitive Word
+	// right/left (moveCursorWord) already use.
 	private killWord(editor: Editor, forward: boolean) {
 		const lineText = editor.getLine(editor.getCursor().line);
 		const inSourceTable = !this.isLivePreviewMode() && this.isTableLineSourceMode(lineText);
@@ -2127,22 +2131,39 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 	// LP table cell: mirrors killLineInTableLP's own inner-view-coordinate
-	// approach (each <br>-segment is its own doc line there, so no
-	// getInCellLineInfo scoping is needed — inner.state.doc.lineAt already
-	// gives exactly the current segment). No <br>-joining fallback when the
-	// segment has no word left — see this file's own class comment above.
+	// approach (each <br>-segment is its own doc line there). Unlike the old
+	// version of this method, walks forward/backward across further
+	// in-cell doc lines (via inner.state.doc.line — the inner-view
+	// equivalent of killWordNonTable's own editor.getLine walk) whenever the
+	// current segment has no word left, only stopping once nextLineNum falls
+	// outside [1, inner.state.doc.lines] — i.e. genuinely at the cell's own
+	// first/last segment, not just any segment edge. The final deletion
+	// range can span the \n between segments (the inner view's own <br>
+	// representation — see moveByWords' identical comment elsewhere in this
+	// codebase), so no separate <br>-stripping step is needed here the way
+	// Kill Line's own <br>-removal branch requires.
 	private killWordInTableLP(editor: Editor, forward: boolean) {
 		const inner = editor.activeCM;
 		if (!inner || inner === editor.cm) return;
 
 		const head = inner.state.selection.main.head;
-		const subLine = inner.state.doc.lineAt(head);
-		const localHead = head - subLine.from;
-		const span = findWordSpanOnLine(subLine.text, localHead, forward);
-		if (!span) return;
+		let subLine = inner.state.doc.lineAt(head);
+		let localHead = head - subLine.from;
+		let target: number | null = null;
 
-		const targetLocal = forward ? span.to : span.from;
-		const target = subLine.from + targetLocal;
+		for (;;) {
+			const span = findWordSpanOnLine(subLine.text, localHead, forward);
+			if (span) {
+				target = subLine.from + (forward ? span.to : span.from);
+				break;
+			}
+			const nextLineNum = forward ? subLine.number + 1 : subLine.number - 1;
+			if (nextLineNum < 1 || nextLineNum > inner.state.doc.lines) break;
+			subLine = inner.state.doc.line(nextLineNum);
+			localHead = forward ? 0 : subLine.text.length;
+		}
+		if (target === null) return;
+
 		const from = forward ? head : target;
 		const to   = forward ? target : head;
 		const text = inner.state.doc.sliceString(from, to);
@@ -2156,21 +2177,40 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 	// Source Mode table cell: mirrors killLineInTableSourceMode's own
-	// getInCellLineInfo-scoped approach. Reads/writes outer (raw markdown)
-	// coordinates, so — unlike the LP branch above — normalizeKillText is
-	// needed (escaped \| in the raw source).
+	// getInCellLineInfo-scoped approach, but — like the LP branch above —
+	// walks further in-cell lines via walkSegments (the same primitive
+	// moveCursorWordInTable already uses for its own in-cell walk) whenever
+	// the current segment has no word left, stopping only once walkSegments
+	// reports steps===0 (genuinely the cell's own first/last segment).
+	// Reads/writes outer (raw markdown) coordinates, so — unlike the LP
+	// branch above — normalizeKillText is needed (escaped \| in the raw
+	// source); a crossed <br> tag is included in the raw slice and
+	// normalized to \n the same way a crossed-segment kill already handles
+	// it elsewhere in this file.
 	private killWordInTableSourceMode(editor: Editor, forward: boolean, info: InCellLineInfo) {
 		const cursor = editor.getCursor();
 		const lineText = editor.getLine(cursor.line);
-		const scopedText = lineText.slice(info.startOfInCellLine, info.endOfInCellLine);
-		const localCh = cursor.ch - info.startOfInCellLine;
-		const span = findWordSpanOnLine(scopedText, localCh, forward);
-		if (!span) return;
 
-		const targetLocal = forward ? span.to : span.from;
-		const targetCh = info.startOfInCellLine + targetLocal;
-		const from = forward ? cursor.ch : targetCh;
-		const to   = forward ? targetCh : cursor.ch;
+		let segInfo = info;
+		let localCh = cursor.ch - segInfo.startOfInCellLine;
+		let target: number | null = null;
+
+		for (;;) {
+			const scopedText = lineText.slice(segInfo.startOfInCellLine, segInfo.endOfInCellLine);
+			const span = findWordSpanOnLine(scopedText, localCh, forward);
+			if (span) {
+				target = segInfo.startOfInCellLine + (forward ? span.to : span.from);
+				break;
+			}
+			const { segInfo: nextSeg, steps } = this.walkSegments(lineText, segInfo, forward, 1);
+			if (steps === 0) break;
+			segInfo = nextSeg;
+			localCh = forward ? 0 : segInfo.endOfInCellLine - segInfo.startOfInCellLine;
+		}
+		if (target === null) return;
+
+		const from = forward ? cursor.ch : target;
+		const to   = forward ? target : cursor.ch;
 		const text = this.normalizeKillText(lineText.slice(from, to));
 
 		this.updateKillCache(text, !forward);
