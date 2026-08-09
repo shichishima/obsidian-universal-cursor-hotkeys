@@ -219,7 +219,7 @@ Note: (*) indicates behaviors specific to Live Preview mode.
 - **CJK-aware:** Uses real morphological word boundaries, not just whitespace/punctuation splitting — a run of Japanese/Chinese/Korean text is segmented into its actual words rather than treated as one long word.
 - **Within a table cell (*):** Searches the current cell first, including across `<br>`-separated in-cell lines, before crossing out of the cell.
 - **At the edge of a cell's own content (*):** Jumps to the nearest word in the adjacent cell (same row), or, from a row's own edge cell, the adjacent row's opposite edge cell. Single cell/row crossing only.
-- **Does not enter a table from plain text (*):** Reaching a table row from outside Live Preview table cells is not detected.
+- **Enters a table reached from plain text (*):** Word right landing on an adjacent table row enters its leftmost cell, at the first word's own end; Word left enters the rightmost cell, at the last word's own start — the same landing a cell-to-cell/row-to-row crossing already uses.
 
 </details>
 

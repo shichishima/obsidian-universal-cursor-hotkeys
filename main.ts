@@ -2564,14 +2564,27 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (startLine === -1) {
 			return this.exitTableWithWord(e, cellIndex, forward, bigWord, wordEnd, currentLine);
 		}
-		const adjacentRowText = e.getLine(startLine);
-		const targetCellIndex = forward ? 0 : getRightmostCellIndex(adjacentRowText);
+		return this.landInRowEdgeCellForWord(e, startLine, forward, bigWord, wordEnd);
+	}
+
+	// Shared by crossTableRowForWord's own row-to-row crossing (above) and
+	// moveCursorWordPlainText's table-entry case (Emacs Word right/left
+	// reaching an adjacent table row from plain text) — both need the exact
+	// same landing: forward enters the target row's leftmost cell (its first
+	// segment), backward enters the rightmost cell (its last segment), then
+	// refines to the nearest actual word boundary. targetLine is assumed
+	// already known to be a real table row (crossTableRowForWord finds it via
+	// getNextRowLine/PrevRowLine; the plain-text case confirms it via
+	// isPositionInTable before ever calling this).
+	private landInRowEdgeCellForWord(editor: Editor, targetLine: number, forward: boolean, bigWord: boolean, wordEnd: boolean): { line: number; ch: number } | null {
+		const rowText = editor.getLine(targetLine);
+		const targetCellIndex = forward ? 0 : getRightmostCellIndex(rowText);
 		// goalCh: 0 lands at the first segment's own start (forward); a large
 		// sentinel clamps to the last segment's own end (backward) — landInCellSegment's
 		// own maxOffset clamp handles that, same as exitTableWithColumn's goalCh does.
-		const landed = this.landInCellSegment(e, startLine, targetCellIndex, forward, 0, forward ? 0 : Number.MAX_SAFE_INTEGER);
+		const landed = this.landInCellSegment(editor, targetLine, targetCellIndex, forward, 0, forward ? 0 : Number.MAX_SAFE_INTEGER);
 		if (!landed) return null;
-		return this.refineWordLanding(e, landed, forward, bigWord, wordEnd);
+		return this.refineWordLanding(editor, landed, forward, bigWord, wordEnd);
 	}
 
 	// Vim's gg/G (and count-prefixed "5gg"/"5G"). explicitLine is the
@@ -2893,17 +2906,15 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		return wordEnd ? last.to - 1 : last.from;
 	}
 
-	// Alt-F/Alt-B in plain text (including a table row's raw markdown text in
-	// Source Mode — deliberately untouched here, same as Ctrl-B/F's own
-	// goLeft/goRight, which never special-cases Source Mode tables either).
-	// Walks line by line via getWordSpans until a word is found or the
-	// document's own start/end is reached (a real Emacs buffer would signal
-	// "End/Beginning of buffer" and simply not move further — same here, via
-	// the early return once there's no further line to try). Deliberately
-	// does not detect/enter a Live Preview table row reached this way — Vim's
-	// own w/b/e has the identical gap (see vim-support.ts's moveByWords), so
-	// this keeps the two word-motion engines at parity rather than solving it
-	// only on the Emacs side.
+	// Alt-F/Alt-B in plain text (raw table Markdown text in Source Mode is
+	// still deliberately untouched here, same as Ctrl-B/F's own goLeft/
+	// goRight, which never special-cases Source Mode tables either — Source
+	// Mode table rows read as plain text either way). Walks line by line via
+	// getWordSpans until a word is found, a Live Preview table row is
+	// reached (see landInRowEdgeCellForWord below), or the document's own
+	// start/end is reached (a real Emacs buffer would signal "End/Beginning
+	// of buffer" and simply not move further — same here, via the early
+	// return once there's no further line to try).
 	private moveCursorWordPlainText(editor: Editor, forward: boolean) {
 		const cursor = editor.getCursor();
 		let lineNum = cursor.line;
@@ -2920,6 +2931,24 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			}
 			const nextLine = forward ? lineNum + 1 : lineNum - 1;
 			if (nextLine < 0 || nextLine >= editor.lineCount()) return; // document edge — stay put
+			if (this.isPositionInTable(editor, nextLine, 1)) {
+				// Reaching a Live Preview table row: enter it the same way
+				// crossTableRowForWord's own row-crossing does (leftmost
+				// cell forward, rightmost cell backward), then apply the
+				// same +1 caret correction moveCursorWordInTable's own
+				// crossing already needs (landInRowEdgeCellForWord/
+				// refineWordLanding land using vim's block-cursor word-end
+				// convention, one char short of where Emacs's own caret
+				// should rest — see moveCursorWordInTable's identical
+				// comment).
+				const landed = this.landInRowEdgeCellForWord(editor, nextLine, forward, false, forward);
+				if (landed && forward) {
+					const landedLineText = editor.getLine(landed.line);
+					const targetCh = Math.min(landed.ch + 1, landedLineText.length);
+					if (targetCh !== landed.ch) this.setCursorViaCm(editor, landed.line, targetCh);
+				}
+				return;
+			}
 			lineNum = nextLine;
 			ch = forward ? 0 : editor.getLine(lineNum).length;
 		}
