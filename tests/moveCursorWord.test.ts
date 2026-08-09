@@ -55,6 +55,7 @@ describe('moveCursorWordPlainText', () => {
 	beforeEach(() => {
 		plugin = Object.create(UniversalCursorHotkeysPlugin.prototype)
 		plugin.setCursorViaCm = vi.fn()
+		plugin.isPositionInTable = vi.fn().mockReturnValue(false)
 	})
 
 	it('forward: from a word start, lands right after that word', () => {
@@ -109,6 +110,32 @@ describe('moveCursorWordPlainText', () => {
 		const editor = makeEditor(['foo', '', '', 'bar'], 0, 3)
 		plugin.moveCursorWordPlainText(editor, true)
 		expect(plugin.setCursorViaCm).toHaveBeenCalledWith(editor, 3, 3)
+	})
+
+	it('forward: reaches a table row — enters it via landInRowEdgeCellForWord, applying the +1 caret correction', () => {
+		plugin.isPositionInTable = vi.fn((_e: any, line: number) => line === 1)
+		plugin.landInRowEdgeCellForWord = vi.fn().mockReturnValue({ line: 1, ch: 3 })
+		const editor = makeEditor(['foo', '| bar |'], 0, 3)
+		plugin.moveCursorWordPlainText(editor, true)
+		expect(plugin.landInRowEdgeCellForWord).toHaveBeenCalledWith(editor, 1, true, false, true)
+		expect(plugin.setCursorViaCm).toHaveBeenCalledWith(editor, 1, 4)
+	})
+
+	it('backward: reaches a table row — enters it via landInRowEdgeCellForWord, no correction', () => {
+		plugin.isPositionInTable = vi.fn((_e: any, line: number) => line === 0)
+		plugin.landInRowEdgeCellForWord = vi.fn().mockReturnValue({ line: 0, ch: 5 })
+		const editor = makeEditor(['| foo |', 'bar'], 1, 0)
+		plugin.moveCursorWordPlainText(editor, false)
+		expect(plugin.landInRowEdgeCellForWord).toHaveBeenCalledWith(editor, 0, false, false, false)
+		expect(plugin.setCursorViaCm).not.toHaveBeenCalled()
+	})
+
+	it('forward: a failed table-entry landing (null) does not crash and issues no correction', () => {
+		plugin.isPositionInTable = vi.fn((_e: any, line: number) => line === 1)
+		plugin.landInRowEdgeCellForWord = vi.fn().mockReturnValue(null)
+		const editor = makeEditor(['foo', '| bar |'], 0, 3)
+		expect(() => plugin.moveCursorWordPlainText(editor, true)).not.toThrow()
+		expect(plugin.setCursorViaCm).not.toHaveBeenCalled()
 	})
 })
 

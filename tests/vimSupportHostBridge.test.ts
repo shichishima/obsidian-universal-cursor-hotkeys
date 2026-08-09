@@ -514,6 +514,42 @@ describe('VimSupportHost bridge (main.ts)', () => {
 	})
 
 	// ===========================================================================
+	// landInRowEdgeCellForWord — shared by crossTableRowForWord's own row-to-row
+	// crossing and moveCursorWordPlainText's table-entry case (Emacs Word
+	// right/left reaching an adjacent table row from plain text). Forward
+	// enters the leftmost cell (its first segment); backward enters the
+	// rightmost cell (its last segment); then refines to the nearest word
+	// boundary — using vim's own block-cursor word-end convention (the
+	// caller applies the +1 caret correction, not this helper).
+	// ===========================================================================
+
+	describe('landInRowEdgeCellForWord', () => {
+		it('forward: lands in the leftmost cell, at the first word\'s own end (vim block-cursor convention)', () => {
+			const editor = makeStatefulEditor(['| foo bar |'], { line: 0, ch: 0 })
+			const result = plugin.landInRowEdgeCellForWord(editor, 0, true, false, true)
+			expect(result).toEqual({ line: 0, ch: 4 }) // rests on the second 'o' of 'foo'
+		})
+
+		it('backward: lands in the rightmost cell, at the last word\'s own start', () => {
+			const editor = makeStatefulEditor(['| foo bar |'], { line: 0, ch: 0 })
+			const result = plugin.landInRowEdgeCellForWord(editor, 0, false, false, false)
+			expect(result).toEqual({ line: 0, ch: 6 }) // start of 'bar'
+		})
+
+		it('forward: picks the leftmost of multiple cells', () => {
+			const editor = makeStatefulEditor(['| foo | bar |'], { line: 0, ch: 0 })
+			const result = plugin.landInRowEdgeCellForWord(editor, 0, true, false, true)
+			expect(result).toEqual({ line: 0, ch: 4 }) // still within the leftmost cell 'foo'
+		})
+
+		it('backward: picks the rightmost of multiple cells', () => {
+			const editor = makeStatefulEditor(['| foo | bar |'], { line: 0, ch: 0 })
+			const result = plugin.landInRowEdgeCellForWord(editor, 0, false, false, false)
+			expect(result).toEqual({ line: 0, ch: 8 }) // start of 'bar', the rightmost cell
+		})
+	})
+
+	// ===========================================================================
 	// isLinePartOfTable
 	// ===========================================================================
 
