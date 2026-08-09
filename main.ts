@@ -223,6 +223,24 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		});
 
 		this.addCommand({
+			id: 'kill-word-left',
+			name: 'Kill word left',
+			repeatable: true,
+			editorCallback: (editor: Editor, _: MarkdownView) => {
+				this.killWord(editor, false);
+			}
+		});
+
+		this.addCommand({
+			id: 'kill-word-right',
+			name: 'Kill word right',
+			repeatable: true,
+			editorCallback: (editor: Editor, _: MarkdownView) => {
+				this.killWord(editor, true);
+			}
+		});
+
+		this.addCommand({
 			id: 'yank',
 			name: 'Yank',
 			repeatable: true,
@@ -2035,13 +2053,187 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 
+	//===========================================================================
+	// Kill word left / right (Emacs Alt-Backspace / Alt-D)
+	//===========================================================================
+
+	// The boundary that matters is the CELL (a different cell/row is a
+	// different document), not the <br>-segment (that's just how one cell's
+	// own single continuous piece of text represents a line break — the
+	// in-cell equivalent of a plain-text newline). So killWordInTableLP/
+	// SourceMode below cross <br>-segments freely within the same cell
+	// (mirroring killWordNonTable's own free line-crossing, and mirroring
+	// moveCursorWordInTable's own walkSegments-based in-cell walk), and only
+	// no-op once genuinely at the cell's own first/last segment edge. Word-
+	// boundary lookup reuses the same findWordSpanOnLine primitive Word
+	// right/left (moveCursorWord) already use.
+	private killWord(editor: Editor, forward: boolean) {
+		const lineText = editor.getLine(editor.getCursor().line);
+		const inSourceTable = !this.isLivePreviewMode() && this.isTableLineSourceMode(lineText);
+
+		if (editor.inTableCell) {
+			this.killWordInTableLP(editor, forward);
+			return;
+		}
+
+		if (inSourceTable) {
+			const info = getInCellLineInfo(lineText, editor.getCursor().ch);
+			if (info) {
+				this.killWordInTableSourceMode(editor, forward, info);
+				return;
+			}
+		}
+
+		this.killWordNonTable(editor, forward);
+	}
+
+	// Plain text: unlike the table branches below, free to cross line
+	// boundaries (mirroring moveCursorWordPlainText's own plain-text search)
+	// — a plain-text document has no structural segment boundary to respect,
+	// and real Emacs's own kill-word/backward-kill-word don't stop at line
+	// breaks either. Bug fixed here: the search itself doesn't know what a
+	// table is, so without the isPositionInTable guard below it would happily
+	// treat an adjacent table row's raw Markdown (e.g. a leading `|`) as
+	// ordinary word/punctuation text — corrupting the table by killing into
+	// it. Stop at the boundary instead, matching every other kill command in
+	// this file (same "isPositionInTable(..., 1)" check moveCursorRight/Left
+	// already use for the identical plain-text-to-table edge).
+	private killWordNonTable(editor: Editor, forward: boolean) {
+		const cursor = editor.getCursor();
+		let lineNum = cursor.line;
+		let ch = cursor.ch;
+		let target: { line: number; ch: number } | null = null;
+		for (;;) {
+			const lt = editor.getLine(lineNum);
+			const span = findWordSpanOnLine(lt, ch, forward);
+			if (span) {
+				target = { line: lineNum, ch: forward ? span.to : span.from };
+				break;
+			}
+			const nextLine = forward ? lineNum + 1 : lineNum - 1;
+			if (nextLine < 0 || nextLine >= editor.lineCount()) break;
+			if (this.isPositionInTable(editor, nextLine, 1)) break;
+			lineNum = nextLine;
+			ch = forward ? 0 : editor.getLine(lineNum).length;
+		}
+		if (!target) return;
+
+		const from = forward ? cursor : target;
+		const to   = forward ? target : cursor;
+		const text = editor.getRange(from, to);
+
+		this.updateKillCache(text, !forward);
+		navigator.clipboard.writeText(this.killCache).catch(() => {});
+		this.isDispatchingKill = true;
+		editor.replaceRange('', from, to);
+		this.isDispatchingKill = false;
+		this.isKillChaining = true;
+	}
+
+	// LP table cell: mirrors killLineInTableLP's own inner-view-coordinate
+	// approach (each <br>-segment is its own doc line there). Unlike the old
+	// version of this method, walks forward/backward across further
+	// in-cell doc lines (via inner.state.doc.line — the inner-view
+	// equivalent of killWordNonTable's own editor.getLine walk) whenever the
+	// current segment has no word left, only stopping once nextLineNum falls
+	// outside [1, inner.state.doc.lines] — i.e. genuinely at the cell's own
+	// first/last segment, not just any segment edge. The final deletion
+	// range can span the \n between segments (the inner view's own <br>
+	// representation — see moveByWords' identical comment elsewhere in this
+	// codebase), so no separate <br>-stripping step is needed here the way
+	// Kill Line's own <br>-removal branch requires.
+	private killWordInTableLP(editor: Editor, forward: boolean) {
+		const inner = editor.activeCM;
+		if (!inner || inner === editor.cm) return;
+
+		const head = inner.state.selection.main.head;
+		let subLine = inner.state.doc.lineAt(head);
+		let localHead = head - subLine.from;
+		let target: number | null = null;
+
+		for (;;) {
+			const span = findWordSpanOnLine(subLine.text, localHead, forward);
+			if (span) {
+				target = subLine.from + (forward ? span.to : span.from);
+				break;
+			}
+			const nextLineNum = forward ? subLine.number + 1 : subLine.number - 1;
+			if (nextLineNum < 1 || nextLineNum > inner.state.doc.lines) break;
+			subLine = inner.state.doc.line(nextLineNum);
+			localHead = forward ? 0 : subLine.text.length;
+		}
+		if (target === null) return;
+
+		const from = forward ? head : target;
+		const to   = forward ? target : head;
+		const text = inner.state.doc.sliceString(from, to);
+
+		this.updateKillCache(text, !forward);
+		navigator.clipboard.writeText(this.killCache).catch(() => {});
+		this.isDispatchingKill = true;
+		inner.dispatch({ changes: { from, to, insert: '' }, selection: { anchor: from }, userEvent: 'delete' });
+		this.isDispatchingKill = false;
+		this.isKillChaining = true;
+	}
+
+	// Source Mode table cell: mirrors killLineInTableSourceMode's own
+	// getInCellLineInfo-scoped approach, but — like the LP branch above —
+	// walks further in-cell lines via walkSegments (the same primitive
+	// moveCursorWordInTable already uses for its own in-cell walk) whenever
+	// the current segment has no word left, stopping only once walkSegments
+	// reports steps===0 (genuinely the cell's own first/last segment).
+	// Reads/writes outer (raw markdown) coordinates, so — unlike the LP
+	// branch above — normalizeKillText is needed (escaped \| in the raw
+	// source); a crossed <br> tag is included in the raw slice and
+	// normalized to \n the same way a crossed-segment kill already handles
+	// it elsewhere in this file.
+	private killWordInTableSourceMode(editor: Editor, forward: boolean, info: InCellLineInfo) {
+		const cursor = editor.getCursor();
+		const lineText = editor.getLine(cursor.line);
+
+		let segInfo = info;
+		let localCh = cursor.ch - segInfo.startOfInCellLine;
+		let target: number | null = null;
+
+		for (;;) {
+			const scopedText = lineText.slice(segInfo.startOfInCellLine, segInfo.endOfInCellLine);
+			const span = findWordSpanOnLine(scopedText, localCh, forward);
+			if (span) {
+				target = segInfo.startOfInCellLine + (forward ? span.to : span.from);
+				break;
+			}
+			const { segInfo: nextSeg, steps } = this.walkSegments(lineText, segInfo, forward, 1);
+			if (steps === 0) break;
+			segInfo = nextSeg;
+			localCh = forward ? 0 : segInfo.endOfInCellLine - segInfo.startOfInCellLine;
+		}
+		if (target === null) return;
+
+		const from = forward ? cursor.ch : target;
+		const to   = forward ? target : cursor.ch;
+		const text = this.normalizeKillText(lineText.slice(from, to));
+
+		this.updateKillCache(text, !forward);
+		navigator.clipboard.writeText(this.killCache).catch(() => {});
+		this.isDispatchingKill = true;
+		editor.replaceRange('', { line: cursor.line, ch: from }, { line: cursor.line, ch: to });
+		this.isDispatchingKill = false;
+		this.isKillChaining = true;
+	}
+
+
 	private normalizeKillText(text: string): string {
 		return text.replace(/<[bB][rR]>/g, '\n').replace(/\\\|/g, '|');
 	}
 
 
-	private updateKillCache(text: string): void {
-		this.killCache = this.isKillChaining ? this.killCache + text : text;
+	// prepend is for backward kills (Kill word left): consecutive backward
+	// kills must build the cache in the same order the text appeared in the
+	// buffer, so newly killed text goes in front of what's already cached,
+	// not after it — the reverse of every other (forward) kill in this file.
+	private updateKillCache(text: string, prepend = false): void {
+		if (!this.isKillChaining) { this.killCache = text; return; }
+		this.killCache = prepend ? text + this.killCache : this.killCache + text;
 	}
 
 
