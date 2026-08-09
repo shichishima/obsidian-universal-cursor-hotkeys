@@ -293,5 +293,53 @@ describe('moveCursorWordInTable — cell/row crossing', () => {
 			plugin.moveCursorWordInTable(editor, true)
 			expect(plugin.moveCursorWordPlainText).not.toHaveBeenCalled()
 		})
+
+		// Real-world confirmed cases (manually verified in-app): a table
+		// sitting at the very start/end of the document, and two tables
+		// separated only by blank lines.
+
+		it('table at the document start: backward exit is itself a no-op (setCursorToPrevRow has nowhere to go) — stays put, no continuation', () => {
+			// setCursorToPrevRow's own no-op leaves the cursor exactly where it
+			// started, still inside the table — crossTableRowForWord's landing
+			// reflects that unchanged position.
+			plugin.crossTableRowForWord = vi.fn().mockReturnValue({ line: 0, ch: 2 })
+			plugin.isPositionInTable = vi.fn().mockReturnValue(true)
+			plugin.moveCursorWordPlainText = vi.fn()
+			const editor = makeEditor([LINE], 0, 2)
+			plugin.moveCursorWordInTable(editor, false)
+			expect(plugin.moveCursorWordPlainText).not.toHaveBeenCalled()
+		})
+
+		it('table at the document end: forward exit lands on a freshly-inserted blank EOF line — hands off the same as any other wordless exit', () => {
+			// setCursorToNextRow's own EOF-newline-insertion is what produces
+			// this blank last line in the first place; from moveCursorWordInTable's
+			// own perspective it's indistinguishable from any other wordless
+			// exit landing, so the same hand-off applies. moveCursorWordPlainText's
+			// own behavior when there's truly nothing further (document end) is
+			// covered separately by its own "at the document end" test above.
+			plugin.crossTableRowForWord = vi.fn().mockReturnValue({ line: 1, ch: 0 })
+			plugin.isPositionInTable = vi.fn().mockReturnValue(false)
+			plugin.moveCursorWordPlainText = vi.fn()
+			const editor = makeEditor([LINE, ''], 0, 5)
+			plugin.moveCursorWordInTable(editor, true)
+			expect(plugin.moveCursorWordPlainText).toHaveBeenCalledWith(editor, true)
+		})
+
+		// Note: moveCursorWordPlainText is mocked here (rather than letting the
+		// real implementation run a second hop to the far table) because this
+		// lightweight editor mock's getCursor() is static — it can't reflect
+		// the real post-exit cursor position the way the live app does. The
+		// far table's own landing logic is already covered by
+		// moveCursorWordPlainText's own "reaches a table row" tests above;
+		// what matters here is only that moveCursorWordInTable hands off
+		// correctly on this exact table~blank~table shape.
+		it('table ~ blank line(s) ~ table: hands off on the near table\'s exit — the far table\'s own landing is moveCursorWordPlainText\'s job', () => {
+			plugin.crossTableRowForWord = vi.fn().mockReturnValue({ line: 1, ch: 0 }) // exits table 1 onto the blank line
+			plugin.isPositionInTable = vi.fn().mockReturnValue(false) // the immediate landing (blank line) is not a table
+			plugin.moveCursorWordPlainText = vi.fn()
+			const editor = makeEditor([LINE, '', '| table two |'], 0, 5)
+			plugin.moveCursorWordInTable(editor, true)
+			expect(plugin.moveCursorWordPlainText).toHaveBeenCalledWith(editor, true)
+		})
 	})
 })
