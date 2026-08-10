@@ -56,6 +56,9 @@ For detailed behavior of each command, see [Command Details](#command-details) b
 | Copy region | (None)    | Copy the selected region to the kill cache without deleting it. Same table-aware constraints as Kill region. | — |
 | Kill word left | (None) | Kill from cursor to the start of the previous word. Table-aware: stays within the current cell, no-op at the cell's own edge. | ✓ |
 | Kill word right | (None) | Kill from cursor to the end of the next word. Table-aware: stays within the current cell, no-op at the cell's own edge. | ✓ |
+| Uppercase word | (None) | Uppercase the selection, or the whole word at the cursor. Table-aware, CJK-aware. | ✓ |
+| Lowercase word | (None) | Lowercase the selection, or the whole word at the cursor. Table-aware, CJK-aware. | ✓ |
+| Capitalize word | (None) | Capitalize the selection (word by word), or the whole word at the cursor. Table-aware, CJK-aware. | ✓ |
 | Yank | Ctrl + Y           | Paste from the OS clipboard. Table-aware: converts newlines and pipes automatically. | ✓ |
 | Delete char | Ctrl + D   | Forward-delete one character. Stops at cell boundary; joins sub-lines at `<br>` in Live Preview. | ✓ |
 | Recenter-top-bottom | Ctrl + L | Cycle the view so the cursor appears at the center, top, or bottom of the screen on successive presses. Resets on any other action. | — |
@@ -269,6 +272,16 @@ Note: (*) indicates behaviors specific to Live Preview mode.
 - **Within text:** Kill word right removes from the cursor to the end of the next word; Kill word left removes from the cursor to the start of the previous word. Crosses line boundaries freely — a plain-text document has no structural edge to stop at — except a table row, which it stops before rather than killing into.
 - **Within a table cell (Live Preview or Source Mode):** A cell's own multiple `<br>`-separated lines are one continuous piece of text, same as plain-text lines — killing crosses them freely, removing the `<br>` along the way. **The cell itself is the real boundary:** a different cell (or row) is a different piece of content, so killing stops (no operation) once there's no word left anywhere in the current cell, rather than reaching into the next cell.
 - **Kill chain:** Participates in the same consecutive-kill chain as Kill Line — repeated Kill word presses (or a mix with Kill Line) accumulate into one kill cache entry. Kill word right appends to the end of the cache; Kill word left prepends to the front, so the accumulated text stays in the same order it appeared in the buffer.
+
+</details>
+
+<details>
+<summary>Uppercase word / Lowercase word / Capitalize word</summary>
+
+- **With a selection:** Transforms the selected text. Uppercase/Lowercase apply per character; Capitalize applies per word (uppercases each word's first character, lowercases the rest), leaving whitespace and punctuation between words untouched.
+- **Without a selection:** Transforms the whole word at the cursor, regardless of which character the cursor is on — this differs from real Emacs's own `upcase-word`/`downcase-word`/`capitalize-word`, which only affect the cursor position through the end of the word.
+- **Table-aware:** Crosses cell/row boundaries the same way Word right does when there's no word left in the current cell, including entering a table reached from plain text.
+- **CJK-aware:** Uses the same word-boundary detection as Word right/left and Kill word, so full-width and mixed full-width/half-width text is handled correctly.
 
 </details>
 
