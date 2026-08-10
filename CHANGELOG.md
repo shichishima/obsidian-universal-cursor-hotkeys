@@ -7,6 +7,7 @@
 - **Word commands:** New commands, table-aware and CJK-aware (real morphological word boundaries, not just whitespace/punctuation splitting).
   - **Word right / Word left:** Like Emacs's own `forward-word`/`backward-word`. Crosses cell/row boundaries the same way Ctrl+B/F already do.
   - **Kill word left / Kill word right:** Like Emacs's own `backward-kill-word`/`kill-word`. Participates in the same consecutive-kill chain as Kill line. Unlike Word right/left, stays within the current cell — stops (no-op) at its edge rather than reaching into a different cell or table row.
+  - **Uppercase word / Lowercase word / Capitalize word:** Like Emacs's own `upcase-word`/`downcase-word`/`capitalize-word`, but transform the whole word at the cursor rather than just from the cursor to the word's end. Transforms the selection instead when one is active. Crosses cell/row boundaries the same way Word right does.
 - **Cursor TOP / Cursor BOTTOM:** New commands, like Emacs's own `beginning-of-buffer`/`end-of-buffer` — the buffer's true edge, not Smart-Home-adjusted like Cursor HOME/END. Table-aware: TOP lands in a table row's leftmost cell, BOTTOM in its rightmost cell's own end.
 - **Copy region:** New command, like Emacs's own `kill-ring-save`. Same table-aware validation as Kill region (single-cell only), but never deletes — the selection stays intact.
 
