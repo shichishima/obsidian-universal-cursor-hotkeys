@@ -241,6 +241,33 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		});
 
 		this.addCommand({
+			id: 'uppercase-word',
+			name: 'Uppercase word',
+			repeatable: true,
+			editorCallback: (editor: Editor, _: MarkdownView) => {
+				this.transformWord(editor, s => s.toUpperCase());
+			}
+		});
+
+		this.addCommand({
+			id: 'lowercase-word',
+			name: 'Lowercase word',
+			repeatable: true,
+			editorCallback: (editor: Editor, _: MarkdownView) => {
+				this.transformWord(editor, s => s.toLowerCase());
+			}
+		});
+
+		this.addCommand({
+			id: 'capitalize-word',
+			name: 'Capitalize word',
+			repeatable: true,
+			editorCallback: (editor: Editor, _: MarkdownView) => {
+				this.transformWord(editor, s => universalCursorHotkeysPlugin.capitalizeText(s));
+			}
+		});
+
+		this.addCommand({
 			id: 'yank',
 			name: 'Yank',
 			repeatable: true,
@@ -2236,6 +2263,228 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		editor.replaceRange('', { line: cursor.line, ch: from }, { line: cursor.line, ch: to });
 		this.isDispatchingKill = false;
 		this.isKillChaining = true;
+	}
+
+
+	//===========================================================================
+	// Uppercase word / Lowercase word / Capitalize word (Emacs Alt-U/L/C)
+	//===========================================================================
+
+	// DWIM (do-what-i-mean): a non-empty selection transforms the whole
+	// selection (same validation as Copy/Kill Region — table-aware,
+	// single-cell only); otherwise transforms the WHOLE word at the cursor.
+	// Deliberately diverges from real Emacs's own upcase-word/downcase-word/
+	// capitalize-word, which only transform from point to the word's own end
+	// (e.g. "he|llo" -> "heLLO", leaving "he" untouched) — mid-word partial
+	// transforms are unintuitive, and the divergence matters most visibly
+	// for capitalize-word, where a partially-capitalized word looks broken.
+	// Table-aware: unlike Kill word, crosses into an adjacent cell/row when
+	// the current one has no further word (matching Word right/left) rather
+	// than stopping — case transformation never touches non-letter
+	// characters, so there's no `|`/`<br>` corruption risk the way a kill
+	// has, and the design principle established for Kill word ("cell is a
+	// document boundary") only exists to guard against that risk.
+	private transformWord(editor: Editor, transform: (s: string) => string) {
+		const from = editor.getCursor('from');
+		const to = editor.getCursor('to');
+		if (from.line !== to.line || from.ch !== to.ch) {
+			this.transformSelection(editor, transform);
+			return;
+		}
+
+		if (editor.inTableCell) {
+			this.transformWordInTableLP(editor, transform);
+			return;
+		}
+
+		const lineText = editor.getLine(from.line);
+		const inSourceTable = !this.isLivePreviewMode() && this.isTableLineSourceMode(lineText);
+		if (inSourceTable) {
+			const info = getInCellLineInfo(lineText, from.ch);
+			if (info) {
+				this.transformWordInTableSourceMode(editor, transform, info);
+				return;
+			}
+		}
+
+		this.transformWordNonTable(editor, transform);
+	}
+
+	// Reuses Copy/Kill Region's own selection validation (getValidatedRegionText)
+	// purely as a validity check here — its own return value is the
+	// kill-cache-normalized text (<br> -> \n, \| -> |), which is exactly
+	// what must NOT be written back into the document, so the actual
+	// transform works off the raw, unnormalized selection text instead.
+	private transformSelection(editor: Editor, transform: (s: string) => string) {
+		const from = editor.getCursor('from');
+		const to = editor.getCursor('to');
+		if (this.getValidatedRegionText(editor) === null) return;
+
+		if (editor.inTableCell) {
+			const inner = editor.activeCM;
+			if (!inner || inner === editor.cm) return;
+			const innerSel = inner.state.selection.main;
+			const original = inner.state.doc.sliceString(innerSel.from, innerSel.to);
+			inner.dispatch({ changes: { from: innerSel.from, to: innerSel.to, insert: transform(original) }, selection: { anchor: innerSel.to }, userEvent: 'input' });
+			return;
+		}
+
+		const original = editor.getRange(from, to);
+		editor.replaceRange(transform(original), from, to);
+		// See transformWordNonTable's identical comment: replaceRange has no
+		// cursor-positioning parameter, defaults to the replaced range's own
+		// start rather than its end.
+		this.setCursorViaCm(editor, to.line, to.ch);
+	}
+
+	// Plain text: like moveCursorWordPlainText/killWordNonTable, crosses line
+	// boundaries (including blank lines) freely, and hands off into a table
+	// row reached this way instead of stopping there.
+	private transformWordNonTable(editor: Editor, transform: (s: string) => string) {
+		const cursor = editor.getCursor();
+		let lineNum = cursor.line;
+		let ch = cursor.ch;
+		for (;;) {
+			const lt = editor.getLine(lineNum);
+			const span = findWordSpanOnLine(lt, ch, true);
+			if (span) {
+				const from = { line: lineNum, ch: span.from };
+				const to = { line: lineNum, ch: span.to };
+				const original = editor.getRange(from, to);
+				editor.replaceRange(transform(original), from, to);
+				// Bug fixed here: editor.replaceRange has no cursor-positioning
+				// parameter of its own, so it defaults to the replaced range's
+				// own start — unlike the LP-table branches below, which land
+				// correctly because their raw dispatch specifies
+				// selection: { anchor: to } as part of the same change. Kill
+				// Line never needed this follow-up since deleting to an empty
+				// string collapses from/to to the same point either way; a
+				// same-length (or near enough) replace has a genuine
+				// start-vs-end ambiguity replaceRange doesn't resolve on its own.
+				this.setCursorViaCm(editor, lineNum, span.to);
+				return;
+			}
+			const nextLine = lineNum + 1;
+			if (nextLine >= editor.lineCount()) return;
+			if (this.isPositionInTable(editor, nextLine, 1)) {
+				this.continueWordTransformAfterLanding(editor, this.landInRowEdgeCellForWord(editor, nextLine, true, false, false), transform);
+				return;
+			}
+			lineNum = nextLine;
+			ch = 0;
+		}
+	}
+
+	// LP table cell: like moveCursorWordInTable/killWordInTableLP, crosses
+	// <br>-segments freely within the same cell, then crosses into the
+	// adjacent cell/row once the cell itself is exhausted.
+	private transformWordInTableLP(editor: Editor, transform: (s: string) => string) {
+		const inner = editor.activeCM;
+		if (!inner || inner === editor.cm) return;
+
+		let head = inner.state.selection.main.head;
+		let subLine = inner.state.doc.lineAt(head);
+		let localHead = head - subLine.from;
+
+		for (;;) {
+			const span = findWordSpanOnLine(subLine.text, localHead, true);
+			if (span) {
+				const from = subLine.from + span.from;
+				const to = subLine.from + span.to;
+				const original = inner.state.doc.sliceString(from, to);
+				inner.dispatch({ changes: { from, to, insert: transform(original) }, selection: { anchor: to }, userEvent: 'input' });
+				return;
+			}
+			const nextLineNum = subLine.number + 1;
+			if (nextLineNum > inner.state.doc.lines) break;
+			subLine = inner.state.doc.line(nextLineNum);
+			localHead = 0;
+			head = subLine.from;
+		}
+
+		const outerCursor = editor.getCursor();
+		const outerLineText = editor.getLine(outerCursor.line);
+		const cellIndex = getCellIndex(outerLineText, outerCursor.ch);
+		this.continueWordTransformAfterLanding(editor, this.crossTableRowForWord(editor, cellIndex, true, false, false), transform);
+	}
+
+	// Source Mode table cell: like moveCursorWordInTable/killWordInTableSourceMode
+	// (the Source Mode side), walks further in-cell lines via walkSegments,
+	// then crosses into the adjacent cell/row once the cell is exhausted.
+	private transformWordInTableSourceMode(editor: Editor, transform: (s: string) => string, info: InCellLineInfo) {
+		const cursor = editor.getCursor();
+		const lineText = editor.getLine(cursor.line);
+
+		let segInfo = info;
+		let localCh = cursor.ch - segInfo.startOfInCellLine;
+
+		for (;;) {
+			const scopedText = lineText.slice(segInfo.startOfInCellLine, segInfo.endOfInCellLine);
+			const span = findWordSpanOnLine(scopedText, localCh, true);
+			if (span) {
+				const from = { line: cursor.line, ch: segInfo.startOfInCellLine + span.from };
+				const to = { line: cursor.line, ch: segInfo.startOfInCellLine + span.to };
+				const original = editor.getRange(from, to);
+				editor.replaceRange(transform(original), from, to);
+				// See transformWordNonTable's identical comment: replaceRange
+				// has no cursor-positioning parameter, defaults to the
+				// replaced range's own start.
+				this.setCursorViaCm(editor, cursor.line, to.ch);
+				return;
+			}
+			const { segInfo: nextSeg, steps } = this.walkSegments(lineText, segInfo, true, 1);
+			if (steps === 0) break;
+			segInfo = nextSeg;
+			localCh = 0;
+		}
+
+		const cellIndex = getCellIndex(lineText, cursor.ch);
+		this.continueWordTransformAfterLanding(editor, this.crossTableRowForWord(editor, cellIndex, true, false, false), transform);
+	}
+
+	// Shared tail for transformWordNonTable's table-entry case and
+	// transformWordInTableLP/SourceMode's own cell-exhausted case: landed is
+	// already sitting exactly at the target word's own start (forward=true,
+	// wordEnd=false — the crossing functions' own word-START convention, no
+	// +1 caret correction needed since there's no word-END involved here
+	// the way Word right/left needs). Hands off to whichever branch matches
+	// where the crossing actually landed — including handing back to
+	// transformWordNonTable if it exited the table entirely, so a wordless
+	// exit line doesn't just strand the search the way it used to for Word
+	// right/left before that was fixed.
+	private continueWordTransformAfterLanding(editor: Editor, landed: { line: number; ch: number } | null, transform: (s: string) => string) {
+		if (!landed) return;
+		if (editor.inTableCell) {
+			this.transformWordInTableLP(editor, transform);
+			return;
+		}
+		const lineText = editor.getLine(landed.line);
+		const info = getInCellLineInfo(lineText, landed.ch);
+		if (info) {
+			this.transformWordInTableSourceMode(editor, transform, info);
+		} else {
+			this.transformWordNonTable(editor, transform);
+		}
+	}
+
+	// CJK-aware (via getWordSpans): capitalizes each word independently
+	// (first character upper, rest lower), leaving whitespace/punctuation
+	// between words untouched — matches real Emacs's own capitalize-region
+	// behavior for multi-word text, and naturally handles both the
+	// single-word (no-selection) and multi-word (selection) cases with the
+	// same function.
+	private static capitalizeText(text: string): string {
+		const spans = getWordSpans(text);
+		let result = '';
+		let last = 0;
+		for (const span of spans) {
+			result += text.slice(last, span.from);
+			const word = text.slice(span.from, span.to);
+			result += word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+			last = span.to;
+		}
+		result += text.slice(last);
+		return result;
 	}
 
 
