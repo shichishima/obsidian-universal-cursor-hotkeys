@@ -11,6 +11,7 @@
 - **Cursor TOP / Cursor BOTTOM:** New commands, like Emacs's own `beginning-of-buffer`/`end-of-buffer` — the buffer's true edge, not Smart-Home-adjusted like Cursor HOME/END. Table-aware: TOP lands in a table row's leftmost cell, BOTTOM in its rightmost cell's own end.
 - **Copy region:** New command, like Emacs's own `kill-ring-save`. Same table-aware validation as Kill region (single-cell only), but never deletes — the selection stays intact.
 - **Transpose chars:** New command, like Emacs's own `transpose-chars`. Repeated presses drag a character rightward through the text; at a line/cell end, swaps the last two characters instead. Table-aware: cell and `<br>` boundaries are hard stops. Unicode-safe — multi-byte characters (emoji, rare CJK ideographs) are swapped as whole units.
+- **Undo / Redo:** New commands. Obsidian's own Ctrl+Z / Ctrl+Shift+Z work but aren't backed by an assignable Command, so they can't be rebound via Settings → Hotkeys; these thin wrappers make Undo/Redo assignable like any other command in this plugin. Undo defaults to Ctrl+/ (a real Emacs binding); Redo has no recommended hotkey.
 
 ### Fixed
 
