@@ -192,6 +192,7 @@ const COMMAND_DEFS: readonly CommandDef[] = [
 	{ block: 'editing', id: 'copy-region',          name: 'Copy region',         recommended: null },
 	{ block: 'editing', id: 'yank',                 name: 'Yank',                recommended: ctrl('Y') },
 	{ block: 'editing', id: 'delete-char',          name: 'Delete char',         recommended: ctrl('D') },
+	{ block: 'editing', id: 'transpose-chars',      name: 'Transpose chars',     recommended: null },
 	{ block: 'editing', id: 'uppercase-word',       name: 'Uppercase word',      recommended: null },
 	{ block: 'editing', id: 'lowercase-word',       name: 'Lowercase word',      recommended: null },
 	{ block: 'editing', id: 'capitalize-word',      name: 'Capitalize word',     recommended: null },

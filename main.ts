@@ -6,8 +6,8 @@ import { InCellLineInfo, getCellBounds, getStartOfCellContent, getEndOfCellConte
 	getInCellLineInfo } from './table-cell-utils';
 import { syntaxTree } from '@codemirror/language';
 import { EditorView } from "@codemirror/view";
-import { EditorSelection, Transaction } from '@codemirror/state';
-import { deleteCharForward, cursorPageDown, cursorPageUp } from '@codemirror/commands';
+import { EditorSelection, Transaction, findClusterBreak } from '@codemirror/state';
+import { deleteCharForward, cursorPageDown, cursorPageUp, transposeChars as cmTransposeChars } from '@codemirror/commands';
 import { getWordSpans, getBigWordSpans, findWordSpanOnLine } from './word-segmentation';
 
 // Extend the Obsidian Editor interface to include the internal CodeMirror 6 instance (EditorView)
@@ -194,6 +194,15 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
 				this.deleteChar(editor);
+			}
+		});
+
+		this.addCommand({
+			id: 'transpose-chars',
+			name: 'Transpose chars',
+			repeatable: true,
+			editorCallback: (editor: Editor) => {
+				this.transposeChars(editor);
 			}
 		});
 
@@ -1935,6 +1944,95 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// Within cell: delete one character forward (no HTML-tag awareness in Source Mode)
 		const cm = editor.cm;
 		if (cm) deleteCharForward(cm);
+	}
+
+
+	//===========================================================================
+	// Transpose chars
+	//===========================================================================
+
+	// Swaps the two grapheme clusters immediately before [from, to). Cluster
+	// boundaries are found via findClusterBreak — the same primitive CM6's own
+	// transposeChars uses internally — so this stays surrogate-pair/grapheme
+	// safe without needing our own Unicode logic. No-op if fewer than two
+	// clusters are available. Cursor stays at `to` (unlike the mid-content
+	// case, there's nothing further right to advance into).
+	private swapLastTwoInRange(view: EditorView, from: number, to: number) {
+		const text = view.state.doc.sliceString(from, to);
+		const localEnd = text.length;
+		const localMid = findClusterBreak(text, localEnd, false);
+		const localFrom = findClusterBreak(text, localMid, false);
+		if (localFrom === localMid) return; // fewer than two clusters
+
+		const insert = text.slice(localMid, localEnd) + text.slice(localFrom, localMid);
+		view.dispatch({
+			changes: { from: from + localFrom, to: from + localEnd, insert },
+			selection: { anchor: from + localEnd },
+			userEvent: 'move.character',
+		});
+	}
+
+	// Table-aware wrapper around CM6's own transposeChars: cell/<br>-segment
+	// boundaries are hard stops (unlike Word right/case conversion) since
+	// transpose swaps arbitrary adjacent characters — if either one happened to
+	// be `|` or part of a `<br>` tag, the swap would corrupt table structure.
+	// At a segment's own end, falls back to swapLastTwoInRange instead of a
+	// plain no-op, matching real Emacs's end-of-line special case.
+	private transposeChars(editor: Editor) {
+		if (editor.inTableCell) {
+			this.transposeCharsInTableLP(editor);
+			return;
+		}
+
+		const cursor = editor.getCursor();
+		const lineText = editor.getLine(cursor.line);
+		const inSourceTable = !this.isLivePreviewMode() && this.isTableLineSourceMode(lineText);
+		if (inSourceTable) {
+			const info = getInCellLineInfo(lineText, cursor.ch);
+			if (info) {
+				this.transposeCharsInTableSource(editor, info);
+				return;
+			}
+		}
+
+		const cm = editor.cm;
+		if (!cm) return;
+		if (cursor.ch === lineText.length) {
+			const cmLine = cm.state.doc.line(cursor.line + 1);
+			this.swapLastTwoInRange(cm, cmLine.from, cmLine.to);
+			return;
+		}
+		cmTransposeChars(cm);
+	}
+
+	private transposeCharsInTableLP(editor: Editor) {
+		const inner = editor.activeCM;
+		if (!inner || inner === editor.cm) return;
+
+		const head = inner.state.selection.main.head;
+		const subLine = inner.state.doc.lineAt(head);
+
+		if (head === subLine.from) return; // segment start: no-op, no special case here
+		if (head === subLine.to) {
+			this.swapLastTwoInRange(inner, subLine.from, subLine.to);
+			return;
+		}
+		cmTransposeChars(inner);
+	}
+
+	private transposeCharsInTableSource(editor: Editor, info: InCellLineInfo) {
+		const cursor = editor.getCursor();
+		if (info.isEmpty || cursor.ch <= info.startOfInCellLine) return; // segment start: no-op
+
+		const cm = editor.cm;
+		if (!cm) return;
+
+		if (cursor.ch >= info.endOfInCellLine) {
+			const cmLine = cm.state.doc.line(cursor.line + 1);
+			this.swapLastTwoInRange(cm, cmLine.from + info.startOfInCellLine, cmLine.from + info.endOfInCellLine);
+			return;
+		}
+		cmTransposeChars(cm);
 	}
 
 
