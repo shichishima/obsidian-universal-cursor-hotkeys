@@ -37,7 +37,9 @@ No hotkeys are assigned by default.
 
 ## Command Reference
 
-For detailed behavior of each command, see [Command Details](#command-details) below.
+For detailed behavior of each command, see [Command Details](#command-details) below. Grouped the same way as the Quick setup assistant in Settings.
+
+### Cursor movement
 
 | Command Name | Recommended<br>Hotkey | Function Summary | Key<br>Repeat |
 | :--------: | :----------------: | ---------------- | :---: |
@@ -49,26 +51,36 @@ For detailed behavior of each command, see [Command Details](#command-details) b
 | END   | Ctrl + E           | Smart END: Moves to the visual line edge or line end in steps; jumps to the next cell inside a table. | ✓ |
 | TOP | (None)           | Jumps to the very start of the document. Table-aware. | ✓ |
 | BOTTOM | (None)        | Jumps to the very end of the document. Table-aware. | ✓ |
+| Page up | (None)        | Scroll up one page; the cursor stays at the same screen position. Bare PageUp can be set in the plugin's Settings. | ✓ |
+| Page down | (None)        | Scroll down one page; the cursor stays at the same screen position. Bare PageDown can be set in the plugin's Settings. | ✓ |
 | Word right | (None)        | Moves forward by word. Table-aware, CJK-aware. | ✓ |
 | Word left | (None)         | Moves backward by word. Table-aware, CJK-aware. | ✓ |
+
+### Editing
+
+| Command Name | Recommended<br>Hotkey | Function Summary | Key<br>Repeat |
+| :--------: | :----------------: | ---------------- | :---: |
 | Kill line | Ctrl + K      | Kill from cursor to line end. Consecutive kills accumulate in the kill cache and clipboard. | ✓ |
 | Kill region | Ctrl + W    | Cut the selected region to the kill cache. Table-aware: single-cell only; no-op for multi-row or cross-cell selections. | — |
 | Copy region | (None)    | Copy the selected region to the kill cache without deleting it. Same table-aware constraints as Kill region. | — |
+| Yank | Ctrl + Y           | Paste from the OS clipboard. Table-aware: converts newlines and pipes automatically. | ✓ |
+| Delete char | Ctrl + D   | Forward-delete one character. Stops at cell boundary; joins sub-lines at `<br>` in Live Preview. | ✓ |
+| Undo | Ctrl + /   | Undo the last change. | ✓ |
+| Redo | (None)     | Redo the last undone change. | ✓ |
 | Kill word left | (None) | Kill from cursor to the start of the previous word. Table-aware: stays within the current cell, no-op at the cell's own edge. | ✓ |
 | Kill word right | (None) | Kill from cursor to the end of the next word. Table-aware: stays within the current cell, no-op at the cell's own edge. | ✓ |
 | Uppercase word | (None) | Uppercase the selection, or the whole word at the cursor. Table-aware, CJK-aware. | ✓ |
 | Lowercase word | (None) | Lowercase the selection, or the whole word at the cursor. Table-aware, CJK-aware. | ✓ |
 | Capitalize word | (None) | Capitalize the selection (word by word), or the whole word at the cursor. Table-aware, CJK-aware. | ✓ |
-| Yank | Ctrl + Y           | Paste from the OS clipboard. Table-aware: converts newlines and pipes automatically. | ✓ |
-| Delete char | Ctrl + D   | Forward-delete one character. Stops at cell boundary; joins sub-lines at `<br>` in Live Preview. | ✓ |
-| Undo | Ctrl + /   | Undo the last change. | ✓ |
-| Redo | (None)     | Redo the last undone change. | ✓ |
 | Transpose chars | (None) | Swap the two characters around the cursor; at the end of a line or cell, swaps the last two instead. Table-aware, Unicode-safe. | ✓ |
+| Select all | (None)        | Windows replacement for Select all when Ctrl+A is reassigned to HOME. | — |
+
+### Other hotkeys
+
+| Command Name | Recommended<br>Hotkey | Function Summary | Key<br>Repeat |
+| :--------: | :----------------: | ---------------- | :---: |
 | Recenter-top-bottom | Ctrl + L | Cycle the view so the cursor appears at the center, top, or bottom of the screen on successive presses. Resets on any other action. | — |
 | Recenter | (None)        | Scroll the view so the cursor line is centered on screen. | — |
-| Page down | (None)        | Scroll down one page; the cursor stays at the same screen position. Bare PageDown can be set in the plugin's Settings. | ✓ |
-| Page up | (None)        | Scroll up one page; the cursor stays at the same screen position. Bare PageUp can be set in the plugin's Settings. | ✓ |
-| Select all | (None)        | Windows replacement for Select all when Ctrl+A is reassigned to HOME. | — |
 
 
 ## Settings
