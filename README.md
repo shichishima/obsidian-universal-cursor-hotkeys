@@ -61,6 +61,7 @@ For detailed behavior of each command, see [Command Details](#command-details) b
 | Capitalize word | (None) | Capitalize the selection (word by word), or the whole word at the cursor. Table-aware, CJK-aware. | ✓ |
 | Yank | Ctrl + Y           | Paste from the OS clipboard. Table-aware: converts newlines and pipes automatically. | ✓ |
 | Delete char | Ctrl + D   | Forward-delete one character. Stops at cell boundary; joins sub-lines at `<br>` in Live Preview. | ✓ |
+| Transpose chars | (None) | Swap the two characters around the cursor; at the end of a line or cell, swaps the last two instead. Table-aware, Unicode-safe. | ✓ |
 | Recenter-top-bottom | Ctrl + L | Cycle the view so the cursor appears at the center, top, or bottom of the screen on successive presses. Resets on any other action. | — |
 | Recenter | (None)        | Scroll the view so the cursor line is centered on screen. | — |
 | Page down | (None)        | Scroll down one page; the cursor stays at the same screen position. Bare PageDown can be set in the plugin's Settings. | ✓ |
@@ -304,6 +305,16 @@ Note: (*) indicates behaviors specific to Live Preview mode.
   - **At the end of a non-last in-cell line (before `<br>`):** Deletes the `<br>` tag, joining the current sub-line with the next.
   - **At the end of the last in-cell line (cell boundary):** No operation.
 - **Within a table cell (Source Mode):** Deletes one character forward without HTML tag awareness. No operation at the cell content boundary (before trailing whitespace and `|`).
+
+</details>
+
+<details>
+<summary>Transpose Chars</summary>
+
+- **Within text:** Swaps the two characters around the cursor and moves the cursor past them — repeated presses drag a character rightward through the text, matching real Emacs's `transpose-chars`.
+- **At the end of a line, in-cell line, or cell:** Instead of a no-op, swaps the last two characters before that position and leaves the cursor there — also matching real Emacs, and what makes repeating the command at a line/cell end useful (it toggles the last two characters back and forth).
+- **Table-aware:** Cell and `<br>` boundaries are hard stops — unlike Word right/left or case conversion, this command never crosses into an adjacent cell or row, since swapping arbitrary adjacent characters could otherwise swap a `|` or part of a `<br>` tag with real content.
+- **Unicode-safe:** Character boundaries are computed via the same grapheme-cluster-aware primitive CodeMirror's own `transposeChars` uses internally, so multi-byte characters (emoji, rare CJK ideographs) are swapped as whole units rather than corrupted.
 
 </details>
 
