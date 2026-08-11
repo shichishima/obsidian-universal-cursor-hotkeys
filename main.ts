@@ -207,6 +207,24 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		});
 
 		this.addCommand({
+			id: 'undo',
+			name: 'Undo',
+			repeatable: true,
+			editorCallback: (editor: Editor) => {
+				editor.undo();
+			}
+		});
+
+		this.addCommand({
+			id: 'redo',
+			name: 'Redo',
+			repeatable: true,
+			editorCallback: (editor: Editor) => {
+				editor.redo();
+			}
+		});
+
+		this.addCommand({
 			id: 'kill-region',
 			name: 'Kill region',
 			editorCallback: (editor: Editor) => {

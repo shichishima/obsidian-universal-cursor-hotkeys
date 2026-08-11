@@ -61,6 +61,8 @@ For detailed behavior of each command, see [Command Details](#command-details) b
 | Capitalize word | (None) | Capitalize the selection (word by word), or the whole word at the cursor. Table-aware, CJK-aware. | ✓ |
 | Yank | Ctrl + Y           | Paste from the OS clipboard. Table-aware: converts newlines and pipes automatically. | ✓ |
 | Delete char | Ctrl + D   | Forward-delete one character. Stops at cell boundary; joins sub-lines at `<br>` in Live Preview. | ✓ |
+| Undo | Ctrl + /   | Undo the last change. | ✓ |
+| Redo | (None)     | Redo the last undone change. | ✓ |
 | Transpose chars | (None) | Swap the two characters around the cursor; at the end of a line or cell, swaps the last two instead. Table-aware, Unicode-safe. | ✓ |
 | Recenter-top-bottom | Ctrl + L | Cycle the view so the cursor appears at the center, top, or bottom of the screen on successive presses. Resets on any other action. | — |
 | Recenter | (None)        | Scroll the view so the cursor line is centered on screen. | — |
@@ -305,6 +307,14 @@ Note: (*) indicates behaviors specific to Live Preview mode.
   - **At the end of a non-last in-cell line (before `<br>`):** Deletes the `<br>` tag, joining the current sub-line with the next.
   - **At the end of the last in-cell line (cell boundary):** No operation.
 - **Within a table cell (Source Mode):** Deletes one character forward without HTML tag awareness. No operation at the cell content boundary (before trailing whitespace and `|`).
+
+</details>
+
+<details>
+<summary>Undo / Redo</summary>
+
+- Thin wrappers around Obsidian's own undo/redo history — no table-aware or CJK-aware logic involved, since undo/redo operate on the whole document's edit history rather than any specific cell or word.
+- **Why these exist as commands at all:** Obsidian's own Ctrl+Z / Ctrl+Shift+Z work, but aren't backed by an assignable Command — they come from CodeMirror's own internal keymap, invisible to Obsidian's Hotkeys settings and the Command palette. These commands make Undo/Redo assignable to any key you like, the same way every other command in this plugin is.
 
 </details>
 
