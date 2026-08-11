@@ -49,8 +49,8 @@ For detailed behavior of each command, see [Command Details](#command-details) b
 | RIGHT | Ctrl + F           | Smart RIGHT: Move by character or jump to the next cell. | ✓ |
 | HOME  | Ctrl + A           | Smart HOME: Moves to the visual line edge, content start, or line start in steps; jumps to the previous cell inside a table. | ✓ |
 | END   | Ctrl + E           | Smart END: Moves to the visual line edge or line end in steps; jumps to the next cell inside a table. | ✓ |
-| TOP | (None)           | Jumps to the very start of the document. Table-aware. | ✓ |
-| BOTTOM | (None)        | Jumps to the very end of the document. Table-aware. | ✓ |
+| TOP | (None)           | Jumps to the very start of the document. Table-aware. | — |
+| BOTTOM | (None)        | Jumps to the very end of the document. Table-aware. | — |
 | Page up | (None)        | Scroll up one page; the cursor stays at the same screen position. Bare PageUp can be set in the plugin's Settings. | ✓ |
 | Page down | (None)        | Scroll down one page; the cursor stays at the same screen position. Bare PageDown can be set in the plugin's Settings. | ✓ |
 | Word right | (None)        | Moves forward by word. Table-aware, CJK-aware. | ✓ |
