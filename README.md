@@ -1,5 +1,5 @@
 # Universal Cursor Hotkeys — Emacs & Vim navigation for Markdown tables
-Emacs keybindings (Ctrl+P/N/B/F/A/E), Kill & Yank, and Vim key bindings — all finally working inside Obsidian's Live Preview tables, for macOS and Windows.
+Obsidian's Vim mode (`h`/`j`/`k`/`l`/`w`/`b`/`e`/`gg`/`G`) and Emacs keybindings (Ctrl+P/N/B/F/A/E, Kill & Yank) — both finally working inside Live Preview tables, for macOS and Windows.
 
 <img width="700" height="385" alt="Image" src="https://github.com/user-attachments/assets/04e77243-e632-4898-8a3d-d2d669a43165" />
 
