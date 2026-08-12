@@ -5,11 +5,12 @@ Obsidian's Vim mode (`h`/`j`/`k`/`l`/`w`/`b`/`e`/`gg`/`G`) and Emacs keybindings
 
 ## Overview
 
-Obsidian's Live Preview breaks cursor behavior inside Markdown tables. This plugin fixes cursor navigation around tables — whether you use Obsidian's built-in Vim mode or Emacs keybindings (macOS-style).
+Obsidian's Live Preview breaks cursor behavior inside Markdown tables. This plugin fixes cursor navigation around tables — whether you use Obsidian's built-in Vim mode or Emacs keybindings (macOS-style). On the Emacs side, it also adds a full set of Emacs-style editing commands — Kill & Yank, word movement, case conversion, and more — that don't exist natively in Obsidian.
 
-**⌨️ [I use Obsidian's built-in Vim mode →](#vim-support-experimental)**
+**⌨️ [I use Obsidian's built-in Vim mode →](#vim-support-experimental)**<br>
 **🅴 [I use Emacs-style keybindings →](#emacs-keybindings)**
 
+---
 
 ## Vim support (experimental)
 
@@ -45,6 +46,7 @@ Smart home / Smart join are shared settings also used by the Emacs-side commands
 - **`gj`/`gk` do not support count prefixes across a crossing:** A count like `5gj` correctly steps through multiple visual lines within a single cell, but once the count needs to cross a row boundary or enter/exit a table, it stops consuming the count after that first crossing.
 - **A count-prefixed `$` doesn't cross table rows:** `3$` stays within the current table cell rather than reaching the end of a line further down, the way real vim would outside a table.
 
+---
 
 ## Emacs keybindings
 
@@ -254,6 +256,15 @@ Note: (*) indicates behaviors specific to Live Preview mode.
 </details>
 
 <details>
+<summary>Page down / Page up</summary>
+
+- Scrolls the view down (Page down) or up (Page up) by one page.
+- The cursor stays at the same screen position after scrolling.
+- Works in plain text and inside Live Preview table cells, including soft-wrapped cells.
+
+</details>
+
+<details>
 <summary>Word right / Word left</summary>
 
 - **Within text:** Word right moves to the end of the next word; Word left moves to the start of the previous word — like Emacs's own `forward-word`/`backward-word`. Crosses line boundaries once no further word remains on the current line; does not stop on blank lines while crossing (only paragraph motion would; this plugin doesn't implement that).
@@ -305,25 +316,6 @@ Note: (*) indicates behaviors specific to Live Preview mode.
 </details>
 
 <details>
-<summary>Kill Word Left / Kill Word Right</summary>
-
-- **Within text:** Kill word right removes from the cursor to the end of the next word; Kill word left removes from the cursor to the start of the previous word. Crosses line boundaries freely — a plain-text document has no structural edge to stop at — except a table row, which it stops before rather than killing into.
-- **Within a table cell (Live Preview or Source Mode):** A cell's own multiple `<br>`-separated lines are one continuous piece of text, same as plain-text lines — killing crosses them freely, removing the `<br>` along the way. **The cell itself is the real boundary:** a different cell (or row) is a different piece of content, so killing stops (no operation) once there's no word left anywhere in the current cell, rather than reaching into the next cell.
-- **Kill chain:** Participates in the same consecutive-kill chain as Kill Line — repeated Kill word presses (or a mix with Kill Line) accumulate into one kill cache entry. Kill word right appends to the end of the cache; Kill word left prepends to the front, so the accumulated text stays in the same order it appeared in the buffer.
-
-</details>
-
-<details>
-<summary>Uppercase word / Lowercase word / Capitalize word</summary>
-
-- **With a selection:** Transforms the selected text. Uppercase/Lowercase apply per character; Capitalize applies per word (uppercases each word's first character, lowercases the rest), leaving whitespace and punctuation between words untouched.
-- **Without a selection:** Transforms the whole word at the cursor, regardless of which character the cursor is on — this differs from real Emacs's own `upcase-word`/`downcase-word`/`capitalize-word`, which only affect the cursor position through the end of the word.
-- **Table-aware:** Crosses cell/row boundaries the same way Word right does when there's no word left in the current cell, including entering a table reached from plain text.
-- **CJK-aware:** Uses the same word-boundary detection as Word right/left and Kill word, so full-width and mixed full-width/half-width text is handled correctly.
-
-</details>
-
-<details>
 <summary>Yank</summary>
 
 - **Pastes from the OS clipboard** at the cursor position. Content copied via standard Ctrl+C / Ctrl+X, Kill Line, Kill Region, Copy Region, or Kill word left/right is accessible through Yank.
@@ -350,6 +342,25 @@ Note: (*) indicates behaviors specific to Live Preview mode.
 
 - Thin wrappers around Obsidian's own undo/redo history — no table-aware or CJK-aware logic involved, since undo/redo operate on the whole document's edit history rather than any specific cell or word.
 - **Why these exist as commands at all:** Obsidian's own Ctrl+Z / Ctrl+Shift+Z work, but aren't backed by an assignable Command — they come from CodeMirror's own internal keymap, invisible to Obsidian's Hotkeys settings and the Command palette. These commands make Undo/Redo assignable to any key you like, the same way every other command in this plugin is.
+
+</details>
+
+<details>
+<summary>Kill Word Left / Kill Word Right</summary>
+
+- **Within text:** Kill word right removes from the cursor to the end of the next word; Kill word left removes from the cursor to the start of the previous word. Crosses line boundaries freely — a plain-text document has no structural edge to stop at — except a table row, which it stops before rather than killing into.
+- **Within a table cell (Live Preview or Source Mode):** A cell's own multiple `<br>`-separated lines are one continuous piece of text, same as plain-text lines — killing crosses them freely, removing the `<br>` along the way. **The cell itself is the real boundary:** a different cell (or row) is a different piece of content, so killing stops (no operation) once there's no word left anywhere in the current cell, rather than reaching into the next cell.
+- **Kill chain:** Participates in the same consecutive-kill chain as Kill Line — repeated Kill word presses (or a mix with Kill Line) accumulate into one kill cache entry. Kill word right appends to the end of the cache; Kill word left prepends to the front, so the accumulated text stays in the same order it appeared in the buffer.
+
+</details>
+
+<details>
+<summary>Uppercase word / Lowercase word / Capitalize word</summary>
+
+- **With a selection:** Transforms the selected text. Uppercase/Lowercase apply per character; Capitalize applies per word (uppercases each word's first character, lowercases the rest), leaving whitespace and punctuation between words untouched.
+- **Without a selection:** Transforms the whole word at the cursor, regardless of which character the cursor is on — this differs from real Emacs's own `upcase-word`/`downcase-word`/`capitalize-word`, which only affect the cursor position through the end of the word.
+- **Table-aware:** Crosses cell/row boundaries the same way Word right does when there's no word left in the current cell, including entering a table reached from plain text.
+- **CJK-aware:** Uses the same word-boundary detection as Word right/left and Kill word, so full-width and mixed full-width/half-width text is handled correctly.
 
 </details>
 
@@ -381,27 +392,18 @@ Note: (*) indicates behaviors specific to Live Preview mode.
 
 </details>
 
-<details>
-<summary>Page down / Page up</summary>
-
-- Scrolls the view down (Page down) or up (Page up) by one page.
-- The cursor stays at the same screen position after scrolling.
-- Works in plain text and inside Live Preview table cells, including soft-wrapped cells.
-
-</details>
-
 
 ## Behavior Options
 
-Shared by both the Emacs-side commands (HOME/END, Kill Line) and the Vim support toggles (`^`/`I`, `J`) above.
+**Smart home (standard/advanced)** and **Smart join** are shared with the Vim support toggles (`^`/`I`, `J`) above. **Visual line movement** and **Cross-row navigation** apply to the Emacs-side commands only.
 
 | Setting | Default | Description |
 | ------- | :-----: | ----------- |
-| Visual line movement | ON | **ON:** the first HOME / END moves to the visual line edge.<br>**OFF:** moves directly to the logical line start / end. |
+| Visual line movement | ON | *Emacs-side only (HOME/END).*<br>**ON:** the first HOME / END moves to the visual line edge.<br>**OFF:** moves directly to the logical line start / end. |
 | Smart home (standard) | ON | **ON:** HOME skips leading Markdown syntax (lists, ordered lists, checkboxes, indents, blockquotes) to reach content start — Windows Home / macOS Cmd+← style.<br>**OFF:** HOME moves directly to the start of the line — macOS / Emacs Ctrl+A style. |
 | Smart home (advanced) | ON | **ON:** also skips past headings (`# `), footnotes (`[^1]: `), and callout type markers (`[!type]`). Requires Smart home (standard) to be ON. |
 | Smart join | OFF | **ON:** Kill Line join lands at the next line's content start, removing blockquote markers, list markers, and indentation. Pairs with Smart home (advanced) for headings and footnotes. Requires Smart home (standard) to be ON.<br>**OFF:** joins the next line as-is. |
-| Cross-row navigation | ON | **ON:** LEFT / HOME at the first cell and RIGHT / END at the last cell wrap to the adjacent row.<br>**OFF:** stops at the boundary. |
+| Cross-row navigation | ON | *Emacs-side only (LEFT/RIGHT/HOME/END).*<br>**ON:** LEFT / HOME at the first cell and RIGHT / END at the last cell wrap to the adjacent row.<br>**OFF:** stops at the boundary. |
 
 
 ## Acknowledgments
