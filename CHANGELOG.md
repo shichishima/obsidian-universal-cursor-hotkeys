@@ -4,7 +4,7 @@
 
 ### Added
 
-- **Word commands:** New commands, table-aware and CJK-aware (real morphological word boundaries, not just whitespace/punctuation splitting).
+- **Word commands:** New commands, table-aware and built on a new word-boundary engine (real morphological word boundaries, not just whitespace/punctuation splitting) — so CJK text (Chinese/Japanese/Korean) is handled correctly. The same engine also fixes Vim's own `w`/`b`/`e`; see Fixed, below.
   - **Word right / Word left:** Like Emacs's own `forward-word`/`backward-word`. Crosses cell/row boundaries the same way Ctrl+B/F already do.
   - **Kill word left / Kill word right:** Like Emacs's own `backward-kill-word`/`kill-word`. Participates in the same consecutive-kill chain as Kill line. Unlike Word right/left, stays within the current cell — stops (no-op) at its edge rather than reaching into a different cell or table row.
   - **Uppercase word / Lowercase word / Capitalize word:** Like Emacs's own `upcase-word`/`downcase-word`/`capitalize-word`, but transform the whole word at the cursor rather than just from the cursor to the word's end. Transforms the selection instead when one is active. Crosses cell/row boundaries the same way Word right does.
@@ -15,7 +15,7 @@
 
 ### Fixed
 
-- **Vim `w`/`b`/`e` (and `W`/`B`/`E`/`ge`/`gE`) now segment CJK text properly:** Word motion previously treated a whole run of Japanese/Chinese/Korean characters as one giant word (0.8.0 documented this as "ASCII words only"); it now uses real morphological word boundaries. Applies both to in-cell motion and to landing after a table row/cell crossing.
+- **Vim `w`/`b`/`e` (and `W`/`B`/`E`/`ge`/`gE`) now segment CJK text properly:** built on the same word-boundary engine introduced above — Word motion previously treated a whole run of Chinese/Japanese/Korean characters as one giant word (0.8.0 documented this as "ASCII words only"). Applies both to in-cell motion and to landing after a table row/cell crossing.
 - **Vim `gg`/`G` now apply Smart Home inside table cells too:** Landing on a table row previously only skipped leading whitespace, ignoring the Smart home (standard/advanced) settings that already applied everywhere else `gg`/`G` land — e.g. jumping to a note whose first row starts with a list-marker-like cell no longer stops one character early.
 
 ## [0.8.0] - 2026-08-02
