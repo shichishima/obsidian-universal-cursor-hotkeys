@@ -5,15 +5,54 @@ Emacs keybindings (Ctrl+P/N/B/F/A/E), Kill & Yank, and Vim key bindings — all 
 
 ## Overview
 
-Obsidian's Live Preview breaks cursor behavior inside Markdown tables. This plugin fixes cursor navigation around tables — whether you use Emacs keybindings (macOS-style) or Obsidian's built-in Vim mode.
+Obsidian's Live Preview breaks cursor behavior inside Markdown tables. This plugin fixes cursor navigation around tables — whether you use Obsidian's built-in Vim mode or Emacs keybindings (macOS-style).
+
+**⌨️ [I use Obsidian's built-in Vim mode →](#vim-support-experimental)**
+**🅴 [I use Emacs-style keybindings →](#emacs-keybindings)**
+
+
+## Vim support (experimental)
+
+<img width="610" height="610" alt="Image" src="https://github.com/user-attachments/assets/f3b7483a-2fd1-4c3c-8c64-8ce8bb07d861" />
+
+If you use Obsidian's built-in Vim mode, this plugin fixes a set of well-known Live Preview table gaps: `h`/`l`/`j`/`k`/`w`/`b`/`e`/`gg`/`G`/`gj`/`gk` now work correctly inside table cells, instead of miscounting characters, refusing to cross rows, or landing in the wrong place.
+
+Off by default; enable individual items under **Settings → Universal Cursor Hotkeys → Vim support**. You likely won't need the [Quick setup assistant](#emacs-keybindings) below — that manages this plugin's Emacs-style Ctrl+P/N/B/F/A/E hotkeys instead.
+
+### Settings
+
+**Apply all:** Turns on every item below that can currently be turned on in one click — skips `^`/`I` or `J` if their own Smart home (standard) / Smart join prerequisite is currently off.
+
+| Keys | Fixes |
+| :--: | ----- |
+| `h` `l` `x` | Multi-byte character miscounting and incorrect cell-jumping at line boundaries; `x` at cell boundaries. |
+| `j` `k` | Row-boundary crossing (matching Ctrl+N/P), preserving column position throughout. |
+| `w` `b` `e` (and `W`/`B`/`E`/`ge`/`gE`) | Cell/row-boundary crossing, matching vim's own document-wide word-motion behavior. |
+| `gg` `G` | Reaches the note's actual first/last line, including exiting a table cell entirely. Lands at the smart (Smart home) content position there too, not just in plain text. |
+| `gj` `gk` | Visual-line movement inside table cells (matching Ctrl+N/P), tracking the visual column across wrapped lines. |
+| `$` | Sticky end-of-line goal column when followed by j/k or gj/gk, matching real vim's own behavior. Requires `j`/`k` or `gj`/`gk` to be enabled. `D`/`C` share the same underlying vim.js motion, so this toggle affects them too, but their own behavior is identical either way. |
+| `^` `I` | Reuses Smart home to skip Markdown syntax, not just whitespace. Requires Smart home (standard). |
+| `J` | Reuses Smart join to strip blockquote/list markers and indentation on join. Requires Smart join. |
+
+Turning an item off restarts Obsidian to fully restore vim's native behavior (a banner prompts this when needed).
+
+Smart home / Smart join are shared settings also used by the Emacs-side commands — see [Behavior Options](#behavior-options) below.
+
+### Limitations
+
+- **A CJK input source can corrupt Vim's own key handling — not caused by this plugin:** With a CJK (e.g. romaji-based Japanese) input source active, a single press of a Vim motion key (commonly `g`, `j`, or `k`) can occasionally be misread — e.g. a single `g` behaving like `gg`, or `j`/`k` moving two lines instead of one. This is a known, upstream issue in Obsidian's underlying `codemirror-vim` engine ([issue #178](https://github.com/replit/codemirror-vim/issues/178)) and reproduces identically in vanilla Obsidian Vim mode with this plugin fully disabled. **Workaround:** switch to an ASCII/alphanumeric input source before using Vim motions.
+- **`w`/`b`/`e` cross only one cell/row boundary per count:** A count like `5w` isn't fully precise once it needs to cross more than one cell or row boundary.
+- **`gj`/`gk` do not support count prefixes across a crossing:** A count like `5gj` correctly steps through multiple visual lines within a single cell, but once the count needs to cross a row boundary or enter/exit a table, it stops consuming the count after that first crossing.
+- **A count-prefixed `$` doesn't cross table rows:** `3$` stays within the current table cell rather than reaching the end of a line further down, the way real vim would outside a table.
+
+
+## Emacs keybindings
 
 On macOS, cursor shortcuts — Ctrl+P (up), Ctrl+N (down), Ctrl+B/F (left/right), Ctrl+A/E (home/end), and Page Down/Up — work natively in Obsidian. This plugin restores them inside tables too, giving you seamless navigation just as physical cursor keys would — and Shift+Ctrl+P/N/B/F/A/E extend the selection the same way.
 
 Windows users can enable the full set of macOS-style cursor shortcuts throughout Obsidian. The Quick setup assistant assigns all recommended hotkeys in three clicks.
 
 Kill & Yank (Ctrl+K / Ctrl+Y) and Kill Region (Ctrl+W) bring the full Emacs editing workflow to Obsidian — and all three work seamlessly inside table cells, automatically handling newlines and pipe characters. Recenter-top-bottom (Ctrl+L) rounds out the workflow.
-
-If you use Obsidian's built-in Vim mode, this plugin fixes a set of well-known Live Preview table gaps: `h`/`l`/`j`/`k`/`w`/`b`/`e`/`gg`/`G`/`gj`/`gk` now work correctly inside table cells, instead of miscounting characters, refusing to cross rows, or landing in the wrong place. See [Vim support (experimental)](#vim-support-experimental) below.
 
 <table>
   <tr>
@@ -26,7 +65,7 @@ If you use Obsidian's built-in Vim mode, this plugin fixes a set of well-known L
   </tr>
 </table>
 
-## Getting Started
+### Getting Started
 
 No hotkeys are assigned by default.
 
@@ -34,12 +73,11 @@ No hotkeys are assigned by default.
 
 **Manual setup:** Go to **Settings → Hotkeys**, search for "Universal Cursor Hotkeys", and assign keys individually.
 
-
-## Command Reference
+### Command Reference
 
 For detailed behavior of each command, see [Command Details](#command-details) below. Grouped the same way as the Quick setup assistant in Settings.
 
-### Cursor movement
+#### Cursor movement
 
 | Command Name | Recommended<br>Hotkey | Function Summary | Key<br>Repeat |
 | :--------: | :----------------: | ---------------- | :---: |
@@ -56,7 +94,7 @@ For detailed behavior of each command, see [Command Details](#command-details) b
 | Word right | (None)        | Moves forward by word. Table-aware, CJK-aware. | ✓ |
 | Word left | (None)         | Moves backward by word. Table-aware, CJK-aware. | ✓ |
 
-### Editing
+#### Editing
 
 | Command Name | Recommended<br>Hotkey | Function Summary | Key<br>Repeat |
 | :--------: | :----------------: | ---------------- | :---: |
@@ -75,17 +113,14 @@ For detailed behavior of each command, see [Command Details](#command-details) b
 | Transpose chars | (None) | Swap the two characters around the cursor; at the end of a line or cell, swaps the last two instead. Table-aware, Unicode-safe. | ✓ |
 | Select all | (None)        | Windows replacement for Select all when Ctrl+A is reassigned to HOME. | — |
 
-### Other hotkeys
+#### Other hotkeys
 
 | Command Name | Recommended<br>Hotkey | Function Summary | Key<br>Repeat |
 | :--------: | :----------------: | ---------------- | :---: |
 | Recenter-top-bottom | Ctrl + L | Cycle the view so the cursor appears at the center, top, or bottom of the screen on successive presses. Resets on any other action. | — |
 | Recenter | (None)        | Scroll the view so the cursor line is centered on screen. | — |
 
-
-## Settings
-
-### Quick setup assistant
+### Settings
 
 Open **Settings → Universal Cursor Hotkeys** to assign hotkeys without leaving the settings screen.
 
@@ -110,18 +145,7 @@ Open **Settings → Universal Cursor Hotkeys** to assign hotkeys without leaving
 
 **Special key assignments:** Set bare Home, End, Page Down, and Page Up keys — Obsidian's hotkeys panel does not support modifier-free keys.
 
-### Behavior Options
-
-| Setting | Default | Description |
-| ------- | :-----: | ----------- |
-| Visual line movement | ON | **ON:** the first HOME / END moves to the visual line edge.<br>**OFF:** moves directly to the logical line start / end. |
-| Smart home (standard) | ON | **ON:** HOME skips leading Markdown syntax (lists, ordered lists, checkboxes, indents, blockquotes) to reach content start — Windows Home / macOS Cmd+← style.<br>**OFF:** HOME moves directly to the start of the line — macOS / Emacs Ctrl+A style. |
-| Smart home (advanced) | ON | **ON:** also skips past headings (`# `), footnotes (`[^1]: `), and callout type markers (`[!type]`). Requires Smart home (standard) to be ON. |
-| Smart join | OFF | **ON:** Kill Line join lands at the next line's content start, removing blockquote markers, list markers, and indentation. Pairs with Smart home (advanced) for headings and footnotes. Requires Smart home (standard) to be ON.<br>**OFF:** joins the next line as-is. |
-| Cross-row navigation | ON | **ON:** LEFT / HOME at the first cell and RIGHT / END at the last cell wrap to the adjacent row.<br>**OFF:** stops at the boundary. |
-
-
-## Limitations
+### Limitations
 
 - **Range selection stops at table cell boundaries:** Shift+Ctrl+P/N/B/F/A/E extend the selection normally within plain text and within a single table cell. At a cell boundary, they neither cross into the adjacent cell (unlike plain Ctrl+B/F) nor extend the selection across cells (unlike Shift+Arrow keys). Use Shift+Arrow keys for cross-cell selection.
 
@@ -135,8 +159,7 @@ Open **Settings → Universal Cursor Hotkeys** to assign hotkeys without leaving
   - **On Windows — OS-level shortcuts not detected by Quick setup:** Ctrl+A (HOME) and Ctrl+Y (Yank) override the system Select all and Redo shortcuts respectively. Because these are OS-level defaults rather than Obsidian hotkeys, the Quick setup assistant cannot detect the conflict and will show them as available. The bundled **Select all** command can be used as a replacement for Ctrl+A — run it from the Command Palette or assign it a custom hotkey. For Redo, use Ctrl+Shift+Z as an alternative.
   - **Page down / Page up — paste conflict:** Assigning Ctrl+V (Windows) or Cmd+V (macOS) to Page down or Page up will break keyboard paste in non-editor plugin views (e.g., Excalidraw). Yank (Ctrl+Y) restores paste within the markdown editor, but cannot substitute for Cmd+V in those views. Right-click → Paste remains available as a workaround. It is recommended to assign these commands to keys that do not conflict with paste.
 
-
-## Command Details
+### Command Details
 
 Note: (*) indicates behaviors specific to Live Preview mode.
 
@@ -368,33 +391,17 @@ Note: (*) indicates behaviors specific to Live Preview mode.
 </details>
 
 
-## Vim support (experimental)
+## Behavior Options
 
-If Obsidian's built-in Vim key bindings are enabled, this plugin fixes several native gaps inside Live Preview table cells by making the affected Vim motions table-aware — the same way Ctrl+P/N/B/F/A/E already are. Off by default; enable individual items under **Settings → Universal Cursor Hotkeys → Vim support**. If you're using Vim mode, you likely won't need the Quick setup assistant above — that manages this plugin's Emacs-style Ctrl+P/N/B/F/A/E hotkeys instead.
+Shared by both the Emacs-side commands (HOME/END, Kill Line) and the Vim support toggles (`^`/`I`, `J`) above.
 
-### Settings
-
-**Apply all:** Turns on every item below that can currently be turned on in one click — skips `^`/`I` or `J` if their own Smart home (standard) / Smart join prerequisite is currently off.
-
-| Keys | Fixes |
-| :--: | ----- |
-| `h` `l` `x` | Multi-byte character miscounting and incorrect cell-jumping at line boundaries; `x` at cell boundaries. |
-| `j` `k` | Row-boundary crossing (matching Ctrl+N/P), preserving column position throughout. |
-| `w` `b` `e` (and `W`/`B`/`E`/`ge`/`gE`) | Cell/row-boundary crossing, matching vim's own document-wide word-motion behavior. |
-| `gg` `G` | Reaches the note's actual first/last line, including exiting a table cell entirely. Lands at the smart (Smart home) content position there too, not just in plain text. |
-| `gj` `gk` | Visual-line movement inside table cells (matching Ctrl+N/P), tracking the visual column across wrapped lines. |
-| `$` | Sticky end-of-line goal column when followed by j/k or gj/gk, matching real vim's own behavior. Requires `j`/`k` or `gj`/`gk` to be enabled. `D`/`C` share the same underlying vim.js motion, so this toggle affects them too, but their own behavior is identical either way. |
-| `^` `I` | Reuses Smart home to skip Markdown syntax, not just whitespace. Requires Smart home (standard). |
-| `J` | Reuses Smart join to strip blockquote/list markers and indentation on join. Requires Smart join. |
-
-Turning an item off restarts Obsidian to fully restore vim's native behavior (a banner prompts this when needed).
-
-### Limitations
-
-- **A CJK input source can corrupt Vim's own key handling — not caused by this plugin:** With a CJK (e.g. romaji-based Japanese) input source active, a single press of a Vim motion key (commonly `g`, `j`, or `k`) can occasionally be misread — e.g. a single `g` behaving like `gg`, or `j`/`k` moving two lines instead of one. This is a known, upstream issue in Obsidian's underlying `codemirror-vim` engine ([issue #178](https://github.com/replit/codemirror-vim/issues/178)) and reproduces identically in vanilla Obsidian Vim mode with this plugin fully disabled. **Workaround:** switch to an ASCII/alphanumeric input source before using Vim motions.
-- **`w`/`b`/`e` cross only one cell/row boundary per count:** A count like `5w` isn't fully precise once it needs to cross more than one cell or row boundary.
-- **`gj`/`gk` do not support count prefixes across a crossing:** A count like `5gj` correctly steps through multiple visual lines within a single cell, but once the count needs to cross a row boundary or enter/exit a table, it stops consuming the count after that first crossing.
-- **A count-prefixed `$` doesn't cross table rows:** `3$` stays within the current table cell rather than reaching the end of a line further down, the way real vim would outside a table.
+| Setting | Default | Description |
+| ------- | :-----: | ----------- |
+| Visual line movement | ON | **ON:** the first HOME / END moves to the visual line edge.<br>**OFF:** moves directly to the logical line start / end. |
+| Smart home (standard) | ON | **ON:** HOME skips leading Markdown syntax (lists, ordered lists, checkboxes, indents, blockquotes) to reach content start — Windows Home / macOS Cmd+← style.<br>**OFF:** HOME moves directly to the start of the line — macOS / Emacs Ctrl+A style. |
+| Smart home (advanced) | ON | **ON:** also skips past headings (`# `), footnotes (`[^1]: `), and callout type markers (`[!type]`). Requires Smart home (standard) to be ON. |
+| Smart join | OFF | **ON:** Kill Line join lands at the next line's content start, removing blockquote markers, list markers, and indentation. Pairs with Smart home (advanced) for headings and footnotes. Requires Smart home (standard) to be ON.<br>**OFF:** joins the next line as-is. |
+| Cross-row navigation | ON | **ON:** LEFT / HOME at the first cell and RIGHT / END at the last cell wrap to the adjacent row.<br>**OFF:** stops at the boundary. |
 
 
 ## Acknowledgments
