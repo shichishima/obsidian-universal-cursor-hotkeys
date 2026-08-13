@@ -5,10 +5,10 @@ Obsidian's Vim mode (`h`/`j`/`k`/`l`/`w`/`b`/`e`/`gg`/`G`) and macOS-style Emacs
 
 ## Overview
 
-Obsidian's Live Preview breaks cursor behavior inside Markdown tables. This plugin fixes cursor navigation around tables — whether you use Obsidian's built-in Vim mode or macOS-style keybindings (aka Emacs keybindings). On that side, it also adds a full set of Emacs-style editing commands — Kill & Yank, word movement, case conversion, and more — that don't exist natively in Obsidian.
+Obsidian's Live Preview breaks cursor behavior inside Markdown tables. This plugin fixes cursor navigation around tables — whether you use Obsidian's built-in Vim mode or macOS-style keyboard shortcuts (aka Emacs keybindings). On that side, it also adds a full set of Emacs-style editing commands — Kill & Yank, word movement, case conversion, and more — that don't exist natively in Obsidian.
 
 **⌨️ [I use Obsidian's built-in Vim mode →](#vim-support-experimental)**<br>
-**🅴 [I use macOS-style keybindings (Emacs) →](#emacs-keybindings)**
+**🅴 [I use macOS-style keyboard shortcuts (Emacs keybindings) →](#emacs-keybindings)**
 
 ---
 
@@ -158,7 +158,7 @@ Open **Settings → Universal Cursor Hotkeys** to assign hotkeys without leaving
 - **Source Mode table detection is heuristic:** In Source Mode, table rows are identified by a simple string check (line starts and ends with `|`). Unlike Live Preview mode, which uses the syntax tree, this approach may produce unexpected behavior on lines that coincidentally match the pattern but are not part of a Markdown table.
 
 - **Shortcut Conflicts**
-  - **On Windows — OS-level shortcuts not detected by Quick setup:** Ctrl+A (HOME) and Ctrl+Y (Yank) override the system Select all and Redo shortcuts respectively. Because these are OS-level defaults rather than Obsidian hotkeys, the Quick setup assistant cannot detect the conflict and will show them as available. The bundled **Select all** command can be used as a replacement for Ctrl+A — run it from the Command Palette or assign it a custom hotkey. For Redo, use Ctrl+Shift+Z as an alternative.
+  - **On Windows — OS-level shortcuts not detected by Quick setup:** Ctrl+A (HOME) and Ctrl+Y (Yank) override the system Select all and Redo shortcuts respectively. Because these are OS-level defaults rather than Obsidian hotkeys, the Quick setup assistant cannot detect the conflict and will show them as available. The bundled **Select all** and **Redo** commands can be used as replacements — run them from the Command Palette or assign each a custom hotkey.
   - **Page down / Page up — paste conflict:** Assigning Ctrl+V (Windows) or Cmd+V (macOS) to Page down or Page up will break keyboard paste in non-editor plugin views (e.g., Excalidraw). Yank (Ctrl+Y) restores paste within the markdown editor, but cannot substitute for Cmd+V in those views. Right-click → Paste remains available as a workaround. It is recommended to assign these commands to keys that do not conflict with paste.
 
 ### Command Details
