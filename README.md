@@ -375,6 +375,15 @@ Note: (*) indicates behaviors specific to Live Preview mode.
 </details>
 
 <details>
+<summary>Select all</summary>
+
+- **Outside a table:** Selects the entire document, same as Obsidian's native Select all.
+- **Within a table cell:** Selects only the content of the current cell, not the whole document — matching what native Obsidian's own Select all already does in Live Preview.
+- **Why this command exists:** On Windows, the Quick setup assistant's recommended Ctrl+A → HOME assignment overrides the OS-level Select all shortcut with no built-in fallback (see Limitations → Shortcut Conflicts). This command restores one — run it from the Command Palette or assign it a custom hotkey.
+
+</details>
+
+<details>
 <summary>Recenter-top-bottom</summary>
 
 - Cycles the scroll position on successive presses so the cursor appears at the **center**, **top**, or **bottom** of the screen.
