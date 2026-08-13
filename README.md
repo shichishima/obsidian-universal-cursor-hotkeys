@@ -14,6 +14,8 @@ Obsidian's Live Preview breaks cursor behavior inside Markdown tables. This plug
 
 ## Vim support (experimental)
 
+[Settings](#settings) | [Limitations](#limitations)
+
 <img width="610" height="610" alt="Image" src="https://github.com/user-attachments/assets/f3b7483a-2fd1-4c3c-8c64-8ce8bb07d861" />
 
 If you use Obsidian's built-in Vim mode, this plugin fixes a set of well-known Live Preview table gaps: `h`/`l`/`j`/`k`/`w`/`b`/`e`/`gg`/`G`/`gj`/`gk` now work correctly inside table cells, instead of miscounting characters, refusing to cross rows, or landing in the wrong place.
@@ -22,9 +24,11 @@ Off by default; enable individual items below under **Settings → Universal Cur
 
 ### Settings
 
+**Settings** | [Limitations](#limitations)
+
 This plugin's settings screen has three parts:
 
-- [Quick setup assistant](#emacs-keybindings) — mainly for Emacs-style Ctrl+P/N/B/F/A/E hotkeys, but worth a look if you also want those same Ctrl-key combos to work in Vim's own Insert mode.
+- [Quick setup assistant](#emacs-keybindings) — mainly for Emacs-style Ctrl+P/N/B/F/A/E hotkeys, but relevant here too: on macOS, native Ctrl+P/N/B/F already move the cursor in both Vim's Insert and Normal mode, but don't know about tables — assigning these hotkeys fixes table entry and crossing in both modes.
 - [**Behavior Options**](#behavior-options) — a few settings shared between Vim support and the Emacs-side commands.
 - **Vim support** — the toggles described below.
 
@@ -43,9 +47,9 @@ This plugin's settings screen has three parts:
 
 Turning an item off restarts Obsidian to fully restore vim's native behavior (a banner prompts this when needed).
 
-Smart home / Smart join are shared settings also used by the Emacs-side commands — see [Behavior Options](#behavior-options) below.
-
 ### Limitations
+
+[Settings](#settings) | **Limitations**
 
 - **A CJK input source can corrupt Vim's own key handling — not caused by this plugin:** With a CJK (e.g. romaji-based Japanese) input source active, a single press of a Vim motion key (commonly `g`, `j`, or `k`) can occasionally be misread — e.g. a single `g` behaving like `gg`, or `j`/`k` moving two lines instead of one. This is a known, upstream issue in Obsidian's underlying `codemirror-vim` engine ([issue #178](https://github.com/replit/codemirror-vim/issues/178)) and reproduces identically in vanilla Obsidian Vim mode with this plugin fully disabled. **Workaround:** switch to an ASCII/alphanumeric input source before using Vim motions.
 - **`w`/`b`/`e` cross only one cell/row boundary per count:** A count like `5w` isn't fully precise once it needs to cross more than one cell or row boundary.
@@ -55,6 +59,8 @@ Smart home / Smart join are shared settings also used by the Emacs-side commands
 ---
 
 ## Emacs keybindings
+
+[Getting Started](#getting-started) | [Command Reference](#command-reference) | [Settings](#settings-1) | [Limitations](#limitations-1) | [Command Details](#command-details)
 
 On macOS, cursor shortcuts — Ctrl+P (up), Ctrl+N (down), Ctrl+B/F (left/right), Ctrl+A/E (home/end), and Page Down/Up — work natively in Obsidian. This plugin restores them inside tables too, giving you seamless navigation just as physical cursor keys would — and Shift+Ctrl+P/N/B/F/A/E extend the selection the same way.
 
@@ -75,6 +81,8 @@ Kill & Yank (Ctrl+K / Ctrl+Y) and Kill Region (Ctrl+W) bring the full Emacs edit
 
 ### Getting Started
 
+**Getting Started** | [Command Reference](#command-reference) | [Settings](#settings-1) | [Limitations](#limitations-1) | [Command Details](#command-details)
+
 No hotkeys are assigned by default.
 
 **Quick setup (recommended):** Open **Settings → Universal Cursor Hotkeys** and click **Apply recommended** for each of the three command groups — Cursor movement, Editing, and Other hotkeys. Three clicks and you're done.
@@ -82,6 +90,8 @@ No hotkeys are assigned by default.
 **Manual setup:** Go to **Settings → Hotkeys**, search for "Universal Cursor Hotkeys", and assign keys individually.
 
 ### Command Reference
+
+[Getting Started](#getting-started) | **Command Reference** | [Settings](#settings-1) | [Limitations](#limitations-1) | [Command Details](#command-details)
 
 For detailed behavior of each command, see [Command Details](#command-details) below. Grouped the same way as the Quick setup assistant in Settings.
 
@@ -130,6 +140,8 @@ For detailed behavior of each command, see [Command Details](#command-details) b
 
 ### Settings
 
+[Getting Started](#getting-started) | [Command Reference](#command-reference) | **Settings** | [Limitations](#limitations-1) | [Command Details](#command-details)
+
 This plugin's settings screen has three parts:
 
 - **Quick setup assistant** — described below.
@@ -161,6 +173,8 @@ Open **Settings → Universal Cursor Hotkeys** to assign hotkeys without leaving
 
 ### Limitations
 
+[Getting Started](#getting-started) | [Command Reference](#command-reference) | [Settings](#settings-1) | **Limitations** | [Command Details](#command-details)
+
 - **Range selection stops at table cell boundaries:** Shift+Ctrl+P/N/B/F/A/E extend the selection normally within plain text and within a single table cell. At a cell boundary, they neither cross into the adjacent cell (unlike plain Ctrl+B/F) nor extend the selection across cells (unlike Shift+Arrow keys). Use Shift+Arrow keys for cross-cell selection.
 
 - **Brief scroll when entering a tall wrapped cell in Live Preview (UP):** When pressing UP into a cell whose wrapped content exceeds the screen height, the view momentarily scrolls to the cell start before jumping to the bottom visual line. This is an inherent side effect of the two-step navigation used to locate the bottom visual line within Obsidian's Live Preview table widget.
@@ -174,6 +188,8 @@ Open **Settings → Universal Cursor Hotkeys** to assign hotkeys without leaving
   - **Page down / Page up — paste conflict:** Assigning Ctrl+V (Windows) or Cmd+V (macOS) to Page down or Page up will break keyboard paste in non-editor plugin views (e.g., Excalidraw). Yank (Ctrl+Y) restores paste within the markdown editor, but cannot substitute for Cmd+V in those views. Right-click → Paste remains available as a workaround. It is recommended to assign these commands to keys that do not conflict with paste.
 
 ### Command Details
+
+[Getting Started](#getting-started) | [Command Reference](#command-reference) | [Settings](#settings-1) | [Limitations](#limitations-1) | **Command Details**
 
 Note: (*) indicates behaviors specific to Live Preview mode.
 

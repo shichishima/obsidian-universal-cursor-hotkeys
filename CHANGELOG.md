@@ -12,6 +12,7 @@
 - **Copy region:** New command, like Emacs's own `kill-ring-save`. Same table-aware validation as Kill region (single-cell only), but never deletes — the selection stays intact.
 - **Transpose chars:** New command, like Emacs's own `transpose-chars`. Repeated presses drag a character rightward through the text; at a line/cell end, swaps the last two characters instead. Table-aware: cell and `<br>` boundaries are hard stops. Unicode-safe — multi-byte characters (emoji, rare CJK ideographs) are swapped as whole units.
 - **Undo / Redo:** New commands. Obsidian's own Ctrl+Z / Ctrl+Shift+Z work but aren't backed by an assignable Command, so they can't be rebound via Settings → Hotkeys; these thin wrappers make Undo/Redo assignable like any other command in this plugin. Undo defaults to Ctrl+/ (a real Emacs binding); Redo has no recommended hotkey.
+- **Quick setup assistant:** Commands with no recommended hotkey now also show an **Open →** button (previously shown only once a hotkey was already assigned) — same as clicking the command name, both open the Hotkeys panel filtered to this plugin's commands.
 
 ### Fixed
 
