@@ -14,23 +14,29 @@ Obsidian's Live Preview breaks cursor behavior inside Markdown tables. This plug
 
 ## Vim support (experimental)
 
-[Settings](#settings) | [Limitations](#limitations)
+[Getting Started](#getting-started) | [Settings](#settings) | [Limitations](#limitations)
 
 <img width="610" height="610" alt="Image" src="https://github.com/user-attachments/assets/f3b7483a-2fd1-4c3c-8c64-8ce8bb07d861" />
 
 If you use Obsidian's built-in Vim mode, this plugin fixes a set of well-known Live Preview table gaps: `h`/`l`/`j`/`k`/`w`/`b`/`e`/`gg`/`G`/`gj`/`gk` now work correctly inside table cells, instead of miscounting characters, refusing to cross rows, or landing in the wrong place.
 
-Off by default; enable individual items below under **Settings → Universal Cursor Hotkeys → Vim support**.
+### Getting Started
+
+[Settings](#settings) | [Limitations](#limitations)
+
+Turn on Obsidian's built-in **Vim key bindings** (Settings → Editor). Then open **Settings → Universal Cursor Hotkeys → Vim support** and click **Apply all**.
 
 ### Settings
 
-**Settings** | [Limitations](#limitations)
+[Getting Started](#getting-started) | [Limitations](#limitations)
 
 This plugin's settings screen has three parts:
 
 - [Quick setup assistant](#emacs-keybindings) — mainly for Emacs-style Ctrl+P/N/B/F/A/E hotkeys, but relevant here too: on macOS, native Ctrl+P/N/B/F already move the cursor in both Vim's Insert and Normal mode, but don't know about tables — assigning these hotkeys fixes table entry and crossing in both modes.
 - [**Behavior Options**](#behavior-options) — a few settings shared between Vim support and the Emacs-side commands.
 - **Vim support** — the toggles described below.
+
+Every item below is off by default.
 
 **Apply all:** Turns on every item below that can currently be turned on in one click — skips `^`/`I` or `J` if their own Smart home (standard) / Smart join prerequisite is currently off.
 
@@ -49,7 +55,7 @@ Turning an item off restarts Obsidian to fully restore vim's native behavior (a 
 
 ### Limitations
 
-[Settings](#settings) | **Limitations**
+[Getting Started](#getting-started) | [Settings](#settings)
 
 - **A CJK input source can corrupt Vim's own key handling — not caused by this plugin:** With a CJK (e.g. romaji-based Japanese) input source active, a single press of a Vim motion key (commonly `g`, `j`, or `k`) can occasionally be misread — e.g. a single `g` behaving like `gg`, or `j`/`k` moving two lines instead of one. This is a known, upstream issue in Obsidian's underlying `codemirror-vim` engine ([issue #178](https://github.com/replit/codemirror-vim/issues/178)) and reproduces identically in vanilla Obsidian Vim mode with this plugin fully disabled. **Workaround:** switch to an ASCII/alphanumeric input source before using Vim motions.
 - **`w`/`b`/`e` cross only one cell/row boundary per count:** A count like `5w` isn't fully precise once it needs to cross more than one cell or row boundary.
@@ -60,7 +66,7 @@ Turning an item off restarts Obsidian to fully restore vim's native behavior (a 
 
 ## Emacs keybindings
 
-[Getting Started](#getting-started) | [Command Reference](#command-reference) | [Settings](#settings-1) | [Limitations](#limitations-1) | [Command Details](#command-details)
+[Getting Started](#getting-started-1) | [Command Reference](#command-reference) | [Settings](#settings-1) | [Limitations](#limitations-1) | [Command Details](#command-details)
 
 On macOS, cursor shortcuts — Ctrl+P (up), Ctrl+N (down), Ctrl+B/F (left/right), Ctrl+A/E (home/end), and Page Down/Up — work natively in Obsidian. This plugin restores them inside tables too, giving you seamless navigation just as physical cursor keys would — and Shift+Ctrl+P/N/B/F/A/E extend the selection the same way.
 
@@ -81,7 +87,7 @@ Kill & Yank (Ctrl+K / Ctrl+Y) and Kill Region (Ctrl+W) bring the full Emacs edit
 
 ### Getting Started
 
-**Getting Started** | [Command Reference](#command-reference) | [Settings](#settings-1) | [Limitations](#limitations-1) | [Command Details](#command-details)
+[Command Reference](#command-reference) | [Settings](#settings-1) | [Limitations](#limitations-1) | [Command Details](#command-details)
 
 No hotkeys are assigned by default.
 
@@ -91,7 +97,7 @@ No hotkeys are assigned by default.
 
 ### Command Reference
 
-[Getting Started](#getting-started) | **Command Reference** | [Settings](#settings-1) | [Limitations](#limitations-1) | [Command Details](#command-details)
+[Getting Started](#getting-started-1) | [Settings](#settings-1) | [Limitations](#limitations-1) | [Command Details](#command-details)
 
 For detailed behavior of each command, see [Command Details](#command-details) below. Grouped the same way as the Quick setup assistant in Settings.
 
@@ -140,15 +146,15 @@ For detailed behavior of each command, see [Command Details](#command-details) b
 
 ### Settings
 
-[Getting Started](#getting-started) | [Command Reference](#command-reference) | **Settings** | [Limitations](#limitations-1) | [Command Details](#command-details)
+[Getting Started](#getting-started-1) | [Command Reference](#command-reference) | [Limitations](#limitations-1) | [Command Details](#command-details)
+
+Open **Settings → Universal Cursor Hotkeys** to assign hotkeys without leaving the settings screen.
 
 This plugin's settings screen has three parts:
 
-- **Quick setup assistant** — described below.
+- **Quick setup assistant** — check each command's current hotkey status and assign hotkeys, described below.
 - [**Behavior Options**](#behavior-options) — a few settings shared with Vim support's own toggles.
 - [Vim support](#vim-support-experimental) — a separate section for Obsidian's built-in Vim mode.
-
-Open **Settings → Universal Cursor Hotkeys** to assign hotkeys without leaving the settings screen.
 
 **Apply recommended:** Each command group has an **Apply recommended** button that assigns all recommended hotkeys at once.
 
@@ -164,6 +170,7 @@ Open **Settings → Universal Cursor Hotkeys** to assign hotkeys without leaving
 | 🔴Conflict | A conflict exists: a hotkey is currently assigned to more than one command. |
 
 - **Hotkey chips:** Click any hotkey chip to open the hotkeys panel filtered to that key.
+- **Command name:** Click a command's name to open the hotkeys panel — the same action as **Open →** below, filtered to this plugin's commands.
 - **Override:** When the recommended hotkey is in use, the command(s) currently using it appear inline. **Override** assigns the hotkey, removing it from any command currently using it.
 - **Open →:** Opens the hotkeys panel filtered to this plugin's commands.
 
@@ -173,7 +180,7 @@ Open **Settings → Universal Cursor Hotkeys** to assign hotkeys without leaving
 
 ### Limitations
 
-[Getting Started](#getting-started) | [Command Reference](#command-reference) | [Settings](#settings-1) | **Limitations** | [Command Details](#command-details)
+[Getting Started](#getting-started-1) | [Command Reference](#command-reference) | [Settings](#settings-1) | [Command Details](#command-details)
 
 - **Range selection stops at table cell boundaries:** Shift+Ctrl+P/N/B/F/A/E extend the selection normally within plain text and within a single table cell. At a cell boundary, they neither cross into the adjacent cell (unlike plain Ctrl+B/F) nor extend the selection across cells (unlike Shift+Arrow keys). Use Shift+Arrow keys for cross-cell selection.
 
@@ -189,7 +196,7 @@ Open **Settings → Universal Cursor Hotkeys** to assign hotkeys without leaving
 
 ### Command Details
 
-[Getting Started](#getting-started) | [Command Reference](#command-reference) | [Settings](#settings-1) | [Limitations](#limitations-1) | **Command Details**
+[Getting Started](#getting-started-1) | [Command Reference](#command-reference) | [Settings](#settings-1) | [Limitations](#limitations-1)
 
 Note: (*) indicates behaviors specific to Live Preview mode.
 
