@@ -18,9 +18,15 @@ Obsidian's Live Preview breaks cursor behavior inside Markdown tables. This plug
 
 If you use Obsidian's built-in Vim mode, this plugin fixes a set of well-known Live Preview table gaps: `h`/`l`/`j`/`k`/`w`/`b`/`e`/`gg`/`G`/`gj`/`gk` now work correctly inside table cells, instead of miscounting characters, refusing to cross rows, or landing in the wrong place.
 
-Off by default; enable individual items under **Settings → Universal Cursor Hotkeys → Vim support**. You likely won't need the [Quick setup assistant](#emacs-keybindings) below — that manages this plugin's Emacs-style Ctrl+P/N/B/F/A/E hotkeys instead.
+Off by default; enable individual items below under **Settings → Universal Cursor Hotkeys → Vim support**.
 
 ### Settings
+
+This plugin's settings screen has three parts:
+
+- [Quick setup assistant](#emacs-keybindings) — mainly for Emacs-style Ctrl+P/N/B/F/A/E hotkeys, but worth a look if you also want those same Ctrl-key combos to work in Vim's own Insert mode.
+- [**Behavior Options**](#behavior-options) — a few settings shared between Vim support and the Emacs-side commands.
+- **Vim support** — the toggles described below.
 
 **Apply all:** Turns on every item below that can currently be turned on in one click — skips `^`/`I` or `J` if their own Smart home (standard) / Smart join prerequisite is currently off.
 
@@ -123,6 +129,12 @@ For detailed behavior of each command, see [Command Details](#command-details) b
 | Recenter | (None)        | Scroll the view so the cursor line is centered on screen. | — |
 
 ### Settings
+
+This plugin's settings screen has three parts:
+
+- **Quick setup assistant** — described below.
+- [**Behavior Options**](#behavior-options) — a few settings shared with Vim support's own toggles.
+- [Vim support](#vim-support-experimental) — a separate section for Obsidian's built-in Vim mode.
 
 Open **Settings → Universal Cursor Hotkeys** to assign hotkeys without leaving the settings screen.
 
