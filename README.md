@@ -16,9 +16,9 @@ Obsidian's Live Preview breaks cursor behavior inside Markdown tables. This plug
 
 [Getting Started](#getting-started) | [Settings](#settings) | [Limitations](#limitations)
 
-<img width="610" height="610" alt="Image" src="https://github.com/user-attachments/assets/f3b7483a-2fd1-4c3c-8c64-8ce8bb07d861" />
-
 If you use Obsidian's built-in Vim mode, this plugin fixes a set of well-known Live Preview table gaps: `h`/`l`/`j`/`k`/`w`/`b`/`e`/`gg`/`G`/`gj`/`gk` now work correctly inside table cells, instead of miscounting characters, refusing to cross rows, or landing in the wrong place.
+
+<img width="610" height="610" alt="Image" src="https://github.com/user-attachments/assets/f3b7483a-2fd1-4c3c-8c64-8ce8bb07d861" />
 
 ### Getting Started
 
@@ -169,8 +169,9 @@ This plugin's settings screen has three parts:
 | 🟡Used | Recommended hotkey is taken; applying it will displace one command. |
 | 🔴Conflict | A conflict exists: a hotkey is currently assigned to more than one command. |
 
-- **Hotkey chips:** Click any hotkey chip to open the hotkeys panel filtered to that key.
 - **Command name:** Click a command's name to open the hotkeys panel — the same action as **Open →** below, filtered to this plugin's commands.
+- **Hotkey chips:** Click any hotkey chip to open the hotkeys panel filtered to that key.
+- **Set:** When the recommended hotkey is free, assigns it in one click.
 - **Override:** When the recommended hotkey is in use, the command(s) currently using it appear inline. **Override** assigns the hotkey, removing it from any command currently using it.
 - **Open →:** Opens the hotkeys panel filtered to this plugin's commands.
 
