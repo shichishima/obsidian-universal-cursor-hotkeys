@@ -147,7 +147,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		this.addCommand({
 			id: 'cursor-top',
 			name: 'TOP',
-			repeatable: true,
 			editorCallback: (editor: Editor, _: MarkdownView) => {
 				this.jumpToBufferEdge(editor, false)
 			}
@@ -156,7 +155,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		this.addCommand({
 			id: 'cursor-bottom',
 			name: 'BOTTOM',
-			repeatable: true,
 			editorCallback: (editor: Editor, _: MarkdownView) => {
 				this.jumpToBufferEdge(editor, true)
 			}

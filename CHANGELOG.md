@@ -4,7 +4,7 @@
 
 ### Added
 
-- **Word commands:** New commands, table-aware and CJK-aware (real morphological word boundaries, not just whitespace/punctuation splitting).
+- **Word commands:** New commands, table-aware and built on a new word-boundary engine (real morphological word boundaries, not just whitespace/punctuation splitting) — so CJK text (Chinese/Japanese/Korean) is handled correctly. The same engine also fixes Vim's own `w`/`b`/`e`; see Fixed, below.
   - **Word right / Word left:** Like Emacs's own `forward-word`/`backward-word`. Crosses cell/row boundaries the same way Ctrl+B/F already do.
   - **Kill word left / Kill word right:** Like Emacs's own `backward-kill-word`/`kill-word`. Participates in the same consecutive-kill chain as Kill line. Unlike Word right/left, stays within the current cell — stops (no-op) at its edge rather than reaching into a different cell or table row.
   - **Uppercase word / Lowercase word / Capitalize word:** Like Emacs's own `upcase-word`/`downcase-word`/`capitalize-word`, but transform the whole word at the cursor rather than just from the cursor to the word's end. Transforms the selection instead when one is active. Crosses cell/row boundaries the same way Word right does.
@@ -12,10 +12,11 @@
 - **Copy region:** New command, like Emacs's own `kill-ring-save`. Same table-aware validation as Kill region (single-cell only), but never deletes — the selection stays intact.
 - **Transpose chars:** New command, like Emacs's own `transpose-chars`. Repeated presses drag a character rightward through the text; at a line/cell end, swaps the last two characters instead. Table-aware: cell and `<br>` boundaries are hard stops. Unicode-safe — multi-byte characters (emoji, rare CJK ideographs) are swapped as whole units.
 - **Undo / Redo:** New commands. Obsidian's own Ctrl+Z / Ctrl+Shift+Z work but aren't backed by an assignable Command, so they can't be rebound via Settings → Hotkeys; these thin wrappers make Undo/Redo assignable like any other command in this plugin. Undo defaults to Ctrl+/ (a real Emacs binding); Redo has no recommended hotkey.
+- **Quick setup assistant:** Commands with no recommended hotkey now also show an **Open →** button (previously shown only once a hotkey was already assigned) — same as clicking the command name, both open the Hotkeys panel filtered to this plugin's commands.
 
 ### Fixed
 
-- **Vim `w`/`b`/`e` (and `W`/`B`/`E`/`ge`/`gE`) now segment CJK text properly:** Word motion previously treated a whole run of Japanese/Chinese/Korean characters as one giant word (0.8.0 documented this as "ASCII words only"); it now uses real morphological word boundaries. Applies both to in-cell motion and to landing after a table row/cell crossing.
+- **Vim `w`/`b`/`e` (and `W`/`B`/`E`/`ge`/`gE`) now segment CJK text properly:** built on the same word-boundary engine introduced above — Word motion previously treated a whole run of Chinese/Japanese/Korean characters as one giant word (0.8.0 documented this as "ASCII words only"). Applies both to in-cell motion and to landing after a table row/cell crossing.
 - **Vim `gg`/`G` now apply Smart Home inside table cells too:** Landing on a table row previously only skipped leading whitespace, ignoring the Smart home (standard/advanced) settings that already applied everywhere else `gg`/`G` land — e.g. jumping to a note whose first row starts with a list-marker-like cell no longer stops one character early.
 
 ## [0.8.0] - 2026-08-02
