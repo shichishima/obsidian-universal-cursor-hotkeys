@@ -148,6 +148,12 @@ describe('VimSupportHost bridge (main.ts)', () => {
 			expect(plugin.findWordBoundaryOnLine('foo bar', true, false, false)).toBe(0)
 			expect(plugin.findWordBoundaryOnLine('foo bar', false, false, false)).toBe(4)
 		})
+
+		it('segments Japanese text morphologically, not as one long word', () => {
+			// 日本語(0-3) です(3-5) — e (wordEnd) must land at the end of the
+			// first morpheme (ch 2), not the end of the whole string.
+			expect(plugin.findWordBoundaryOnLine('日本語です', true, false, true)).toBe(2)
+		})
 	})
 
 	// ===========================================================================
@@ -508,6 +514,42 @@ describe('VimSupportHost bridge (main.ts)', () => {
 	})
 
 	// ===========================================================================
+	// landInRowEdgeCellForWord — shared by crossTableRowForWord's own row-to-row
+	// crossing and moveCursorWordPlainText's table-entry case (Emacs Word
+	// right/left reaching an adjacent table row from plain text). Forward
+	// enters the leftmost cell (its first segment); backward enters the
+	// rightmost cell (its last segment); then refines to the nearest word
+	// boundary — using vim's own block-cursor word-end convention (the
+	// caller applies the +1 caret correction, not this helper).
+	// ===========================================================================
+
+	describe('landInRowEdgeCellForWord', () => {
+		it('forward: lands in the leftmost cell, at the first word\'s own end (vim block-cursor convention)', () => {
+			const editor = makeStatefulEditor(['| foo bar |'], { line: 0, ch: 0 })
+			const result = plugin.landInRowEdgeCellForWord(editor, 0, true, false, true)
+			expect(result).toEqual({ line: 0, ch: 4 }) // rests on the second 'o' of 'foo'
+		})
+
+		it('backward: lands in the rightmost cell, at the last word\'s own start', () => {
+			const editor = makeStatefulEditor(['| foo bar |'], { line: 0, ch: 0 })
+			const result = plugin.landInRowEdgeCellForWord(editor, 0, false, false, false)
+			expect(result).toEqual({ line: 0, ch: 6 }) // start of 'bar'
+		})
+
+		it('forward: picks the leftmost of multiple cells', () => {
+			const editor = makeStatefulEditor(['| foo | bar |'], { line: 0, ch: 0 })
+			const result = plugin.landInRowEdgeCellForWord(editor, 0, true, false, true)
+			expect(result).toEqual({ line: 0, ch: 4 }) // still within the leftmost cell 'foo'
+		})
+
+		it('backward: picks the rightmost of multiple cells', () => {
+			const editor = makeStatefulEditor(['| foo | bar |'], { line: 0, ch: 0 })
+			const result = plugin.landInRowEdgeCellForWord(editor, 0, false, false, false)
+			expect(result).toEqual({ line: 0, ch: 8 }) // start of 'bar', the rightmost cell
+		})
+	})
+
+	// ===========================================================================
 	// isLinePartOfTable
 	// ===========================================================================
 
@@ -578,6 +620,97 @@ describe('VimSupportHost bridge (main.ts)', () => {
 			const resultGg = plugin.jumpToDocumentLine(editorForGg, false, 1) // "2gg"
 			expect(resultG).toEqual({ line: 2, ch: 2 }) // redirected to the data row
 			expect(resultGg).toEqual(resultG)
+		})
+
+		it('applies Smart Home to a table-row landing when smartHomeStandard is on', () => {
+			// Regression: enterTableAtLine's own landing (landInCellSegment) only
+			// ever skips leading whitespace, never Smart Home — unlike gg/G's own
+			// plain-text landing just above, which does respect it.
+			plugin.settings = { smartHomeStandard: true, smartHomeAdvanced: false }
+			plugin.isPositionInTable = vi.fn().mockReturnValue(true)
+			const editor = makeStatefulEditor(['plain', '| - foo | bar |'], { line: 0, ch: 0 })
+			const result = plugin.jumpToDocumentLine(editor, true, 1)
+			expect(result).toEqual({ line: 1, ch: 4 }) // skips past "- " to land on "foo"
+		})
+	})
+
+	// ===========================================================================
+	// refineTableLandingForSmartHome — gg/G's own follow-up refinement on top
+	// of enterTableAtLine's shared (whitespace-only) landing. Deliberately NOT
+	// baked into landInCellSegment itself, since that's also shared by
+	// crossTableRowForCell (Ctrl-N/P and Vim j/k's own goal-column-preserving
+	// row crossing), which must not gain Smart Home.
+	// ===========================================================================
+
+	describe('refineTableLandingForSmartHome', () => {
+		it('is a no-op when smartHomeStandard is off', () => {
+			plugin.settings = { smartHomeStandard: false }
+			const editor = makeStatefulEditor(['| - foo |'], { line: 0, ch: 0 })
+			const result = plugin.refineTableLandingForSmartHome(editor, { line: 0, ch: 2 })
+			expect(result).toEqual({ line: 0, ch: 2 })
+			expect(plugin.setCursorViaCm).not.toHaveBeenCalled()
+		})
+
+		it('skips a list-marker prefix within the landed segment when smartHomeStandard is on', () => {
+			plugin.settings = { smartHomeStandard: true, smartHomeAdvanced: false }
+			const editor = makeStatefulEditor(['| - foo |'], { line: 0, ch: 0 })
+			const result = plugin.refineTableLandingForSmartHome(editor, { line: 0, ch: 2 })
+			expect(result).toEqual({ line: 0, ch: 4 })
+			expect(plugin.setCursorViaCm).toHaveBeenCalledWith(editor, 0, 4)
+		})
+
+		it('is a no-op (no re-dispatch) when the segment has nothing to skip past', () => {
+			plugin.settings = { smartHomeStandard: true, smartHomeAdvanced: false }
+			const editor = makeStatefulEditor(['| foo |'], { line: 0, ch: 0 })
+			const result = plugin.refineTableLandingForSmartHome(editor, { line: 0, ch: 2 })
+			expect(result).toEqual({ line: 0, ch: 2 })
+			expect(plugin.setCursorViaCm).not.toHaveBeenCalled()
+		})
+	})
+
+	// ===========================================================================
+	// jumpToBufferEdge — Alt-Shift-,/. (Emacs beginning-of-buffer/end-of-buffer).
+	// Deliberately different landing rules from jumpToDocumentLine (Vim's gg/G,
+	// above): no Smart Home / first-non-blank concept at all — TOP is the
+	// buffer's literal first character, BOTTOM its literal last.
+	// ===========================================================================
+
+	describe('jumpToBufferEdge', () => {
+		it('TOP: lands at literal ch=0 of the first line, ignoring leading whitespace/content', () => {
+			const editor = makeStatefulEditor(['  indented first', 'middle', 'last'], { line: 2, ch: 0 })
+			plugin.isPositionInTable = vi.fn().mockReturnValue(false)
+			const result = plugin.jumpToBufferEdge(editor, false)
+			expect(result).toEqual({ line: 0, ch: 0 })
+		})
+
+		it('BOTTOM: lands at the literal end of the last line', () => {
+			const editor = makeStatefulEditor(['first', 'middle', 'last line here'], { line: 0, ch: 0 })
+			plugin.isPositionInTable = vi.fn().mockReturnValue(false)
+			const result = plugin.jumpToBufferEdge(editor, true)
+			expect(result).toEqual({ line: 2, ch: 'last line here'.length })
+		})
+
+		it('follows up with a scrollIntoView dispatch after landing', () => {
+			const editor = makeStatefulEditor(['first', 'last'], { line: 0, ch: 0 })
+			plugin.isPositionInTable = vi.fn().mockReturnValue(false)
+			plugin.jumpToBufferEdge(editor, true)
+			expect(editor.cm.dispatch).toHaveBeenCalledWith(
+				expect.objectContaining({ scrollIntoView: true }),
+			)
+		})
+
+		it('TOP: table row at the start lands in the leftmost cell\'s own content start', () => {
+			const editor = makeStatefulEditor(['| a |', 'plain'], { line: 1, ch: 0 })
+			plugin.isPositionInTable = vi.fn().mockReturnValue(true)
+			const result = plugin.jumpToBufferEdge(editor, false)
+			expect(result).toEqual({ line: 0, ch: 2 })
+		})
+
+		it('BOTTOM: table row at the end lands in the RIGHTMOST cell\'s own content END, unlike gg/G\'s own leftmost-cell convention', () => {
+			const editor = makeStatefulEditor(['plain', '| a | bb |'], { line: 0, ch: 0 })
+			plugin.isPositionInTable = vi.fn().mockReturnValue(true)
+			const result = plugin.jumpToBufferEdge(editor, true)
+			expect(result).toEqual({ line: 1, ch: 7 }) // rests on the final 'b' of the rightmost cell
 		})
 	})
 

@@ -180,15 +180,28 @@ const COMMAND_DEFS: readonly CommandDef[] = [
 	{ block: 'cursor',  id: 'cursor-right',         name: 'RIGHT',               recommended: ctrl('F') },
 	{ block: 'cursor',  id: 'cursor-home',          name: 'HOME',                recommended: ctrl('A') },
 	{ block: 'cursor',  id: 'cursor-end',           name: 'END',                 recommended: ctrl('E') },
+	{ block: 'cursor',  id: 'cursor-top',           name: 'TOP',                 recommended: null },
+	{ block: 'cursor',  id: 'cursor-bottom',        name: 'BOTTOM',              recommended: null },
+	{ block: 'cursor',  id: 'page-up',              name: 'Page up',             recommended: null },
+	{ block: 'cursor',  id: 'page-down',            name: 'Page down',           recommended: null },
+	{ block: 'cursor',  id: 'word-right',           name: 'Word right',          recommended: null },
+	{ block: 'cursor',  id: 'word-left',            name: 'Word left',           recommended: null },
 	{ block: 'editing', id: 'kill-line',            name: 'Kill line',           recommended: ctrl('K') },
 	{ block: 'editing', id: 'kill-region',          name: 'Kill region',         recommended: ctrl('W') },
+	{ block: 'editing', id: 'copy-region',          name: 'Copy region',         recommended: null },
 	{ block: 'editing', id: 'yank',                 name: 'Yank',                recommended: ctrl('Y') },
 	{ block: 'editing', id: 'delete-char',          name: 'Delete char',         recommended: ctrl('D') },
+	{ block: 'editing', id: 'undo',                 name: 'Undo',                recommended: ctrl('/') },
+	{ block: 'editing', id: 'redo',                 name: 'Redo',                recommended: null },
+	{ block: 'editing', id: 'kill-word-left',       name: 'Kill word left',      recommended: null },
+	{ block: 'editing', id: 'kill-word-right',      name: 'Kill word right',     recommended: null },
+	{ block: 'editing', id: 'uppercase-word',       name: 'Uppercase word',      recommended: null },
+	{ block: 'editing', id: 'lowercase-word',       name: 'Lowercase word',      recommended: null },
+	{ block: 'editing', id: 'capitalize-word',      name: 'Capitalize word',     recommended: null },
+	{ block: 'editing', id: 'transpose-chars',      name: 'Transpose chars',     recommended: null },
+	{ block: 'editing', id: 'select-all',           name: 'Select all',          recommended: null },
 	{ block: 'other',   id: 'recenter-top-bottom',  name: 'Recenter-top-bottom', recommended: ctrl('L') },
 	{ block: 'other',   id: 'recenter',             name: 'Recenter',            recommended: null },
-	{ block: 'other',   id: 'page-down',            name: 'Page down',           recommended: null },
-	{ block: 'other',   id: 'page-up',              name: 'Page up',             recommended: null },
-	{ block: 'other',   id: 'select-all',           name: 'Select all',          recommended: null },
 ];
 
 export interface DisplacedCommand {
@@ -751,7 +764,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				this.display();
 			});
 			ctx.allActionBtns.push(btn);
-		} else if (row.action === 'done') {
+		} else if (row.action === 'done' || row.action === 'none') {
 			const btn = tdAction.createEl('button', { text: 'Open →' });
 			btn.addClass('uch-open-btn');
 			btn.addEventListener('click', () => openHotkeysPanel());

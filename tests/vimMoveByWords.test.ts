@@ -73,6 +73,28 @@ describe('Vim w/b/e (moveByWords)', () => {
 			expect(result).toEqual({ line: 1, ch: 0 })
 		})
 
+		it('w segments Japanese text morphologically, not as one long word', () => {
+			const vim = new VimSupport(makeHost()) as any
+			// 私(0-1) は(1-2) 日本語(2-5) を(5-6) 勉強(6-8) し(8-9) てい(9-11) ます(11-13)
+			const result = vim.moveByWords(cm(['私は日本語を勉強しています']), { line: 0, ch: 0 }, { forward: true, repeat: 2 })
+			expect(result).toEqual({ line: 0, ch: 2 }) // start of '日本語', not one giant run
+		})
+
+		it('w steps monotonically through CJK punctuation mixed with markdown syntax, no oscillation', () => {
+			// Live bug repro: cursor on 、 in "途中で、**ボールド**になる" (a
+			// bolded word inside plain Japanese text) — w must always move
+			// forward, never bounce back to an earlier position.
+			const vim = new VimSupport(makeHost()) as any
+			const line = ['途中で、**ボールド**になる']
+			let pos = { line: 0, ch: 3 }
+			const steps: number[] = []
+			for (let i = 0; i < 4; i++) {
+				pos = vim.moveByWords(cm(line), pos, { forward: true, repeat: 1 })
+				steps.push(pos.ch)
+			}
+			expect(steps).toEqual([6, 10, 12, 13])
+		})
+
 		it('repeat=2 skips two words forward', () => {
 			const vim = new VimSupport(makeHost()) as any
 			const result = vim.moveByWords(cm(['one two three']), { line: 0, ch: 0 }, { forward: true, repeat: 2 })

@@ -6,8 +6,9 @@ import { InCellLineInfo, getCellBounds, getStartOfCellContent, getEndOfCellConte
 	getInCellLineInfo } from './table-cell-utils';
 import { syntaxTree } from '@codemirror/language';
 import { EditorView } from "@codemirror/view";
-import { EditorSelection, Transaction } from '@codemirror/state';
-import { deleteCharForward, cursorPageDown, cursorPageUp } from '@codemirror/commands';
+import { EditorSelection, Transaction, findClusterBreak } from '@codemirror/state';
+import { deleteCharForward, cursorPageDown, cursorPageUp, transposeChars as cmTransposeChars } from '@codemirror/commands';
+import { getWordSpans, getBigWordSpans, findWordSpanOnLine } from './word-segmentation';
 
 // Extend the Obsidian Editor interface to include the internal CodeMirror 6 instance (EditorView)
 declare module "obsidian" {
@@ -144,6 +145,40 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		});
 
 		this.addCommand({
+			id: 'cursor-top',
+			name: 'TOP',
+			editorCallback: (editor: Editor, _: MarkdownView) => {
+				this.jumpToBufferEdge(editor, false)
+			}
+		});
+
+		this.addCommand({
+			id: 'cursor-bottom',
+			name: 'BOTTOM',
+			editorCallback: (editor: Editor, _: MarkdownView) => {
+				this.jumpToBufferEdge(editor, true)
+			}
+		});
+
+		this.addCommand({
+			id: 'word-right',
+			name: 'Word right',
+			repeatable: true,
+			editorCallback: (editor: Editor, _: MarkdownView) => {
+				this.moveCursorWord(editor, true)
+			}
+		});
+
+		this.addCommand({
+			id: 'word-left',
+			name: 'Word left',
+			repeatable: true,
+			editorCallback: (editor: Editor, _: MarkdownView) => {
+				this.moveCursorWord(editor, false)
+			}
+		});
+
+		this.addCommand({
 			id: "select-all",
 			name: "Select all",
 			editorCallback: (editor: Editor) => {
@@ -161,10 +196,45 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		});
 
 		this.addCommand({
+			id: 'transpose-chars',
+			name: 'Transpose chars',
+			repeatable: true,
+			editorCallback: (editor: Editor) => {
+				this.transposeChars(editor);
+			}
+		});
+
+		this.addCommand({
+			id: 'undo',
+			name: 'Undo',
+			repeatable: true,
+			editorCallback: (editor: Editor) => {
+				editor.undo();
+			}
+		});
+
+		this.addCommand({
+			id: 'redo',
+			name: 'Redo',
+			repeatable: true,
+			editorCallback: (editor: Editor) => {
+				editor.redo();
+			}
+		});
+
+		this.addCommand({
 			id: 'kill-region',
 			name: 'Kill region',
 			editorCallback: (editor: Editor) => {
 				this.killRegion(editor);
+			}
+		});
+
+		this.addCommand({
+			id: 'copy-region',
+			name: 'Copy region',
+			editorCallback: (editor: Editor) => {
+				this.copyRegion(editor);
 			}
 		});
 
@@ -174,6 +244,51 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			repeatable: true,
 			editorCallback: (editor: Editor, _: MarkdownView) => {
 				this.killLine(editor);
+			}
+		});
+
+		this.addCommand({
+			id: 'kill-word-left',
+			name: 'Kill word left',
+			repeatable: true,
+			editorCallback: (editor: Editor, _: MarkdownView) => {
+				this.killWord(editor, false);
+			}
+		});
+
+		this.addCommand({
+			id: 'kill-word-right',
+			name: 'Kill word right',
+			repeatable: true,
+			editorCallback: (editor: Editor, _: MarkdownView) => {
+				this.killWord(editor, true);
+			}
+		});
+
+		this.addCommand({
+			id: 'uppercase-word',
+			name: 'Uppercase word',
+			repeatable: true,
+			editorCallback: (editor: Editor, _: MarkdownView) => {
+				this.transformWord(editor, s => s.toUpperCase());
+			}
+		});
+
+		this.addCommand({
+			id: 'lowercase-word',
+			name: 'Lowercase word',
+			repeatable: true,
+			editorCallback: (editor: Editor, _: MarkdownView) => {
+				this.transformWord(editor, s => s.toLowerCase());
+			}
+		});
+
+		this.addCommand({
+			id: 'capitalize-word',
+			name: 'Capitalize word',
+			repeatable: true,
+			editorCallback: (editor: Editor, _: MarkdownView) => {
+				this.transformWord(editor, s => universalCursorHotkeysPlugin.capitalizeText(s));
 			}
 		});
 
@@ -352,6 +467,21 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 		editor.exec('goRight');
+	}
+
+
+	// Alt-F / Alt-B — forward-word/backward-word. forward=true lands the caret
+	// right after the found word's last character (mirroring Emacs's own
+	// "forward-word always stops at a word end" convention); forward=false
+	// lands right before the found word's first character. See
+	// moveCursorWordInTable/moveCursorWordPlainText further below for the two
+	// underlying search strategies (table cell vs. everything else).
+	private moveCursorWord(editor: Editor, forward: boolean) {
+		if (editor.inTableCell) {
+			this.moveCursorWordInTable(editor, forward);
+			return;
+		}
+		this.moveCursorWordPlainText(editor, forward);
 	}
 
 
@@ -1648,6 +1778,23 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}
 	}
 
+	// Explicit scroll-into-view follow-up, same idiom jumpToDocumentLine/
+	// jumpToBufferEdge already use for their own big jumps: setCursorViaCm
+	// itself never requests one (left as-is to avoid changing behavior for
+	// its many other, already-working callers, which are all short,
+	// already-on-screen hops). A cross-line word jump can travel arbitrarily
+	// far — skipping many blank lines, or exiting a table into more blank
+	// lines beyond it — and can land outside the current viewport, so it
+	// needs its own separate follow-up dispatch to the position it already
+	// landed on (read back from the live selection rather than recomputed,
+	// since setCursorViaCm may have already applied a further correction on
+	// top of the original landing).
+	private scrollCursorIntoView(editor: Editor) {
+		const cm = editor.cm;
+		const pos = cm.state.selection.main.head;
+		cm.dispatch({ selection: { anchor: pos }, scrollIntoView: true, userEvent: 'move' });
+	}
+
 
 	// Navigate to (targetLine, targetCh) via editor.exec goLeft/goRight, keeping the
 	// inner CM view active. Dispatching to the outer CM view (setCursorViaCm) causes
@@ -1817,6 +1964,95 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 
 	//===========================================================================
+	// Transpose chars
+	//===========================================================================
+
+	// Swaps the two grapheme clusters immediately before [from, to). Cluster
+	// boundaries are found via findClusterBreak — the same primitive CM6's own
+	// transposeChars uses internally — so this stays surrogate-pair/grapheme
+	// safe without needing our own Unicode logic. No-op if fewer than two
+	// clusters are available. Cursor stays at `to` (unlike the mid-content
+	// case, there's nothing further right to advance into).
+	private swapLastTwoInRange(view: EditorView, from: number, to: number) {
+		const text = view.state.doc.sliceString(from, to);
+		const localEnd = text.length;
+		const localMid = findClusterBreak(text, localEnd, false);
+		const localFrom = findClusterBreak(text, localMid, false);
+		if (localFrom === localMid) return; // fewer than two clusters
+
+		const insert = text.slice(localMid, localEnd) + text.slice(localFrom, localMid);
+		view.dispatch({
+			changes: { from: from + localFrom, to: from + localEnd, insert },
+			selection: { anchor: from + localEnd },
+			userEvent: 'move.character',
+		});
+	}
+
+	// Table-aware wrapper around CM6's own transposeChars: cell/<br>-segment
+	// boundaries are hard stops (unlike Word right/case conversion) since
+	// transpose swaps arbitrary adjacent characters — if either one happened to
+	// be `|` or part of a `<br>` tag, the swap would corrupt table structure.
+	// At a segment's own end, falls back to swapLastTwoInRange instead of a
+	// plain no-op, matching real Emacs's end-of-line special case.
+	private transposeChars(editor: Editor) {
+		if (editor.inTableCell) {
+			this.transposeCharsInTableLP(editor);
+			return;
+		}
+
+		const cursor = editor.getCursor();
+		const lineText = editor.getLine(cursor.line);
+		const inSourceTable = !this.isLivePreviewMode() && this.isTableLineSourceMode(lineText);
+		if (inSourceTable) {
+			const info = getInCellLineInfo(lineText, cursor.ch);
+			if (info) {
+				this.transposeCharsInTableSource(editor, info);
+				return;
+			}
+		}
+
+		const cm = editor.cm;
+		if (!cm) return;
+		if (cursor.ch === lineText.length) {
+			const cmLine = cm.state.doc.line(cursor.line + 1);
+			this.swapLastTwoInRange(cm, cmLine.from, cmLine.to);
+			return;
+		}
+		cmTransposeChars(cm);
+	}
+
+	private transposeCharsInTableLP(editor: Editor) {
+		const inner = editor.activeCM;
+		if (!inner || inner === editor.cm) return;
+
+		const head = inner.state.selection.main.head;
+		const subLine = inner.state.doc.lineAt(head);
+
+		if (head === subLine.from) return; // segment start: no-op, no special case here
+		if (head === subLine.to) {
+			this.swapLastTwoInRange(inner, subLine.from, subLine.to);
+			return;
+		}
+		cmTransposeChars(inner);
+	}
+
+	private transposeCharsInTableSource(editor: Editor, info: InCellLineInfo) {
+		const cursor = editor.getCursor();
+		if (info.isEmpty || cursor.ch <= info.startOfInCellLine) return; // segment start: no-op
+
+		const cm = editor.cm;
+		if (!cm) return;
+
+		if (cursor.ch >= info.endOfInCellLine) {
+			const cmLine = cm.state.doc.line(cursor.line + 1);
+			this.swapLastTwoInRange(cm, cmLine.from + info.startOfInCellLine, cmLine.from + info.endOfInCellLine);
+			return;
+		}
+		cmTransposeChars(cm);
+	}
+
+
+	//===========================================================================
 	// Kill line (Ctrl-K)
 	//===========================================================================
 
@@ -1975,24 +2211,421 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 
+	//===========================================================================
+	// Kill word left / right (Emacs Alt-Backspace / Alt-D)
+	//===========================================================================
+
+	// The boundary that matters is the CELL (a different cell/row is a
+	// different document), not the <br>-segment (that's just how one cell's
+	// own single continuous piece of text represents a line break — the
+	// in-cell equivalent of a plain-text newline). So killWordInTableLP/
+	// SourceMode below cross <br>-segments freely within the same cell
+	// (mirroring killWordNonTable's own free line-crossing, and mirroring
+	// moveCursorWordInTable's own walkSegments-based in-cell walk), and only
+	// no-op once genuinely at the cell's own first/last segment edge. Word-
+	// boundary lookup reuses the same findWordSpanOnLine primitive Word
+	// right/left (moveCursorWord) already use.
+	private killWord(editor: Editor, forward: boolean) {
+		const lineText = editor.getLine(editor.getCursor().line);
+		const inSourceTable = !this.isLivePreviewMode() && this.isTableLineSourceMode(lineText);
+
+		if (editor.inTableCell) {
+			this.killWordInTableLP(editor, forward);
+			return;
+		}
+
+		if (inSourceTable) {
+			const info = getInCellLineInfo(lineText, editor.getCursor().ch);
+			if (info) {
+				this.killWordInTableSourceMode(editor, forward, info);
+				return;
+			}
+		}
+
+		this.killWordNonTable(editor, forward);
+	}
+
+	// Plain text: unlike the table branches below, free to cross line
+	// boundaries (mirroring moveCursorWordPlainText's own plain-text search)
+	// — a plain-text document has no structural segment boundary to respect,
+	// and real Emacs's own kill-word/backward-kill-word don't stop at line
+	// breaks either. Bug fixed here: the search itself doesn't know what a
+	// table is, so without the isPositionInTable guard below it would happily
+	// treat an adjacent table row's raw Markdown (e.g. a leading `|`) as
+	// ordinary word/punctuation text — corrupting the table by killing into
+	// it. Stop at the boundary instead, matching every other kill command in
+	// this file (same "isPositionInTable(..., 1)" check moveCursorRight/Left
+	// already use for the identical plain-text-to-table edge).
+	private killWordNonTable(editor: Editor, forward: boolean) {
+		const cursor = editor.getCursor();
+		let lineNum = cursor.line;
+		let ch = cursor.ch;
+		let target: { line: number; ch: number } | null = null;
+		for (;;) {
+			const lt = editor.getLine(lineNum);
+			const span = findWordSpanOnLine(lt, ch, forward);
+			if (span) {
+				target = { line: lineNum, ch: forward ? span.to : span.from };
+				break;
+			}
+			const nextLine = forward ? lineNum + 1 : lineNum - 1;
+			if (nextLine < 0 || nextLine >= editor.lineCount()) break;
+			if (this.isPositionInTable(editor, nextLine, 1)) break;
+			lineNum = nextLine;
+			ch = forward ? 0 : editor.getLine(lineNum).length;
+		}
+		if (!target) return;
+
+		const from = forward ? cursor : target;
+		const to   = forward ? target : cursor;
+		const text = editor.getRange(from, to);
+
+		this.updateKillCache(text, !forward);
+		navigator.clipboard.writeText(this.killCache).catch(() => {});
+		this.isDispatchingKill = true;
+		editor.replaceRange('', from, to);
+		this.isDispatchingKill = false;
+		this.isKillChaining = true;
+	}
+
+	// LP table cell: mirrors killLineInTableLP's own inner-view-coordinate
+	// approach (each <br>-segment is its own doc line there). Unlike the old
+	// version of this method, walks forward/backward across further
+	// in-cell doc lines (via inner.state.doc.line — the inner-view
+	// equivalent of killWordNonTable's own editor.getLine walk) whenever the
+	// current segment has no word left, only stopping once nextLineNum falls
+	// outside [1, inner.state.doc.lines] — i.e. genuinely at the cell's own
+	// first/last segment, not just any segment edge. The final deletion
+	// range can span the \n between segments (the inner view's own <br>
+	// representation — see moveByWords' identical comment elsewhere in this
+	// codebase), so no separate <br>-stripping step is needed here the way
+	// Kill Line's own <br>-removal branch requires.
+	private killWordInTableLP(editor: Editor, forward: boolean) {
+		const inner = editor.activeCM;
+		if (!inner || inner === editor.cm) return;
+
+		const head = inner.state.selection.main.head;
+		let subLine = inner.state.doc.lineAt(head);
+		let localHead = head - subLine.from;
+		let target: number | null = null;
+
+		for (;;) {
+			const span = findWordSpanOnLine(subLine.text, localHead, forward);
+			if (span) {
+				target = subLine.from + (forward ? span.to : span.from);
+				break;
+			}
+			const nextLineNum = forward ? subLine.number + 1 : subLine.number - 1;
+			if (nextLineNum < 1 || nextLineNum > inner.state.doc.lines) break;
+			subLine = inner.state.doc.line(nextLineNum);
+			localHead = forward ? 0 : subLine.text.length;
+		}
+		if (target === null) return;
+
+		const from = forward ? head : target;
+		const to   = forward ? target : head;
+		const text = inner.state.doc.sliceString(from, to);
+
+		this.updateKillCache(text, !forward);
+		navigator.clipboard.writeText(this.killCache).catch(() => {});
+		this.isDispatchingKill = true;
+		inner.dispatch({ changes: { from, to, insert: '' }, selection: { anchor: from }, userEvent: 'delete' });
+		this.isDispatchingKill = false;
+		this.isKillChaining = true;
+	}
+
+	// Source Mode table cell: mirrors killLineInTableSourceMode's own
+	// getInCellLineInfo-scoped approach, but — like the LP branch above —
+	// walks further in-cell lines via walkSegments (the same primitive
+	// moveCursorWordInTable already uses for its own in-cell walk) whenever
+	// the current segment has no word left, stopping only once walkSegments
+	// reports steps===0 (genuinely the cell's own first/last segment).
+	// Reads/writes outer (raw markdown) coordinates, so — unlike the LP
+	// branch above — normalizeKillText is needed (escaped \| in the raw
+	// source); a crossed <br> tag is included in the raw slice and
+	// normalized to \n the same way a crossed-segment kill already handles
+	// it elsewhere in this file.
+	private killWordInTableSourceMode(editor: Editor, forward: boolean, info: InCellLineInfo) {
+		const cursor = editor.getCursor();
+		const lineText = editor.getLine(cursor.line);
+
+		let segInfo = info;
+		let localCh = cursor.ch - segInfo.startOfInCellLine;
+		let target: number | null = null;
+
+		for (;;) {
+			const scopedText = lineText.slice(segInfo.startOfInCellLine, segInfo.endOfInCellLine);
+			const span = findWordSpanOnLine(scopedText, localCh, forward);
+			if (span) {
+				target = segInfo.startOfInCellLine + (forward ? span.to : span.from);
+				break;
+			}
+			const { segInfo: nextSeg, steps } = this.walkSegments(lineText, segInfo, forward, 1);
+			if (steps === 0) break;
+			segInfo = nextSeg;
+			localCh = forward ? 0 : segInfo.endOfInCellLine - segInfo.startOfInCellLine;
+		}
+		if (target === null) return;
+
+		const from = forward ? cursor.ch : target;
+		const to   = forward ? target : cursor.ch;
+		const text = this.normalizeKillText(lineText.slice(from, to));
+
+		this.updateKillCache(text, !forward);
+		navigator.clipboard.writeText(this.killCache).catch(() => {});
+		this.isDispatchingKill = true;
+		editor.replaceRange('', { line: cursor.line, ch: from }, { line: cursor.line, ch: to });
+		this.isDispatchingKill = false;
+		this.isKillChaining = true;
+	}
+
+
+	//===========================================================================
+	// Uppercase word / Lowercase word / Capitalize word (Emacs Alt-U/L/C)
+	//===========================================================================
+
+	// DWIM (do-what-i-mean): a non-empty selection transforms the whole
+	// selection (same validation as Copy/Kill Region — table-aware,
+	// single-cell only); otherwise transforms the WHOLE word at the cursor.
+	// Deliberately diverges from real Emacs's own upcase-word/downcase-word/
+	// capitalize-word, which only transform from point to the word's own end
+	// (e.g. "he|llo" -> "heLLO", leaving "he" untouched) — mid-word partial
+	// transforms are unintuitive, and the divergence matters most visibly
+	// for capitalize-word, where a partially-capitalized word looks broken.
+	// Table-aware: unlike Kill word, crosses into an adjacent cell/row when
+	// the current one has no further word (matching Word right/left) rather
+	// than stopping — case transformation never touches non-letter
+	// characters, so there's no `|`/`<br>` corruption risk the way a kill
+	// has, and the design principle established for Kill word ("cell is a
+	// document boundary") only exists to guard against that risk.
+	private transformWord(editor: Editor, transform: (s: string) => string) {
+		const from = editor.getCursor('from');
+		const to = editor.getCursor('to');
+		if (from.line !== to.line || from.ch !== to.ch) {
+			this.transformSelection(editor, transform);
+			return;
+		}
+
+		if (editor.inTableCell) {
+			this.transformWordInTableLP(editor, transform);
+			return;
+		}
+
+		const lineText = editor.getLine(from.line);
+		const inSourceTable = !this.isLivePreviewMode() && this.isTableLineSourceMode(lineText);
+		if (inSourceTable) {
+			const info = getInCellLineInfo(lineText, from.ch);
+			if (info) {
+				this.transformWordInTableSourceMode(editor, transform, info);
+				return;
+			}
+		}
+
+		this.transformWordNonTable(editor, transform);
+	}
+
+	// Reuses Copy/Kill Region's own selection validation (getValidatedRegionText)
+	// purely as a validity check here — its own return value is the
+	// kill-cache-normalized text (<br> -> \n, \| -> |), which is exactly
+	// what must NOT be written back into the document, so the actual
+	// transform works off the raw, unnormalized selection text instead.
+	private transformSelection(editor: Editor, transform: (s: string) => string) {
+		const from = editor.getCursor('from');
+		const to = editor.getCursor('to');
+		if (this.getValidatedRegionText(editor) === null) return;
+
+		if (editor.inTableCell) {
+			const inner = editor.activeCM;
+			if (!inner || inner === editor.cm) return;
+			const innerSel = inner.state.selection.main;
+			const original = inner.state.doc.sliceString(innerSel.from, innerSel.to);
+			inner.dispatch({ changes: { from: innerSel.from, to: innerSel.to, insert: transform(original) }, selection: { anchor: innerSel.to }, userEvent: 'input' });
+			return;
+		}
+
+		const original = editor.getRange(from, to);
+		editor.replaceRange(transform(original), from, to);
+		// See transformWordNonTable's identical comment: replaceRange has no
+		// cursor-positioning parameter, defaults to the replaced range's own
+		// start rather than its end.
+		this.setCursorViaCm(editor, to.line, to.ch);
+	}
+
+	// Plain text: like moveCursorWordPlainText/killWordNonTable, crosses line
+	// boundaries (including blank lines) freely, and hands off into a table
+	// row reached this way instead of stopping there.
+	private transformWordNonTable(editor: Editor, transform: (s: string) => string) {
+		const cursor = editor.getCursor();
+		let lineNum = cursor.line;
+		let ch = cursor.ch;
+		for (;;) {
+			const lt = editor.getLine(lineNum);
+			const span = findWordSpanOnLine(lt, ch, true);
+			if (span) {
+				const from = { line: lineNum, ch: span.from };
+				const to = { line: lineNum, ch: span.to };
+				const original = editor.getRange(from, to);
+				editor.replaceRange(transform(original), from, to);
+				// Bug fixed here: editor.replaceRange has no cursor-positioning
+				// parameter of its own, so it defaults to the replaced range's
+				// own start — unlike the LP-table branches below, which land
+				// correctly because their raw dispatch specifies
+				// selection: { anchor: to } as part of the same change. Kill
+				// Line never needed this follow-up since deleting to an empty
+				// string collapses from/to to the same point either way; a
+				// same-length (or near enough) replace has a genuine
+				// start-vs-end ambiguity replaceRange doesn't resolve on its own.
+				this.setCursorViaCm(editor, lineNum, span.to);
+				return;
+			}
+			const nextLine = lineNum + 1;
+			if (nextLine >= editor.lineCount()) return;
+			if (this.isPositionInTable(editor, nextLine, 1)) {
+				this.continueWordTransformAfterLanding(editor, this.landInRowEdgeCellForWord(editor, nextLine, true, false, false), transform);
+				return;
+			}
+			lineNum = nextLine;
+			ch = 0;
+		}
+	}
+
+	// LP table cell: like moveCursorWordInTable/killWordInTableLP, crosses
+	// <br>-segments freely within the same cell, then crosses into the
+	// adjacent cell/row once the cell itself is exhausted.
+	private transformWordInTableLP(editor: Editor, transform: (s: string) => string) {
+		const inner = editor.activeCM;
+		if (!inner || inner === editor.cm) return;
+
+		let head = inner.state.selection.main.head;
+		let subLine = inner.state.doc.lineAt(head);
+		let localHead = head - subLine.from;
+
+		for (;;) {
+			const span = findWordSpanOnLine(subLine.text, localHead, true);
+			if (span) {
+				const from = subLine.from + span.from;
+				const to = subLine.from + span.to;
+				const original = inner.state.doc.sliceString(from, to);
+				inner.dispatch({ changes: { from, to, insert: transform(original) }, selection: { anchor: to }, userEvent: 'input' });
+				return;
+			}
+			const nextLineNum = subLine.number + 1;
+			if (nextLineNum > inner.state.doc.lines) break;
+			subLine = inner.state.doc.line(nextLineNum);
+			localHead = 0;
+			head = subLine.from;
+		}
+
+		const outerCursor = editor.getCursor();
+		const outerLineText = editor.getLine(outerCursor.line);
+		const cellIndex = getCellIndex(outerLineText, outerCursor.ch);
+		this.continueWordTransformAfterLanding(editor, this.crossTableRowForWord(editor, cellIndex, true, false, false), transform);
+	}
+
+	// Source Mode table cell: like moveCursorWordInTable/killWordInTableSourceMode
+	// (the Source Mode side), walks further in-cell lines via walkSegments,
+	// then crosses into the adjacent cell/row once the cell is exhausted.
+	private transformWordInTableSourceMode(editor: Editor, transform: (s: string) => string, info: InCellLineInfo) {
+		const cursor = editor.getCursor();
+		const lineText = editor.getLine(cursor.line);
+
+		let segInfo = info;
+		let localCh = cursor.ch - segInfo.startOfInCellLine;
+
+		for (;;) {
+			const scopedText = lineText.slice(segInfo.startOfInCellLine, segInfo.endOfInCellLine);
+			const span = findWordSpanOnLine(scopedText, localCh, true);
+			if (span) {
+				const from = { line: cursor.line, ch: segInfo.startOfInCellLine + span.from };
+				const to = { line: cursor.line, ch: segInfo.startOfInCellLine + span.to };
+				const original = editor.getRange(from, to);
+				editor.replaceRange(transform(original), from, to);
+				// See transformWordNonTable's identical comment: replaceRange
+				// has no cursor-positioning parameter, defaults to the
+				// replaced range's own start.
+				this.setCursorViaCm(editor, cursor.line, to.ch);
+				return;
+			}
+			const { segInfo: nextSeg, steps } = this.walkSegments(lineText, segInfo, true, 1);
+			if (steps === 0) break;
+			segInfo = nextSeg;
+			localCh = 0;
+		}
+
+		const cellIndex = getCellIndex(lineText, cursor.ch);
+		this.continueWordTransformAfterLanding(editor, this.crossTableRowForWord(editor, cellIndex, true, false, false), transform);
+	}
+
+	// Shared tail for transformWordNonTable's table-entry case and
+	// transformWordInTableLP/SourceMode's own cell-exhausted case: landed is
+	// already sitting exactly at the target word's own start (forward=true,
+	// wordEnd=false — the crossing functions' own word-START convention, no
+	// +1 caret correction needed since there's no word-END involved here
+	// the way Word right/left needs). Hands off to whichever branch matches
+	// where the crossing actually landed — including handing back to
+	// transformWordNonTable if it exited the table entirely, so a wordless
+	// exit line doesn't just strand the search the way it used to for Word
+	// right/left before that was fixed.
+	private continueWordTransformAfterLanding(editor: Editor, landed: { line: number; ch: number } | null, transform: (s: string) => string) {
+		if (!landed) return;
+		if (editor.inTableCell) {
+			this.transformWordInTableLP(editor, transform);
+			return;
+		}
+		const lineText = editor.getLine(landed.line);
+		const info = getInCellLineInfo(lineText, landed.ch);
+		if (info) {
+			this.transformWordInTableSourceMode(editor, transform, info);
+		} else {
+			this.transformWordNonTable(editor, transform);
+		}
+	}
+
+	// CJK-aware (via getWordSpans): capitalizes each word independently
+	// (first character upper, rest lower), leaving whitespace/punctuation
+	// between words untouched — matches real Emacs's own capitalize-region
+	// behavior for multi-word text, and naturally handles both the
+	// single-word (no-selection) and multi-word (selection) cases with the
+	// same function.
+	private static capitalizeText(text: string): string {
+		const spans = getWordSpans(text);
+		let result = '';
+		let last = 0;
+		for (const span of spans) {
+			result += text.slice(last, span.from);
+			const word = text.slice(span.from, span.to);
+			result += word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+			last = span.to;
+		}
+		result += text.slice(last);
+		return result;
+	}
+
+
 	private normalizeKillText(text: string): string {
 		return text.replace(/<[bB][rR]>/g, '\n').replace(/\\\|/g, '|');
 	}
 
 
-	private updateKillCache(text: string): void {
-		this.killCache = this.isKillChaining ? this.killCache + text : text;
+	// prepend is for backward kills (Kill word left): consecutive backward
+	// kills must build the cache in the same order the text appeared in the
+	// buffer, so newly killed text goes in front of what's already cached,
+	// not after it — the reverse of every other (forward) kill in this file.
+	private updateKillCache(text: string, prepend = false): void {
+		if (!this.isKillChaining) { this.killCache = text; return; }
+		this.killCache = prepend ? text + this.killCache : this.killCache + text;
 	}
 
 
-	//===========================================================================
-	// Kill region (Ctrl-W)
-	//===========================================================================
-
-	private killRegion(editor: Editor) {
+	// Shared by Kill Region (Ctrl-W) and Copy Region: validates the current
+	// selection (non-empty; inside a table, single-cell/single-line only —
+	// same constraint both commands share, see their own README docs) and
+	// returns its table-normalized text, or null if the selection is empty
+	// or spans something invalid (multi-row/cross-cell).
+	private getValidatedRegionText(editor: Editor): string | null {
 		const from = editor.getCursor('from');
 		const to   = editor.getCursor('to');
-		if (from.line === to.line && from.ch === to.ch) return;
+		if (from.line === to.line && from.ch === to.ch) return null;
 
 		const fromLine = editor.getLine(from.line);
 		const toLine   = editor.getLine(to.line);
@@ -2004,18 +2637,50 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		);
 
 		if (inLPTable || inSourceTable) {
-			if (from.line !== to.line) return;
+			if (from.line !== to.line) return null;
 
 			const line        = fromLine;
 			const fromBounds  = getCellBounds(line, from.ch);
 			const toBounds    = getCellBounds(line, to.ch);
-			if (!fromBounds || !toBounds || fromBounds.open !== toBounds.open) return;
+			if (!fromBounds || !toBounds || fromBounds.open !== toBounds.open) return null;
 		}
 
 		const rawText = editor.getSelection();
-		const text = (inLPTable || inSourceTable)
-			? this.normalizeKillText(rawText)
-			: rawText;
+		return (inLPTable || inSourceTable) ? this.normalizeKillText(rawText) : rawText;
+	}
+
+
+	//===========================================================================
+	// Copy region (Alt-W)
+	//===========================================================================
+
+	// Non-destructive kill-ring-save: same validation/normalization as Kill
+	// Region, breaks any in-progress Kill Line chain the same way Kill Region
+	// does (a copy is not a "kill", so it shouldn't silently append to a
+	// pending kill-line sequence), but never mutates the editor — the
+	// selection stays exactly as the user left it, matching a plain Copy.
+	private copyRegion(editor: Editor) {
+		const text = this.getValidatedRegionText(editor);
+		if (text === null) return;
+
+		this.isKillChaining = false;
+		this.updateKillCache(text);
+		navigator.clipboard.writeText(this.killCache).catch(() => {});
+	}
+
+
+	//===========================================================================
+	// Kill region (Ctrl-W)
+	//===========================================================================
+
+	private killRegion(editor: Editor) {
+		const from = editor.getCursor('from');
+		const to   = editor.getCursor('to');
+		const text = this.getValidatedRegionText(editor);
+		if (text === null) return;
+
+		const inLPTable = editor.inTableCell;
+		const fromLine  = editor.getLine(from.line);
 
 		this.isKillChaining = false;
 		this.updateKillCache(text);
@@ -2279,14 +2944,27 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (startLine === -1) {
 			return this.exitTableWithWord(e, cellIndex, forward, bigWord, wordEnd, currentLine);
 		}
-		const adjacentRowText = e.getLine(startLine);
-		const targetCellIndex = forward ? 0 : getRightmostCellIndex(adjacentRowText);
+		return this.landInRowEdgeCellForWord(e, startLine, forward, bigWord, wordEnd);
+	}
+
+	// Shared by crossTableRowForWord's own row-to-row crossing (above) and
+	// moveCursorWordPlainText's table-entry case (Emacs Word right/left
+	// reaching an adjacent table row from plain text) — both need the exact
+	// same landing: forward enters the target row's leftmost cell (its first
+	// segment), backward enters the rightmost cell (its last segment), then
+	// refines to the nearest actual word boundary. targetLine is assumed
+	// already known to be a real table row (crossTableRowForWord finds it via
+	// getNextRowLine/PrevRowLine; the plain-text case confirms it via
+	// isPositionInTable before ever calling this).
+	private landInRowEdgeCellForWord(editor: Editor, targetLine: number, forward: boolean, bigWord: boolean, wordEnd: boolean): { line: number; ch: number } | null {
+		const rowText = editor.getLine(targetLine);
+		const targetCellIndex = forward ? 0 : getRightmostCellIndex(rowText);
 		// goalCh: 0 lands at the first segment's own start (forward); a large
 		// sentinel clamps to the last segment's own end (backward) — landInCellSegment's
 		// own maxOffset clamp handles that, same as exitTableWithColumn's goalCh does.
-		const landed = this.landInCellSegment(e, startLine, targetCellIndex, forward, 0, forward ? 0 : Number.MAX_SAFE_INTEGER);
+		const landed = this.landInCellSegment(editor, targetLine, targetCellIndex, forward, 0, forward ? 0 : Number.MAX_SAFE_INTEGER);
 		if (!landed) return null;
-		return this.refineWordLanding(e, landed, forward, bigWord, wordEnd);
+		return this.refineWordLanding(editor, landed, forward, bigWord, wordEnd);
 	}
 
 	// Vim's gg/G (and count-prefixed "5gg"/"5G"). explicitLine is the
@@ -2312,6 +2990,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			// (not the keystroke's own forward) keeps that landing consistent
 			// regardless of which key was actually pressed.
 			result = this.enterTableAtLine(e, targetLine, 0, true, 0, 0);
+			if (result) result = this.refineTableLandingForSmartHome(e, result);
 		} else {
 			const lineText = e.getLine(targetLine);
 			// Same std/adv-aware position `^` itself uses when Smart home
@@ -2333,6 +3012,71 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// changing behavior for its other, already-working callers); done as
 		// its own follow-up dispatch to the same (already landed-on)
 		// position instead.
+		if (result) {
+			const cm = e.cm;
+			const pos = e.posToOffset(result);
+			cm.dispatch({ selection: { anchor: pos, head: pos }, scrollIntoView: true, userEvent: 'move' });
+		}
+		return result;
+	}
+
+	// gg/G's own table-landing refinement: enterTableAtLine's shared landing
+	// (via landInCellSegment) only ever skips leading whitespace
+	// (getInCellLineInfo's own startOfInCellLine) — never Smart Home, unlike
+	// gg/G's plain-text landing just above, which respects it. landInCellSegment
+	// is also shared by crossTableRowForCell (Ctrl-N/P and Vim j/k's own
+	// goal-column-preserving row crossing), which must NOT gain Smart Home, so
+	// this can't be baked into that shared primitive itself — mirrors
+	// refineWordLanding's own "land roughly via the shared primitive, then
+	// refine for this caller's own needs" shape instead. No-op when Smart Home
+	// (standard) is off; when it's on but the segment's own content has
+	// nothing for it to skip past (the common case — table cells rarely start
+	// with list/checkbox/blockquote/heading syntax), targetCh just comes back
+	// equal to landed.ch and no re-dispatch happens.
+	private refineTableLandingForSmartHome(editor: Editor, landed: { line: number; ch: number }): { line: number; ch: number } {
+		if (!this.settings.smartHomeStandard) return landed;
+		const lineText = editor.getLine(landed.line);
+		const segInfo = getInCellLineInfo(lineText, landed.ch);
+		if (!segInfo) return landed;
+		const segmentText = lineText.slice(segInfo.startOfInCellLine, segInfo.endOfInCellLine);
+		const targetCh = segInfo.startOfInCellLine + this.getBeginningOfLinePosition(segmentText, segmentText.length || 1);
+		if (targetCh !== landed.ch) {
+			this.setCursorViaCm(editor, landed.line, targetCh);
+		}
+		return { line: landed.line, ch: targetCh };
+	}
+
+	// Alt-Shift-,/. (Emacs beginning-of-buffer/end-of-buffer). Deliberately
+	// separate from jumpToDocumentLine (Vim's gg/G, left untouched) — real
+	// vim's gg/G always land at a line's own first non-blank character
+	// (optionally Smart-Home-enhanced), but real Emacs has no such concept
+	// for buffer edges: it's the true edge of the buffer, full stop. So
+	// forward=false (TOP) lands at literal ch=0 of the first line, no skip
+	// of any kind; forward=true (BOTTOM) lands at the end of the last line.
+	// Table-aware, but asymmetrically so, matching the same "true edge"
+	// framing: TOP lands in the leftmost cell's own content start (there's
+	// no position "before" that inside a rendered cell — already the true
+	// edge there), while BOTTOM lands in the *rightmost* cell's own content
+	// *end* (the actual end of that row's raw text) — unlike gg/G, which
+	// always targets the leftmost cell regardless of direction.
+	jumpToBufferEdge(editor: unknown, forward: boolean): { line: number; ch: number } | null {
+		const e = editor as Editor;
+		const targetLine = forward ? e.lineCount() - 1 : 0;
+
+		let result: { line: number; ch: number } | null;
+		if (this.isPositionInTable(e, targetLine, 1)) {
+			result = forward
+				? this.enterTableAtLine(e, targetLine, getRightmostCellIndex(e.getLine(targetLine)), false, Number.MAX_SAFE_INTEGER, 0)
+				: this.enterTableAtLine(e, targetLine, 0, true, 0, 0);
+		} else {
+			const lineText = e.getLine(targetLine);
+			const targetCh = forward ? lineText.length : 0;
+			this.setCursorViaCm(e, targetLine, targetCh);
+			result = { line: targetLine, ch: targetCh };
+		}
+
+		// Same reasoning as jumpToDocumentLine's own identical follow-up: a
+		// buffer-edge jump can land far outside the current viewport.
 		if (result) {
 			const cm = e.cm;
 			const pos = e.posToOffset(result);
@@ -2524,49 +3268,133 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		return { line: landed.line, ch: targetCh };
 	}
 
-	// Matches vim-support.ts's own isWordChar/punctuation classification
-	// exactly (kept as a separate small copy here — this is a single-line scan
-	// for the landing line only, not the full cross-line findWord
-	// vim-support.ts needs for in-cell motion). Real vim classifies every
-	// non-whitespace character as either a "word" char or its own "punctuation"
-	// class — a punctuation run (e.g. "&", "!!!") is its own word, not
-	// something w/e/b skips over the way whitespace is skipped. bigWord
-	// (W/E/B) collapses both into a single non-whitespace class.
-	private static readonly WORD_CHAR_REGEX = /[\w\p{Alphabetic}\p{Number}_]/u;
-
-	// Returns 0 (word), 1 (punctuation), or null (whitespace/out of bounds).
-	// bigWord collapses word+punctuation down to a single class (0).
-	private static classOf(ch: string | undefined, bigWord: boolean): number | null {
-		if (!ch || /\s/.test(ch)) return null;
-		if (bigWord) return 0;
-		return universalCursorHotkeysPlugin.WORD_CHAR_REGEX.test(ch) ? 0 : 1;
+	// A from-a-clean-edge-only scan (always starts at this scoped segment's
+	// own start or end, never mid-word — refineWordLanding always hands it a
+	// fresh landing position), so unlike vim-support.ts's own w/b/e port
+	// (which must resolve from an arbitrary mid-line position, and needs a
+	// char-by-char scan for that), this can just take the first/last span
+	// directly from the shared word-segmentation.ts module.
+	private findWordBoundaryOnLine(lineText: string, forward: boolean, bigWord: boolean, wordEnd: boolean): number {
+		const spans = bigWord ? getBigWordSpans(lineText) : getWordSpans(lineText);
+		if (forward) {
+			const first = spans[0];
+			if (!first) return 0; // entirely whitespace — vim's own "empty line is a word" convention
+			return wordEnd ? first.to - 1 : first.from;
+		}
+		const last = spans[spans.length - 1];
+		if (!last) return Math.max(0, lineText.length - 1);
+		return wordEnd ? last.to - 1 : last.from;
 	}
 
-	private findWordBoundaryOnLine(lineText: string, forward: boolean, bigWord: boolean, wordEnd: boolean): number {
-		const classOf = (ch: string | undefined) => universalCursorHotkeysPlugin.classOf(ch, bigWord);
-		if (forward) {
-			let i = 0;
-			while (i < lineText.length && classOf(lineText[i]) === null) i++;
-			if (i >= lineText.length) return 0; // entirely whitespace — vim's own "empty line is a word" convention
-			if (!wordEnd) return i; // w: the word's own start
-			// e: walk to the end of this same class run (word or punctuation).
-			const cls = classOf(lineText[i]);
-			while (i + 1 < lineText.length && classOf(lineText[i + 1]) === cls) i++;
-			return i;
-		}
-		if (wordEnd) {
-			// ge: scanning from the end, the first non-whitespace hit *is* the
-			// last word's own end (no need to walk further, unlike the forward case).
-			for (let i = lineText.length - 1; i >= 0; i--) {
-				if (classOf(lineText[i]) !== null) return i;
+	// Alt-F/Alt-B in plain text (raw table Markdown text in Source Mode is
+	// still deliberately untouched here, same as Ctrl-B/F's own goLeft/
+	// goRight, which never special-cases Source Mode tables either — Source
+	// Mode table rows read as plain text either way). Walks line by line via
+	// getWordSpans until a word is found, a Live Preview table row is
+	// reached (see landInRowEdgeCellForWord below), or the document's own
+	// start/end is reached (a real Emacs buffer would signal "End/Beginning
+	// of buffer" and simply not move further — same here, via the early
+	// return once there's no further line to try).
+	private moveCursorWordPlainText(editor: Editor, forward: boolean) {
+		const cursor = editor.getCursor();
+		let lineNum = cursor.line;
+		let ch = cursor.ch;
+		for (;;) {
+			const lineText = editor.getLine(lineNum);
+			const span = findWordSpanOnLine(lineText, ch, forward);
+			if (span) {
+				const targetCh = forward ? span.to : span.from;
+				if (lineNum !== cursor.line || targetCh !== cursor.ch) {
+					this.setCursorViaCm(editor, lineNum, targetCh);
+					if (lineNum !== cursor.line) this.scrollCursorIntoView(editor);
+				}
+				return;
 			}
-			return Math.max(0, lineText.length - 1);
+			const nextLine = forward ? lineNum + 1 : lineNum - 1;
+			if (nextLine < 0 || nextLine >= editor.lineCount()) return; // document edge — stay put
+			if (this.isPositionInTable(editor, nextLine, 1)) {
+				// Reaching a Live Preview table row: enter it the same way
+				// crossTableRowForWord's own row-crossing does (leftmost
+				// cell forward, rightmost cell backward), then apply the
+				// same +1 caret correction moveCursorWordInTable's own
+				// crossing already needs (landInRowEdgeCellForWord/
+				// refineWordLanding land using vim's block-cursor word-end
+				// convention, one char short of where Emacs's own caret
+				// should rest — see moveCursorWordInTable's identical
+				// comment).
+				const landed = this.landInRowEdgeCellForWord(editor, nextLine, forward, false, forward);
+				if (landed && forward) {
+					const landedLineText = editor.getLine(landed.line);
+					const targetCh = Math.min(landed.ch + 1, landedLineText.length);
+					if (targetCh !== landed.ch) this.setCursorViaCm(editor, landed.line, targetCh);
+				}
+				if (landed) this.scrollCursorIntoView(editor);
+				return;
+			}
+			lineNum = nextLine;
+			ch = forward ? 0 : editor.getLine(lineNum).length;
 		}
-		for (let i = lineText.length - 1; i >= 0; i--) {
-			const cls = classOf(lineText[i]);
-			if (cls !== null && (i === 0 || classOf(lineText[i - 1]) !== cls)) return i;
+	}
+
+	// Alt-F/Alt-B inside a Live Preview table cell. First searches the
+	// cursor's own <br>-segment, then walks further segments within the SAME
+	// cell (walkSegments — mirrors how vim.js's own inner-view line iteration
+	// covers in-cell segments for free, since each <br>-segment is its own
+	// doc line there); only once the whole cell is exhausted does it cross
+	// into the next/prev cell or row via crossTableRowForWord — single
+	// cell/row crossing only, matching that function's own documented "no
+	// multi-cell count precision" scope (see its own comment).
+	// crossTableRowForWord/refineWordLanding land using vim's block-cursor
+	// word-end convention (wordEnd -> last char's own index); this caret
+	// cursor needs one further to the right, hence the +1 correction applied
+	// only on the forward landing.
+	private moveCursorWordInTable(editor: Editor, forward: boolean) {
+		const cursor = editor.getCursor();
+		const lineText = editor.getLine(cursor.line);
+		let segInfo = getInCellLineInfo(lineText, cursor.ch);
+		if (!segInfo) return;
+
+		let localCh = cursor.ch - segInfo.startOfInCellLine;
+		for (;;) {
+			const scopeStart = segInfo.startOfInCellLine;
+			const scopedText = lineText.slice(scopeStart, segInfo.endOfInCellLine);
+			const fromCh = Math.max(0, Math.min(localCh, scopedText.length));
+			const span = findWordSpanOnLine(scopedText, fromCh, forward);
+			if (span) {
+				const targetCh = scopeStart + (forward ? span.to : span.from);
+				if (targetCh !== cursor.ch) this.setCursorViaCm(editor, cursor.line, targetCh);
+				return;
+			}
+			const { segInfo: nextSeg, steps } = this.walkSegments(lineText, segInfo, forward, 1);
+			if (steps === 0) break; // no further segment in this cell
+			segInfo = nextSeg;
+			localCh = forward ? 0 : segInfo.endOfInCellLine - segInfo.startOfInCellLine;
 		}
-		return Math.max(0, lineText.length - 1);
+
+		const cellIndex = getCellIndex(lineText, cursor.ch);
+		const landed = this.crossTableRowForWord(editor, cellIndex, forward, false, forward);
+		if (landed && forward) {
+			const landedLineText = editor.getLine(landed.line);
+			const targetCh = Math.min(landed.ch + 1, landedLineText.length);
+			if (targetCh !== landed.ch) this.setCursorViaCm(editor, landed.line, targetCh);
+		}
+
+		// crossTableRowForWord/exitTableWithWord are shared with Vim's own
+		// w/b/e, and real vim's own word motion treats a blank line as a
+		// word in its own right — correct for Vim, so that shared code is
+		// deliberately left alone. Real Emacs has no such convention: its
+		// own word motion skips blank lines entirely (moveCursorWordPlainText
+		// already does this for the all-plain-text case). So when exiting
+		// the table lands on a genuinely wordless line — the exact situation
+		// where the shared code's own "stop here" fallback kicks in — hand
+		// off to moveCursorWordPlainText to keep searching from here, purely
+		// as a post-processing step on top of the untouched shared landing
+		// (the real cursor is already sitting there; crossTableRowForWord's
+		// own setCursorToPrevRow/NextRow dispatch already moved it).
+		if (landed && !this.isPositionInTable(editor, landed.line, 1)
+				&& getWordSpans(editor.getLine(landed.line)).length === 0) {
+			this.moveCursorWordPlainText(editor, forward);
+		}
 	}
 
 	// Shared by crossTableRowForCell and enterTableAtLine: given a target row
