@@ -393,8 +393,8 @@ Note: (*) indicates behaviors specific to Live Preview mode.
 <details>
 <summary>Uppercase word / Lowercase word / Capitalize word</summary>
 
-- **With a selection:** Transforms the selected text. Uppercase/Lowercase apply per character; Capitalize applies per word (uppercases each word's first character, lowercases the rest), leaving whitespace and punctuation between words untouched.
-- **Without a selection:** Transforms the whole word at the cursor, regardless of which character the cursor is on — this differs from real Emacs's own `upcase-word`/`downcase-word`/`capitalize-word`, which only affect the cursor position through the end of the word.
+- **With a selection:** Transforms the selected text. Uppercase/Lowercase apply per character; Capitalize applies per word (uppercases each word's first character, lowercases the rest), leaving whitespace and punctuation between words untouched. This selection-handling mirrors modern Emacs's own `upcase-dwim`/`downcase-dwim`/`capitalize-dwim` (the actual `M-u`/`M-l`/`M-c` defaults in current Emacs) — unlike the classic `upcase-word`/`downcase-word`/`capitalize-word`, which don't look at the region at all.
+- **Without a selection:** Transforms the whole word at the cursor, regardless of which character the cursor is on — this differs from both the classic and dwim commands, which only affect the cursor position through the end of the word in the no-selection case.
 - **Table-aware:** Crosses cell/row boundaries the same way Word right does when there's no word left in the current cell, including entering a table reached from plain text.
 - **CJK-aware:** Uses the same word-boundary detection as Word right/left and Kill word, so full-width and mixed full-width/half-width text is handled correctly.
 
