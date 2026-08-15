@@ -417,6 +417,23 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		nameEl.appendText(label);
 	}
 
+	// Same as setKeyChipName, but for a row that bundles several independent
+	// key sequences (e.g. table structure's growing family of leader
+	// commands) — each group's own chips render together, groups separated
+	// by " / ". groups: e.g. [['Space','t','o'], ['Space','t','O']].
+	private setKeyChipNameMulti(setting: Setting, groups: string[][], label: string): void {
+		const nameEl = setting.nameEl;
+		nameEl.empty();
+		groups.forEach((keys, i) => {
+			if (i > 0) nameEl.appendText(' / ');
+			keys.forEach((key, j) => {
+				if (j > 0) nameEl.appendText(' ');
+				nameEl.createSpan({ text: key, cls: 'uch-kbd' });
+			});
+		});
+		nameEl.appendText(' ' + label);
+	}
+
 	// Which Vim toggles "Apply all" can currently turn on — `^`/`I` and `J`
 	// are only eligible while their own prerequisite (Smart home (standard) /
 	// Smart join, both outside the Vim section) is on. Shared between the
@@ -621,9 +638,12 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		const tableStructure = new Setting(containerEl)
 			.setClass('uch-vim-item')
 			.then(setting => {
-				this.setKeyChipName(setting, [this.plugin.settings.vimLeaderUseBackslash ? '\\' : 'Space', 't', 'o'], 'Table structure — insert row below');
+				const leader = this.plugin.settings.vimLeaderUseBackslash ? '\\' : 'Space';
+				this.setKeyChipNameMulti(setting, [[leader, 'to'], [leader, 'tO']], 'Table structure');
 				this.setHtmlDesc(setting, '' +
-					'<b>ON:</b> Inserts a new table row below the current one (wraps Obsidian\'s own built-in "Insert row below" command). No-op outside a table cell. ' +
+					'<b>ON:</b> <span class="uch-kbd">' + leader + '</span> <span class="uch-kbd">to</span> inserts a new row below, ' +
+					'<span class="uch-kbd">' + leader + '</span> <span class="uch-kbd">tO</span> inserts one above the current row ' +
+					'(wraps Obsidian\'s own built-in "Insert row below"/"Insert row above" commands). No-op outside a table cell. ' +
 					'While this is on, a bare press of the leader key no longer behaves as vim\'s own native binding (Space normally moves right).<br>' +
 					'<b>OFF:</b> No leader-key table commands are bound.');
 			})
@@ -686,8 +706,8 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		displayLineLi.appendText(' ');
 		displayLineLi.createSpan({ text: 'gk', cls: 'uch-kbd' });
 		displayLineLi.appendText(': a count is not preserved across a row or table crossing — it stops consuming the count after the first crossing.');
-		list.createEl('li', { text: 'Table structure: only "insert row below" is implemented so far — insert row above, insert/delete column, delete row are planned.' });
-		list.createEl('li', { text: 'Table structure: Undo (u) does not undo the insertion while the cursor is still inside the table cell — exit the cell first, then Undo.' });
+		list.createEl('li', { text: 'Table structure: only insert row above/below are implemented so far — insert/delete column, delete row are planned.' });
+		list.appendChild(sanitizeHTMLToDom('<li>Table structure: Undo (<span class="uch-kbd">u</span>) does not undo the insertion while the cursor is still inside the table cell — exit the cell first, then undo.</li>'));
 		vimSectionEls.push(limitationsEl);
 
 		for (const el of vimSectionEls) el.toggleClass('uch-hidden', !this.vimSectionVisible);

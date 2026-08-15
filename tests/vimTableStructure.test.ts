@@ -3,9 +3,9 @@ import { VimSupport } from '../vim-support'
 import type { VimSupportHost } from '../vim-support'
 import { installVimWindow, uninstallVimWindow } from './__helpers__/vimWindow'
 
-// Vim leader-key table structure commands — MVP command #1 (insert row
-// below). Covers the registration mechanics (setTableStructureEnabled,
-// setLeaderUseBackslash) and the action itself.
+// Vim leader-key table structure commands — MVP commands #1/#2 (insert row
+// below/above). Covers the registration mechanics (setTableStructureEnabled,
+// setLeaderUseBackslash) and each action itself.
 
 const makeSettings = (overrides: Partial<VimSupportHost['settings']> = {}): VimSupportHost['settings'] => ({
 	vimHlSupport: false,
@@ -39,7 +39,7 @@ const makeHost = (
 	executeObsidianCommand,
 })
 
-describe('Vim table structure (insert row below)', () => {
+describe('Vim table structure (insert row above/below)', () => {
 	let mapCommand: ReturnType<typeof vi.fn>
 	let unmap: ReturnType<typeof vi.fn>
 	let defineAction: ReturnType<typeof vi.fn>
@@ -59,31 +59,36 @@ describe('Vim table structure (insert row below)', () => {
 	afterEach(() => uninstallVimWindow())
 
 	describe('setTableStructureEnabled', () => {
-		it('registers uchTableRowAfter under a UCH-unique name (not tableRowAfter — collision guard)', () => {
+		it('registers uchTableRowAfter/uchTableRowBefore under UCH-unique names (not tableRowAfter/tableRowBefore — collision guard)', () => {
 			const vim = new VimSupport(makeHost())
 			vim.setTableStructureEnabled(true)
 			expect(defineAction).toHaveBeenCalledWith('uchTableRowAfter', expect.any(Function))
-			expect(defineAction.mock.calls.some(c => c[0] === 'tableRowAfter')).toBe(false)
+			expect(defineAction).toHaveBeenCalledWith('uchTableRowBefore', expect.any(Function))
+			expect(defineAction.mock.calls.some(c => c[0] === 'tableRowAfter' || c[0] === 'tableRowBefore')).toBe(false)
 		})
 
-		it('unmaps Space\'s native binding (context undefined) and maps "<Space>to" by default', () => {
+		it('unmaps Space\'s native binding once (context undefined) and maps "<Space>to"/"<Space>tO" by default', () => {
 			const vim = new VimSupport(makeHost())
 			vim.setTableStructureEnabled(true)
 			expect(unmap).toHaveBeenCalledWith('<Space>', undefined)
+			expect(unmap).toHaveBeenCalledTimes(1)
 			expect(mapCommand).toHaveBeenCalledWith('<Space>to', 'action', 'uchTableRowAfter')
+			expect(mapCommand).toHaveBeenCalledWith('<Space>tO', 'action', 'uchTableRowBefore')
 		})
 
-		it('maps "\\to" with no native-binding unmap when the backslash leader is chosen', () => {
+		it('maps "\\to"/"\\tO" with no native-binding unmap when the backslash leader is chosen', () => {
 			const vim = new VimSupport(makeHost(makeSettings({ vimLeaderUseBackslash: true })))
 			vim.setTableStructureEnabled(true)
 			expect(unmap).not.toHaveBeenCalled()
 			expect(mapCommand).toHaveBeenCalledWith('\\to', 'action', 'uchTableRowAfter')
+			expect(mapCommand).toHaveBeenCalledWith('\\tO', 'action', 'uchTableRowBefore')
 		})
 
-		it('turning off unmaps the leader sequence (context undefined) and flags needsRestart', () => {
+		it('turning off unmaps both leader sequences (context undefined) and flags needsRestart', () => {
 			const vim = new VimSupport(makeHost(makeSettings({ vimTableStructureSupport: true })))
 			vim.setTableStructureEnabled(false)
 			expect(unmap).toHaveBeenCalledWith('<Space>to', undefined)
+			expect(unmap).toHaveBeenCalledWith('<Space>tO', undefined)
 			expect(vim.needsRestart).toBe(true)
 		})
 	})
@@ -99,11 +104,13 @@ describe('Vim table structure (insert row below)', () => {
 			expect(vim.needsRestart).toBe(false)
 		})
 
-		it('remaps live when the feature is already on: unmaps old lhs, maps new lhs, no restart needed (fully reversible)', () => {
+		it('remaps live when the feature is already on: unmaps old lhs\'s, maps new lhs\'s, no restart needed (fully reversible)', () => {
 			const vim = new VimSupport(makeHost(makeSettings({ vimTableStructureSupport: true })))
 			vim.setLeaderUseBackslash(true)
 			expect(unmap).toHaveBeenCalledWith('<Space>to', undefined)
+			expect(unmap).toHaveBeenCalledWith('<Space>tO', undefined)
 			expect(mapCommand).toHaveBeenCalledWith('\\to', 'action', 'uchTableRowAfter')
+			expect(mapCommand).toHaveBeenCalledWith('\\tO', 'action', 'uchTableRowBefore')
 			expect(vim.needsRestart).toBe(false)
 		})
 	})
@@ -182,6 +189,34 @@ describe('Vim table structure (insert row below)', () => {
 			const host = makeHost(makeSettings(), executeObsidianCommand)
 			const vim = new VimSupport(host) as any
 			vim.tableRowAfter({}, { repeat: 1 })
+			expect(executeObsidianCommand).not.toHaveBeenCalled()
+		})
+	})
+
+	describe('tableRowBefore action', () => {
+		it('calls executeObsidianCommand("editor:table-row-before") when inside a table cell', () => {
+			const executeObsidianCommand = vi.fn().mockReturnValue(true)
+			const host = makeHost(makeSettings(), executeObsidianCommand)
+			const vim = new VimSupport(host) as any
+			;(globalThis as any).window.app.workspace.activeEditor = { editor: { inTableCell: true } }
+			vim.tableRowBefore({}, { repeat: 1 })
+			expect(executeObsidianCommand).toHaveBeenCalledWith('editor:table-row-before')
+		})
+
+		it('no-ops outside a table cell', () => {
+			const executeObsidianCommand = vi.fn().mockReturnValue(true)
+			const host = makeHost(makeSettings(), executeObsidianCommand)
+			const vim = new VimSupport(host) as any
+			;(globalThis as any).window.app.workspace.activeEditor = { editor: { inTableCell: false } }
+			vim.tableRowBefore({}, { repeat: 1 })
+			expect(executeObsidianCommand).not.toHaveBeenCalled()
+		})
+
+		it('no-ops when there is no active editor at all', () => {
+			const executeObsidianCommand = vi.fn().mockReturnValue(true)
+			const host = makeHost(makeSettings(), executeObsidianCommand)
+			const vim = new VimSupport(host) as any
+			vim.tableRowBefore({}, { repeat: 1 })
 			expect(executeObsidianCommand).not.toHaveBeenCalled()
 		})
 	})
