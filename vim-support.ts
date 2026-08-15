@@ -480,12 +480,42 @@ export class VimSupport {
 		getVim()?.defineMotion('moveToEol', VimSupport.VIM_DEFAULT_MOVE_TO_EOL);
 	}
 
-	private static readonly TABLE_ROW_AFTER_ACTION = 'uchTableRowAfter';
 	private static readonly LEADER_SPACE_NOTATION = '<Space>';
 
-	private tableRowAfterLhs(): string {
-		const leader = this.host.settings.vimLeaderUseBackslash ? '\\' : VimSupport.LEADER_SPACE_NOTATION;
-		return `${leader}to`;
+	private leaderNotation(): string {
+		return this.host.settings.vimLeaderUseBackslash ? '\\' : VimSupport.LEADER_SPACE_NOTATION;
+	}
+
+	private tableCommandLhs(leaderSuffix: string): string {
+		return `${this.leaderNotation()}${leaderSuffix}`;
+	}
+
+	// Thin wrapper factory — every table-structure command shares the same
+	// shape (in-table-cell gate, then delegate to Obsidian's own built-in
+	// command by ID; no table-mutation logic of our own).
+	private tableCommandAction(commandId: string): VimActionFn {
+		return () => {
+			if (!getActiveEditor()?.inTableCell) return;
+			this.host.executeObsidianCommand(commandId);
+		};
+	}
+
+	// leader + "to"/"tO" — mnemonic: "table ... open [a row] below/above",
+	// echoing how bare `o`/`O` already open a new line below/above in Normal
+	// mode. Action names are UCH-prefixed (not e.g. bare "tableRowAfter") to
+	// avoid colliding with the same names a competing plugin ("Vim Motions")
+	// registers on the same shared Vim singleton.
+	private readonly tableRowAfter = this.tableCommandAction('editor:table-row-after');
+	private readonly tableRowBefore = this.tableCommandAction('editor:table-row-before');
+
+	// The full table-structure command family — grows as more MVP commands
+	// land; apply/restore/leader-switch all loop over this rather than
+	// hand-repeating each command's own registration.
+	private get tableCommands(): ReadonlyArray<{ action: string; leaderSuffix: string; fn: VimActionFn }> {
+		return [
+			{ action: 'uchTableRowAfter', leaderSuffix: 'to', fn: this.tableRowAfter },
+			{ action: 'uchTableRowBefore', leaderSuffix: 'tO', fn: this.tableRowBefore },
+		];
 	}
 
 	// Space is natively bound in vim.js's own default keymap (a keyToKey
@@ -552,18 +582,23 @@ export class VimSupport {
 	private applyTableStructure(): void {
 		const vim = getVim();
 		if (!vim) return;
-		vim.defineAction(VimSupport.TABLE_ROW_AFTER_ACTION, this.tableRowAfter);
 		this.unmapLeaderNativeBinding();
-		vim.mapCommand(this.tableRowAfterLhs(), 'action', VimSupport.TABLE_ROW_AFTER_ACTION);
+		for (const cmd of this.tableCommands) {
+			vim.defineAction(cmd.action, cmd.fn);
+			vim.mapCommand(this.tableCommandLhs(cmd.leaderSuffix), 'action', cmd.action);
+		}
 		this.applySpaceLeakGuard();
 	}
 
-	// Only unmaps our own leader sequence — there's no prior default action
-	// to restore (this action name never existed before UCH registered it).
-	// Space's native binding can't be restored either (no read-back API) —
-	// same needsRestart-latch story as the other toggles.
+	// Only unmaps our own leader sequences — there's no prior default action
+	// to restore (these action names never existed before UCH registered
+	// them). Space's native binding can't be restored either (no read-back
+	// API) — same needsRestart-latch story as the other toggles.
 	private restoreTableStructure(): void {
-		getVim()?.unmap(this.tableRowAfterLhs(), undefined);
+		const vim = getVim();
+		for (const cmd of this.tableCommands) {
+			vim?.unmap(this.tableCommandLhs(cmd.leaderSuffix), undefined);
+		}
 		this.restoreSpaceLeakGuard();
 	}
 
@@ -573,35 +608,28 @@ export class VimSupport {
 
 	// Leader-key choice — a preference, not a feature on/off, so this
 	// bypasses setFeature() entirely. If the feature is already enabled, the
-	// old lhs is unmapped and the new leader's own native binding (if any)
-	// is removed before mapping the new lhs live — both fully reversible
-	// remaps, so (unlike turning the whole feature off) this doesn't need
-	// needsRestart on its own: Space's native binding, if it's ever removed
-	// at all, is removed silently the same way turning the feature on in
-	// the first place already is (no restart banner for that either) — this
-	// switch either does that same removal or is a no-op, never something
-	// worse.
+	// old lhs's are unmapped and the new leader's own native binding (if
+	// any) is removed before mapping the new lhs's live — all fully
+	// reversible remaps, so (unlike turning the whole feature off) this
+	// doesn't need needsRestart on its own: Space's native binding, if it's
+	// ever removed at all, is removed silently the same way turning the
+	// feature on in the first place already is (no restart banner for that
+	// either) — this switch either does that same removal or is a no-op,
+	// never something worse.
 	setLeaderUseBackslash(on: boolean): void {
 		const featureOn = this.host.settings.vimTableStructureSupport;
 		const vim = featureOn ? getVim() : undefined;
-		const oldLhs = this.tableRowAfterLhs();
+		const oldLhsList = this.tableCommands.map(cmd => this.tableCommandLhs(cmd.leaderSuffix));
 		this.host.settings.vimLeaderUseBackslash = on;
 		if (vim) {
-			vim.unmap(oldLhs, undefined);
+			for (const oldLhs of oldLhsList) vim.unmap(oldLhs, undefined);
 			this.unmapLeaderNativeBinding();
-			vim.mapCommand(this.tableRowAfterLhs(), 'action', VimSupport.TABLE_ROW_AFTER_ACTION);
+			for (const cmd of this.tableCommands) {
+				vim.mapCommand(this.tableCommandLhs(cmd.leaderSuffix), 'action', cmd.action);
+			}
 		}
 		void this.host.saveSettings();
 	}
-
-	// leader + "to" — mnemonic: "table ... open [a row] below", echoing how
-	// bare `o` already opens a new line below in Normal mode. Wraps
-	// Obsidian's own built-in "Insert row below" command rather than
-	// reimplementing table mutation. No-ops outside a table cell.
-	private readonly tableRowAfter: VimActionFn = () => {
-		if (!getActiveEditor()?.inTableCell) return;
-		this.host.executeObsidianCommand('editor:table-row-after');
-	};
 
 	// --- w/b/e (moveByWords) — faithful port of vim.js's own word-motion
 	// algorithm (src/vim.js's findWord/moveToWord + src/cm_adapter.ts's
