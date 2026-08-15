@@ -18,7 +18,7 @@ Obsidian's Live Preview breaks cursor behavior inside Markdown tables. This plug
 
 If you use Obsidian's built-in Vim mode, this plugin fixes a set of well-known Live Preview table gaps: `h`/`l`/`j`/`k`/`w`/`b`/`e`/`gg`/`G`/`gj`/`gk` now work correctly inside table cells, instead of miscounting characters, refusing to cross rows, or landing in the wrong place.
 
-<img width="610" height="610" alt="Image" src="https://github.com/user-attachments/assets/f3b7483a-2fd1-4c3c-8c64-8ce8bb07d861" />
+<img width="610" height="610" alt="Image" src="https://github.com/user-attachments/assets/0533a2f4-e497-4d3d-af73-7b68f5edfa86" />
 
 ### Getting Started
 
