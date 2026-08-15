@@ -687,6 +687,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		displayLineLi.createSpan({ text: 'gk', cls: 'uch-kbd' });
 		displayLineLi.appendText(': a count is not preserved across a row or table crossing — it stops consuming the count after the first crossing.');
 		list.createEl('li', { text: 'Table structure: only "insert row below" is implemented so far — insert row above, insert/delete column, delete row are planned.' });
+		list.createEl('li', { text: 'Table structure: Undo (u) does not undo the insertion while the cursor is still inside the table cell — exit the cell first, then Undo.' });
 		vimSectionEls.push(limitationsEl);
 
 		for (const el of vimSectionEls) el.toggleClass('uch-hidden', !this.vimSectionVisible);
