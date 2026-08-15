@@ -3,9 +3,43 @@ import { VimSupport } from '../vim-support'
 import type { VimSupportHost } from '../vim-support'
 import { installVimWindow, uninstallVimWindow } from './__helpers__/vimWindow'
 
-// Vim leader-key table structure commands — MVP commands #1/#2 (insert row
-// below/above). Covers the registration mechanics (setTableStructureEnabled,
-// setLeaderUseBackslash) and each action itself.
+// Vim leader-key table structure commands — the full MVP-11 family (the
+// ceiling of what Obsidian exposes as invokable table commands; see this
+// branch's own design notes for what was excluded and why). Covers the
+// registration mechanics (setTableStructureEnabled, setLeaderUseBackslash)
+// and each action itself.
+
+// The full MVP-11 family — action name / leader suffix / Obsidian command ID,
+// all source-confirmed (see this branch's own design notes). Shared by
+// several describe blocks below.
+const ALL_TABLE_COMMANDS: ReadonlyArray<{ action: string; leaderSuffix: string; commandId: string }> = [
+	{ action: 'uchTableRowAfter', leaderSuffix: 'to', commandId: 'editor:table-row-after' },
+	{ action: 'uchTableRowBefore', leaderSuffix: 'tO', commandId: 'editor:table-row-before' },
+	{ action: 'uchTableRowUp', leaderSuffix: 'tK', commandId: 'editor:table-row-up' },
+	{ action: 'uchTableRowDown', leaderSuffix: 'tJ', commandId: 'editor:table-row-down' },
+	{ action: 'uchTableRowDelete', leaderSuffix: 'tdd', commandId: 'editor:table-row-delete' },
+	{ action: 'uchTableColBefore', leaderSuffix: 'tiH', commandId: 'editor:table-col-before' },
+	{ action: 'uchTableColAfter', leaderSuffix: 'tiL', commandId: 'editor:table-col-after' },
+	{ action: 'uchTableColLeft', leaderSuffix: 'tH', commandId: 'editor:table-col-left' },
+	{ action: 'uchTableColRight', leaderSuffix: 'tL', commandId: 'editor:table-col-right' },
+	{ action: 'uchTableColDelete', leaderSuffix: 'tdc', commandId: 'editor:table-col-delete' },
+	{ action: 'uchTableInsert', leaderSuffix: 'tm', commandId: 'editor:insert-table' },
+]
+
+// action-fn method names, gated commands only (all but tableInsert, whose
+// whole point is to work outside a table cell — covered separately below).
+const GATED_ACTION_METHODS: ReadonlyArray<{ method: string; commandId: string }> = [
+	{ method: 'tableRowAfter', commandId: 'editor:table-row-after' },
+	{ method: 'tableRowBefore', commandId: 'editor:table-row-before' },
+	{ method: 'tableRowUp', commandId: 'editor:table-row-up' },
+	{ method: 'tableRowDown', commandId: 'editor:table-row-down' },
+	{ method: 'tableRowDelete', commandId: 'editor:table-row-delete' },
+	{ method: 'tableColBefore', commandId: 'editor:table-col-before' },
+	{ method: 'tableColAfter', commandId: 'editor:table-col-after' },
+	{ method: 'tableColLeft', commandId: 'editor:table-col-left' },
+	{ method: 'tableColRight', commandId: 'editor:table-col-right' },
+	{ method: 'tableColDelete', commandId: 'editor:table-col-delete' },
+]
 
 const makeSettings = (overrides: Partial<VimSupportHost['settings']> = {}): VimSupportHost['settings'] => ({
 	vimHlSupport: false,
@@ -115,6 +149,32 @@ describe('Vim table structure (insert row above/below)', () => {
 		})
 	})
 
+	describe('full command family (all 11) registration', () => {
+		for (const cmd of ALL_TABLE_COMMANDS) {
+			it(`registers ${cmd.action} and maps "<Space>${cmd.leaderSuffix}" to it`, () => {
+				const vim = new VimSupport(makeHost())
+				vim.setTableStructureEnabled(true)
+				expect(defineAction).toHaveBeenCalledWith(cmd.action, expect.any(Function))
+				expect(mapCommand).toHaveBeenCalledWith(`<Space>${cmd.leaderSuffix}`, 'action', cmd.action)
+			})
+		}
+
+		it('unmaps Space\'s native binding exactly once regardless of command count', () => {
+			const vim = new VimSupport(makeHost())
+			vim.setTableStructureEnabled(true)
+			expect(unmap).toHaveBeenCalledWith('<Space>', undefined)
+			expect(unmap).toHaveBeenCalledTimes(1)
+		})
+
+		it('turning off unmaps every command\'s leader sequence', () => {
+			const vim = new VimSupport(makeHost(makeSettings({ vimTableStructureSupport: true })))
+			vim.setTableStructureEnabled(false)
+			for (const cmd of ALL_TABLE_COMMANDS) {
+				expect(unmap).toHaveBeenCalledWith(`<Space>${cmd.leaderSuffix}`, undefined)
+			}
+		})
+	})
+
 	describe('Space insertion-leak guard (multiSelectHandleKey wrap)', () => {
 		const getWrapped = (): (cm: unknown, key: string, origin?: string) => unknown =>
 			(globalThis as any).window.CodeMirrorAdapter.Vim.multiSelectHandleKey
@@ -165,59 +225,55 @@ describe('Vim table structure (insert row above/below)', () => {
 		})
 	})
 
-	describe('tableRowAfter action', () => {
-		it('calls executeObsidianCommand("editor:table-row-after") when inside a table cell', () => {
-			const executeObsidianCommand = vi.fn().mockReturnValue(true)
-			const host = makeHost(makeSettings(), executeObsidianCommand)
-			const vim = new VimSupport(host) as any
-			;(globalThis as any).window.app.workspace.activeEditor = { editor: { inTableCell: true } }
-			vim.tableRowAfter({}, { repeat: 1 })
-			expect(executeObsidianCommand).toHaveBeenCalledWith('editor:table-row-after')
-		})
+	describe('gated table-command actions (require inTableCell)', () => {
+		for (const { method, commandId } of GATED_ACTION_METHODS) {
+			it(`${method} calls executeObsidianCommand("${commandId}") inside a table cell, no-ops outside and with no active editor`, () => {
+				const executeObsidianCommand = vi.fn().mockReturnValue(true)
+				const host = makeHost(makeSettings(), executeObsidianCommand)
+				const vim = new VimSupport(host) as any
 
-		it('no-ops outside a table cell', () => {
-			const executeObsidianCommand = vi.fn().mockReturnValue(true)
-			const host = makeHost(makeSettings(), executeObsidianCommand)
-			const vim = new VimSupport(host) as any
-			;(globalThis as any).window.app.workspace.activeEditor = { editor: { inTableCell: false } }
-			vim.tableRowAfter({}, { repeat: 1 })
-			expect(executeObsidianCommand).not.toHaveBeenCalled()
-		})
+				;(globalThis as any).window.app.workspace.activeEditor = { editor: { inTableCell: true } }
+				vim[method]({}, { repeat: 1 })
+				expect(executeObsidianCommand).toHaveBeenCalledWith(commandId)
 
-		it('no-ops when there is no active editor at all', () => {
-			const executeObsidianCommand = vi.fn().mockReturnValue(true)
-			const host = makeHost(makeSettings(), executeObsidianCommand)
-			const vim = new VimSupport(host) as any
-			vim.tableRowAfter({}, { repeat: 1 })
-			expect(executeObsidianCommand).not.toHaveBeenCalled()
-		})
+				executeObsidianCommand.mockClear()
+				;(globalThis as any).window.app.workspace.activeEditor = { editor: { inTableCell: false } }
+				vim[method]({}, { repeat: 1 })
+				expect(executeObsidianCommand).not.toHaveBeenCalled()
+
+				executeObsidianCommand.mockClear()
+				;(globalThis as any).window.app.workspace.activeEditor = undefined
+				vim[method]({}, { repeat: 1 })
+				expect(executeObsidianCommand).not.toHaveBeenCalled()
+			})
+		}
 	})
 
-	describe('tableRowBefore action', () => {
-		it('calls executeObsidianCommand("editor:table-row-before") when inside a table cell', () => {
-			const executeObsidianCommand = vi.fn().mockReturnValue(true)
-			const host = makeHost(makeSettings(), executeObsidianCommand)
-			const vim = new VimSupport(host) as any
-			;(globalThis as any).window.app.workspace.activeEditor = { editor: { inTableCell: true } }
-			vim.tableRowBefore({}, { repeat: 1 })
-			expect(executeObsidianCommand).toHaveBeenCalledWith('editor:table-row-before')
-		})
-
-		it('no-ops outside a table cell', () => {
+	describe('tableInsert action (not gated — must work outside a table)', () => {
+		it('calls executeObsidianCommand("editor:insert-table") outside a table cell', () => {
 			const executeObsidianCommand = vi.fn().mockReturnValue(true)
 			const host = makeHost(makeSettings(), executeObsidianCommand)
 			const vim = new VimSupport(host) as any
 			;(globalThis as any).window.app.workspace.activeEditor = { editor: { inTableCell: false } }
-			vim.tableRowBefore({}, { repeat: 1 })
-			expect(executeObsidianCommand).not.toHaveBeenCalled()
+			vim.tableInsert({}, { repeat: 1 })
+			expect(executeObsidianCommand).toHaveBeenCalledWith('editor:insert-table')
 		})
 
-		it('no-ops when there is no active editor at all', () => {
+		it('also works inside a table cell', () => {
 			const executeObsidianCommand = vi.fn().mockReturnValue(true)
 			const host = makeHost(makeSettings(), executeObsidianCommand)
 			const vim = new VimSupport(host) as any
-			vim.tableRowBefore({}, { repeat: 1 })
-			expect(executeObsidianCommand).not.toHaveBeenCalled()
+			;(globalThis as any).window.app.workspace.activeEditor = { editor: { inTableCell: true } }
+			vim.tableInsert({}, { repeat: 1 })
+			expect(executeObsidianCommand).toHaveBeenCalledWith('editor:insert-table')
+		})
+
+		it('works even with no active editor at all', () => {
+			const executeObsidianCommand = vi.fn().mockReturnValue(true)
+			const host = makeHost(makeSettings(), executeObsidianCommand)
+			const vim = new VimSupport(host) as any
+			vim.tableInsert({}, { repeat: 1 })
+			expect(executeObsidianCommand).toHaveBeenCalledWith('editor:insert-table')
 		})
 	})
 })

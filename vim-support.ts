@@ -492,29 +492,55 @@ export class VimSupport {
 
 	// Thin wrapper factory — every table-structure command shares the same
 	// shape (in-table-cell gate, then delegate to Obsidian's own built-in
-	// command by ID; no table-mutation logic of our own).
-	private tableCommandAction(commandId: string): VimActionFn {
+	// command by ID; no table-mutation logic of our own). requireInTableCell
+	// is false only for "insert table" (tableInsert), whose whole point is to
+	// work OUTSIDE an existing table.
+	private tableCommandAction(commandId: string, requireInTableCell = true): VimActionFn {
 		return () => {
-			if (!getActiveEditor()?.inTableCell) return;
+			if (requireInTableCell && !getActiveEditor()?.inTableCell) return;
 			this.host.executeObsidianCommand(commandId);
 		};
 	}
 
-	// leader + "to"/"tO" — mnemonic: "table ... open [a row] below/above",
-	// echoing how bare `o`/`O` already open a new line below/above in Normal
-	// mode. Action names are UCH-prefixed (not e.g. bare "tableRowAfter") to
-	// avoid colliding with the same names a competing plugin ("Vim Motions")
-	// registers on the same shared Vim singleton.
+	// leader + "to"/"tO"/etc — mnemonics echo real vim's own single-key
+	// semantics: `o`/`O` open below/above, `dd` deletes (linewise), `i`
+	// prefixes "insert" (vs. bare H/L reserved for a possible future "move
+	// column" — not part of this MVP). Action names are UCH-prefixed (not
+	// e.g. bare "tableRowAfter") to avoid colliding with the same names a
+	// competing plugin ("Vim Motions") registers on the same shared Vim
+	// singleton. Key suffixes deliberately match Vim Motions' own scheme for
+	// muscle-memory transfer (source-confirmed via their tables.ts).
 	private readonly tableRowAfter = this.tableCommandAction('editor:table-row-after');
 	private readonly tableRowBefore = this.tableCommandAction('editor:table-row-before');
+	private readonly tableRowUp = this.tableCommandAction('editor:table-row-up');
+	private readonly tableRowDown = this.tableCommandAction('editor:table-row-down');
+	private readonly tableRowDelete = this.tableCommandAction('editor:table-row-delete');
+	private readonly tableColBefore = this.tableCommandAction('editor:table-col-before');
+	private readonly tableColAfter = this.tableCommandAction('editor:table-col-after');
+	private readonly tableColLeft = this.tableCommandAction('editor:table-col-left');
+	private readonly tableColRight = this.tableCommandAction('editor:table-col-right');
+	private readonly tableColDelete = this.tableCommandAction('editor:table-col-delete');
+	private readonly tableInsert = this.tableCommandAction('editor:insert-table', false);
 
-	// The full table-structure command family — grows as more MVP commands
-	// land; apply/restore/leader-switch all loop over this rather than
-	// hand-repeating each command's own registration.
+	// The full table-structure command family (MVP-11 — the ceiling of what
+	// Obsidian exposes as invokable commands for its native table widget;
+	// see this branch's own design notes for the rest — duplicate row/col,
+	// sort, clear/delete-selection have no command ID at all and can't be
+	// reached this way). apply/restore/leader-switch all loop over this
+	// rather than hand-repeating each command's own registration.
 	private get tableCommands(): ReadonlyArray<{ action: string; leaderSuffix: string; fn: VimActionFn }> {
 		return [
 			{ action: 'uchTableRowAfter', leaderSuffix: 'to', fn: this.tableRowAfter },
 			{ action: 'uchTableRowBefore', leaderSuffix: 'tO', fn: this.tableRowBefore },
+			{ action: 'uchTableRowUp', leaderSuffix: 'tK', fn: this.tableRowUp },
+			{ action: 'uchTableRowDown', leaderSuffix: 'tJ', fn: this.tableRowDown },
+			{ action: 'uchTableRowDelete', leaderSuffix: 'tdd', fn: this.tableRowDelete },
+			{ action: 'uchTableColBefore', leaderSuffix: 'tiH', fn: this.tableColBefore },
+			{ action: 'uchTableColAfter', leaderSuffix: 'tiL', fn: this.tableColAfter },
+			{ action: 'uchTableColLeft', leaderSuffix: 'tH', fn: this.tableColLeft },
+			{ action: 'uchTableColRight', leaderSuffix: 'tL', fn: this.tableColRight },
+			{ action: 'uchTableColDelete', leaderSuffix: 'tdc', fn: this.tableColDelete },
+			{ action: 'uchTableInsert', leaderSuffix: 'tm', fn: this.tableInsert },
 		];
 	}
 
