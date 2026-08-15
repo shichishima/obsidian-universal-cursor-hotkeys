@@ -16,6 +16,7 @@ const makeSettings = (overrides: Partial<VimSupportHost['settings']> = {}): VimS
 	vimGgSupport: false,
 	vimDisplayLineSupport: false,
 	vimEolSupport: false,
+	vimOverrideAlways: false,
 	smartJoin: false,
 	smartHomeStandard: false,
 	...overrides,
@@ -260,6 +261,35 @@ describe('VimSupport per-feature toggles', () => {
 			expect(vim.needsRestart).toBe(false)
 			vim.setJkEnabled(false)
 			expect(vim.needsRestart).toBe(true)
+		})
+	})
+
+	describe('getVim() gating (native Vim mode / vimOverrideAlways)', () => {
+		it('applies overrides when native Vim mode is on (installVimWindow default)', () => {
+			const vim = new VimSupport(makeHost(makeSettings({ vimHlSupport: true })))
+			vim.setup()
+			expect(wasRegistered('moveByCharacters')).toBe(true)
+		})
+
+		it('does not apply overrides when native Vim mode is off and vimOverrideAlways is off', () => {
+			;(globalThis as any).window.app.vault.getConfig = () => false
+			const vim = new VimSupport(makeHost(makeSettings({ vimHlSupport: true })))
+			vim.setup()
+			expect(wasRegistered('moveByCharacters')).toBe(false)
+		})
+
+		it('applies overrides when native Vim mode is off but vimOverrideAlways is on', () => {
+			;(globalThis as any).window.app.vault.getConfig = () => false
+			const vim = new VimSupport(makeHost(makeSettings({ vimHlSupport: true, vimOverrideAlways: true })))
+			vim.setup()
+			expect(wasRegistered('moveByCharacters')).toBe(true)
+		})
+
+		it('a later live toggle (setXEnabled) also respects the gate, not just the initial setup()', () => {
+			;(globalThis as any).window.app.vault.getConfig = () => false
+			const vim = new VimSupport(makeHost())
+			vim.setHlEnabled(true)
+			expect(wasRegistered('moveByCharacters')).toBe(false)
 		})
 	})
 })

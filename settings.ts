@@ -474,9 +474,12 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				}));
 		restartBanner.settingEl.toggleClass('uch-hidden', !this.plugin.vimSupport.needsRestart);
 
-		// "Apply all" — turns on every item below that can currently be turned
-		// on. `^`/`I` and `J` are skipped when their own prerequisite (Smart
-		// home (standard) / Smart join, both outside this section) is off,
+		// "Apply all" — turns on every indented item below that can currently
+		// be turned on (the indent visually marks the batch-enable set,
+		// deliberately excluding "Always override" below —
+		// a preference, not a feature toggle). `^`/`I` and `J` are skipped
+		// when their own prerequisite (Smart home (standard) / Smart join,
+		// both outside this section) is off,
 		// rather than force-enabling a toggle whose row stays disabled/grey
 		// either way — matches this same button's own "nothing left to apply"
 		// disable check below. `$` has no such gap: its own prerequisite (j/k
@@ -485,7 +488,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			.setClass('uch-vim-item')
 			.setName('Apply all')
 			.then(setting => this.setHtmlDesc(setting,
-				'Turns on everything below that can currently be turned on.'))
+				'Turns on every indented item below that can currently be turned on.'))
 			.addButton(btn => {
 				refs.applyAllBtn(btn);
 				btn.setButtonText('Apply all');
@@ -507,6 +510,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 
 		const hl = new Setting(containerEl)
 			.setClass('uch-vim-item')
+			.setClass('uch-vim-item-indent')
 			.then(setting => {
 				this.setKeyChipName(setting, ['h', 'l', 'x'], 'Character movement');
 				this.setHtmlDesc(setting, '' +
@@ -524,6 +528,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 
 		const jk = new Setting(containerEl)
 			.setClass('uch-vim-item')
+			.setClass('uch-vim-item-indent')
 			.then(setting => {
 				this.setKeyChipName(setting, ['j', 'k'], 'Line movement');
 				this.setHtmlDesc(setting, '' +
@@ -540,6 +545,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 
 		const words = new Setting(containerEl)
 			.setClass('uch-vim-item')
+			.setClass('uch-vim-item-indent')
 			.then(setting => {
 				this.setKeyChipName(setting, ['w', 'b', 'e'], 'Word motion');
 				this.setHtmlDesc(setting, '' +
@@ -556,6 +562,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 
 		const gg = new Setting(containerEl)
 			.setClass('uch-vim-item')
+			.setClass('uch-vim-item-indent')
 			.then(setting => {
 				this.setKeyChipName(setting, ['gg', 'G'], 'Document start/end')
 				this.setHtmlDesc(setting, '' +
@@ -572,6 +579,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 
 		const displayLine = new Setting(containerEl)
 			.setClass('uch-vim-item')
+			.setClass('uch-vim-item-indent')
 			.then(setting => {
 				this.setKeyChipName(setting, ['gj', 'gk'], 'Display-line movement');
 				this.setHtmlDesc(setting, '' +
@@ -588,6 +596,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 
 		const eol = new Setting(containerEl)
 			.setClass('uch-vim-item')
+			.setClass('uch-vim-item-indent')
 			.then(setting => {
 				this.setKeyChipName(setting, ['$'], 'End of line (sticky column)');
 				this.setHtmlDesc(setting, '' +
@@ -604,6 +613,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 
 		const caret = new Setting(containerEl)
 			.setClass('uch-vim-item')
+			.setClass('uch-vim-item-indent')
 			.then(setting => {
 				this.setKeyChipName(setting, ['^', 'I'], 'First non-blank (Smart home)');
 				this.setHtmlDesc(setting, '' +
@@ -624,6 +634,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 
 		const join = new Setting(containerEl)
 			.setClass('uch-vim-item')
+			.setClass('uch-vim-item-indent')
 			.then(setting => {
 				this.setKeyChipName(setting, ['J'], 'Join lines (Smart join)');
 				this.setHtmlDesc(setting, '' +
@@ -641,6 +652,23 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			});
 		vimSectionEls.push(join.settingEl);
 		refs.vimJoinEl(join.settingEl);
+
+		const overrideAlways = new Setting(containerEl)
+			.setClass('uch-vim-item')
+			.setName('Always override')
+			.then(setting => {
+				setting.nameEl.createSpan({ text: 'experimental', cls: 'uch-vim-badge' });
+				this.setHtmlDesc(setting, '' +
+					'<b>ON:</b> Applies the Vim overrides above regardless of Obsidian\'s own "Vim key bindings" setting — may conflict with another plugin\'s own key bindings.<br>' +
+					'<b>OFF:</b> Only applies while Obsidian\'s own Vim mode is active (default, <b>highly recommended</b>).');
+			})
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.vimOverrideAlways)
+				.onChange(async (value) => {
+					this.plugin.settings.vimOverrideAlways = value;
+					await this.plugin.saveSettings();
+				}));
+		vimSectionEls.push(overrideAlways.settingEl);
 
 		const limitationsEl = containerEl.createDiv({ cls: 'uch-vim-limitations' });
 		limitationsEl.createDiv({ text: 'Limitations', cls: 'uch-vim-limitations-title' });

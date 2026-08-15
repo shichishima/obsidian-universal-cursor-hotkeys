@@ -21,7 +21,11 @@ export interface FakeEditor {
 export function installVimWindow(editor?: FakeEditor) {
 	const queue: Array<() => void> = []
 	const win: any = {
-		app: { workspace: { activeEditor: { editor } } },
+		// getVim() gates on this (see vim-support.ts) — default to "native Vim
+		// mode is on" so existing tests exercise the same apply/restore
+		// behavior as before that gate existed; a test targeting the gate
+		// itself can overwrite window.app.vault.getConfig after installing.
+		app: { workspace: { activeEditor: { editor } }, vault: { getConfig: (key: string) => key === 'vimMode' } },
 		setTimeout: (fn: (...args: any[]) => void, ..._rest: any[]) => { queue.push(fn); return 0 },
 		requestAnimationFrame: (fn: (...args: any[]) => void) => { queue.push(fn); return 0 },
 	}

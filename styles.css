@@ -111,6 +111,10 @@ tbody.uch-override-active .uch-override-word { font-weight: 700; }
 .uch-vim-restart-banner.uch-hidden { display: none; }
 .uch-vim-restart-text { color: var(--text-warning); font-weight: 600; }
 .uch-vim-item .setting-item-info { padding-left: 40px; }
+/* One extra step, for rows "Apply all" batch-enables — visually separates
+   them from sibling rows (e.g. "Override without native vim mode") that
+   Apply all deliberately leaves alone. */
+.uch-vim-item-indent .setting-item-info { padding-left: 60px; }
 .uch-vim-limitations       { padding: 8px 0 8px 40px; }
 .uch-vim-limitations-title { font-size: 0.8em; font-weight: 600; opacity: 0.6; margin-bottom: 4px; }
 .uch-vim-limitations ul    { margin: 0; padding-left: 1.2em; font-size: 0.9em; opacity: 0.75; }

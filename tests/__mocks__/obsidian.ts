@@ -22,6 +22,10 @@ export class Setting {
 	addToggle(_cb: (toggle: any) => any) { return this }
 }
 
+export class Notice {
+	constructor(_message?: string, _timeout?: number) {}
+}
+
 export class MarkdownView {}
 export class Editor {}
 export const Platform = { isMacOS: false }

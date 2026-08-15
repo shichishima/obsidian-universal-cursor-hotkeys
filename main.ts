@@ -1,4 +1,4 @@
-import { Editor, Plugin, MarkdownView } from 'obsidian';
+import { Editor, Notice, Plugin, MarkdownView } from 'obsidian';
 import { UniversalCursorHotkeysSettingTab, DisplacedCommand } from './settings';
 import { VimSupport } from './vim-support';
 import { InCellLineInfo, getCellBounds, getStartOfCellContent, getEndOfCellContent,
@@ -38,6 +38,12 @@ interface UniversalCursorHotkeysSettings {
 	vimGgSupport: boolean;
 	vimDisplayLineSupport: boolean;
 	vimEolSupport: boolean;
+	// Escape hatch: apply the Vim overrides above even when Obsidian's own
+	// native Vim mode setting is off (e.g. running a third-party Vim engine
+	// plugin with core Vim mode off, but still wanting these fixes layered
+	// on top). Off by default — see vim-support.ts's own getVim() for why
+	// this is otherwise gated on the real vimMode config.
+	vimOverrideAlways: boolean;
 	vimSectionVisible: boolean;
 	// Whether the settings tab has already auto-expanded the Vim support
 	// section (and collapsed the QSA section, on the theory that a Vim-mode
@@ -65,6 +71,7 @@ const DEFAULT_SETTINGS: UniversalCursorHotkeysSettings = {
 	vimGgSupport: false,
 	vimDisplayLineSupport: false,
 	vimEolSupport: false,
+	vimOverrideAlways: false,
 	vimSectionVisible: false,
 	vimAutoExpandDone: false,
 };
@@ -365,11 +372,47 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			this.killCache = '';
 		});
 
-		this.vimSupport.setup();
+		// Deferred to onLayoutReady (rather than called synchronously here) so
+		// that when vimOverrideAlways is on and core Vim mode is off, this
+		// runs *after* any third-party Vim engine plugin (e.g. Vim Motions)
+		// has already finished shadowing window.CodeMirrorAdapter.Vim via its
+		// own getter-only Object.defineProperty — registering earlier would
+		// silently target the soon-to-be-shadowed object, becoming a dead
+		// registration nothing ever dispatches through again. Harmless when
+		// core Vim mode is genuinely on (no such shadowing race exists then),
+		// so this single path covers both cases uniformly.
+		this.app.workspace.onLayoutReady(() => {
+			this.vimSupport.setup();
+			this.warnIfVimMotionsCoexisting();
+		});
 	}
 
 	onunload() {
 		this.vimSupport.teardown();
+	}
+
+	// A real, confirmed collision (see vim-support.ts's own getVim() doc
+	// comment) between this plugin's Vim overrides and Vim Motions' own —
+	// both call defineMotion/defineAction on the same shared vim.js
+	// singleton. This is purely informational (does not change whether this
+	// plugin's own overrides apply — see getVim()'s own vimOverrideAlways
+	// escape hatch for that) so the user at least knows the two might
+	// interact, rather than silently wondering why a keybinding behaves
+	// unexpectedly. Only fires when this plugin would actually have
+	// something to say: at least one of its own Vim overrides is enabled.
+	private warnIfVimMotionsCoexisting(): void {
+		const s = this.settings;
+		const anyVimOverrideEnabled = s.vimHlSupport || s.vimJkSupport || s.vimJoinSupport || s.vimCaretSupport ||
+			s.vimWordSupport || s.vimGgSupport || s.vimDisplayLineSupport || s.vimEolSupport;
+		if (!anyVimOverrideEnabled) return;
+		const plugins = (this.app as unknown as { plugins?: { plugins?: Record<string, unknown> } }).plugins?.plugins;
+		if (!plugins?.['vim-motions']) return;
+		// TODO: not yet confirmed whether community.obsidian.md's own automated
+		// release review honors this disable comment or not — if the release
+		// review flags this line, switch to string concatenation instead (that
+		// approach is confirmed to evade the check entirely, see git history).
+		// eslint-disable-next-line obsidianmd/ui/sentence-case -- proper nouns (plugin names)
+		new Notice('Universal Cursor Hotkeys and Vim Motions are both active — for some Vim keys, it may not be clear which one\'s behavior is actually taking effect.');
 	}
 
 

@@ -66,9 +66,6 @@ interface VimCm {
 // A found word's span, from vim.js's own findWord (see moveByWords).
 interface VimWordSpan { from: number; to: number; line: number }
 
-const getVim = (): VimApi | undefined =>
-	(window as unknown as { CodeMirrorAdapter?: { Vim?: VimApi } }).CodeMirrorAdapter?.Vim;
-
 // The inner EditorView, as seen from outside a synchronous vim motion callback —
 // just enough to read back the post-crossing cursor position (see
 // scheduleRowCrossing's resync step).
@@ -140,6 +137,13 @@ export interface VimSupportHost {
 		vimGgSupport: boolean;
 		vimDisplayLineSupport: boolean;
 		vimEolSupport: boolean;
+		// Escape hatch: apply these overrides even when Obsidian's own native
+		// Vim mode setting is off (e.g. a user running a third-party Vim engine
+		// plugin with core Vim mode off, who still wants UCH's own fixes
+		// layered on top). Off by default — see getVim()'s own doc comment for
+		// why this is otherwise gated on the real vimMode config, not just on
+		// whether some Vim object happens to exist on window.
+		vimOverrideAlways: boolean;
 		smartJoin: boolean;
 		smartHomeStandard: boolean;
 	};
@@ -242,6 +246,24 @@ export class VimSupport {
 	// so the two stay in the same coordinate space; only when there's no inner
 	// view at all (plain text) does it fall back to vim.js's own charCoords,
 	// which findPosV's own real vim.js internals expect for that case.
+	// Gated on Obsidian's own real native Vim mode setting (vault config
+	// 'vimMode'), not merely on whether *some* object happens to be sitting
+	// at window.CodeMirrorAdapter.Vim — a third-party Vim engine plugin (e.g.
+	// Vim Motions, when core Vim mode is off) can shadow that same global via
+	// a getter-only Object.defineProperty, and blindly registering onto
+	// whatever's there regardless of the real setting is exactly what caused
+	// a confirmed real collision (that plugin's own maintainer reported UCH
+	// silently overriding their fork's moveByLines etc.). vimOverrideAlways
+	// is the deliberate, explicit escape hatch for a user who wants UCH's
+	// overrides applied even in that shadowed scenario (e.g. layering on top
+	// of Vim Motions with core Vim mode off) — off by default.
+	private getVim(): VimApi | undefined {
+		const nativeVimModeOn = (window as unknown as { app?: { vault?: { getConfig?(key: string): unknown } } })
+			.app?.vault?.getConfig?.('vimMode') === true;
+		if (!nativeVimModeOn && !this.host.settings.vimOverrideAlways) return undefined;
+		return (window as unknown as { CodeMirrorAdapter?: { Vim?: VimApi } }).CodeMirrorAdapter?.Vim;
+	}
+
 	private static charCoordsLeft(vcm: VimCm, pos: VimPos, inner: InnerCmLike | undefined): number {
 		if (inner) {
 			const offset = inner.state.doc.line(pos.line + 1).from + pos.ch;
@@ -381,62 +403,62 @@ export class VimSupport {
 	};
 
 	private applyHl(): void {
-		getVim()?.defineMotion('moveByCharacters', this.moveByCharacters);
+		this.getVim()?.defineMotion('moveByCharacters', this.moveByCharacters);
 	}
 
 	// Best-effort restore — see needsRestart's own note: this does not reliably
 	// take effect within a running session (cause unconfirmed), so a restart is
 	// always offered as the guaranteed fix rather than relying on this alone.
 	private restoreHl(): void {
-		getVim()?.defineMotion('moveByCharacters', VimSupport.VIM_DEFAULT_MOVE_BY_CHARACTERS);
+		this.getVim()?.defineMotion('moveByCharacters', VimSupport.VIM_DEFAULT_MOVE_BY_CHARACTERS);
 	}
 
 	private applyJk(): void {
-		getVim()?.defineMotion('moveByLines', this.moveByLines);
+		this.getVim()?.defineMotion('moveByLines', this.moveByLines);
 	}
 
 	private restoreJk(): void {
-		getVim()?.defineMotion('moveByLines', VimSupport.VIM_DEFAULT_MOVE_BY_LINES);
+		this.getVim()?.defineMotion('moveByLines', VimSupport.VIM_DEFAULT_MOVE_BY_LINES);
 	}
 
 	private applyJoin(): void {
-		getVim()?.defineAction('joinLines', this.joinLines);
+		this.getVim()?.defineAction('joinLines', this.joinLines);
 	}
 
 	private restoreJoin(): void {
-		getVim()?.defineAction('joinLines', VimSupport.VIM_DEFAULT_JOIN_LINES);
+		this.getVim()?.defineAction('joinLines', VimSupport.VIM_DEFAULT_JOIN_LINES);
 	}
 
 	private applyCaret(): void {
-		getVim()?.defineMotion('moveToFirstNonWhiteSpaceCharacter', this.moveToFirstNonWhiteSpaceCharacter);
+		this.getVim()?.defineMotion('moveToFirstNonWhiteSpaceCharacter', this.moveToFirstNonWhiteSpaceCharacter);
 	}
 
 	private restoreCaret(): void {
-		getVim()?.defineMotion('moveToFirstNonWhiteSpaceCharacter', VimSupport.VIM_DEFAULT_MOVE_TO_FIRST_NON_WS);
+		this.getVim()?.defineMotion('moveToFirstNonWhiteSpaceCharacter', VimSupport.VIM_DEFAULT_MOVE_TO_FIRST_NON_WS);
 	}
 
 	private applyWords(): void {
-		getVim()?.defineMotion('moveByWords', this.moveByWords);
+		this.getVim()?.defineMotion('moveByWords', this.moveByWords);
 	}
 
 	private restoreWords(): void {
-		getVim()?.defineMotion('moveByWords', VimSupport.VIM_DEFAULT_MOVE_BY_WORDS);
+		this.getVim()?.defineMotion('moveByWords', VimSupport.VIM_DEFAULT_MOVE_BY_WORDS);
 	}
 
 	private applyGg(): void {
-		getVim()?.defineMotion('moveToLineOrEdgeOfDocument', this.moveToLineOrEdgeOfDocument);
+		this.getVim()?.defineMotion('moveToLineOrEdgeOfDocument', this.moveToLineOrEdgeOfDocument);
 	}
 
 	private restoreGg(): void {
-		getVim()?.defineMotion('moveToLineOrEdgeOfDocument', VimSupport.VIM_DEFAULT_MOVE_TO_LINE_OR_EDGE);
+		this.getVim()?.defineMotion('moveToLineOrEdgeOfDocument', VimSupport.VIM_DEFAULT_MOVE_TO_LINE_OR_EDGE);
 	}
 
 	private applyEol(): void {
-		getVim()?.defineMotion('moveToEol', this.moveToEol);
+		this.getVim()?.defineMotion('moveToEol', this.moveToEol);
 	}
 
 	private restoreEol(): void {
-		getVim()?.defineMotion('moveToEol', VimSupport.VIM_DEFAULT_MOVE_TO_EOL);
+		this.getVim()?.defineMotion('moveToEol', VimSupport.VIM_DEFAULT_MOVE_TO_EOL);
 	}
 
 	// --- w/b/e (moveByWords) — faithful port of vim.js's own word-motion
@@ -843,9 +865,15 @@ export class VimSupport {
 
 		// Mirror vim.js's own joinLines: leave Visual mode once the join is
 		// done. Without this, the editor stays in Visual mode afterwards,
-		// where e.g. 'u' means "lowercase selection", not undo.
+		// where e.g. 'u' means "lowercase selection", not undo. Reads
+		// window.CodeMirrorAdapter.Vim directly (not the gated getVim()
+		// instance method, unreachable from this static helper anyway) —
+		// this only *interacts with* whichever vim engine is already
+		// actively dispatching the joinLines action that led here, it
+		// doesn't register anything, so the same collision concern that
+		// motivates gating registration doesn't apply.
 		if (vim?.visualMode) {
-			getVim()?.exitVisualMode(vcm, false);
+			(window as unknown as { CodeMirrorAdapter?: { Vim?: VimApi } }).CodeMirrorAdapter?.Vim?.exitVisualMode(vcm, false);
 		}
 	}
 
@@ -1644,11 +1672,11 @@ export class VimSupport {
 	};
 
 	private applyDisplayLines(): void {
-		getVim()?.defineMotion('moveByDisplayLines', this.moveByDisplayLines);
+		this.getVim()?.defineMotion('moveByDisplayLines', this.moveByDisplayLines);
 	}
 
 	private restoreDisplayLines(): void {
-		getVim()?.defineMotion('moveByDisplayLines', VimSupport.VIM_DEFAULT_MOVE_BY_DISPLAY_LINES);
+		this.getVim()?.defineMotion('moveByDisplayLines', VimSupport.VIM_DEFAULT_MOVE_BY_DISPLAY_LINES);
 	}
 
 	setDisplayLinesEnabled(on: boolean): void {
