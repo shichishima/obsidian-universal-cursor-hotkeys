@@ -6,7 +6,7 @@ import type { VimSupportHost } from '../vim-support'
 // like the rest of this test suite accesses private plugin methods.
 
 const makeHost = (): VimSupportHost => ({
-	settings: { vimHlSupport: false, vimJkSupport: false, vimJoinSupport: false, vimCaretSupport: false, vimWordSupport: false, vimGgSupport: false, vimDisplayLineSupport: false, vimEolSupport: false, smartJoin: false, smartHomeStandard: false },
+	settings: { vimHlSupport: false, vimJkSupport: false, vimJoinSupport: false, vimCaretSupport: false, vimWordSupport: false, vimGgSupport: false, vimDisplayLineSupport: false, vimEolSupport: false, vimTableStructureSupport: false, vimLeaderUseBackslash: false, smartJoin: false, smartHomeStandard: false },
 	getBeginningOfLinePosition: () => 0,
 	saveSettings: async () => {},
 	crossTableRowForCell: () => null,
@@ -15,6 +15,7 @@ const makeHost = (): VimSupportHost => ({
 	isLinePartOfTable: () => false,
 	enterTableAtLine: () => null,
 	refineDisplayLineColumn: () => null,
+	executeObsidianCommand: () => true,
 })
 
 const vim = new VimSupport(makeHost()) as any

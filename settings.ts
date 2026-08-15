@@ -425,7 +425,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 	// setSmartJoinDisabled, which don't trigger a full re-render).
 	private eligibleVimSettings(): boolean[] {
 		const s = this.plugin.settings;
-		const eligible = [s.vimHlSupport, s.vimJkSupport, s.vimWordSupport, s.vimGgSupport, s.vimDisplayLineSupport, s.vimEolSupport];
+		const eligible = [s.vimHlSupport, s.vimJkSupport, s.vimWordSupport, s.vimGgSupport, s.vimDisplayLineSupport, s.vimEolSupport, s.vimTableStructureSupport];
 		if (s.smartHomeStandard) eligible.push(s.vimCaretSupport);
 		if (s.smartJoin) eligible.push(s.vimJoinSupport);
 		return eligible;
@@ -474,6 +474,21 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				}));
 		restartBanner.settingEl.toggleClass('uch-hidden', !this.plugin.vimSupport.needsRestart);
 
+		const leaderChoice = new Setting(containerEl)
+			.setClass('uch-vim-item')
+			.setName('Leader key')
+			.then(setting => this.setHtmlDesc(setting, '' +
+				'<b>ON:</b> Table structure commands below use <span class="uch-kbd">\\</span> as the leader key.<br>' +
+				'<b>OFF:</b> Uses <span class="uch-kbd">Space</span> as the leader key (default).<br>' +
+				'<i>Only affects table structure below — has no effect on its own.</i>'))
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.vimLeaderUseBackslash)
+				.onChange((value) => {
+					this.plugin.vimSupport.setLeaderUseBackslash(value);
+					this.display();
+				}));
+		vimSectionEls.push(leaderChoice.settingEl);
+
 		// "Apply all" — turns on every item below that can currently be turned
 		// on. `^`/`I` and `J` are skipped when their own prerequisite (Smart
 		// home (standard) / Smart join, both outside this section) is off,
@@ -498,6 +513,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					this.plugin.vimSupport.setGgEnabled(true);
 					this.plugin.vimSupport.setDisplayLinesEnabled(true);
 					this.plugin.vimSupport.setEolEnabled(true);
+					this.plugin.vimSupport.setTableStructureEnabled(true);
 					if (this.plugin.settings.smartHomeStandard) this.plugin.vimSupport.setCaretEnabled(true);
 					if (this.plugin.settings.smartJoin) this.plugin.vimSupport.setJoinEnabled(true);
 					this.display();
@@ -602,6 +618,23 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				}));
 		vimSectionEls.push(eol.settingEl);
 
+		const tableStructure = new Setting(containerEl)
+			.setClass('uch-vim-item')
+			.then(setting => {
+				this.setKeyChipName(setting, [this.plugin.settings.vimLeaderUseBackslash ? '\\' : 'Space', 't', 'o'], 'Table structure — insert row below');
+				this.setHtmlDesc(setting, '' +
+					'<b>ON:</b> Inserts a new table row below the current one (wraps Obsidian\'s own built-in "Insert row below" command). No-op outside a table cell. ' +
+					'While this is on, a bare press of the leader key no longer behaves as vim\'s own native binding (Space normally moves right).<br>' +
+					'<b>OFF:</b> No leader-key table commands are bound.');
+			})
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.vimTableStructureSupport)
+				.onChange((value) => {
+					this.plugin.vimSupport.setTableStructureEnabled(value);
+					this.display();
+				}));
+		vimSectionEls.push(tableStructure.settingEl);
+
 		const caret = new Setting(containerEl)
 			.setClass('uch-vim-item')
 			.then(setting => {
@@ -653,6 +686,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		displayLineLi.appendText(' ');
 		displayLineLi.createSpan({ text: 'gk', cls: 'uch-kbd' });
 		displayLineLi.appendText(': a count is not preserved across a row or table crossing — it stops consuming the count after the first crossing.');
+		list.createEl('li', { text: 'Table structure: only "insert row below" is implemented so far — insert row above, insert/delete column, delete row are planned.' });
 		vimSectionEls.push(limitationsEl);
 
 		for (const el of vimSectionEls) el.toggleClass('uch-hidden', !this.vimSectionVisible);
