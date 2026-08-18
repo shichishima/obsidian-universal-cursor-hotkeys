@@ -87,6 +87,9 @@ describe('Vim table structure (insert row above/below)', () => {
 		multiSelectHandleKey = vi.fn().mockReturnValue(undefined)
 		;(globalThis as any).window.CodeMirrorAdapter = {
 			Vim: { defineMotion: vi.fn(), defineAction, mapCommand, unmap, multiSelectHandleKey, exitVisualMode: vi.fn() },
+			// The CM5-compat namespace itself (not .Vim) — see getVimCommands's own
+			// comment for why undo/redo live here, not on the vim cm adapter object.
+			commands: { undo: vi.fn(), redo: vi.fn() },
 		}
 	})
 
@@ -274,6 +277,106 @@ describe('Vim table structure (insert row above/below)', () => {
 			const vim = new VimSupport(host) as any
 			vim.tableInsert({}, { repeat: 1 })
 			expect(executeObsidianCommand).toHaveBeenCalledWith('editor:insert-table')
+		})
+	})
+
+	describe('setTableStructureEnabled also overrides undo/redo (table-cell undo gap fix)', () => {
+		it('registers tableUndo/tableRedo under the real \'undo\'/\'redo\' action names on enable', () => {
+			const vim = new VimSupport(makeHost()) as any
+			vim.setTableStructureEnabled(true)
+			expect(defineAction).toHaveBeenCalledWith('undo', vim.tableUndo)
+			expect(defineAction).toHaveBeenCalledWith('redo', vim.tableRedo)
+		})
+
+		it('restores the hardcoded vim.js-equivalent undo/redo defaults on disable', () => {
+			const vim = new VimSupport(makeHost(makeSettings({ vimTableStructureSupport: true }))) as any
+			vim.setTableStructureEnabled(false)
+			expect(defineAction).toHaveBeenCalledWith('undo', (VimSupport as any).VIM_DEFAULT_UNDO)
+			expect(defineAction).toHaveBeenCalledWith('redo', (VimSupport as any).VIM_DEFAULT_REDO)
+		})
+	})
+
+	describe('tableUndo/tableRedo actions', () => {
+		// A minimal fake of the vim cm adapter (VimCm's own subset) — used only
+		// for the "not inTableCell" fallback path. Real undo/redo don't live on
+		// this object itself (see getVimCommands's own comment) — that's the
+		// shared window.CodeMirrorAdapter.commands mock from beforeEach instead.
+		const makeFakeCm = () => ({
+			operation: vi.fn((fn: () => void) => fn()),
+			getCursor: vi.fn().mockReturnValue({ line: 0, ch: 5 }),
+			getLine: vi.fn().mockReturnValue('hello'),
+			lastLine: vi.fn().mockReturnValue(0),
+			setCursor: vi.fn(),
+		})
+
+		const commandsMock = (): { undo: ReturnType<typeof vi.fn>; redo: ReturnType<typeof vi.fn> } =>
+			(globalThis as any).window.CodeMirrorAdapter.commands
+
+		it('tableUndo, inside a table cell: calls editor.undo() (repeat times), then collapses to the *start* (\'from\') of any selection undo() left behind (see comment on tableUndo)', () => {
+			const editorUndo = vi.fn()
+			const editorSetCursor = vi.fn()
+			const fromCursor = { line: 3, ch: 1 }
+			const toCursor = { line: 4, ch: 0 }
+			const editorGetCursor = vi.fn((side?: string) => (side === 'from' ? fromCursor : toCursor))
+			;(globalThis as any).window.app.workspace.activeEditor = {
+				editor: { inTableCell: true, undo: editorUndo, getCursor: editorGetCursor, setCursor: editorSetCursor },
+			}
+			const vim = new VimSupport(makeHost()) as any
+			const cm = makeFakeCm()
+			vim.tableUndo(cm, { repeat: 3 })
+			expect(editorUndo).toHaveBeenCalledTimes(3)
+			expect(editorGetCursor).toHaveBeenCalledWith('from')
+			expect(editorSetCursor).toHaveBeenCalledWith(fromCursor)
+			expect(commandsMock().undo).not.toHaveBeenCalled()
+			expect(cm.operation).not.toHaveBeenCalled()
+		})
+
+		it('tableRedo, inside a table cell: calls editor.redo() (repeat times), then collapses to the *start* (\'from\') of any selection redo() left behind', () => {
+			const editorRedo = vi.fn()
+			const editorSetCursor = vi.fn()
+			const fromCursor = { line: 5, ch: 2 }
+			const toCursor = { line: 6, ch: 0 }
+			const editorGetCursor = vi.fn((side?: string) => (side === 'from' ? fromCursor : toCursor))
+			;(globalThis as any).window.app.workspace.activeEditor = {
+				editor: { inTableCell: true, redo: editorRedo, getCursor: editorGetCursor, setCursor: editorSetCursor },
+			}
+			const vim = new VimSupport(makeHost()) as any
+			const cm = makeFakeCm()
+			vim.tableRedo(cm, { repeat: 2 })
+			expect(editorRedo).toHaveBeenCalledTimes(2)
+			expect(editorGetCursor).toHaveBeenCalledWith('from')
+			expect(editorSetCursor).toHaveBeenCalledWith(fromCursor)
+			expect(commandsMock().redo).not.toHaveBeenCalled()
+		})
+
+		it('tableUndo, outside a table cell: falls back to the native vim cm undo, clamped cursor', () => {
+			;(globalThis as any).window.app.workspace.activeEditor = { editor: { inTableCell: false } }
+			const vim = new VimSupport(makeHost()) as any
+			const cm = makeFakeCm()
+			vim.tableUndo(cm, { repeat: 2 })
+			expect(cm.operation).toHaveBeenCalled()
+			expect(commandsMock().undo).toHaveBeenCalledTimes(2)
+			expect(commandsMock().undo).toHaveBeenCalledWith(cm)
+			// 'hello'.length - 1 === 4, so the ch:5 cursor gets clamped to 4.
+			expect(cm.setCursor).toHaveBeenCalledWith({ line: 0, ch: 4 })
+		})
+
+		it('tableRedo, outside a table cell: falls back to the native vim cm redo, no cursor clamp', () => {
+			;(globalThis as any).window.app.workspace.activeEditor = { editor: { inTableCell: false } }
+			const vim = new VimSupport(makeHost()) as any
+			const cm = makeFakeCm()
+			vim.tableRedo(cm, { repeat: 2 })
+			expect(cm.operation).toHaveBeenCalled()
+			expect(commandsMock().redo).toHaveBeenCalledTimes(2)
+			expect(cm.setCursor).not.toHaveBeenCalled()
+		})
+
+		it('tableUndo, no active editor at all: falls back to the native vim cm undo', () => {
+			;(globalThis as any).window.app.workspace.activeEditor = undefined
+			const vim = new VimSupport(makeHost()) as any
+			const cm = makeFakeCm()
+			vim.tableUndo(cm, { repeat: 1 })
+			expect(commandsMock().undo).toHaveBeenCalledTimes(1)
 		})
 	})
 })
