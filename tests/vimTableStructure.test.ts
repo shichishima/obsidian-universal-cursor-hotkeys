@@ -27,13 +27,15 @@ const ALL_TABLE_COMMANDS: ReadonlyArray<{ action: string; leaderSuffix: string; 
 ]
 
 // action-fn method names, gated commands only (all but tableInsert, whose
-// whole point is to work outside a table cell — covered separately below).
+// whole point is to work outside a table cell — covered separately below;
+// and tableRowDelete, whose own cursor-preserving logic needs a richer
+// editor mock than the plain-gate shape this loop shares — covered in its
+// own describe block instead).
 const GATED_ACTION_METHODS: ReadonlyArray<{ method: string; commandId: string }> = [
 	{ method: 'tableRowAfter', commandId: 'editor:table-row-after' },
 	{ method: 'tableRowBefore', commandId: 'editor:table-row-before' },
 	{ method: 'tableRowUp', commandId: 'editor:table-row-up' },
 	{ method: 'tableRowDown', commandId: 'editor:table-row-down' },
-	{ method: 'tableRowDelete', commandId: 'editor:table-row-delete' },
 	{ method: 'tableColBefore', commandId: 'editor:table-col-before' },
 	{ method: 'tableColAfter', commandId: 'editor:table-col-after' },
 	{ method: 'tableColLeft', commandId: 'editor:table-col-left' },
@@ -250,6 +252,91 @@ describe('Vim table structure (insert row above/below)', () => {
 				expect(executeObsidianCommand).not.toHaveBeenCalled()
 			})
 		}
+	})
+
+	describe('tableRowDelete action (preserves cursor cell/row index — dd\'s own convention)', () => {
+		const makeEditor = (overrides: Record<string, unknown> = {}) => ({
+			inTableCell: true,
+			getCursor: vi.fn().mockReturnValue({ line: 5, ch: 6 }), // "| a | b |" — cellIndex 1
+			getLine: vi.fn().mockReturnValue('| a | b |'),
+			setCursor: vi.fn(),
+			...overrides,
+		})
+
+		it('no-ops outside a table cell or with no active editor (executeObsidianCommand never called)', () => {
+			const executeObsidianCommand = vi.fn().mockReturnValue(true)
+			const host = makeHost(makeSettings(), executeObsidianCommand)
+			const vim = new VimSupport(host) as any
+
+			;(globalThis as any).window.app.workspace.activeEditor = { editor: { inTableCell: false } }
+			vim.tableRowDelete({}, { repeat: 1 })
+			expect(executeObsidianCommand).not.toHaveBeenCalled()
+
+			;(globalThis as any).window.app.workspace.activeEditor = undefined
+			vim.tableRowDelete({}, { repeat: 1 })
+			expect(executeObsidianCommand).not.toHaveBeenCalled()
+		})
+
+		it('a row shifted up into the deleted row\'s line: cursor lands on that same line, same cell', () => {
+			const executeObsidianCommand = vi.fn().mockReturnValue(true)
+			const host = makeHost(makeSettings(), executeObsidianCommand)
+			host.isLinePartOfTable = vi.fn().mockReturnValue(true) // still a table row at line 5 post-delete
+			const vim = new VimSupport(host) as any
+			const editor = makeEditor()
+			;(globalThis as any).window.app.workspace.activeEditor = { editor }
+
+			vim.tableRowDelete({}, { repeat: 1 })
+
+			expect(executeObsidianCommand).toHaveBeenCalledWith('editor:table-row-delete')
+			expect(host.isLinePartOfTable).toHaveBeenCalledWith(editor, 5, 1)
+			// cellIndex 1 ("b") on '| a | b |' -> ch 6
+			expect(editor.setCursor).toHaveBeenCalledWith({ line: 5, ch: 6 })
+		})
+
+		it('deleting the last row of the table: falls back to the new last row (one line up)', () => {
+			const executeObsidianCommand = vi.fn().mockReturnValue(true)
+			const host = makeHost(makeSettings(), executeObsidianCommand)
+			// line 5 is no longer a table row post-delete (table ended there);
+			// line 4 still is.
+			host.isLinePartOfTable = vi.fn((_editor: unknown, line: number) => line === 4)
+			const vim = new VimSupport(host) as any
+			const editor = makeEditor()
+			;(globalThis as any).window.app.workspace.activeEditor = { editor }
+
+			vim.tableRowDelete({}, { repeat: 1 })
+
+			expect(editor.setCursor).toHaveBeenCalledWith({ line: 4, ch: 6 })
+		})
+
+		it('neither the same line nor one line up is still a table row: leaves the cursor wherever Obsidian\'s own command put it', () => {
+			const executeObsidianCommand = vi.fn().mockReturnValue(true)
+			const host = makeHost(makeSettings(), executeObsidianCommand)
+			host.isLinePartOfTable = vi.fn().mockReturnValue(false)
+			const vim = new VimSupport(host) as any
+			const editor = makeEditor()
+			;(globalThis as any).window.app.workspace.activeEditor = { editor }
+
+			vim.tableRowDelete({}, { repeat: 1 })
+
+			expect(editor.setCursor).not.toHaveBeenCalled()
+		})
+
+		it('getChByCellIndex can\'t resolve the landing cell at all (degenerate line content): leaves the cursor untouched', () => {
+			const executeObsidianCommand = vi.fn().mockReturnValue(true)
+			const host = makeHost(makeSettings(), executeObsidianCommand)
+			host.isLinePartOfTable = vi.fn().mockReturnValue(true)
+			const vim = new VimSupport(host) as any
+			// cellIndex 1 is captured from the pre-delete line ('| a | b |'), but the
+			// post-delete line at that same position is degenerate (no pipes at
+			// all) — getChByCellIndex returns -1 (cellIndex >= pipes.length) rather
+			// than a wrong guess.
+			const editor = makeEditor({ getLine: vi.fn().mockReturnValueOnce('| a | b |').mockReturnValue('') })
+			;(globalThis as any).window.app.workspace.activeEditor = { editor }
+
+			vim.tableRowDelete({}, { repeat: 1 })
+
+			expect(editor.setCursor).not.toHaveBeenCalled()
+		})
 	})
 
 	describe('tableInsert action (not gated — must work outside a table)', () => {

@@ -1,5 +1,5 @@
 import { findClusterBreak } from '@codemirror/state';
-import { getCellIndex } from './table-cell-utils';
+import { getCellIndex, getChByCellIndex } from './table-cell-utils';
 import { getWordSpans } from './word-segmentation';
 
 // Obsidian's built-in Vim mode (codemirror-vim) — not exposed in obsidian.d.ts.
@@ -548,7 +548,31 @@ export class VimSupport {
 	private readonly tableRowBefore = this.tableCommandAction('editor:table-row-before');
 	private readonly tableRowUp = this.tableCommandAction('editor:table-row-up');
 	private readonly tableRowDown = this.tableCommandAction('editor:table-row-down');
-	private readonly tableRowDelete = this.tableCommandAction('editor:table-row-delete');
+
+	// dd's own convention: deleting a line leaves the cursor at the same row
+	// *index* — landing on whatever row slid up into that position (or, when
+	// deleting the last row, the new last row). Obsidian's own
+	// editor:table-row-delete does not preserve this on its own (confirmed
+	// live: it moves the cursor back to the table's first row instead) — this
+	// captures the cell position beforehand and restores the vim-conventional
+	// landing afterward, rather than using the shared tableCommandAction
+	// wrapper (whose whole point is *not* having table-mutation logic of its
+	// own — this is the one command where that no longer holds).
+	private readonly tableRowDelete: VimActionFn = () => {
+		const editor = getActiveEditor();
+		if (!editor?.inTableCell) return;
+		const before = editor.getCursor();
+		const cellIndex = getCellIndex(editor.getLine(before.line), before.ch);
+		this.host.executeObsidianCommand('editor:table-row-delete');
+		const editorAfter = getActiveEditor();
+		if (!editorAfter) return;
+		const targetLine = this.host.isLinePartOfTable(editorAfter, before.line, 1) ? before.line : before.line - 1;
+		if (!this.host.isLinePartOfTable(editorAfter, targetLine, 1)) return;
+		const ch = getChByCellIndex(editorAfter.getLine(targetLine), cellIndex);
+		if (ch === -1) return;
+		editorAfter.setCursor({ line: targetLine, ch });
+	};
+
 	private readonly tableColBefore = this.tableCommandAction('editor:table-col-before');
 	private readonly tableColAfter = this.tableCommandAction('editor:table-col-after');
 	private readonly tableColLeft = this.tableCommandAction('editor:table-col-left');
