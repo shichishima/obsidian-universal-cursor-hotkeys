@@ -27,13 +27,15 @@ const ALL_TABLE_COMMANDS: ReadonlyArray<{ action: string; leaderSuffix: string; 
 ]
 
 // action-fn method names, gated commands only (all but tableInsert, whose
-// whole point is to work outside a table cell — covered separately below).
+// whole point is to work outside a table cell — covered separately below;
+// and tableRowDelete, whose own cursor-preserving logic needs a richer
+// editor mock than the plain-gate shape this loop shares — covered in its
+// own describe block instead).
 const GATED_ACTION_METHODS: ReadonlyArray<{ method: string; commandId: string }> = [
 	{ method: 'tableRowAfter', commandId: 'editor:table-row-after' },
 	{ method: 'tableRowBefore', commandId: 'editor:table-row-before' },
 	{ method: 'tableRowUp', commandId: 'editor:table-row-up' },
 	{ method: 'tableRowDown', commandId: 'editor:table-row-down' },
-	{ method: 'tableRowDelete', commandId: 'editor:table-row-delete' },
 	{ method: 'tableColBefore', commandId: 'editor:table-col-before' },
 	{ method: 'tableColAfter', commandId: 'editor:table-col-after' },
 	{ method: 'tableColLeft', commandId: 'editor:table-col-left' },
@@ -87,6 +89,9 @@ describe('Vim table structure (insert row above/below)', () => {
 		multiSelectHandleKey = vi.fn().mockReturnValue(undefined)
 		;(globalThis as any).window.CodeMirrorAdapter = {
 			Vim: { defineMotion: vi.fn(), defineAction, mapCommand, unmap, multiSelectHandleKey, exitVisualMode: vi.fn() },
+			// The CM5-compat namespace itself (not .Vim) — see getVimCommands's own
+			// comment for why undo/redo live here, not on the vim cm adapter object.
+			commands: { undo: vi.fn(), redo: vi.fn() },
 		}
 	})
 
@@ -249,6 +254,91 @@ describe('Vim table structure (insert row above/below)', () => {
 		}
 	})
 
+	describe('tableRowDelete action (preserves cursor cell/row index — dd\'s own convention)', () => {
+		const makeEditor = (overrides: Record<string, unknown> = {}) => ({
+			inTableCell: true,
+			getCursor: vi.fn().mockReturnValue({ line: 5, ch: 6 }), // "| a | b |" — cellIndex 1
+			getLine: vi.fn().mockReturnValue('| a | b |'),
+			setCursor: vi.fn(),
+			...overrides,
+		})
+
+		it('no-ops outside a table cell or with no active editor (executeObsidianCommand never called)', () => {
+			const executeObsidianCommand = vi.fn().mockReturnValue(true)
+			const host = makeHost(makeSettings(), executeObsidianCommand)
+			const vim = new VimSupport(host) as any
+
+			;(globalThis as any).window.app.workspace.activeEditor = { editor: { inTableCell: false } }
+			vim.tableRowDelete({}, { repeat: 1 })
+			expect(executeObsidianCommand).not.toHaveBeenCalled()
+
+			;(globalThis as any).window.app.workspace.activeEditor = undefined
+			vim.tableRowDelete({}, { repeat: 1 })
+			expect(executeObsidianCommand).not.toHaveBeenCalled()
+		})
+
+		it('a row shifted up into the deleted row\'s line: cursor lands on that same line, same cell', () => {
+			const executeObsidianCommand = vi.fn().mockReturnValue(true)
+			const host = makeHost(makeSettings(), executeObsidianCommand)
+			host.isLinePartOfTable = vi.fn().mockReturnValue(true) // still a table row at line 5 post-delete
+			const vim = new VimSupport(host) as any
+			const editor = makeEditor()
+			;(globalThis as any).window.app.workspace.activeEditor = { editor }
+
+			vim.tableRowDelete({}, { repeat: 1 })
+
+			expect(executeObsidianCommand).toHaveBeenCalledWith('editor:table-row-delete')
+			expect(host.isLinePartOfTable).toHaveBeenCalledWith(editor, 5, 1)
+			// cellIndex 1 ("b") on '| a | b |' -> ch 6
+			expect(editor.setCursor).toHaveBeenCalledWith({ line: 5, ch: 6 })
+		})
+
+		it('deleting the last row of the table: falls back to the new last row (one line up)', () => {
+			const executeObsidianCommand = vi.fn().mockReturnValue(true)
+			const host = makeHost(makeSettings(), executeObsidianCommand)
+			// line 5 is no longer a table row post-delete (table ended there);
+			// line 4 still is.
+			host.isLinePartOfTable = vi.fn((_editor: unknown, line: number) => line === 4)
+			const vim = new VimSupport(host) as any
+			const editor = makeEditor()
+			;(globalThis as any).window.app.workspace.activeEditor = { editor }
+
+			vim.tableRowDelete({}, { repeat: 1 })
+
+			expect(editor.setCursor).toHaveBeenCalledWith({ line: 4, ch: 6 })
+		})
+
+		it('neither the same line nor one line up is still a table row: leaves the cursor wherever Obsidian\'s own command put it', () => {
+			const executeObsidianCommand = vi.fn().mockReturnValue(true)
+			const host = makeHost(makeSettings(), executeObsidianCommand)
+			host.isLinePartOfTable = vi.fn().mockReturnValue(false)
+			const vim = new VimSupport(host) as any
+			const editor = makeEditor()
+			;(globalThis as any).window.app.workspace.activeEditor = { editor }
+
+			vim.tableRowDelete({}, { repeat: 1 })
+
+			expect(editor.setCursor).not.toHaveBeenCalled()
+		})
+
+		it('getChByCellIndex can\'t resolve the landing cell at all (degenerate line content): leaves the cursor untouched', () => {
+			const executeObsidianCommand = vi.fn().mockReturnValue(true)
+			const host = makeHost(makeSettings(), executeObsidianCommand)
+			host.isLinePartOfTable = vi.fn().mockReturnValue(true)
+			const vim = new VimSupport(host) as any
+			// cellIndex 1 is captured from the pre-delete line ('| a | b |'), but the
+			// post-delete line at that same position is degenerate (no pipes at
+			// all) — getChByCellIndex returns -1 (cellIndex >= pipes.length) rather
+			// than a wrong guess.
+			const editor = makeEditor({ getLine: vi.fn().mockReturnValueOnce('| a | b |').mockReturnValue('') })
+			;(globalThis as any).window.app.workspace.activeEditor = { editor }
+
+			vim.tableRowDelete({}, { repeat: 1 })
+
+			expect(editor.setCursor).not.toHaveBeenCalled()
+		})
+	})
+
 	describe('tableInsert action (not gated — must work outside a table)', () => {
 		it('calls executeObsidianCommand("editor:insert-table") outside a table cell', () => {
 			const executeObsidianCommand = vi.fn().mockReturnValue(true)
@@ -274,6 +364,106 @@ describe('Vim table structure (insert row above/below)', () => {
 			const vim = new VimSupport(host) as any
 			vim.tableInsert({}, { repeat: 1 })
 			expect(executeObsidianCommand).toHaveBeenCalledWith('editor:insert-table')
+		})
+	})
+
+	describe('setTableStructureEnabled also overrides undo/redo (table-cell undo gap fix)', () => {
+		it('registers tableUndo/tableRedo under the real \'undo\'/\'redo\' action names on enable', () => {
+			const vim = new VimSupport(makeHost()) as any
+			vim.setTableStructureEnabled(true)
+			expect(defineAction).toHaveBeenCalledWith('undo', vim.tableUndo)
+			expect(defineAction).toHaveBeenCalledWith('redo', vim.tableRedo)
+		})
+
+		it('restores the hardcoded vim.js-equivalent undo/redo defaults on disable', () => {
+			const vim = new VimSupport(makeHost(makeSettings({ vimTableStructureSupport: true }))) as any
+			vim.setTableStructureEnabled(false)
+			expect(defineAction).toHaveBeenCalledWith('undo', (VimSupport as any).VIM_DEFAULT_UNDO)
+			expect(defineAction).toHaveBeenCalledWith('redo', (VimSupport as any).VIM_DEFAULT_REDO)
+		})
+	})
+
+	describe('tableUndo/tableRedo actions', () => {
+		// A minimal fake of the vim cm adapter (VimCm's own subset) — used only
+		// for the "not inTableCell" fallback path. Real undo/redo don't live on
+		// this object itself (see getVimCommands's own comment) — that's the
+		// shared window.CodeMirrorAdapter.commands mock from beforeEach instead.
+		const makeFakeCm = () => ({
+			operation: vi.fn((fn: () => void) => fn()),
+			getCursor: vi.fn().mockReturnValue({ line: 0, ch: 5 }),
+			getLine: vi.fn().mockReturnValue('hello'),
+			lastLine: vi.fn().mockReturnValue(0),
+			setCursor: vi.fn(),
+		})
+
+		const commandsMock = (): { undo: ReturnType<typeof vi.fn>; redo: ReturnType<typeof vi.fn> } =>
+			(globalThis as any).window.CodeMirrorAdapter.commands
+
+		it('tableUndo, inside a table cell: calls editor.undo() (repeat times), then collapses to the *start* (\'from\') of any selection undo() left behind (see comment on tableUndo)', () => {
+			const editorUndo = vi.fn()
+			const editorSetCursor = vi.fn()
+			const fromCursor = { line: 3, ch: 1 }
+			const toCursor = { line: 4, ch: 0 }
+			const editorGetCursor = vi.fn((side?: string) => (side === 'from' ? fromCursor : toCursor))
+			;(globalThis as any).window.app.workspace.activeEditor = {
+				editor: { inTableCell: true, undo: editorUndo, getCursor: editorGetCursor, setCursor: editorSetCursor },
+			}
+			const vim = new VimSupport(makeHost()) as any
+			const cm = makeFakeCm()
+			vim.tableUndo(cm, { repeat: 3 })
+			expect(editorUndo).toHaveBeenCalledTimes(3)
+			expect(editorGetCursor).toHaveBeenCalledWith('from')
+			expect(editorSetCursor).toHaveBeenCalledWith(fromCursor)
+			expect(commandsMock().undo).not.toHaveBeenCalled()
+			expect(cm.operation).not.toHaveBeenCalled()
+		})
+
+		it('tableRedo, inside a table cell: calls editor.redo() (repeat times), then collapses to the *start* (\'from\') of any selection redo() left behind', () => {
+			const editorRedo = vi.fn()
+			const editorSetCursor = vi.fn()
+			const fromCursor = { line: 5, ch: 2 }
+			const toCursor = { line: 6, ch: 0 }
+			const editorGetCursor = vi.fn((side?: string) => (side === 'from' ? fromCursor : toCursor))
+			;(globalThis as any).window.app.workspace.activeEditor = {
+				editor: { inTableCell: true, redo: editorRedo, getCursor: editorGetCursor, setCursor: editorSetCursor },
+			}
+			const vim = new VimSupport(makeHost()) as any
+			const cm = makeFakeCm()
+			vim.tableRedo(cm, { repeat: 2 })
+			expect(editorRedo).toHaveBeenCalledTimes(2)
+			expect(editorGetCursor).toHaveBeenCalledWith('from')
+			expect(editorSetCursor).toHaveBeenCalledWith(fromCursor)
+			expect(commandsMock().redo).not.toHaveBeenCalled()
+		})
+
+		it('tableUndo, outside a table cell: falls back to the native vim cm undo, clamped cursor', () => {
+			;(globalThis as any).window.app.workspace.activeEditor = { editor: { inTableCell: false } }
+			const vim = new VimSupport(makeHost()) as any
+			const cm = makeFakeCm()
+			vim.tableUndo(cm, { repeat: 2 })
+			expect(cm.operation).toHaveBeenCalled()
+			expect(commandsMock().undo).toHaveBeenCalledTimes(2)
+			expect(commandsMock().undo).toHaveBeenCalledWith(cm)
+			// 'hello'.length - 1 === 4, so the ch:5 cursor gets clamped to 4.
+			expect(cm.setCursor).toHaveBeenCalledWith({ line: 0, ch: 4 })
+		})
+
+		it('tableRedo, outside a table cell: falls back to the native vim cm redo, no cursor clamp', () => {
+			;(globalThis as any).window.app.workspace.activeEditor = { editor: { inTableCell: false } }
+			const vim = new VimSupport(makeHost()) as any
+			const cm = makeFakeCm()
+			vim.tableRedo(cm, { repeat: 2 })
+			expect(cm.operation).toHaveBeenCalled()
+			expect(commandsMock().redo).toHaveBeenCalledTimes(2)
+			expect(cm.setCursor).not.toHaveBeenCalled()
+		})
+
+		it('tableUndo, no active editor at all: falls back to the native vim cm undo', () => {
+			;(globalThis as any).window.app.workspace.activeEditor = undefined
+			const vim = new VimSupport(makeHost()) as any
+			const cm = makeFakeCm()
+			vim.tableUndo(cm, { repeat: 1 })
+			expect(commandsMock().undo).toHaveBeenCalledTimes(1)
 		})
 	})
 })

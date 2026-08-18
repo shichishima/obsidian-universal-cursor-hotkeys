@@ -1,5 +1,5 @@
 import { findClusterBreak } from '@codemirror/state';
-import { getCellIndex } from './table-cell-utils';
+import { getCellIndex, getChByCellIndex } from './table-cell-utils';
 import { getWordSpans } from './word-segmentation';
 
 // Obsidian's built-in Vim mode (codemirror-vim) — not exposed in obsidian.d.ts.
@@ -81,12 +81,29 @@ interface VimCm {
 	// uses lower-level coordsAtPos/posAtCoords (via InnerCmLike) instead,
 	// bypassing this method's own flaky boundary heuristics for that case.
 	findPosV(cur: VimPos, dir: number, unit: 'line', goalColumn: number): VimPos & { hitSide?: boolean };
+	// `operation` batches the repeat-count loop into one CM transaction/render,
+	// matching vim.js's own `cm.operation(...)` wrapping in the real action.
+	operation(fn: () => void): void;
 }
 // A found word's span, from vim.js's own findWord (see moveByWords).
 interface VimWordSpan { from: number; to: number; line: number }
 
+// window.CodeMirrorAdapter itself (not just its own .Vim property) is the
+// CM5-compat namespace vim.js's own actions call `CodeMirror.commands.undo`/
+// `redo` against — confirmed live (a first attempt calling `cm.undo()`
+// directly threw "t.undo is not a function": the vim cm adapter object has
+// no such method of its own; undo/redo only exist on this separate
+// `.commands` bag, taking that same cm adapter as their own argument).
+interface VimCommandsApi {
+	undo(cm: unknown): void;
+	redo(cm: unknown): void;
+}
+
 const getVim = (): VimApi | undefined =>
 	(window as unknown as { CodeMirrorAdapter?: { Vim?: VimApi } }).CodeMirrorAdapter?.Vim;
+
+const getVimCommands = (): VimCommandsApi | undefined =>
+	(window as unknown as { CodeMirrorAdapter?: { commands?: VimCommandsApi } }).CodeMirrorAdapter?.commands;
 
 // The inner EditorView, as seen from outside a synchronous vim motion callback —
 // just enough to read back the post-crossing cursor position (see
@@ -126,10 +143,27 @@ interface InnerCmLike {
 // same reason as VimSupportHost below.
 interface EditorBridge {
 	inTableCell: boolean;
-	getCursor(): VimPos;
+	// Real Obsidian Editor signature: getCursor(side?: 'from'|'to'|'head'|'anchor').
+	// tableUndo/tableRedo below pass 'from' specifically (see their own
+	// comment) — matching vim.js's own real undo, which collapses to the
+	// *start* of the selection its own CodeMirror.commands.undo leaves behind,
+	// not Obsidian's own bare default (equivalent to 'head', i.e. the end).
+	getCursor(side?: 'from' | 'to' | 'head' | 'anchor'): VimPos;
+	// Collapses any active selection to a plain cursor (standard CM5-compat
+	// `setCursor` semantics) — used right after undo()/redo() below, whose own
+	// selection-leaving side effect needs clearing (see tableUndo's own
+	// comment for why).
+	setCursor(pos: VimPos): void;
 	getLine(line: number): string;
 	activeCM?: InnerCmLike;
 	cm?: InnerCmLike;
+	// Obsidian's own Editor.undo()/redo() — operate on the outer/whole-document
+	// history (same one Cmd+Z and this plugin's own Ctrl+/ Undo command use),
+	// unlike vim's native `u`/Ctrl-r which only see whichever cm is currently
+	// active. See tableUndo/tableRedo for why that distinction matters inside
+	// a table cell.
+	undo(): void;
+	redo(): void;
 }
 
 const getActiveEditor = (): EditorBridge | undefined =>
@@ -514,7 +548,31 @@ export class VimSupport {
 	private readonly tableRowBefore = this.tableCommandAction('editor:table-row-before');
 	private readonly tableRowUp = this.tableCommandAction('editor:table-row-up');
 	private readonly tableRowDown = this.tableCommandAction('editor:table-row-down');
-	private readonly tableRowDelete = this.tableCommandAction('editor:table-row-delete');
+
+	// dd's own convention: deleting a line leaves the cursor at the same row
+	// *index* — landing on whatever row slid up into that position (or, when
+	// deleting the last row, the new last row). Obsidian's own
+	// editor:table-row-delete does not preserve this on its own (confirmed
+	// live: it moves the cursor back to the table's first row instead) — this
+	// captures the cell position beforehand and restores the vim-conventional
+	// landing afterward, rather than using the shared tableCommandAction
+	// wrapper (whose whole point is *not* having table-mutation logic of its
+	// own — this is the one command where that no longer holds).
+	private readonly tableRowDelete: VimActionFn = () => {
+		const editor = getActiveEditor();
+		if (!editor?.inTableCell) return;
+		const before = editor.getCursor();
+		const cellIndex = getCellIndex(editor.getLine(before.line), before.ch);
+		this.host.executeObsidianCommand('editor:table-row-delete');
+		const editorAfter = getActiveEditor();
+		if (!editorAfter) return;
+		const targetLine = this.host.isLinePartOfTable(editorAfter, before.line, 1) ? before.line : before.line - 1;
+		if (!this.host.isLinePartOfTable(editorAfter, targetLine, 1)) return;
+		const ch = getChByCellIndex(editorAfter.getLine(targetLine), cellIndex);
+		if (ch === -1) return;
+		editorAfter.setCursor({ line: targetLine, ch });
+	};
+
 	private readonly tableColBefore = this.tableCommandAction('editor:table-col-before');
 	private readonly tableColAfter = this.tableCommandAction('editor:table-col-after');
 	private readonly tableColLeft = this.tableCommandAction('editor:table-col-left');
@@ -613,18 +671,28 @@ export class VimSupport {
 			vim.defineAction(cmd.action, cmd.fn);
 			vim.mapCommand(this.tableCommandLhs(cmd.leaderSuffix), 'action', cmd.action);
 		}
+		// Overrides the real 'undo'/'redo' action names (unlike the table
+		// commands above, these already existed and are bound to u/Ctrl-r by
+		// vim.js's own default keymap) — see tableUndo/tableRedo for why this
+		// is scoped to the table-structure feature rather than always-on.
+		vim.defineAction('undo', this.tableUndo);
+		vim.defineAction('redo', this.tableRedo);
 		this.applySpaceLeakGuard();
 	}
 
 	// Only unmaps our own leader sequences — there's no prior default action
 	// to restore (these action names never existed before UCH registered
 	// them). Space's native binding can't be restored either (no read-back
-	// API) — same needsRestart-latch story as the other toggles.
+	// API) — same needsRestart-latch story as the other toggles. undo/redo
+	// restore to the hardcoded vim.js-equivalent defaults instead, same as
+	// every other defineMotion/defineAction override in this file.
 	private restoreTableStructure(): void {
 		const vim = getVim();
 		for (const cmd of this.tableCommands) {
 			vim?.unmap(this.tableCommandLhs(cmd.leaderSuffix), undefined);
 		}
+		vim?.defineAction('undo', VimSupport.VIM_DEFAULT_UNDO);
+		vim?.defineAction('redo', VimSupport.VIM_DEFAULT_REDO);
 		this.restoreSpaceLeakGuard();
 	}
 
@@ -989,6 +1057,84 @@ export class VimSupport {
 	// next line is entirely whitespace).
 	private static readonly VIM_DEFAULT_JOIN_LINES: VimActionFn = (cm, actionArgs, vim) => {
 		VimSupport.runJoinLines(cm as VimCm, actionArgs, vim as { visualMode?: boolean } | undefined, false, () => 0);
+	};
+
+	// Vim's own undo/redo defaults (see VIM_DEFAULT_MOVE_BY_CHARACTERS for why
+	// these must be hardcoded rather than captured) — restore targets for
+	// tableUndo/tableRedo below on toggle-off/unload. Mirrors vim.js's real
+	// `actions.undo`/`actions.redo` bodies: repeat-loop the CM5-compat
+	// undo/redo `repeat` times inside one `operation`, then (undo only) clamp
+	// the cursor into the resulting line's own normal-mode bounds — vim.js's
+	// own `clipCursorToContent`, simplified to line/ch clamping only (no
+	// surrogate-pair edge case, not reachable through plain undo/redo).
+	private static readonly VIM_DEFAULT_UNDO: VimActionFn = (cm, actionArgs) => {
+		const vcm = cm as VimCm;
+		const commands = getVimCommands();
+		if (!commands) return;
+		vcm.operation(() => {
+			for (let i = 0; i < actionArgs.repeat; i++) commands.undo(cm);
+			const cur = vcm.getCursor('start');
+			const line = Math.max(0, Math.min(vcm.lastLine(), cur.line));
+			vcm.setCursor({ line, ch: Math.min(cur.ch, VimSupport.maxNormalModeCh(vcm.getLine(line))) });
+		});
+	};
+
+	private static readonly VIM_DEFAULT_REDO: VimActionFn = (cm, actionArgs) => {
+		const vcm = cm as VimCm;
+		const commands = getVimCommands();
+		if (!commands) return;
+		vcm.operation(() => {
+			for (let i = 0; i < actionArgs.repeat; i++) commands.redo(cm);
+		});
+	};
+
+	// u/Ctrl-r's own table-cell gap: vim's native undo/redo only ever see
+	// whichever cm is currently active. Outside a table this is the one and
+	// only cm, so the native default (above) is fine untouched. Inside a table
+	// cell it's a per-cell view whose own local history has no record of
+	// table-structure edits (row/column insert/delete) — those are applied at
+	// the outer/whole-document level (confirmed via Obsidian's own bundled
+	// app.js: the table widget's own Mod-z keymap explicitly targets a
+	// separate `t.table.editor.cm`, not any per-cell view). Obsidian's own
+	// Editor.undo()/redo() (== Cmd+Z, == this plugin's own Ctrl+/ Undo
+	// command) already operate at that correct outer level and were confirmed
+	// live to walk back through a plain-text edit → table-structure edit →
+	// plain-text edit chain seamlessly — so inside a table cell, delegate to
+	// that instead of vim's own (cell-scoped) default. Gated purely on
+	// inTableCell, not on whether the specific change being undone was itself
+	// structural — live testing showed that's the only condition that
+	// actually predicts vim's native undo failing (see this branch's own
+	// design notes).
+	// Obsidian's own Editor.undo()/redo() (real CM6 @codemirror/commands
+	// undo/redo underneath) leaves the just-restored range *selected* — normal
+	// CM6 behavior, but disastrous for a following "u": vim.js's own default
+	// keymap binds `u` to a *different* action while a selection is live
+	// (`{ keys: 'u', ..., context: 'visual' }` — lowercase-selection, not
+	// undo). Left alone, the very next "u" press silently no-ops (routed to
+	// that visual-mode binding instead of ours) until something (Escape, a
+	// motion) collapses the selection back to normal mode — confirmed live.
+	// vim's own native undo (VIM_DEFAULT_UNDO below) never hits this because
+	// it already ends with an explicit setCursor of its own (for unrelated
+	// reasons — see its own comment) that happens to collapse any selection
+	// as a side effect; this mirrors that same collapse explicitly.
+	private readonly tableUndo: VimActionFn = (cm, actionArgs, vim) => {
+		const editor = getActiveEditor();
+		if (editor?.inTableCell) {
+			for (let i = 0; i < actionArgs.repeat; i++) editor.undo();
+			editor.setCursor(editor.getCursor('from'));
+			return;
+		}
+		VimSupport.VIM_DEFAULT_UNDO(cm, actionArgs, vim);
+	};
+
+	private readonly tableRedo: VimActionFn = (cm, actionArgs, vim) => {
+		const editor = getActiveEditor();
+		if (editor?.inTableCell) {
+			for (let i = 0; i < actionArgs.repeat; i++) editor.redo();
+			editor.setCursor(editor.getCursor('from'));
+			return;
+		}
+		VimSupport.VIM_DEFAULT_REDO(cm, actionArgs, vim);
 	};
 
 	// Markdown-aware replacement for J (joinLines). When settings.smartJoin is on,
