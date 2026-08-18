@@ -9,7 +9,7 @@ import type { VimSupportHost } from '../vim-support'
 // whitespace-only-skip behavior untouched instead.
 
 const makeHost = (overrides: Partial<VimSupportHost> = {}): VimSupportHost => ({
-	settings: { vimHlSupport: false, vimJkSupport: false, vimJoinSupport: false, vimCaretSupport: false, vimWordSupport: false, vimGgSupport: false, vimDisplayLineSupport: false, vimEolSupport: false, smartJoin: false, smartHomeStandard: false },
+	settings: { vimHlSupport: false, vimJkSupport: false, vimJoinSupport: false, vimCaretSupport: false, vimWordSupport: false, vimGgSupport: false, vimDisplayLineSupport: false, vimEolSupport: false, vimTableStructureSupport: false, vimLeaderUseBackslash: false, smartJoin: false, smartHomeStandard: false },
 	saveSettings: async () => {},
 	crossTableRowForCell: vi.fn().mockReturnValue(null),
 	crossTableRowForWord: vi.fn().mockReturnValue(null),
@@ -18,6 +18,7 @@ const makeHost = (overrides: Partial<VimSupportHost> = {}): VimSupportHost => ({
 	enterTableAtLine: vi.fn().mockReturnValue(null),
 	refineDisplayLineColumn: vi.fn().mockReturnValue(null),
 	getBeginningOfLinePosition: vi.fn().mockReturnValue(0),
+	executeObsidianCommand: vi.fn().mockReturnValue(true),
 	...overrides,
 })
 
@@ -54,7 +55,7 @@ describe('Vim ^ (moveToFirstNonWhiteSpaceCharacter)', () => {
 	describe('smartHomeStandard on — Markdown-aware, via getBeginningOfLinePosition', () => {
 		it('strips a list marker via getBeginningOfLinePosition', () => {
 			const host = makeHost({
-				settings: { vimHlSupport: false, vimJkSupport: false, vimJoinSupport: false, vimCaretSupport: false, vimWordSupport: false, vimGgSupport: false, vimDisplayLineSupport: false, vimEolSupport: false, smartJoin: false, smartHomeStandard: true },
+				settings: { vimHlSupport: false, vimJkSupport: false, vimJoinSupport: false, vimCaretSupport: false, vimWordSupport: false, vimGgSupport: false, vimDisplayLineSupport: false, vimEolSupport: false, vimTableStructureSupport: false, vimLeaderUseBackslash: false, smartJoin: false, smartHomeStandard: true },
 				getBeginningOfLinePosition: () => 2,
 			})
 			const vim = new VimSupport(host) as any
@@ -65,7 +66,7 @@ describe('Vim ^ (moveToFirstNonWhiteSpaceCharacter)', () => {
 		it('calls getBeginningOfLinePosition non-togglingly (ch = line.length, not the cursor\'s own ch)', () => {
 			const getBeginningOfLinePosition = vi.fn().mockReturnValue(2)
 			const host = makeHost({
-				settings: { vimHlSupport: false, vimJkSupport: false, vimJoinSupport: false, vimCaretSupport: false, vimWordSupport: false, vimGgSupport: false, vimDisplayLineSupport: false, vimEolSupport: false, smartJoin: false, smartHomeStandard: true },
+				settings: { vimHlSupport: false, vimJkSupport: false, vimJoinSupport: false, vimCaretSupport: false, vimWordSupport: false, vimGgSupport: false, vimDisplayLineSupport: false, vimEolSupport: false, vimTableStructureSupport: false, vimLeaderUseBackslash: false, smartJoin: false, smartHomeStandard: true },
 				getBeginningOfLinePosition,
 			})
 			const vim = new VimSupport(host) as any
@@ -78,7 +79,7 @@ describe('Vim ^ (moveToFirstNonWhiteSpaceCharacter)', () => {
 		it('passes ch=1 (not 0) for an empty line, to keep the non-toggling contract', () => {
 			const getBeginningOfLinePosition = vi.fn().mockReturnValue(0)
 			const host = makeHost({
-				settings: { vimHlSupport: false, vimJkSupport: false, vimJoinSupport: false, vimCaretSupport: false, vimWordSupport: false, vimGgSupport: false, vimDisplayLineSupport: false, vimEolSupport: false, smartJoin: false, smartHomeStandard: true },
+				settings: { vimHlSupport: false, vimJkSupport: false, vimJoinSupport: false, vimCaretSupport: false, vimWordSupport: false, vimGgSupport: false, vimDisplayLineSupport: false, vimEolSupport: false, vimTableStructureSupport: false, vimLeaderUseBackslash: false, smartJoin: false, smartHomeStandard: true },
 				getBeginningOfLinePosition,
 			})
 			const vim = new VimSupport(host) as any

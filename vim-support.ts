@@ -42,6 +42,25 @@ interface VimApi {
 	defineMotion(name: string, fn: VimMotionFn): void;
 	defineAction(name: string, fn: VimActionFn): void;
 	exitVisualMode(cm: unknown, moveHead?: boolean): void;
+	// defineMotion/defineAction only override an *existing* action/motion
+	// name already wired to some key — mapCommand is what actually binds a
+	// brand-new key sequence (e.g. a leader sequence) in the first place.
+	// Real codemirror-vim signature (verified against Obsidian's own bundled
+	// vim.js): command[type] = name, no context unless passed via extra.
+	mapCommand(keys: string, type: 'action', name: string, args?: Record<string, unknown>): void;
+	// Real codemirror-vim signature is 2-arg only (verified against
+	// Obsidian's own bundled vim.js) — there is no third "includeDefaults"
+	// option despite some third-party type declarations suggesting one; the
+	// match condition is a strict `defaultKeymap[i].context === context`, so
+	// unmapping a binding with no explicit context (e.g. vim.js's own
+	// built-in `<Space>` = `l`) requires passing `undefined`, not `'normal'`.
+	unmap(lhs: string, context?: 'normal' | 'insert' | 'visual'): boolean;
+	// The actual function Obsidian's own CM6-vim bridge calls to decide
+	// whether to preventDefault() a keydown (confirmed by tracing Obsidian's
+	// bundled app.js) — exposed here so the Space-insertion-leak guard (see
+	// applySpaceLeakGuard) can wrap it. Real return value is effectively
+	// true/undefined (never a literal false).
+	multiSelectHandleKey(this: void, cm: unknown, key: string, origin?: string): unknown;
 }
 interface VimCm {
 	getLine(line: number): string;
@@ -140,6 +159,14 @@ export interface VimSupportHost {
 		vimGgSupport: boolean;
 		vimDisplayLineSupport: boolean;
 		vimEolSupport: boolean;
+		// Bundles the leader-key table-structure commands (currently just
+		// insert-row-below — more follow the same wiring later). Off by
+		// default like every other Vim feature.
+		vimTableStructureSupport: boolean;
+		// Leader key for table-structure commands. false (default) = Space;
+		// true = backslash. Only has an effect once vimTableStructureSupport
+		// is on — a preference, not an on/off feature.
+		vimLeaderUseBackslash: boolean;
 		smartJoin: boolean;
 		smartHomeStandard: boolean;
 	};
@@ -212,6 +239,12 @@ export interface VimSupportHost {
 	// Returns the outer {line, ch} after correction (or the unchanged rough
 	// landing if no correction was possible/needed).
 	refineDisplayLineColumn(editor: unknown, pixelGoal: number): { line: number; ch: number } | null;
+	// Executes a built-in (or any registered) Obsidian command by ID — the
+	// app-level call vim-support.ts itself never makes directly (see this
+	// interface's own file-split boundary). Used by Vim's leader-key
+	// table-structure commands to wrap Obsidian's own editor:table-row-* /
+	// editor:table-col-* commands rather than reimplementing table mutation.
+	executeObsidianCommand(commandId: string): boolean;
 }
 
 export class VimSupport {
@@ -223,6 +256,12 @@ export class VimSupport {
 	// afterward does *not* clear this — once a restart is genuinely needed to
 	// guarantee a clean state, it stays needed for the rest of the session.
 	needsRestart = false;
+
+	// The pre-patch multiSelectHandleKey, saved so restoreSpaceLeakGuard can
+	// put it back exactly (unlike defineMotion/defineAction, which have no
+	// getter, this wrap is fully reversible since we hold the real original).
+	private originalMultiSelectHandleKey: VimApi['multiSelectHandleKey'] | undefined;
+	private spaceLeakGuardWrapper: VimApi['multiSelectHandleKey'] | undefined;
 
 	constructor(host: VimSupportHost) {
 		this.host = host;
@@ -294,6 +333,7 @@ export class VimSupport {
 		if (this.host.settings.vimGgSupport) this.applyGg();
 		if (this.host.settings.vimDisplayLineSupport) this.applyDisplayLines();
 		if (this.host.settings.vimEolSupport) this.applyEol();
+		if (this.host.settings.vimTableStructureSupport) this.applyTableStructure();
 	}
 
 	// Call from the plugin's onunload(). Best-effort only — see each restore*'s own caveat.
@@ -306,6 +346,7 @@ export class VimSupport {
 		this.restoreDisplayLines();
 		this.restoreGg();
 		this.restoreEol();
+		this.restoreTableStructure();
 	}
 
 	setHlEnabled(on: boolean): void {
@@ -437,6 +478,183 @@ export class VimSupport {
 
 	private restoreEol(): void {
 		getVim()?.defineMotion('moveToEol', VimSupport.VIM_DEFAULT_MOVE_TO_EOL);
+	}
+
+	private static readonly LEADER_SPACE_NOTATION = '<Space>';
+
+	private leaderNotation(): string {
+		return this.host.settings.vimLeaderUseBackslash ? '\\' : VimSupport.LEADER_SPACE_NOTATION;
+	}
+
+	private tableCommandLhs(leaderSuffix: string): string {
+		return `${this.leaderNotation()}${leaderSuffix}`;
+	}
+
+	// Thin wrapper factory — every table-structure command shares the same
+	// shape (in-table-cell gate, then delegate to Obsidian's own built-in
+	// command by ID; no table-mutation logic of our own). requireInTableCell
+	// is false only for "insert table" (tableInsert), whose whole point is to
+	// work OUTSIDE an existing table.
+	private tableCommandAction(commandId: string, requireInTableCell = true): VimActionFn {
+		return () => {
+			if (requireInTableCell && !getActiveEditor()?.inTableCell) return;
+			this.host.executeObsidianCommand(commandId);
+		};
+	}
+
+	// leader + "to"/"tO"/etc — mnemonics echo real vim's own single-key
+	// semantics: `o`/`O` open below/above, `dd` deletes (linewise), `i`
+	// prefixes "insert" (vs. bare H/L reserved for a possible future "move
+	// column" — not part of this MVP). Action names are UCH-prefixed (not
+	// e.g. bare "tableRowAfter") to avoid colliding with the same names a
+	// competing plugin ("Vim Motions") registers on the same shared Vim
+	// singleton. Key suffixes deliberately match Vim Motions' own scheme for
+	// muscle-memory transfer (source-confirmed via their tables.ts).
+	private readonly tableRowAfter = this.tableCommandAction('editor:table-row-after');
+	private readonly tableRowBefore = this.tableCommandAction('editor:table-row-before');
+	private readonly tableRowUp = this.tableCommandAction('editor:table-row-up');
+	private readonly tableRowDown = this.tableCommandAction('editor:table-row-down');
+	private readonly tableRowDelete = this.tableCommandAction('editor:table-row-delete');
+	private readonly tableColBefore = this.tableCommandAction('editor:table-col-before');
+	private readonly tableColAfter = this.tableCommandAction('editor:table-col-after');
+	private readonly tableColLeft = this.tableCommandAction('editor:table-col-left');
+	private readonly tableColRight = this.tableCommandAction('editor:table-col-right');
+	private readonly tableColDelete = this.tableCommandAction('editor:table-col-delete');
+	private readonly tableInsert = this.tableCommandAction('editor:insert-table', false);
+
+	// The full table-structure command family (MVP-11 — the ceiling of what
+	// Obsidian exposes as invokable commands for its native table widget;
+	// see this branch's own design notes for the rest — duplicate row/col,
+	// sort, clear/delete-selection have no command ID at all and can't be
+	// reached this way). apply/restore/leader-switch all loop over this
+	// rather than hand-repeating each command's own registration.
+	private get tableCommands(): ReadonlyArray<{ action: string; leaderSuffix: string; fn: VimActionFn }> {
+		return [
+			{ action: 'uchTableRowAfter', leaderSuffix: 'to', fn: this.tableRowAfter },
+			{ action: 'uchTableRowBefore', leaderSuffix: 'tO', fn: this.tableRowBefore },
+			{ action: 'uchTableRowUp', leaderSuffix: 'tK', fn: this.tableRowUp },
+			{ action: 'uchTableRowDown', leaderSuffix: 'tJ', fn: this.tableRowDown },
+			{ action: 'uchTableRowDelete', leaderSuffix: 'tdd', fn: this.tableRowDelete },
+			{ action: 'uchTableColBefore', leaderSuffix: 'tiH', fn: this.tableColBefore },
+			{ action: 'uchTableColAfter', leaderSuffix: 'tiL', fn: this.tableColAfter },
+			{ action: 'uchTableColLeft', leaderSuffix: 'tH', fn: this.tableColLeft },
+			{ action: 'uchTableColRight', leaderSuffix: 'tL', fn: this.tableColRight },
+			{ action: 'uchTableColDelete', leaderSuffix: 'tdc', fn: this.tableColDelete },
+			{ action: 'uchTableInsert', leaderSuffix: 'tm', fn: this.tableInsert },
+		];
+	}
+
+	// Space is natively bound in vim.js's own default keymap (a keyToKey
+	// synonym for `l`, move right) — leaving it bound would race our own
+	// longer "<Space>to" sequence. Must unmap with context `undefined`, not
+	// `'normal'`: the built-in binding has no explicit context, and unmap's
+	// match is a strict equality check (verified against Obsidian's own
+	// bundled vim.js). Backslash has no default binding, so nothing to do.
+	private unmapLeaderNativeBinding(): void {
+		if (this.host.settings.vimLeaderUseBackslash) return;
+		getVim()?.unmap(VimSupport.LEADER_SPACE_NOTATION, undefined);
+	}
+
+	// vim.js's own findKey lets an unmatched key fall through to CM6's default
+	// text-insertion handling UNLESS that key is a single character — a plain
+	// letter like "g" or "q" is always safely swallowed as a no-op, but a
+	// bracket-notation key (vim.js's own name for it, e.g. "<Space>", is
+	// longer than 1 character) is not, and leaks through. Normally invisible
+	// (Space keeps its own real vim.js binding, so it's never left
+	// "unmatched"), but reachable the moment unmapLeaderNativeBinding removes
+	// that binding — confirmed live: an incomplete "<Space>to" attempt (e.g.
+	// Space pressed twice) inserts a literal space character into the
+	// document. Traced directly in Obsidian's own bundled vim.js/app.js:
+	// multiSelectHandleKey's return value is exactly what the app's own CM6-
+	// vim bridge checks before calling preventDefault(). Not fixable via
+	// defineAction/mapCommand/unmap alone — this wraps (never replaces
+	// outright) multiSelectHandleKey so every other key/plugin is untouched.
+	// Scoped to exactly <Space> outside Insert mode (where Space should of
+	// course still type a literal space) — a competing plugin's own
+	// changelog documents the failure mode of a broader regex here
+	// (swallowing Tab/F-keys too) and having to walk it back.
+	// Installed once the feature is on, independent of the current leader
+	// choice: Space's native binding, once removed, never comes back this
+	// session (see unmapLeaderNativeBinding), so a leak is still reachable
+	// even after switching to backslash.
+	private applySpaceLeakGuard(): void {
+		const vim = getVim();
+		if (!vim || this.spaceLeakGuardWrapper) return;
+		const original = vim.multiSelectHandleKey;
+		this.originalMultiSelectHandleKey = original;
+		this.spaceLeakGuardWrapper = (cm, key, origin) => {
+			const handled = original(cm, key, origin);
+			if (handled) return handled;
+			const insertMode = (cm as { state?: { vim?: { insertMode?: boolean } } })?.state?.vim?.insertMode;
+			if (key === VimSupport.LEADER_SPACE_NOTATION && !insertMode) return true;
+			return handled;
+		};
+		vim.multiSelectHandleKey = this.spaceLeakGuardWrapper;
+	}
+
+	// Fully reversible (unlike defineMotion/defineAction's restore targets) —
+	// only restores if nothing else has re-patched multiSelectHandleKey since
+	// (avoids clobbering a later, unrelated patch).
+	private restoreSpaceLeakGuard(): void {
+		const vim = getVim();
+		if (!vim || !this.originalMultiSelectHandleKey) return;
+		if (vim.multiSelectHandleKey === this.spaceLeakGuardWrapper) {
+			vim.multiSelectHandleKey = this.originalMultiSelectHandleKey;
+		}
+		this.originalMultiSelectHandleKey = undefined;
+		this.spaceLeakGuardWrapper = undefined;
+	}
+
+	private applyTableStructure(): void {
+		const vim = getVim();
+		if (!vim) return;
+		this.unmapLeaderNativeBinding();
+		for (const cmd of this.tableCommands) {
+			vim.defineAction(cmd.action, cmd.fn);
+			vim.mapCommand(this.tableCommandLhs(cmd.leaderSuffix), 'action', cmd.action);
+		}
+		this.applySpaceLeakGuard();
+	}
+
+	// Only unmaps our own leader sequences — there's no prior default action
+	// to restore (these action names never existed before UCH registered
+	// them). Space's native binding can't be restored either (no read-back
+	// API) — same needsRestart-latch story as the other toggles.
+	private restoreTableStructure(): void {
+		const vim = getVim();
+		for (const cmd of this.tableCommands) {
+			vim?.unmap(this.tableCommandLhs(cmd.leaderSuffix), undefined);
+		}
+		this.restoreSpaceLeakGuard();
+	}
+
+	setTableStructureEnabled(on: boolean): void {
+		this.setFeature(on, v => { this.host.settings.vimTableStructureSupport = v; }, () => this.applyTableStructure(), () => this.restoreTableStructure());
+	}
+
+	// Leader-key choice — a preference, not a feature on/off, so this
+	// bypasses setFeature() entirely. If the feature is already enabled, the
+	// old lhs's are unmapped and the new leader's own native binding (if
+	// any) is removed before mapping the new lhs's live — all fully
+	// reversible remaps, so (unlike turning the whole feature off) this
+	// doesn't need needsRestart on its own: Space's native binding, if it's
+	// ever removed at all, is removed silently the same way turning the
+	// feature on in the first place already is (no restart banner for that
+	// either) — this switch either does that same removal or is a no-op,
+	// never something worse.
+	setLeaderUseBackslash(on: boolean): void {
+		const featureOn = this.host.settings.vimTableStructureSupport;
+		const vim = featureOn ? getVim() : undefined;
+		const oldLhsList = this.tableCommands.map(cmd => this.tableCommandLhs(cmd.leaderSuffix));
+		this.host.settings.vimLeaderUseBackslash = on;
+		if (vim) {
+			for (const oldLhs of oldLhsList) vim.unmap(oldLhs, undefined);
+			this.unmapLeaderNativeBinding();
+			for (const cmd of this.tableCommands) {
+				vim.mapCommand(this.tableCommandLhs(cmd.leaderSuffix), 'action', cmd.action);
+			}
+		}
+		void this.host.saveSettings();
 	}
 
 	// --- w/b/e (moveByWords) — faithful port of vim.js's own word-motion

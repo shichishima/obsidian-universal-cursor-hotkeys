@@ -38,6 +38,14 @@ interface UniversalCursorHotkeysSettings {
 	vimGgSupport: boolean;
 	vimDisplayLineSupport: boolean;
 	vimEolSupport: boolean;
+	// Bundles the leader-key table-structure commands (currently just
+	// insert-row-below — more follow the same wiring later). Off by
+	// default like every other Vim feature.
+	vimTableStructureSupport: boolean;
+	// Leader key for table-structure commands. false (default) = Space;
+	// true = backslash. Only has an effect once vimTableStructureSupport
+	// is on — a preference, not an on/off feature.
+	vimLeaderUseBackslash: boolean;
 	vimSectionVisible: boolean;
 	// Whether the settings tab has already auto-expanded the Vim support
 	// section (and collapsed the QSA section, on the theory that a Vim-mode
@@ -65,6 +73,8 @@ const DEFAULT_SETTINGS: UniversalCursorHotkeysSettings = {
 	vimGgSupport: false,
 	vimDisplayLineSupport: false,
 	vimEolSupport: false,
+	vimTableStructureSupport: false,
+	vimLeaderUseBackslash: false,
 	vimSectionVisible: false,
 	vimAutoExpandDone: false,
 };
@@ -2891,6 +2901,14 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const headLine = outer.state.doc.lineAt(head);
 		this.setCursorViaCm(e, outerCursor.line, resolved - headLine.from);
 		return e.getCursor();
+	}
+
+	// Obsidian internal API (not in obsidian.d.ts) — narrower than
+	// settings.ts's own like-named ObsidianInternals, which also needs
+	// hotkeyManager/setting/vault; this file only ever touches commands.
+	executeObsidianCommand(commandId: string): boolean {
+		return (this.app as unknown as { commands?: { executeCommandById?(id: string): boolean } })
+			.commands?.executeCommandById?.(commandId) ?? false;
 	}
 
 	// Shared by both branches of refineDisplayLineColumn above: finds the

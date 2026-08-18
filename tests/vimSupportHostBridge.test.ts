@@ -871,4 +871,17 @@ describe('VimSupportHost bridge (main.ts)', () => {
 			expect(plugin.setCursorViaCm).not.toHaveBeenCalled()
 		})
 	})
+
+	describe('executeObsidianCommand', () => {
+		it('delegates to app.commands.executeCommandById', () => {
+			plugin.app = { commands: { executeCommandById: vi.fn().mockReturnValue(true) } }
+			expect(plugin.executeObsidianCommand('editor:table-row-after')).toBe(true)
+			expect(plugin.app.commands.executeCommandById).toHaveBeenCalledWith('editor:table-row-after')
+		})
+
+		it('returns false when there is no commands API', () => {
+			plugin.app = {}
+			expect(plugin.executeObsidianCommand('editor:table-row-after')).toBe(false)
+		})
+	})
 })
