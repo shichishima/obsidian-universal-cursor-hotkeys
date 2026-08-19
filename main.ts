@@ -2934,9 +2934,19 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	// See vim-support.ts's own VimSupportHost.setCursorAcrossTableBoundary doc
 	// comment for why table-navigation.ts's own exitTable needs this instead
-	// of the plain EditorBridge setCursor used elsewhere.
+	// of the plain EditorBridge setCursor used elsewhere. exitTable's own
+	// jumps can cross arbitrarily many lines (the whole height of a table) —
+	// unlike setCursorViaCm's other, already-onscreen-range callers, this
+	// needs the same explicit scroll-into-view follow-up
+	// exitTableWithColumn/jumpToDocumentLine already use for their own
+	// long-distance jumps (confirmed live: without it, the cursor can land
+	// off-screen with no visible scroll).
 	setCursorAcrossTableBoundary(editor: unknown, line: number, ch: number): void {
-		this.setCursorViaCm(editor as Editor, line, ch);
+		const e = editor as Editor;
+		this.setCursorViaCm(e, line, ch);
+		const cm = e.cm;
+		const pos = e.posToOffset({ line, ch });
+		cm.dispatch({ selection: { anchor: pos, head: pos }, scrollIntoView: true, userEvent: 'move' });
 	}
 
 	// See vim-support.ts's own VimSupportHost.appendBlankLineAndLand doc
@@ -2946,15 +2956,28 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const lastLine = e.lastLine();
 		e.replaceRange('\n', { line: lastLine, ch: e.getLine(lastLine).length });
 		this.setCursorViaCm(e, lastLine + 1, 0);
+		// Same explicit scroll-into-view follow-up as
+		// setCursorAcrossTableBoundary — see its own doc comment.
+		const cm = e.cm;
+		const pos = e.posToOffset({ line: lastLine + 1, ch: 0 });
+		cm.dispatch({ selection: { anchor: pos, head: pos }, scrollIntoView: true, userEvent: 'move' });
 	}
 
 	// See vim-support.ts's own VimSupportHost.enterTableRowSmartHome doc
 	// comment — the same enterTableAtLine + refineTableLandingForSmartHome
-	// combo jumpToDocumentLine (gg/G) already uses below.
+	// combo jumpToDocumentLine (gg/G) already uses below, including its own
+	// explicit scroll-into-view follow-up (see jumpToDocumentLine's own doc
+	// comment on why setCursorViaCm's underlying dispatches don't request one
+	// on their own).
 	enterTableRowSmartHome(editor: unknown, targetLine: number): { line: number; ch: number } | null {
 		const e = editor as Editor;
 		let result = this.enterTableAtLine(e, targetLine, 0, true, 0, 0);
 		if (result) result = this.refineTableLandingForSmartHome(e, result);
+		if (result) {
+			const cm = e.cm;
+			const pos = e.posToOffset(result);
+			cm.dispatch({ selection: { anchor: pos, head: pos }, scrollIntoView: true, userEvent: 'move' });
+		}
 		return result;
 	}
 
