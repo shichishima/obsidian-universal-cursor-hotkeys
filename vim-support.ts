@@ -164,6 +164,13 @@ interface EditorBridge {
 	// a table cell.
 	undo(): void;
 	redo(): void;
+	// Restores DOM focus — needed after a command that tears down/rebuilds the
+	// active table cell's own inline editor (confirmed live: some table
+	// commands leave inTableCell false afterward even though the cursor is
+	// still logically inside a table row). setCursor() alone updates the
+	// logical position (readable back via getCursor()) but not DOM focus, so
+	// without this the cursor is set correctly yet renders nowhere visible.
+	focus(): void;
 }
 
 const getActiveEditor = (): EditorBridge | undefined =>
@@ -536,6 +543,33 @@ export class VimSupport {
 		};
 	}
 
+	// Column-preserving variant, for commands that rewrite the current row's
+	// own text (re-padding cell content) without changing which row/column
+	// it's in — unlike tableRowDelete, the target is always the *same* line,
+	// never a fallback one. Obsidian's own align commands don't preserve the
+	// cursor on their own (confirmed live: it disappears entirely) — restores
+	// it to the same cell afterward, same getChByCellIndex resolution as
+	// tableRowDelete's own landing logic. Also confirmed live: align tears
+	// down the active table cell's own inline editor (inTableCell reads false
+	// immediately afterward) — setCursor() alone updates the logical position
+	// but leaves DOM focus nowhere, so the cursor is set but invisible unless
+	// focus() is called too (see EditorBridge's own comment on focus()).
+	private tableColPreservingCommandAction(commandId: string): VimActionFn {
+		return () => {
+			const editor = getActiveEditor();
+			if (!editor?.inTableCell) return;
+			const before = editor.getCursor();
+			const cellIndex = getCellIndex(editor.getLine(before.line), before.ch);
+			this.host.executeObsidianCommand(commandId);
+			const editorAfter = getActiveEditor();
+			if (!editorAfter) return;
+			const ch = getChByCellIndex(editorAfter.getLine(before.line), cellIndex);
+			if (ch === -1) return;
+			editorAfter.setCursor({ line: before.line, ch });
+			editorAfter.focus();
+		};
+	}
+
 	// leader + "to"/"tO"/etc — mnemonics echo real vim's own single-key
 	// semantics: `o`/`O` open below/above, `dd` deletes (linewise), `i`
 	// prefixes "insert" (vs. bare H/L reserved for a possible future "move
@@ -580,12 +614,24 @@ export class VimSupport {
 	private readonly tableColDelete = this.tableCommandAction('editor:table-col-delete');
 	private readonly tableInsert = this.tableCommandAction('editor:insert-table', false);
 
-	// The full table-structure command family (MVP-11 — the ceiling of what
-	// Obsidian exposes as invokable commands for its native table widget;
-	// see this branch's own design notes for the rest — duplicate row/col,
-	// sort, clear/delete-selection have no command ID at all and can't be
-	// reached this way). apply/restore/leader-switch all loop over this
-	// rather than hand-repeating each command's own registration.
+	// The remaining 5 commands Obsidian exposes a command ID for beyond the
+	// original MVP-11 (source-confirmed directly against Obsidian's own
+	// bundled app.js command-registration loop — sort and clear/delete-
+	// selection genuinely have no command ID and can't be reached this way,
+	// but duplicate row/col do, contrary to this branch's own original design
+	// notes). Neither Vim Motions' own leader-key scheme nor its Ex commands
+	// cover duplicate row/col at all, and its align commands are Ex-command-
+	// only (no leader key) — so these 5 keys are UCH's own, not borrowed.
+	private readonly tableRowCopy = this.tableCommandAction('editor:table-row-copy');
+	private readonly tableColCopy = this.tableCommandAction('editor:table-col-copy');
+	private readonly tableColAlignLeft = this.tableColPreservingCommandAction('editor:table-col-align-left');
+	private readonly tableColAlignCenter = this.tableColPreservingCommandAction('editor:table-col-align-center');
+	private readonly tableColAlignRight = this.tableColPreservingCommandAction('editor:table-col-align-right');
+
+	// The full table-structure command family (16 — the ceiling of what
+	// Obsidian exposes as invokable commands for its native table widget).
+	// apply/restore/leader-switch all loop over this rather than
+	// hand-repeating each command's own registration.
 	private get tableCommands(): ReadonlyArray<{ action: string; leaderSuffix: string; fn: VimActionFn }> {
 		return [
 			{ action: 'uchTableRowAfter', leaderSuffix: 'to', fn: this.tableRowAfter },
@@ -593,11 +639,24 @@ export class VimSupport {
 			{ action: 'uchTableRowUp', leaderSuffix: 'tK', fn: this.tableRowUp },
 			{ action: 'uchTableRowDown', leaderSuffix: 'tJ', fn: this.tableRowDown },
 			{ action: 'uchTableRowDelete', leaderSuffix: 'tdd', fn: this.tableRowDelete },
+			// "yy" then "p" — the real vim keystrokes for duplicating a line.
+			{ action: 'uchTableRowCopy', leaderSuffix: 'tyyp', fn: this.tableRowCopy },
 			{ action: 'uchTableColBefore', leaderSuffix: 'tiH', fn: this.tableColBefore },
 			{ action: 'uchTableColAfter', leaderSuffix: 'tiL', fn: this.tableColAfter },
+			// Aliases of to/tO above — "ti" + direction becomes a fully symmetric
+			// insert convention across rows (J/K, matching tJ/tK's own down/up)
+			// and columns (H/L, matching tH/tL's own left/right).
+			{ action: 'uchTableRowAfter', leaderSuffix: 'tiJ', fn: this.tableRowAfter },
+			{ action: 'uchTableRowBefore', leaderSuffix: 'tiK', fn: this.tableRowBefore },
 			{ action: 'uchTableColLeft', leaderSuffix: 'tH', fn: this.tableColLeft },
 			{ action: 'uchTableColRight', leaderSuffix: 'tL', fn: this.tableColRight },
 			{ action: 'uchTableColDelete', leaderSuffix: 'tdc', fn: this.tableColDelete },
+			// "c" for column, matching tdc's own suffix — no real vim idiom to
+			// borrow here (columns aren't a native vim concept).
+			{ action: 'uchTableColCopy', leaderSuffix: 'tyc', fn: this.tableColCopy },
+			{ action: 'uchTableColAlignLeft', leaderSuffix: 'tal', fn: this.tableColAlignLeft },
+			{ action: 'uchTableColAlignCenter', leaderSuffix: 'tac', fn: this.tableColAlignCenter },
+			{ action: 'uchTableColAlignRight', leaderSuffix: 'tar', fn: this.tableColAlignRight },
 			{ action: 'uchTableInsert', leaderSuffix: 'tm', fn: this.tableInsert },
 		];
 	}

@@ -3,44 +3,63 @@ import { VimSupport } from '../vim-support'
 import type { VimSupportHost } from '../vim-support'
 import { installVimWindow, uninstallVimWindow } from './__helpers__/vimWindow'
 
-// Vim leader-key table structure commands — the full MVP-11 family (the
+// Vim leader-key table structure commands — the full 16-command family (the
 // ceiling of what Obsidian exposes as invokable table commands; see this
 // branch's own design notes for what was excluded and why). Covers the
 // registration mechanics (setTableStructureEnabled, setLeaderUseBackslash)
 // and each action itself.
 
-// The full MVP-11 family — action name / leader suffix / Obsidian command ID,
-// all source-confirmed (see this branch's own design notes). Shared by
-// several describe blocks below.
+// The full 16-command family (18 leader sequences — tiJ/tiK are aliases of
+// to/tO, sharing the same action name) — action name / leader suffix /
+// Obsidian command ID, all source-confirmed (see this branch's own design
+// notes). Shared by several describe blocks below.
 const ALL_TABLE_COMMANDS: ReadonlyArray<{ action: string; leaderSuffix: string; commandId: string }> = [
 	{ action: 'uchTableRowAfter', leaderSuffix: 'to', commandId: 'editor:table-row-after' },
 	{ action: 'uchTableRowBefore', leaderSuffix: 'tO', commandId: 'editor:table-row-before' },
 	{ action: 'uchTableRowUp', leaderSuffix: 'tK', commandId: 'editor:table-row-up' },
 	{ action: 'uchTableRowDown', leaderSuffix: 'tJ', commandId: 'editor:table-row-down' },
 	{ action: 'uchTableRowDelete', leaderSuffix: 'tdd', commandId: 'editor:table-row-delete' },
+	{ action: 'uchTableRowCopy', leaderSuffix: 'tyyp', commandId: 'editor:table-row-copy' },
 	{ action: 'uchTableColBefore', leaderSuffix: 'tiH', commandId: 'editor:table-col-before' },
 	{ action: 'uchTableColAfter', leaderSuffix: 'tiL', commandId: 'editor:table-col-after' },
+	{ action: 'uchTableRowAfter', leaderSuffix: 'tiJ', commandId: 'editor:table-row-after' },
+	{ action: 'uchTableRowBefore', leaderSuffix: 'tiK', commandId: 'editor:table-row-before' },
 	{ action: 'uchTableColLeft', leaderSuffix: 'tH', commandId: 'editor:table-col-left' },
 	{ action: 'uchTableColRight', leaderSuffix: 'tL', commandId: 'editor:table-col-right' },
 	{ action: 'uchTableColDelete', leaderSuffix: 'tdc', commandId: 'editor:table-col-delete' },
+	{ action: 'uchTableColCopy', leaderSuffix: 'tyc', commandId: 'editor:table-col-copy' },
+	{ action: 'uchTableColAlignLeft', leaderSuffix: 'tal', commandId: 'editor:table-col-align-left' },
+	{ action: 'uchTableColAlignCenter', leaderSuffix: 'tac', commandId: 'editor:table-col-align-center' },
+	{ action: 'uchTableColAlignRight', leaderSuffix: 'tar', commandId: 'editor:table-col-align-right' },
 	{ action: 'uchTableInsert', leaderSuffix: 'tm', commandId: 'editor:insert-table' },
 ]
 
 // action-fn method names, gated commands only (all but tableInsert, whose
 // whole point is to work outside a table cell — covered separately below;
-// and tableRowDelete, whose own cursor-preserving logic needs a richer
-// editor mock than the plain-gate shape this loop shares — covered in its
-// own describe block instead).
+// and tableRowDelete/the 3 align commands, whose own cursor-preserving logic
+// needs a richer editor mock than the plain-gate shape this loop shares —
+// covered in their own describe blocks instead).
 const GATED_ACTION_METHODS: ReadonlyArray<{ method: string; commandId: string }> = [
 	{ method: 'tableRowAfter', commandId: 'editor:table-row-after' },
 	{ method: 'tableRowBefore', commandId: 'editor:table-row-before' },
 	{ method: 'tableRowUp', commandId: 'editor:table-row-up' },
 	{ method: 'tableRowDown', commandId: 'editor:table-row-down' },
+	{ method: 'tableRowCopy', commandId: 'editor:table-row-copy' },
 	{ method: 'tableColBefore', commandId: 'editor:table-col-before' },
 	{ method: 'tableColAfter', commandId: 'editor:table-col-after' },
 	{ method: 'tableColLeft', commandId: 'editor:table-col-left' },
 	{ method: 'tableColRight', commandId: 'editor:table-col-right' },
 	{ method: 'tableColDelete', commandId: 'editor:table-col-delete' },
+	{ method: 'tableColCopy', commandId: 'editor:table-col-copy' },
+]
+
+// The 3 align commands share tableColPreservingCommandAction — action-fn
+// method name / Obsidian command ID. Shared by the dedicated describe block
+// below.
+const COL_PRESERVING_ACTION_METHODS: ReadonlyArray<{ method: string; commandId: string }> = [
+	{ method: 'tableColAlignLeft', commandId: 'editor:table-col-align-left' },
+	{ method: 'tableColAlignCenter', commandId: 'editor:table-col-align-center' },
+	{ method: 'tableColAlignRight', commandId: 'editor:table-col-align-right' },
 ]
 
 const makeSettings = (overrides: Partial<VimSupportHost['settings']> = {}): VimSupportHost['settings'] => ({
@@ -154,7 +173,7 @@ describe('Vim table structure (insert row above/below)', () => {
 		})
 	})
 
-	describe('full command family (all 11) registration', () => {
+	describe('full command family (all 16 commands, 18 leader sequences incl. 2 aliases) registration', () => {
 		for (const cmd of ALL_TABLE_COMMANDS) {
 			it(`registers ${cmd.action} and maps "<Space>${cmd.leaderSuffix}" to it`, () => {
 				const vim = new VimSupport(makeHost())
@@ -334,6 +353,63 @@ describe('Vim table structure (insert row above/below)', () => {
 			;(globalThis as any).window.app.workspace.activeEditor = { editor }
 
 			vim.tableRowDelete({}, { repeat: 1 })
+
+			expect(editor.setCursor).not.toHaveBeenCalled()
+		})
+	})
+
+	describe('align actions (tableColAlignLeft/Center/Right — preserve cursor cell on the same line)', () => {
+		const makeEditor = (overrides: Record<string, unknown> = {}) => ({
+			inTableCell: true,
+			getCursor: vi.fn().mockReturnValue({ line: 5, ch: 6 }), // "| a | b |" — cellIndex 1
+			getLine: vi.fn().mockReturnValue('| a | b |'),
+			setCursor: vi.fn(),
+			focus: vi.fn(),
+			...overrides,
+		})
+
+		for (const { method, commandId } of COL_PRESERVING_ACTION_METHODS) {
+			it(`${method} no-ops outside a table cell or with no active editor`, () => {
+				const executeObsidianCommand = vi.fn().mockReturnValue(true)
+				const host = makeHost(makeSettings(), executeObsidianCommand)
+				const vim = new VimSupport(host) as any
+
+				;(globalThis as any).window.app.workspace.activeEditor = { editor: { inTableCell: false } }
+				vim[method]({}, { repeat: 1 })
+				expect(executeObsidianCommand).not.toHaveBeenCalled()
+
+				;(globalThis as any).window.app.workspace.activeEditor = undefined
+				vim[method]({}, { repeat: 1 })
+				expect(executeObsidianCommand).not.toHaveBeenCalled()
+			})
+
+			it(`${method} calls executeObsidianCommand("${commandId}") and restores the cursor to the same line/cell afterward`, () => {
+				const executeObsidianCommand = vi.fn().mockReturnValue(true)
+				const host = makeHost(makeSettings(), executeObsidianCommand)
+				const vim = new VimSupport(host) as any
+				// Re-padding shifted "b"'s own ch position on the same line.
+				const editor = makeEditor({ getLine: vi.fn().mockReturnValueOnce('| a | b |').mockReturnValue('| a  |  b |') })
+				;(globalThis as any).window.app.workspace.activeEditor = { editor }
+
+				vim[method]({}, { repeat: 1 })
+
+				expect(executeObsidianCommand).toHaveBeenCalledWith(commandId)
+				// cellIndex 1 ("b") on '| a  |  b |' -> ch 8
+				expect(editor.setCursor).toHaveBeenCalledWith({ line: 5, ch: 8 })
+				// Align tears down the cell's own inline editor (confirmed live) —
+				// setCursor() alone leaves DOM focus nowhere; focus() restores it.
+				expect(editor.focus).toHaveBeenCalled()
+			})
+		}
+
+		it('leaves the cursor untouched if the cell can no longer be resolved on the same line', () => {
+			const executeObsidianCommand = vi.fn().mockReturnValue(true)
+			const host = makeHost(makeSettings(), executeObsidianCommand)
+			const vim = new VimSupport(host) as any
+			const editor = makeEditor({ getLine: vi.fn().mockReturnValueOnce('| a | b |').mockReturnValue('') })
+			;(globalThis as any).window.app.workspace.activeEditor = { editor }
+
+			vim.tableColAlignLeft({}, { repeat: 1 })
 
 			expect(editor.setCursor).not.toHaveBeenCalled()
 		})
