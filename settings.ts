@@ -4,11 +4,42 @@ import type universalCursorHotkeysPlugin from './main';
 const PLUGIN_ID = 'universal-cursor-hotkeys';
 
 export interface CommandDef {
-	block: 'cursor' | 'editing' | 'other';
+	block: 'cursor' | 'editing' | 'other' | 'tableStructure' | 'tableNav';
 	id: string;
 	name: string;
 	recommended: Hotkey | null;
+	// Explicit full command ID override — for commands this plugin doesn't
+	// own (e.g. Obsidian's own native editor:table-* commands, listed in the
+	// tableStructure block). When absent, the full ID is derived as
+	// `${PLUGIN_ID}:${id}` as before (every other block's own defs).
+	fullId?: string;
 }
+
+// The one place that knows how to turn a CommandDef into its real command
+// ID — see CommandDef's own fullId doc comment for why this isn't always
+// just a PLUGIN_ID prefix.
+const getFullId = (def: CommandDef): string => def.fullId ?? `${PLUGIN_ID}:${def.id}`;
+
+// The tableStructure block's own "Open in Hotkeys settings" link (in place of
+// "Apply recommended" — this plugin doesn't own these commands, so there's
+// nothing of its own to apply) searches Obsidian's real Hotkeys panel for
+// its own native table-command group's own name prefix, locale-aware.
+// Confirmed for ja/en only; every other locale falls back to the English
+// term rather than guessing an unverified translation.
+const TABLE_SEARCH_TERM_BY_LOCALE: Record<string, string> = {
+	ja: '表:',
+	en: 'table:',
+};
+
+// Obsidian sets moment's own locale to match its own UI language setting —
+// an established (if undocumented) technique for reading it, same as many
+// community plugins use for their own i18n. Not yet live-verified in this
+// codebase specifically.
+const getTableCommandSearchTerm = (): string => {
+	const locale = (window as unknown as { moment?: { locale(): string } }).moment?.locale() ?? 'en';
+	const base = locale.split('-')[0];
+	return TABLE_SEARCH_TERM_BY_LOCALE[base] ?? TABLE_SEARCH_TERM_BY_LOCALE.en;
+};
 
 export type RowAction = 'override' | 'set' | 'done' | 'none';
 export interface HotkeyRow { name: string; key: string; current: string; extraCount: number; status: string; conflictIds: string[]; action: RowAction }
@@ -100,7 +131,7 @@ export const computeRow = (
 	reverseMap: Map<string, string[]>,
 	cmds: Record<string, { name: string }> | undefined,
 ): HotkeyRow => {
-	const fullId = `${PLUGIN_ID}:${def.id}`;
+	const fullId = getFullId(def);
 	const allCurrentHotkeys = effectiveHotkeys(fullId);
 	const exceptionKey = SPECIAL_KEY_EXCEPTION[def.id];
 	const currentHotkeys = exceptionKey
@@ -186,12 +217,6 @@ const COMMAND_DEFS: readonly CommandDef[] = [
 	{ block: 'cursor',  id: 'page-down',            name: 'Page down',           recommended: null },
 	{ block: 'cursor',  id: 'word-right',           name: 'Word right',          recommended: null },
 	{ block: 'cursor',  id: 'word-left',            name: 'Word left',           recommended: null },
-	{ block: 'cursor',  id: 'table-exit-down',      name: 'Exit table below',    recommended: null },
-	{ block: 'cursor',  id: 'table-exit-up',        name: 'Exit table above',    recommended: null },
-	{ block: 'cursor',  id: 'table-cell-left',      name: 'Move to cell left',   recommended: null },
-	{ block: 'cursor',  id: 'table-cell-right',     name: 'Move to cell right',  recommended: null },
-	{ block: 'cursor',  id: 'table-cell-down',      name: 'Move to cell below',  recommended: null },
-	{ block: 'cursor',  id: 'table-cell-up',        name: 'Move to cell above',  recommended: null },
 	{ block: 'editing', id: 'kill-line',            name: 'Kill line',           recommended: ctrl('K') },
 	{ block: 'editing', id: 'kill-region',          name: 'Kill region',         recommended: ctrl('W') },
 	{ block: 'editing', id: 'copy-region',          name: 'Copy region',         recommended: null },
@@ -208,6 +233,40 @@ const COMMAND_DEFS: readonly CommandDef[] = [
 	{ block: 'editing', id: 'select-all',           name: 'Select all',          recommended: null },
 	{ block: 'other',   id: 'recenter-top-bottom',  name: 'Recenter-top-bottom', recommended: ctrl('L') },
 	{ block: 'other',   id: 'recenter',             name: 'Recenter',            recommended: null },
+
+	// Pure cursor movement — no-op outside a table cell (see
+	// table-navigation.ts). recommended: null throughout is a deliberate
+	// choice not to push a default, not "not owned" like tableStructure
+	// below — no Hotkeys-search link needed for this block (see
+	// renderCollapsibleBlock's own titleAction parameter).
+	{ block: 'tableNav', id: 'table-exit-down',      name: 'Exit table below',    recommended: null },
+	{ block: 'tableNav', id: 'table-exit-up',        name: 'Exit table above',    recommended: null },
+	{ block: 'tableNav', id: 'table-cell-left',      name: 'Move to cell left',   recommended: null },
+	{ block: 'tableNav', id: 'table-cell-right',     name: 'Move to cell right',  recommended: null },
+	{ block: 'tableNav', id: 'table-cell-down',      name: 'Move to cell below',  recommended: null },
+	{ block: 'tableNav', id: 'table-cell-up',        name: 'Move to cell above',  recommended: null },
+
+	// Obsidian's own native table commands — not owned by this plugin (no
+	// recommended hotkey is offered for any of these; see
+	// renderCollapsibleBlock's own titleAction for why: existing assignments
+	// are just made visible here, matching this same 16-command set
+	// candidate A's own Vim leader-key commands already wrap).
+	{ block: 'tableStructure', id: 'table-row-before',        fullId: 'editor:table-row-before',        name: 'Insert row above',    recommended: null },
+	{ block: 'tableStructure', id: 'table-row-after',         fullId: 'editor:table-row-after',         name: 'Insert row below',    recommended: null },
+	{ block: 'tableStructure', id: 'table-row-up',            fullId: 'editor:table-row-up',             name: 'Move row up',         recommended: null },
+	{ block: 'tableStructure', id: 'table-row-down',          fullId: 'editor:table-row-down',           name: 'Move row down',       recommended: null },
+	{ block: 'tableStructure', id: 'table-row-delete',        fullId: 'editor:table-row-delete',         name: 'Delete row',          recommended: null },
+	{ block: 'tableStructure', id: 'table-row-copy',          fullId: 'editor:table-row-copy',           name: 'Duplicate row',       recommended: null },
+	{ block: 'tableStructure', id: 'table-col-before',        fullId: 'editor:table-col-before',         name: 'Insert column left',  recommended: null },
+	{ block: 'tableStructure', id: 'table-col-after',         fullId: 'editor:table-col-after',          name: 'Insert column right', recommended: null },
+	{ block: 'tableStructure', id: 'table-col-left',          fullId: 'editor:table-col-left',           name: 'Move column left',    recommended: null },
+	{ block: 'tableStructure', id: 'table-col-right',         fullId: 'editor:table-col-right',          name: 'Move column right',   recommended: null },
+	{ block: 'tableStructure', id: 'table-col-delete',        fullId: 'editor:table-col-delete',         name: 'Delete column',       recommended: null },
+	{ block: 'tableStructure', id: 'table-col-copy',          fullId: 'editor:table-col-copy',           name: 'Duplicate column',    recommended: null },
+	{ block: 'tableStructure', id: 'table-col-align-left',    fullId: 'editor:table-col-align-left',     name: 'Align column left',   recommended: null },
+	{ block: 'tableStructure', id: 'table-col-align-center',  fullId: 'editor:table-col-align-center',   name: 'Align column center', recommended: null },
+	{ block: 'tableStructure', id: 'table-col-align-right',   fullId: 'editor:table-col-align-right',    name: 'Align column right',  recommended: null },
+	{ block: 'tableStructure', id: 'insert-table',            fullId: 'editor:insert-table',             name: 'Insert table',        recommended: null },
 ];
 
 export interface DisplacedCommand {
@@ -236,6 +295,10 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 	private set individualVisible(v: boolean) { this.plugin.settings.qsaIndividualVisible = v; void this.plugin.saveSettings(); }
 	private get sectionVisible() { return this.plugin.settings.qsaSectionVisible; }
 	private set sectionVisible(v: boolean) { this.plugin.settings.qsaSectionVisible = v; void this.plugin.saveSettings(); }
+	private get tableStructureVisible() { return this.plugin.settings.qsaTableStructureVisible; }
+	private set tableStructureVisible(v: boolean) { this.plugin.settings.qsaTableStructureVisible = v; void this.plugin.saveSettings(); }
+	private get tableNavVisible() { return this.plugin.settings.qsaTableNavVisible; }
+	private set tableNavVisible(v: boolean) { this.plugin.settings.qsaTableNavVisible = v; void this.plugin.saveSettings(); }
 	private get vimSectionVisible() { return this.plugin.settings.vimSectionVisible; }
 	private set vimSectionVisible(v: boolean) { this.plugin.settings.vimSectionVisible = v; void this.plugin.saveSettings(); }
 
@@ -775,7 +838,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		tr.addClass('uch-row-thin');
 
 		const tdName = tr.createEl('td', { cls: 'uch-cell-name' });
-		const fullId = `${PLUGIN_ID}:${def.id}`;
+		const fullId = getFullId(def);
 		const openHotkeysPanel = () => this.openHotkeysPanelFor(ctx.cmds?.[fullId]?.name ?? def.name);
 		const nameLink = tdName.createEl('a', { text: row.name, cls: 'uch-cmd-link' });
 		nameLink.addEventListener('click', (e) => { e.preventDefault(); openHotkeysPanel(); });
@@ -844,7 +907,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		}
 	}
 
-	private renderBlock(table: HTMLElement, title: string, entries: Array<{def: CommandDef; row: HotkeyRow}>, ctx: RenderCtx): void {
+	private renderBlock(table: HTMLElement, title: string, entries: Array<{def: CommandDef; row: HotkeyRow}>, ctx: RenderCtx): HTMLTableSectionElement {
 		const tbody = table.createEl('tbody');
 
 		// Title row
@@ -893,6 +956,71 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		}
 
 		const spacerTd = tbody.createEl('tr').createEl('td', { cls: 'uch-block-spacer' });
+		spacerTd.colSpan = 5;
+		return tbody;
+	}
+
+	// Collapsible variant of renderBlock, for blocks whose entries this
+	// plugin doesn't own/control the default for — reuses renderDataRow
+	// (identical per-row shape) but not renderBlock's own title row:
+	// "Apply recommended" would always be disabled when every entry has
+	// recommended: null, so callers pass their own optional titleAction
+	// (e.g. Table structure's link into Obsidian's Hotkeys panel) instead;
+	// Table navigation passes none at all, per explicit design decision —
+	// its own per-row "Open →" buttons already suffice. Split across *two*
+	// <tbody>s sharing the same <table> (HTML tables support multiple)
+	// rather than one, unlike the 3 core blocks above: the Show/Hide toggle
+	// itself must stay visible even while the content underneath it is
+	// collapsed, so it can't live inside the same tbody being hidden.
+	private renderCollapsibleBlock(
+		table: HTMLElement,
+		title: string,
+		entries: Array<{def: CommandDef; row: HotkeyRow}>,
+		ctx: RenderCtx,
+		visible: { get(): boolean; set(v: boolean): void },
+		titleAction?: (titleFlex: HTMLElement) => void,
+	): void {
+		const headerTbody = table.createEl('tbody');
+		const titleRow = headerTbody.createEl('tr');
+		const titleCell = titleRow.createEl('td');
+		titleCell.colSpan = 5;
+		titleCell.addClass('uch-title-cell');
+		const titleFlex = titleCell.createDiv('uch-title-flex');
+		titleFlex.createSpan({ text: title, cls: 'uch-title-text' });
+
+		if (titleAction) titleAction(titleFlex);
+
+		const showHideBtn = titleFlex.createEl('button', { text: visible.get() ? 'Hide' : 'Show' });
+
+		const contentTbody = table.createEl('tbody');
+		contentTbody.toggleClass('uch-hidden', !visible.get());
+		showHideBtn.addEventListener('click', () => {
+			visible.set(!visible.get());
+			showHideBtn.setText(visible.get() ? 'Hide' : 'Show');
+			contentTbody.toggleClass('uch-hidden', !visible.get());
+		});
+
+		const headerRow = contentTbody.createEl('tr');
+		headerRow.addClass('uch-row-thick');
+		for (const [i, h] of (['Command', 'Recommended Hotkey', 'Current Hotkey', 'Status', '▶'] as const).entries()) {
+			const td = headerRow.createEl('td', { text: h });
+			if (i === 4) {
+				td.addClass('uch-col-header', 'uch-col-header-action');
+				td.title = 'Toggle individual controls';
+				td.textContent = '▶ Individual';
+				td.addEventListener('click', () => { this.individualVisible = !this.individualVisible; ctx.syncToggle(); });
+				ctx.allActionHeaders.push(td);
+			} else {
+				td.addClass('uch-col-header');
+				if (i === 0) td.addClass('uch-col-header-first');
+			}
+		}
+
+		for (const { def, row } of entries) {
+			this.renderDataRow(contentTbody, def, row, ctx);
+		}
+
+		const spacerTd = contentTbody.createEl('tr').createEl('td', { cls: 'uch-block-spacer' });
 		spacerTd.colSpan = 5;
 	}
 
@@ -974,7 +1102,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		);
 
 		const applyEntry = (def: CommandDef, row: HotkeyRow) => {
-			const fullId = `${PLUGIN_ID}:${def.id}`;
+			const fullId = getFullId(def);
 			const recId  = hotkeyId(def.recommended!);
 			if (row.action === 'override') {
 				for (const conflictId of (reverseMap.get(recId) ?? []).filter(id => id !== fullId)) {
@@ -1041,6 +1169,17 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		this.renderBlock(table, 'Cursor movement', makeEntries('cursor'), ctx);
 		this.renderBlock(table, 'Editing',         makeEntries('editing'), ctx);
 		this.renderBlock(table, 'Other hotkeys',   makeEntries('other'), ctx);
+		this.renderCollapsibleBlock(table, 'Table structure', makeEntries('tableStructure'), ctx,
+			{ get: () => this.tableStructureVisible, set: v => { this.tableStructureVisible = v; } },
+			titleFlex => {
+				const searchLink = titleFlex.createEl('a', { text: 'Open in hotkeys settings →', cls: 'uch-inline-link' });
+				searchLink.addEventListener('click', (e) => {
+					e.preventDefault();
+					this.openHotkeysPanelFor(getTableCommandSearchTerm());
+				});
+			});
+		this.renderCollapsibleBlock(table, 'Table navigation', makeEntries('tableNav'), ctx,
+			{ get: () => this.tableNavVisible, set: v => { this.tableNavVisible = v; } });
 		syncToggle();
 
 		// Displaced commands table

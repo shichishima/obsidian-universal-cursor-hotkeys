@@ -31,6 +31,13 @@ interface UniversalCursorHotkeysSettings {
 	qsaDisplacedCommands: DisplacedCommand[];
 	qsaSectionVisible: boolean;
 	qsaIndividualVisible: boolean;
+	// Collapsed by default — both are secondary, supplementary sections
+	// (table-structure wraps Obsidian's own native commands, not owned by
+	// this plugin; table-navigation's own recommended: null is a deliberate
+	// no-default choice, not a "not owned" one), unlike the 3 core QSA
+	// groups above them, which stay always-visible.
+	qsaTableStructureVisible: boolean;
+	qsaTableNavVisible: boolean;
 	vimHlSupport: boolean;
 	vimJkSupport: boolean;
 	vimJoinSupport: boolean;
@@ -70,6 +77,8 @@ const DEFAULT_SETTINGS: UniversalCursorHotkeysSettings = {
 	qsaDisplacedCommands: [],
 	qsaSectionVisible: true,
 	qsaIndividualVisible: false,
+	qsaTableStructureVisible: false,
+	qsaTableNavVisible: false,
 	vimHlSupport: false,
 	vimJkSupport: false,
 	vimJoinSupport: false,
