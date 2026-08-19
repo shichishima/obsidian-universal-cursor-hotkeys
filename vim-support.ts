@@ -266,6 +266,18 @@ export interface VimSupportHost {
 	// (matches setCursorToPrevRow's own precedent — real vim's own `k` at
 	// the buffer's first line is a no-op, not an insert).
 	appendBlankLineAndLand(editor: unknown): void;
+	// Lands on targetLine's own leftmost cell content-start, Smart-Home
+	// refined — the exact same enterTableAtLine + refineTableLandingForSmartHome
+	// combo gg/G's own jumpToDocumentLine already uses when landing inside a
+	// table (see main.ts's own doc comment: table cells get the same
+	// Markdown-aware skip Home/^/J already give plain lines, not just a bare
+	// whitespace skip). Self-dispatching (enterTableAtLine's own underlying
+	// landInCellSegment already moves the cursor; the Smart Home refinement
+	// only re-dispatches if it actually changes the position) — no separate
+	// setCursorAcrossTableBoundary call needed. Used by exitTable's own
+	// "table starts at the document's first line" fallback (tX with nowhere
+	// above to exit to).
+	enterTableRowSmartHome(editor: unknown, targetLine: number): { line: number; ch: number } | null;
 	// Vim's w/b/e cell-crossing (single cell only — no multi-cell count
 	// precision, a deliberate scope cut mirroring j/k's own "known gap").
 	// Finds the next/prev row (or exits the table entirely if there is none),

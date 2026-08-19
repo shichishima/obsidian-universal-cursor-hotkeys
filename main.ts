@@ -2948,6 +2948,16 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		this.setCursorViaCm(e, lastLine + 1, 0);
 	}
 
+	// See vim-support.ts's own VimSupportHost.enterTableRowSmartHome doc
+	// comment — the same enterTableAtLine + refineTableLandingForSmartHome
+	// combo jumpToDocumentLine (gg/G) already uses below.
+	enterTableRowSmartHome(editor: unknown, targetLine: number): { line: number; ch: number } | null {
+		const e = editor as Editor;
+		let result = this.enterTableAtLine(e, targetLine, 0, true, 0, 0);
+		if (result) result = this.refineTableLandingForSmartHome(e, result);
+		return result;
+	}
+
 	// See vim-support.ts's own VimSupportHost.refineDisplayLineColumn doc
 	// comment for the full rationale (step 2 of gj/gk's own row-crossing,
 	// always preceded by a crossTableRowForCell(..., 0, 1) rough landing).

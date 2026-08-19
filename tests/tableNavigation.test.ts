@@ -15,6 +15,7 @@ const makeHost = (overrides: Partial<TableNavHost> = {}): TableNavHost => ({
 	getAdjacentRowLine: vi.fn().mockReturnValue(0),
 	setCursorAcrossTableBoundary: vi.fn(),
 	appendBlankLineAndLand: vi.fn(),
+	enterTableRowSmartHome: vi.fn().mockReturnValue(null),
 	...overrides,
 })
 
@@ -77,15 +78,16 @@ describe('exitTable', () => {
 		expect(host.setCursorAcrossTableBoundary).not.toHaveBeenCalled()
 	})
 
-	it('backward, table runs all the way to the document\'s first line: no-op (matches real vim\'s own "k at buffer start" — no symmetric "prepend a line" fix)', () => {
+	it('backward, table runs all the way to the document\'s first line: lands on the table\'s own topmost row via host.enterTableRowSmartHome instead of no-op (echoes gg\'s own "always reach the real first line" spirit, Smart-Home refined the same way gg/G lands inside a table cell — a user pressing tX still expects to move toward the top, not nothing)', () => {
 		const host = makeHost()
-		const lines = ['| a |', '| b |', '| c |']
-		const editor = makeEditor(lines, 2)
+		const lines = ['| a | b |', '| c | d |']
+		const editor = makeEditor(lines, 1)
 
 		exitTable(editor as any, host, false)
 
 		expect(host.appendBlankLineAndLand).not.toHaveBeenCalled()
 		expect(host.setCursorAcrossTableBoundary).not.toHaveBeenCalled()
+		expect(host.enterTableRowSmartHome).toHaveBeenCalledWith(editor, 0)
 	})
 })
 

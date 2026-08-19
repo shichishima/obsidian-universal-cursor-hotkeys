@@ -27,12 +27,18 @@ export interface TableNavHost {
 	// why jumpAdjacentCell needs this instead of just inspecting
 	// crossTableRowForCell's return value.
 	getAdjacentRowLine(editor: unknown, forward: boolean): number;
-	// See VimSupportHost's own doc comment — exitTable's cell→plain-text
-	// transition needs the host's real CM6 dispatch, not a plain setCursor.
+	// Real CM6 dispatch (setCursorViaCm) — confirmed live that the plain
+	// EditorBridge setCursor (paired with an explicit focus(), in either
+	// order) does not reliably transition inTableCell or move visible DOM
+	// focus for exitTable's own cell→plain-text landing.
 	setCursorAcrossTableBoundary(editor: unknown, line: number, ch: number): void;
 	// See VimSupportHost's own doc comment — the "table runs to the
 	// document's last line" case mirrors Ctrl-N's own EOF-append fix.
 	appendBlankLineAndLand(editor: unknown): void;
+	// See VimSupportHost's own doc comment — the "table starts at the
+	// document's first line" case mirrors gg/G's own table-cell Smart Home
+	// landing. Self-dispatching.
+	enterTableRowSmartHome(editor: unknown, targetLine: number): TableNavPos | null;
 }
 
 // Exits the current table entirely — distinct from gg/G, which jump to the
@@ -64,15 +70,25 @@ export function exitTable(editor: TableNavEditor, host: TableNavHost, forward: b
 		host.setCursorAcrossTableBoundary(editor, line, host.getBeginningOfLinePosition(text, 1));
 		return;
 	}
-	// Forward: the table runs all the way to the document's own last line —
-	// mirror Ctrl-N's own setCursorToNextRow "append a blank line at EOF" fix
-	// rather than no-op (the scan above already walked past any remaining
-	// table rows, e.g. a delimiter, before reaching here, so `lastLine`
-	// itself is already confirmed to still be table). Backward: no-op —
-	// matches real vim's own "k at the buffer's first line" convention, and
-	// setCursorToPrevRow's own asymmetric precedent (no "prepend a line"
-	// equivalent exists on that side).
-	if (forward) host.appendBlankLineAndLand(editor);
+	if (forward) {
+		// The table runs all the way to the document's own last line — mirror
+		// Ctrl-N's own setCursorToNextRow "append a blank line at EOF" fix
+		// (the scan above already walked past any remaining table rows, e.g.
+		// a delimiter, before reaching here, so `lastLine` itself is already
+		// confirmed to still be table).
+		host.appendBlankLineAndLand(editor);
+		return;
+	}
+	// Backward, table starts at the document's very first line: no line
+	// exists above it to exit to (unlike the forward case, there's no
+	// "prepend a line" equivalent — setCursorToPrevRow's own precedent, real
+	// vim's own "k at buffer start" convention). Rather than a plain no-op,
+	// land on the table's own topmost row's first cell instead, Smart-Home
+	// refined the same way gg/G already lands inside a table cell — the
+	// furthest point actually reachable, echoing gg's own "always reach the
+	// document's real first line" spirit; a user pressing tX still expects to
+	// move *toward* the top, not nothing at all.
+	host.enterTableRowSmartHome(editor, 0);
 }
 
 // Jumps directly to the adjacent cell, landing at its own content start — a

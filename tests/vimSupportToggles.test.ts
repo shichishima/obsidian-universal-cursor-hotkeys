@@ -30,6 +30,7 @@ const makeHost = (settings: VimSupportHost['settings'] = makeSettings()): VimSup
 	getAdjacentRowLine: vi.fn().mockReturnValue(0),
 	setCursorAcrossTableBoundary: vi.fn(),
 	appendBlankLineAndLand: vi.fn(),
+	enterTableRowSmartHome: vi.fn().mockReturnValue(null),
 	crossTableRowForWord: vi.fn().mockReturnValue(null),
 	jumpToDocumentLine: vi.fn().mockReturnValue(null),
 	isLinePartOfTable: vi.fn().mockReturnValue(false),
