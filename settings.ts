@@ -622,13 +622,15 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			.setClass('uch-vim-item')
 			.then(setting => {
 				const leader = this.plugin.settings.vimLeaderUseBackslash ? '\\' : 'Space';
-				this.setKeyChipName(setting, [leader, 't'], 'Table structure (11 commands)');
+				this.setKeyChipName(setting, [leader, 't'], 'Table structure (16 commands)');
 				const kbd = (s: string) => '<span class="uch-kbd">' + leader + '</span> <span class="uch-kbd">' + s + '</span>';
 				this.setHtmlDesc(setting, '' +
 					'<b>ON:</b> Wraps Obsidian\'s own built-in table commands — no-op outside a table cell, except ' + kbd('tm') + ', which also works outside one.<br>' +
-					kbd('to') + ' insert row below &nbsp; ' + kbd('tO') + ' insert row above &nbsp; ' + kbd('tK') + ' move row up &nbsp; ' + kbd('tJ') + ' move row down &nbsp; ' + kbd('tdd') + ' delete row<br>' +
-					kbd('tiH') + ' insert column left &nbsp; ' + kbd('tiL') + ' insert column right &nbsp; ' + kbd('tH') + ' move column left &nbsp; ' + kbd('tL') + ' move column right &nbsp; ' + kbd('tdc') + ' delete column<br>' +
+					kbd('to') + ' insert row below &nbsp; ' + kbd('tO') + ' insert row above &nbsp; ' + kbd('tK') + ' move row up &nbsp; ' + kbd('tJ') + ' move row down &nbsp; ' + kbd('tdd') + ' delete row &nbsp; ' + kbd('tyyp') + ' duplicate row<br>' +
+					kbd('tiH') + ' insert column left &nbsp; ' + kbd('tiL') + ' insert column right &nbsp; ' + kbd('tH') + ' move column left &nbsp; ' + kbd('tL') + ' move column right &nbsp; ' + kbd('tdc') + ' delete column &nbsp; ' + kbd('tyc') + ' duplicate column<br>' +
+					kbd('tal') + ' align column left &nbsp; ' + kbd('tac') + ' align column center &nbsp; ' + kbd('tar') + ' align column right<br>' +
 					kbd('tm') + ' insert table<br>' +
+					'<i>' + kbd('tiJ') + '/' + kbd('tiK') + ' also insert a row below/above, matching ' + kbd('tiH') + '/' + kbd('tiL') + '\'s own column convention.</i><br>' +
 					'While this is on, a bare press of the leader key no longer behaves as vim\'s own native binding (Space normally moves right).<br>' +
 					'<b>OFF:</b> No leader-key table commands are bound.');
 			})

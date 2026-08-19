@@ -4,12 +4,18 @@
 
 ### Added
 
-- **Vim table structure commands:** New leader-key commands under Vim support, wrapping Obsidian's own built-in table commands — `Space` is the leader by default (`\` optional). `to`/`tO` insert a row below/above, `tK`/`tJ` move the current row up/down, `tdd` deletes it, `tiH`/`tiL` insert a column left/right, `tH`/`tL` move the current column left/right, `tdc` deletes it, and `tm` inserts a table (the only one of the eleven that also works outside an existing table). Key suffixes deliberately match the Vim Motions plugin's own scheme, for muscle-memory transfer.
+- **Vim table structure commands:** New leader-key commands under Vim support, wrapping Obsidian's own built-in table commands — `Space` is the leader by default (`\` optional).
+  - `tJ`/`tK` move the current row down/up, `tH`/`tL` move the current column left/right
+  - `tiJ`/`tiK` insert a row below/above, `tiH`/`tiL` insert a column left/right
+  - `to`/`tO` insert a row below/above (alias)
+  - `tdd` deletes the current row, `tdc` deletes the current column
+  - `tyyp` duplicates the current row, `tyc` duplicates the current column
+  - `tal`/`tac`/`tar` align the current column left/center/right
+  - `tm` inserts a table (the only one of the sixteen that also works outside an existing table).
 
 ### Fixed
 
 - **Vim `u` / Ctrl-R now undo/redo table-structure changes from inside a table cell:** previously only reached whichever cell's own local undo history was active, which has no record of structural edits (row/column insert/delete) — the only way to undo one was to leave the cell first. Now delegates to Obsidian's own outer-document Undo/Redo (the same one Cmd+Z and this plugin's own Undo/Redo commands use) while inside a table cell.
-- **Table structure `tdd` (delete row) now leaves the cursor on the row that took the deleted one's place** — matching vim's own `dd` convention — instead of jumping back to the table's first row.
 
 ## [0.9.0] - 2026-08-14
 
