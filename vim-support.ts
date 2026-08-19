@@ -1,6 +1,7 @@
 import { findClusterBreak } from '@codemirror/state';
 import { getCellIndex, getChByCellIndex } from './table-cell-utils';
 import { getWordSpans } from './word-segmentation';
+import { exitTable, jumpAdjacentCell } from './table-navigation';
 
 // Obsidian's built-in Vim mode (codemirror-vim) — not exposed in obsidian.d.ts.
 interface VimPos { line: number; ch: number }
@@ -164,6 +165,9 @@ interface EditorBridge {
 	// a table cell.
 	undo(): void;
 	redo(): void;
+	// Document's own last line number — used by exitTable's own scan loop to
+	// know where to stop.
+	lastLine(): number;
 	// Restores DOM focus — needed after a command that tears down/rebuilds the
 	// active table cell's own inline editor (confirmed live: some table
 	// commands leave inTableCell false afterward even though the cursor is
@@ -204,9 +208,16 @@ export interface VimSupportHost {
 		// insert-row-below — more follow the same wiring later). Off by
 		// default like every other Vim feature.
 		vimTableStructureSupport: boolean;
-		// Leader key for table-structure commands. false (default) = Space;
-		// true = backslash. Only has an effect once vimTableStructureSupport
-		// is on — a preference, not an on/off feature.
+		// Pure cursor movement (exit table, jump to adjacent cell) — separate
+		// from vimTableStructureSupport above (which wraps Obsidian's own
+		// structure-*mutating* commands) since this never mutates anything.
+		// Shares the same leader key and native-Space-unmap/leak-guard
+		// machinery, gated to only tear either down once *both* are off (see
+		// restoreTableStructure/restoreTableNavigation's own comments).
+		vimTableNavigationSupport: boolean;
+		// Leader key for table-structure/table-navigation commands. false
+		// (default) = Space; true = backslash. Only has an effect once one of
+		// those is on — a preference, not an on/off feature of its own.
 		vimLeaderUseBackslash: boolean;
 		smartJoin: boolean;
 		smartHomeStandard: boolean;
@@ -226,6 +237,16 @@ export interface VimSupportHost {
 	// current cell's own range still need to be consumed — see moveByLines.
 	// Returns the outer {line, ch} landed on (or null), for goal-column resync.
 	crossTableRowForCell(editor: unknown, cellIndex: number, forward: boolean, goalCh: number, overshoot: number): { line: number; ch: number } | null;
+	// Side-effect-free row lookup (the same getNextRowLine/getPrevRowLine
+	// Ctrl-P/N and crossTableRowForCell's own row-finding already use
+	// internally — correctly skips the delimiter row, etc.) — -1 if there is
+	// no next/previous row. Needed because crossTableRowForCell itself is
+	// *not* side-effect-free at a table boundary: by design (matching Ctrl-P/
+	// N's own convention), it exits the table rather than reporting "no
+	// landing" — confirmed live to already move the cursor there before its
+	// return value is even inspected. Callers that want a real no-op at the
+	// boundary (unlike gj/gk, which want the exit) must check this first.
+	getAdjacentRowLine(editor: unknown, forward: boolean): number;
 	// Vim's w/b/e cell-crossing (single cell only — no multi-cell count
 	// precision, a deliberate scope cut mirroring j/k's own "known gap").
 	// Finds the next/prev row (or exits the table entirely if there is none),
@@ -375,6 +396,7 @@ export class VimSupport {
 		if (this.host.settings.vimDisplayLineSupport) this.applyDisplayLines();
 		if (this.host.settings.vimEolSupport) this.applyEol();
 		if (this.host.settings.vimTableStructureSupport) this.applyTableStructure();
+		if (this.host.settings.vimTableNavigationSupport) this.applyTableNavigation();
 	}
 
 	// Call from the plugin's onunload(). Best-effort only — see each restore*'s own caveat.
@@ -388,6 +410,7 @@ export class VimSupport {
 		this.restoreGg();
 		this.restoreEol();
 		this.restoreTableStructure();
+		this.restoreTableNavigation();
 	}
 
 	setHlEnabled(on: boolean): void {
@@ -661,6 +684,64 @@ export class VimSupport {
 		];
 	}
 
+	// tx/tX/th/tj/tk/tl's own logic lives in table-navigation.ts, shared with
+	// main.ts's own plain Emacs-side commands (see that file's own doc
+	// comment for why it isn't here) — these are just the VimActionFn
+	// wrappers, matching every other gated table command's own shape.
+	private readonly tableExitDown: VimActionFn = () => {
+		const editor = getActiveEditor();
+		if (!editor?.inTableCell) return;
+		exitTable(editor, this.host, true);
+	};
+
+	private readonly tableExitUp: VimActionFn = () => {
+		const editor = getActiveEditor();
+		if (!editor?.inTableCell) return;
+		exitTable(editor, this.host, false);
+	};
+
+	private readonly tableCellLeft: VimActionFn = () => {
+		const editor = getActiveEditor();
+		if (!editor?.inTableCell) return;
+		jumpAdjacentCell(editor, this.host, 'h');
+	};
+
+	private readonly tableCellRight: VimActionFn = () => {
+		const editor = getActiveEditor();
+		if (!editor?.inTableCell) return;
+		jumpAdjacentCell(editor, this.host, 'l');
+	};
+
+	private readonly tableCellDown: VimActionFn = () => {
+		const editor = getActiveEditor();
+		if (!editor?.inTableCell) return;
+		jumpAdjacentCell(editor, this.host, 'j');
+	};
+
+	private readonly tableCellUp: VimActionFn = () => {
+		const editor = getActiveEditor();
+		if (!editor?.inTableCell) return;
+		jumpAdjacentCell(editor, this.host, 'k');
+	};
+
+	// "x"/"X" for eXit — deliberately case-differentiated from the structural
+	// tJ/tK (move row) and tH/tL (move column) despite sharing a namespace: a
+	// mis-press here just lands the cursor in the wrong place (trivial to
+	// correct), unlike a mis-press on those. th/tj/tk/tl are the same kind of
+	// intentional case pair against tH/tL/tJ/tK — lowercase is always plain
+	// cursor movement, uppercase always structural, by design (see this
+	// branch's own design notes for the full reasoning).
+	private get tableNavigationCommands(): ReadonlyArray<{ action: string; leaderSuffix: string; fn: VimActionFn }> {
+		return [
+			{ action: 'uchTableExitDown', leaderSuffix: 'tx', fn: this.tableExitDown },
+			{ action: 'uchTableExitUp', leaderSuffix: 'tX', fn: this.tableExitUp },
+			{ action: 'uchTableCellLeft', leaderSuffix: 'th', fn: this.tableCellLeft },
+			{ action: 'uchTableCellDown', leaderSuffix: 'tj', fn: this.tableCellDown },
+			{ action: 'uchTableCellUp', leaderSuffix: 'tk', fn: this.tableCellUp },
+			{ action: 'uchTableCellRight', leaderSuffix: 'tl', fn: this.tableCellRight },
+		];
+	}
+
 	// Space is natively bound in vim.js's own default keymap (a keyToKey
 	// synonym for `l`, move right) — leaving it bound would race our own
 	// longer "<Space>to" sequence. Must unmap with context `undefined`, not
@@ -745,6 +826,10 @@ export class VimSupport {
 	// API) — same needsRestart-latch story as the other toggles. undo/redo
 	// restore to the hardcoded vim.js-equivalent defaults instead, same as
 	// every other defineMotion/defineAction override in this file.
+	// restoreSpaceLeakGuard is only torn down once table-navigation is *also*
+	// off — the two features share one guard (both register `<Space>t...`
+	// sequences), and tearing it down while the sibling feature is still
+	// active would break its own leader presses too.
 	private restoreTableStructure(): void {
 		const vim = getVim();
 		for (const cmd of this.tableCommands) {
@@ -752,33 +837,70 @@ export class VimSupport {
 		}
 		vim?.defineAction('undo', VimSupport.VIM_DEFAULT_UNDO);
 		vim?.defineAction('redo', VimSupport.VIM_DEFAULT_REDO);
-		this.restoreSpaceLeakGuard();
+		if (!this.host.settings.vimTableNavigationSupport) this.restoreSpaceLeakGuard();
 	}
 
 	setTableStructureEnabled(on: boolean): void {
 		this.setFeature(on, v => { this.host.settings.vimTableStructureSupport = v; }, () => this.applyTableStructure(), () => this.restoreTableStructure());
 	}
 
+	// Pure cursor movement — exit table (tx/tX) and jump-to-adjacent-cell
+	// (th/tj/tk/tl). Mirrors applyTableStructure's own shape exactly (shared
+	// leader-unmap/leak-guard machinery, no per-command mutation logic here
+	// either) since these commands, like the table-structure ones, are all
+	// thin wrappers — see exitTable/jumpAdjacentCell for the actual logic.
+	private applyTableNavigation(): void {
+		const vim = getVim();
+		if (!vim) return;
+		this.unmapLeaderNativeBinding();
+		for (const cmd of this.tableNavigationCommands) {
+			vim.defineAction(cmd.action, cmd.fn);
+			vim.mapCommand(this.tableCommandLhs(cmd.leaderSuffix), 'action', cmd.action);
+		}
+		this.applySpaceLeakGuard();
+	}
+
+	// See restoreTableStructure's own comment on why restoreSpaceLeakGuard is
+	// gated on the sibling feature also being off.
+	private restoreTableNavigation(): void {
+		const vim = getVim();
+		for (const cmd of this.tableNavigationCommands) {
+			vim?.unmap(this.tableCommandLhs(cmd.leaderSuffix), undefined);
+		}
+		if (!this.host.settings.vimTableStructureSupport) this.restoreSpaceLeakGuard();
+	}
+
+	setTableNavigationEnabled(on: boolean): void {
+		this.setFeature(on, v => { this.host.settings.vimTableNavigationSupport = v; }, () => this.applyTableNavigation(), () => this.restoreTableNavigation());
+	}
+
 	// Leader-key choice — a preference, not a feature on/off, so this
-	// bypasses setFeature() entirely. If the feature is already enabled, the
-	// old lhs's are unmapped and the new leader's own native binding (if
+	// bypasses setFeature() entirely. If either feature is already enabled,
+	// its old lhs's are unmapped and the new leader's own native binding (if
 	// any) is removed before mapping the new lhs's live — all fully
-	// reversible remaps, so (unlike turning the whole feature off) this
+	// reversible remaps, so (unlike turning a whole feature off) this
 	// doesn't need needsRestart on its own: Space's native binding, if it's
-	// ever removed at all, is removed silently the same way turning the
+	// ever removed at all, is removed silently the same way turning a
 	// feature on in the first place already is (no restart banner for that
 	// either) — this switch either does that same removal or is a no-op,
 	// never something worse.
 	setLeaderUseBackslash(on: boolean): void {
-		const featureOn = this.host.settings.vimTableStructureSupport;
-		const vim = featureOn ? getVim() : undefined;
-		const oldLhsList = this.tableCommands.map(cmd => this.tableCommandLhs(cmd.leaderSuffix));
+		const structureOn = this.host.settings.vimTableStructureSupport;
+		const navigationOn = this.host.settings.vimTableNavigationSupport;
+		const vim = (structureOn || navigationOn) ? getVim() : undefined;
+		const oldLhsList = [
+			...(structureOn ? this.tableCommands : []),
+			...(navigationOn ? this.tableNavigationCommands : []),
+		].map(cmd => this.tableCommandLhs(cmd.leaderSuffix));
 		this.host.settings.vimLeaderUseBackslash = on;
 		if (vim) {
 			for (const oldLhs of oldLhsList) vim.unmap(oldLhs, undefined);
 			this.unmapLeaderNativeBinding();
-			for (const cmd of this.tableCommands) {
-				vim.mapCommand(this.tableCommandLhs(cmd.leaderSuffix), 'action', cmd.action);
+			if (structureOn) {
+				for (const cmd of this.tableCommands) vim.mapCommand(this.tableCommandLhs(cmd.leaderSuffix), 'action', cmd.action);
+			}
+			if (navigationOn) {
+				for (const cmd of this.tableNavigationCommands) vim.mapCommand(this.tableCommandLhs(cmd.leaderSuffix), 'action', cmd.action);
 			}
 		}
 		void this.host.saveSettings();

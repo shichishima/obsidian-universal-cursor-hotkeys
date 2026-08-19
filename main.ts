@@ -9,6 +9,7 @@ import { EditorView } from "@codemirror/view";
 import { EditorSelection, Transaction, findClusterBreak } from '@codemirror/state';
 import { deleteCharForward, cursorPageDown, cursorPageUp, transposeChars as cmTransposeChars } from '@codemirror/commands';
 import { getWordSpans, getBigWordSpans, findWordSpanOnLine } from './word-segmentation';
+import { exitTable, jumpAdjacentCell } from './table-navigation';
 
 // Extend the Obsidian Editor interface to include the internal CodeMirror 6 instance (EditorView)
 declare module "obsidian" {
@@ -42,9 +43,13 @@ interface UniversalCursorHotkeysSettings {
 	// insert-row-below — more follow the same wiring later). Off by
 	// default like every other Vim feature.
 	vimTableStructureSupport: boolean;
-	// Leader key for table-structure commands. false (default) = Space;
-	// true = backslash. Only has an effect once vimTableStructureSupport
-	// is on — a preference, not an on/off feature.
+	// Pure cursor movement (exit table, jump to adjacent cell) — see
+	// vim-support.ts's own doc comment for how this differs from
+	// vimTableStructureSupport above.
+	vimTableNavigationSupport: boolean;
+	// Leader key for table-structure/table-navigation commands. false
+	// (default) = Space; true = backslash. Only has an effect once one of
+	// those is on — a preference, not an on/off feature of its own.
 	vimLeaderUseBackslash: boolean;
 	vimSectionVisible: boolean;
 	// Whether the settings tab has already auto-expanded the Vim support
@@ -74,6 +79,7 @@ const DEFAULT_SETTINGS: UniversalCursorHotkeysSettings = {
 	vimDisplayLineSupport: false,
 	vimEolSupport: false,
 	vimTableStructureSupport: false,
+	vimTableNavigationSupport: false,
 	vimLeaderUseBackslash: false,
 	vimSectionVisible: false,
 	vimAutoExpandDone: false,
@@ -229,6 +235,68 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
 				editor.redo();
+			}
+		});
+
+		// Table navigation — shares its implementation with the Vim leader-key
+		// commands of the same name (tx/tX/th/tj/tk/tl, see table-navigation.ts)
+		// rather than duplicating the logic; this file already implements
+		// TableNavHost (isLinePartOfTable/getBeginningOfLinePosition/
+		// crossTableRowForCell are all defined below), so `this` is passed
+		// directly. No recommended hotkey, same as Redo above — these are
+		// opt-in via Settings → Hotkeys / the Quick setup assistant, not bound
+		// by default.
+		this.addCommand({
+			id: 'table-exit-down',
+			name: 'Exit table below',
+			repeatable: true,
+			editorCallback: (editor: Editor) => {
+				if (editor.inTableCell) exitTable(editor, this, true);
+			}
+		});
+
+		this.addCommand({
+			id: 'table-exit-up',
+			name: 'Exit table above',
+			repeatable: true,
+			editorCallback: (editor: Editor) => {
+				if (editor.inTableCell) exitTable(editor, this, false);
+			}
+		});
+
+		this.addCommand({
+			id: 'table-cell-left',
+			name: 'Move to cell left',
+			repeatable: true,
+			editorCallback: (editor: Editor) => {
+				if (editor.inTableCell) jumpAdjacentCell(editor, this, 'h');
+			}
+		});
+
+		this.addCommand({
+			id: 'table-cell-right',
+			name: 'Move to cell right',
+			repeatable: true,
+			editorCallback: (editor: Editor) => {
+				if (editor.inTableCell) jumpAdjacentCell(editor, this, 'l');
+			}
+		});
+
+		this.addCommand({
+			id: 'table-cell-down',
+			name: 'Move to cell below',
+			repeatable: true,
+			editorCallback: (editor: Editor) => {
+				if (editor.inTableCell) jumpAdjacentCell(editor, this, 'j');
+			}
+		});
+
+		this.addCommand({
+			id: 'table-cell-up',
+			name: 'Move to cell above',
+			repeatable: true,
+			editorCallback: (editor: Editor) => {
+				if (editor.inTableCell) jumpAdjacentCell(editor, this, 'k');
 			}
 		});
 
@@ -2854,6 +2922,14 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return this.exitTableWithColumn(e, cellIndex, forward, goalCh, e.getCursor().line, overshoot);
 		}
 		return this.walkTableRows(e, cellIndex, forward, startLine, overshoot, goalCh);
+	}
+
+	// See vim-support.ts's own VimSupportHost.getAdjacentRowLine doc comment
+	// for why this exists as its own read-only check, separate from
+	// crossTableRowForCell above.
+	getAdjacentRowLine(editor: unknown, forward: boolean): number {
+		const e = editor as Editor;
+		return forward ? this.getNextRowLine(e) : this.getPrevRowLine(e);
 	}
 
 	// See vim-support.ts's own VimSupportHost.refineDisplayLineColumn doc

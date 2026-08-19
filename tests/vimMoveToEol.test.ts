@@ -13,10 +13,11 @@ import { installVimWindow, uninstallVimWindow, type FakeEditor } from './__helpe
 // row-crossing/entry/exit.
 
 const makeHost = (overrides: Partial<VimSupportHost> = {}): VimSupportHost => ({
-	settings: { vimHlSupport: false, vimJkSupport: false, vimJoinSupport: false, vimCaretSupport: false, vimWordSupport: false, vimGgSupport: false, vimDisplayLineSupport: false, vimEolSupport: false, vimTableStructureSupport: false, vimLeaderUseBackslash: false, smartJoin: false, smartHomeStandard: false },
+	settings: { vimHlSupport: false, vimJkSupport: false, vimJoinSupport: false, vimCaretSupport: false, vimWordSupport: false, vimGgSupport: false, vimDisplayLineSupport: false, vimEolSupport: false, vimTableStructureSupport: false, vimTableNavigationSupport: false, vimLeaderUseBackslash: false, smartJoin: false, smartHomeStandard: false },
 	getBeginningOfLinePosition: () => 0,
 	saveSettings: async () => {},
 	crossTableRowForCell: vi.fn().mockReturnValue(null),
+	getAdjacentRowLine: vi.fn().mockReturnValue(0),
 	crossTableRowForWord: vi.fn().mockReturnValue(null),
 	jumpToDocumentLine: vi.fn().mockReturnValue(null),
 	isLinePartOfTable: vi.fn().mockReturnValue(false),
