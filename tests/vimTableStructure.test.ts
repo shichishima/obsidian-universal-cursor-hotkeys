@@ -86,6 +86,8 @@ const makeHost = (
 	saveSettings: vi.fn().mockResolvedValue(undefined),
 	crossTableRowForCell: vi.fn().mockReturnValue(null),
 	getAdjacentRowLine: vi.fn().mockReturnValue(0),
+	setCursorAcrossTableBoundary: vi.fn(),
+	appendBlankLineAndLand: vi.fn(),
 	crossTableRowForWord: vi.fn().mockReturnValue(null),
 	jumpToDocumentLine: vi.fn().mockReturnValue(null),
 	isLinePartOfTable: vi.fn().mockReturnValue(false),

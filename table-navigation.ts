@@ -14,16 +14,10 @@ export interface TableNavEditor {
 	getLine(line: number): string;
 	setCursor(pos: TableNavPos): void;
 	lastLine(): number;
-	// Restores DOM focus — needed after exitTable's own cell→plain-text
-	// transition, which tears down the table cell's own inline editor
-	// (confirmed live: setCursor() alone updates the logical position, same
-	// as tableColPreservingCommandAction's own align-command fix in
-	// vim-support.ts, but leaves no visible cursor without this).
-	focus(): void;
 }
 
 // Mirrors the relevant slice of VimSupportHost — main.ts's own plugin class
-// already implements all three (it's VimSupportHost's real implementation),
+// already implements all four (it's VimSupportHost's real implementation),
 // so it can be passed directly as-is; vim-support.ts passes its own `host`.
 export interface TableNavHost {
 	isLinePartOfTable(editor: unknown, line: number, ch: number): boolean;
@@ -33,6 +27,12 @@ export interface TableNavHost {
 	// why jumpAdjacentCell needs this instead of just inspecting
 	// crossTableRowForCell's return value.
 	getAdjacentRowLine(editor: unknown, forward: boolean): number;
+	// See VimSupportHost's own doc comment — exitTable's cell→plain-text
+	// transition needs the host's real CM6 dispatch, not a plain setCursor.
+	setCursorAcrossTableBoundary(editor: unknown, line: number, ch: number): void;
+	// See VimSupportHost's own doc comment — the "table runs to the
+	// document's last line" case mirrors Ctrl-N's own EOF-append fix.
+	appendBlankLineAndLand(editor: unknown): void;
 }
 
 // Exits the current table entirely — distinct from gg/G, which jump to the
@@ -43,10 +43,9 @@ export interface TableNavHost {
 // expensive syntax-tree isLinePartOfTable check on every line scanned — only
 // the final boundary candidate gets that confirmation, and if it disagrees
 // with the heuristic (a table row that doesn't start with a literal pipe),
-// the scan just continues past it. No-op if the rest of the document in that
-// direction is table all the way to its edge (nowhere valid to land). Lands
-// via getBeginningOfLinePosition (Smart Home aware), matching gg/G's own
-// precedent for table-adjacent landings.
+// the scan just continues past it. Lands via getBeginningOfLinePosition
+// (Smart Home aware), matching gg/G's own precedent for table-adjacent
+// landings.
 export function exitTable(editor: TableNavEditor, host: TableNavHost, forward: boolean): void {
 	const lastLine = editor.lastLine();
 	let line = editor.getCursor().line;
@@ -56,15 +55,24 @@ export function exitTable(editor: TableNavEditor, host: TableNavHost, forward: b
 		if (text.trimStart().startsWith('|')) continue;
 		if (host.isLinePartOfTable(editor, line, 1)) continue;
 		// Leaving the table cell's own inline editor for the outer/whole-
-		// document view needs an explicit focus() — unlike
-		// tableColPreservingCommandAction's own align-command fix (which stays
-		// within the table, setCursor-then-focus), this crosses out to a view
-		// that may still hold a stale pre-table-entry selection, so focus()
-		// must come *first*, or it can clobber the position set below.
-		editor.focus();
-		editor.setCursor({ line, ch: host.getBeginningOfLinePosition(text, 1) });
+		// document view needs the host's real CM6 dispatch (setCursorViaCm) —
+		// confirmed live that the plain EditorBridge setCursor (paired with an
+		// explicit focus(), in either order) does not reliably transition
+		// inTableCell to false nor move visible DOM focus across this
+		// specific boundary, unlike jumpAdjacentCell's own cell-to-cell
+		// landings below (which never leave the table and work fine with it).
+		host.setCursorAcrossTableBoundary(editor, line, host.getBeginningOfLinePosition(text, 1));
 		return;
 	}
+	// Forward: the table runs all the way to the document's own last line —
+	// mirror Ctrl-N's own setCursorToNextRow "append a blank line at EOF" fix
+	// rather than no-op (the scan above already walked past any remaining
+	// table rows, e.g. a delimiter, before reaching here, so `lastLine`
+	// itself is already confirmed to still be table). Backward: no-op —
+	// matches real vim's own "k at the buffer's first line" convention, and
+	// setCursorToPrevRow's own asymmetric precedent (no "prepend a line"
+	// equivalent exists on that side).
+	if (forward) host.appendBlankLineAndLand(editor);
 }
 
 // Jumps directly to the adjacent cell, landing at its own content start — a

@@ -2932,6 +2932,22 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		return forward ? this.getNextRowLine(e) : this.getPrevRowLine(e);
 	}
 
+	// See vim-support.ts's own VimSupportHost.setCursorAcrossTableBoundary doc
+	// comment for why table-navigation.ts's own exitTable needs this instead
+	// of the plain EditorBridge setCursor used elsewhere.
+	setCursorAcrossTableBoundary(editor: unknown, line: number, ch: number): void {
+		this.setCursorViaCm(editor as Editor, line, ch);
+	}
+
+	// See vim-support.ts's own VimSupportHost.appendBlankLineAndLand doc
+	// comment — mirrors setCursorToNextRow's own identical EOF fix.
+	appendBlankLineAndLand(editor: unknown): void {
+		const e = editor as Editor;
+		const lastLine = e.lastLine();
+		e.replaceRange('\n', { line: lastLine, ch: e.getLine(lastLine).length });
+		this.setCursorViaCm(e, lastLine + 1, 0);
+	}
+
 	// See vim-support.ts's own VimSupportHost.refineDisplayLineColumn doc
 	// comment for the full rationale (step 2 of gj/gk's own row-crossing,
 	// always preceded by a crossTableRowForCell(..., 0, 1) rough landing).

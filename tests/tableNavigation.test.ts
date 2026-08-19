@@ -13,6 +13,8 @@ const makeHost = (overrides: Partial<TableNavHost> = {}): TableNavHost => ({
 	getBeginningOfLinePosition: vi.fn().mockReturnValue(0),
 	crossTableRowForCell: vi.fn().mockReturnValue(null),
 	getAdjacentRowLine: vi.fn().mockReturnValue(0),
+	setCursorAcrossTableBoundary: vi.fn(),
+	appendBlankLineAndLand: vi.fn(),
 	...overrides,
 })
 
@@ -22,26 +24,23 @@ describe('exitTable', () => {
 		getLine: vi.fn((n: number) => lines[n] ?? ''),
 		lastLine: vi.fn().mockReturnValue(lines.length - 1),
 		setCursor: vi.fn(),
-		focus: vi.fn(),
 		...overrides,
 	})
 
-	it('forward: scans down to the first non-table line, lands via getBeginningOfLinePosition', () => {
+	it('forward: scans down to the first non-table line, lands via host.setCursorAcrossTableBoundary + getBeginningOfLinePosition', () => {
 		const host = makeHost({ getBeginningOfLinePosition: vi.fn().mockReturnValue(3) })
 		const lines = ['| a |', '| b |', '| c |', 'plain text', 'more text']
 		const editor = makeEditor(lines, 0)
 
 		exitTable(editor as any, host, true)
 
-		expect(editor.setCursor).toHaveBeenCalledWith({ line: 3, ch: 3 })
-		expect(host.getBeginningOfLinePosition).toHaveBeenCalledWith('plain text', 1)
 		// Leaving the table cell's own inline editor for the outer view needs
-		// an explicit focus() — and *before* setCursor, not after (unlike
-		// tableColPreservingCommandAction's own align-command fix): the outer
-		// view can hold a stale pre-table-entry selection that focus() alone
-		// would otherwise restore, clobbering the position set here.
-		expect(editor.focus).toHaveBeenCalled()
-		expect(editor.focus.mock.invocationCallOrder[0]).toBeLessThan(editor.setCursor.mock.invocationCallOrder[0])
+		// the host's real CM6 dispatch, not the plain EditorBridge setCursor
+		// (confirmed live that setCursor + focus(), in either order, does not
+		// reliably transition inTableCell/DOM focus across this boundary).
+		expect(host.setCursorAcrossTableBoundary).toHaveBeenCalledWith(editor, 3, 3)
+		expect(host.getBeginningOfLinePosition).toHaveBeenCalledWith('plain text', 1)
+		expect(editor.setCursor).not.toHaveBeenCalled()
 	})
 
 	it('backward: scans up to the first non-table line', () => {
@@ -51,7 +50,7 @@ describe('exitTable', () => {
 
 		exitTable(editor as any, host, false)
 
-		expect(editor.setCursor).toHaveBeenCalledWith({ line: 0, ch: 0 })
+		expect(host.setCursorAcrossTableBoundary).toHaveBeenCalledWith(editor, 0, 0)
 	})
 
 	it('heuristic false negative (a table row that doesn\'t start with "|"): keeps scanning past it', () => {
@@ -64,17 +63,29 @@ describe('exitTable', () => {
 
 		exitTable(editor as any, host, true)
 
-		expect(editor.setCursor).toHaveBeenCalledWith({ line: 4, ch: 0 })
+		expect(host.setCursorAcrossTableBoundary).toHaveBeenCalledWith(editor, 4, 0)
 	})
 
-	it('no-op if the table runs all the way to the document\'s edge in that direction', () => {
+	it('forward, table runs all the way to the document\'s last line: appends a blank line and lands there (mirrors Ctrl-N\'s own EOF fix) instead of no-op', () => {
 		const host = makeHost()
 		const lines = ['| a |', '| b |', '| c |']
 		const editor = makeEditor(lines, 0)
 
 		exitTable(editor as any, host, true)
 
-		expect(editor.setCursor).not.toHaveBeenCalled()
+		expect(host.appendBlankLineAndLand).toHaveBeenCalledWith(editor)
+		expect(host.setCursorAcrossTableBoundary).not.toHaveBeenCalled()
+	})
+
+	it('backward, table runs all the way to the document\'s first line: no-op (matches real vim\'s own "k at buffer start" — no symmetric "prepend a line" fix)', () => {
+		const host = makeHost()
+		const lines = ['| a |', '| b |', '| c |']
+		const editor = makeEditor(lines, 2)
+
+		exitTable(editor as any, host, false)
+
+		expect(host.appendBlankLineAndLand).not.toHaveBeenCalled()
+		expect(host.setCursorAcrossTableBoundary).not.toHaveBeenCalled()
 	})
 })
 

@@ -247,6 +247,25 @@ export interface VimSupportHost {
 	// return value is even inspected. Callers that want a real no-op at the
 	// boundary (unlike gj/gk, which want the exit) must check this first.
 	getAdjacentRowLine(editor: unknown, forward: boolean): number;
+	// Dispatches the host's own setCursorViaCm (real CM6 transaction on the
+	// *outer* view, not Editor.setCursor()) — confirmed live that
+	// Editor.setCursor() plain does not reliably transition inTableCell to
+	// false nor move visible DOM focus when leaving a table cell for plain
+	// text, even paired with an explicit focus() call, unlike this. Needed by
+	// exitTable specifically; jumpAdjacentCell's own cell-to-cell landings
+	// (never leaving the table) work fine with the plain EditorBridge
+	// setCursor already used elsewhere in this file.
+	setCursorAcrossTableBoundary(editor: unknown, line: number, ch: number): void;
+	// Mirrors Ctrl-N's own setCursorToNextRow "last data row: exit below"
+	// fix for a table that runs all the way to the document's own last
+	// line — appends a blank line there and lands on it. exitTable's own
+	// scan already walks past any remaining table rows (delimiter, etc.)
+	// before giving up, so by the time this is called the document's real
+	// lastLine is already confirmed to still be part of the table. No
+	// symmetric "prepend a line" exists for the backward/tX direction
+	// (matches setCursorToPrevRow's own precedent — real vim's own `k` at
+	// the buffer's first line is a no-op, not an insert).
+	appendBlankLineAndLand(editor: unknown): void;
 	// Vim's w/b/e cell-crossing (single cell only — no multi-cell count
 	// precision, a deliberate scope cut mirroring j/k's own "known gap").
 	// Finds the next/prev row (or exits the table entirely if there is none),
