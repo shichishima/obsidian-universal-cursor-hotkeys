@@ -5,13 +5,19 @@
 ### Added
 
 - **Vim table structure commands:** New leader-key commands under Vim support, wrapping Obsidian's own built-in table commands — `Space` is the leader by default (`\` optional).
-  - `tJ`/`tK` move the current row down/up, `tH`/`tL` move the current column left/right
-  - `tiJ`/`tiK` insert a row below/above, `tiH`/`tiL` insert a column left/right
-  - `to`/`tO` insert a row below/above (alias)
-  - `tdd` deletes the current row, `tdc` deletes the current column
-  - `tyyp` duplicates the current row, `tyc` duplicates the current column
-  - `tal`/`tac`/`tar` align the current column left/center/right
+  - `tJ`/`tK` move the current row down/up, `tH`/`tL` move the current column left/right.
+  - `tiJ`/`tiK` insert a row below/above, `tiH`/`tiL` insert a column left/right.
+  - `to`/`tO` insert a row below/above (alias).
+  - `tdd` deletes the current row, `tdc` deletes the current column.
+  - `tyyp` duplicates the current row, `tyc` duplicates the current column.
+  - `tal`/`tac`/`tar` align the current column left/center/right.
   - `tm` inserts a table (the only one of the sixteen that also works outside an existing table).
+- **Table navigation commands (Vim side):** New leader-key commands, also under Vim support — pure cursor movement, no-op outside a table cell.
+  - `tx`/`tX` exit the current table below/above (distinct from `gg`/`G`, which jump to the whole document's edge, not just past this table).
+  - `th`/`tj`/`tk`/`tl` jump straight to the adjacent cell, landing at its own content start — a coarser, spreadsheet-style jump distinct from vim's native `j`/`k` (which preserve column position instead).
+- **Table navigation commands (Emacs side):** Also available on the Emacs side as six ordinary commands, grouped together in the Quick setup assistant's own list — no recommended hotkey, assignable via Settings → Hotkeys or the Quick setup assistant, same as Redo.
+  - **Exit table below/above.**
+  - **Move to cell left/right/below/above.**
 
 ### Fixed
 

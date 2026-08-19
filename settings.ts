@@ -186,6 +186,12 @@ const COMMAND_DEFS: readonly CommandDef[] = [
 	{ block: 'cursor',  id: 'page-down',            name: 'Page down',           recommended: null },
 	{ block: 'cursor',  id: 'word-right',           name: 'Word right',          recommended: null },
 	{ block: 'cursor',  id: 'word-left',            name: 'Word left',           recommended: null },
+	{ block: 'cursor',  id: 'table-exit-down',      name: 'Exit table below',    recommended: null },
+	{ block: 'cursor',  id: 'table-exit-up',        name: 'Exit table above',    recommended: null },
+	{ block: 'cursor',  id: 'table-cell-left',      name: 'Move to cell left',   recommended: null },
+	{ block: 'cursor',  id: 'table-cell-right',     name: 'Move to cell right',  recommended: null },
+	{ block: 'cursor',  id: 'table-cell-down',      name: 'Move to cell below',  recommended: null },
+	{ block: 'cursor',  id: 'table-cell-up',        name: 'Move to cell above',  recommended: null },
 	{ block: 'editing', id: 'kill-line',            name: 'Kill line',           recommended: ctrl('K') },
 	{ block: 'editing', id: 'kill-region',          name: 'Kill region',         recommended: ctrl('W') },
 	{ block: 'editing', id: 'copy-region',          name: 'Copy region',         recommended: null },
@@ -425,7 +431,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 	// setSmartJoinDisabled, which don't trigger a full re-render).
 	private eligibleVimSettings(): boolean[] {
 		const s = this.plugin.settings;
-		const eligible = [s.vimHlSupport, s.vimJkSupport, s.vimWordSupport, s.vimGgSupport, s.vimDisplayLineSupport, s.vimEolSupport, s.vimTableStructureSupport];
+		const eligible = [s.vimHlSupport, s.vimJkSupport, s.vimWordSupport, s.vimGgSupport, s.vimDisplayLineSupport, s.vimEolSupport, s.vimTableStructureSupport, s.vimTableNavigationSupport];
 		if (s.smartHomeStandard) eligible.push(s.vimCaretSupport);
 		if (s.smartJoin) eligible.push(s.vimJoinSupport);
 		return eligible;
@@ -478,9 +484,9 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			.setClass('uch-vim-item')
 			.setName('Leader key')
 			.then(setting => this.setHtmlDesc(setting, '' +
-				'<b>ON:</b> Table structure commands below use <span class="uch-kbd">\\</span> as the leader key.<br>' +
+				'<b>ON:</b> Table structure/navigation commands below use <span class="uch-kbd">\\</span> as the leader key.<br>' +
 				'<b>OFF:</b> Uses <span class="uch-kbd">Space</span> as the leader key (default).<br>' +
-				'<i>Only affects table structure below — has no effect on its own.</i>'))
+				'<i>Only affects table structure/navigation below — has no effect on its own.</i>'))
 			.addToggle(toggle => toggle
 				.setValue(this.plugin.settings.vimLeaderUseBackslash)
 				.onChange((value) => {
@@ -514,6 +520,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					this.plugin.vimSupport.setDisplayLinesEnabled(true);
 					this.plugin.vimSupport.setEolEnabled(true);
 					this.plugin.vimSupport.setTableStructureEnabled(true);
+					this.plugin.vimSupport.setTableNavigationEnabled(true);
 					if (this.plugin.settings.smartHomeStandard) this.plugin.vimSupport.setCaretEnabled(true);
 					if (this.plugin.settings.smartJoin) this.plugin.vimSupport.setJoinEnabled(true);
 					this.display();
@@ -641,6 +648,29 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					this.display();
 				}));
 		vimSectionEls.push(tableStructure.settingEl);
+
+		const tableNavigation = new Setting(containerEl)
+			.setClass('uch-vim-item')
+			.then(setting => {
+				const leader = this.plugin.settings.vimLeaderUseBackslash ? '\\' : 'Space';
+				this.setKeyChipName(setting, [leader, 't'], 'Table navigation (6 commands)');
+				const kbd = (s: string) => '<span class="uch-kbd">' + leader + '</span> <span class="uch-kbd">' + s + '</span>';
+				this.setHtmlDesc(setting, '' +
+					'<b>ON:</b> Pure cursor movement — no-op outside a table cell.<br>' +
+					kbd('tx') + ' exit table below &nbsp; ' + kbd('tX') + ' exit table above<br>' +
+					kbd('th') + ' cell left &nbsp; ' + kbd('tj') + ' cell below &nbsp; ' + kbd('tk') + ' cell above &nbsp; ' + kbd('tl') + ' cell right<br>' +
+					'<i>Cell jumps land at that cell\'s own content start, unlike vim\'s native ' +
+					'<span class="uch-kbd">j</span>/<span class="uch-kbd">k</span> (column-preserving).</i><br>' +
+					'While this is on, a bare press of the leader key no longer behaves as vim\'s own native binding (Space normally moves right).<br>' +
+					'<b>OFF:</b> No leader-key table navigation commands are bound.');
+			})
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.vimTableNavigationSupport)
+				.onChange((value) => {
+					this.plugin.vimSupport.setTableNavigationEnabled(value);
+					this.display();
+				}));
+		vimSectionEls.push(tableNavigation.settingEl);
 
 		const caret = new Setting(containerEl)
 			.setClass('uch-vim-item')

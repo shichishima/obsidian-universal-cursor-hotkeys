@@ -9,9 +9,13 @@ import { installVimWindow, uninstallVimWindow } from './__helpers__/vimWindow'
 // host's table-membership check (the target line might itself be a table row).
 
 const makeHost = (overrides: Partial<VimSupportHost> = {}): VimSupportHost => ({
-	settings: { vimHlSupport: false, vimJkSupport: false, vimJoinSupport: false, vimCaretSupport: false, vimWordSupport: false, vimGgSupport: false, vimDisplayLineSupport: false, vimEolSupport: false, vimTableStructureSupport: false, vimLeaderUseBackslash: false, smartJoin: false, smartHomeStandard: false },
+	settings: { vimHlSupport: false, vimJkSupport: false, vimJoinSupport: false, vimCaretSupport: false, vimWordSupport: false, vimGgSupport: false, vimDisplayLineSupport: false, vimEolSupport: false, vimTableStructureSupport: false, vimTableNavigationSupport: false, vimLeaderUseBackslash: false, smartJoin: false, smartHomeStandard: false },
 	saveSettings: async () => {},
 	crossTableRowForCell: vi.fn().mockReturnValue(null),
+	getAdjacentRowLine: vi.fn().mockReturnValue(0),
+	setCursorAcrossTableBoundary: vi.fn(),
+	appendBlankLineAndLand: vi.fn(),
+	enterTableRowSmartHome: vi.fn().mockReturnValue(null),
 	crossTableRowForWord: vi.fn().mockReturnValue(null),
 	jumpToDocumentLine: vi.fn().mockReturnValue(null),
 	isLinePartOfTable: vi.fn().mockReturnValue(false),
