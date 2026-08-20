@@ -24,21 +24,44 @@ const getFullId = (def: CommandDef): string => def.fullId ?? `${PLUGIN_ID}:${def
 // "Apply recommended" — this plugin doesn't own these commands, so there's
 // nothing of its own to apply) searches Obsidian's real Hotkeys panel for
 // its own native table-command group's own name prefix, locale-aware.
-// Confirmed for ja/en only; every other locale falls back to the English
-// term rather than guessing an unverified translation.
+// Live-verified (user testing) for ja/en/en-gb. The remaining entries are
+// each that locale's own translation of Obsidian's "Table:" command-group
+// prefix, keyword + ':' — except fr, which uses French typographic spacing
+// (keyword + ' :'). Any locale not listed here gets no link at all (see
+// getTableCommandSearchTerm) rather than a guessed/silently-wrong term.
 const TABLE_SEARCH_TERM_BY_LOCALE: Record<string, string> = {
-	ja: '表:',
+	cs: 'Tabulka:',
+	de: 'Tabelle:',
 	en: 'table:',
+	es: 'Tabla:',
+	fr: 'Tableau :',
+	id: 'Tabel:',
+	it: 'Tabella:',
+	ja: '表:',
+	ko: '표:',
+	nl: 'Tabel:',
+	pl: 'Tabela:',
+	pt: 'Tabela:',
+	ro: 'Tabel:',
+	ru: 'Таблица:',
+	tr: 'Tablo:',
+	uk: 'Таблиця:',
+	vi: 'Bảng:',
+	zh: '表格:',
 };
 
 // Obsidian sets moment's own locale to match its own UI language setting —
 // an established (if undocumented) technique for reading it, same as many
-// community plugins use for their own i18n. Not yet live-verified in this
-// codebase specifically.
-const getTableCommandSearchTerm = (): string => {
-	const locale = (window as unknown as { moment?: { locale(): string } }).moment?.locale() ?? 'en';
-	const base = locale.split('-')[0];
-	return TABLE_SEARCH_TERM_BY_LOCALE[base] ?? TABLE_SEARCH_TERM_BY_LOCALE.en;
+// community plugins use for their own i18n. Live-verified (user testing).
+const getObsidianLocale = (): string =>
+	(window as unknown as { moment?: { locale(): string } }).moment?.locale() ?? 'en';
+
+// Returns null for any locale not in TABLE_SEARCH_TERM_BY_LOCALE — the call
+// site skips rendering the link entirely rather than falling back to a term
+// that may not actually match that locale's own Hotkeys panel text.
+const getTableCommandSearchTerm = (): string | null => {
+	const base = getObsidianLocale().split('-')[0];
+	return TABLE_SEARCH_TERM_BY_LOCALE[base] ?? null;
 };
 
 export type RowAction = 'override' | 'set' | 'done' | 'none';
@@ -1182,13 +1205,14 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		this.renderBlock(table, 'Other hotkeys',   makeEntries('other'), ctx);
 		this.renderCollapsibleBlock(table, 'Table navigation', makeEntries('tableNav'), ctx,
 			{ get: () => this.tableNavVisible, set: v => { this.tableNavVisible = v; } });
+		const tableSearchTerm = getTableCommandSearchTerm();
 		this.renderCollapsibleBlock(table, 'Table structure', makeEntries('tableStructure'), ctx,
 			{ get: () => this.tableStructureVisible, set: v => { this.tableStructureVisible = v; } },
-			linkRow => {
+			tableSearchTerm == null ? undefined : linkRow => {
 				const searchLink = linkRow.createEl('a', { text: 'Open in hotkeys settings →', cls: 'uch-inline-link' });
 				searchLink.addEventListener('click', (e) => {
 					e.preventDefault();
-					this.openHotkeysPanelFor(getTableCommandSearchTerm());
+					this.openHotkeysPanelFor(tableSearchTerm);
 				});
 			});
 		syncToggle();
