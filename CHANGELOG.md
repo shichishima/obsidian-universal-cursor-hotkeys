@@ -15,9 +15,10 @@
 - **Table navigation commands (Vim side):** New leader-key commands, also under Vim support — pure cursor movement, no-op outside a table cell.
   - `tx`/`tX` exit the current table below/above (distinct from `gg`/`G`, which jump to the whole document's edge, not just past this table).
   - `th`/`tj`/`tk`/`tl` jump straight to the adjacent cell, landing at its own content start — a coarser, spreadsheet-style jump distinct from vim's native `j`/`k` (which preserve column position instead).
-- **Table navigation commands (Emacs side):** Also available on the Emacs side as six ordinary commands, grouped together in the Quick setup assistant's own list — no recommended hotkey, assignable via Settings → Hotkeys or the Quick setup assistant, same as Redo.
+- **Table navigation commands (Emacs side):** Also available on the Emacs side as six ordinary commands, listed in their own collapsible "Table navigation" section of the Quick setup assistant — no recommended hotkey, assignable via Settings → Hotkeys or the Quick setup assistant, same as Redo.
   - **Exit table below/above.**
   - **Move to cell left/right/below/above.**
+- **Quick setup assistant — Table structure section:** Now also lists Obsidian's own sixteen built-in table-structure commands (insert/move/delete/duplicate row or column, column alignment, insert table) in a collapsible section, so they're easy to find and assign a hotkey to even though this plugin doesn't own them. No "Apply recommended" (nothing to recommend for someone else's commands) — instead a link opens Obsidian's Hotkeys panel pre-filtered to the table-command group.
 
 ### Fixed
 
