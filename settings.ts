@@ -965,40 +965,51 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 	// (identical per-row shape) but not renderBlock's own title row:
 	// "Apply recommended" would always be disabled when every entry has
 	// recommended: null, so callers pass their own optional titleAction
-	// (e.g. Table structure's link into Obsidian's Hotkeys panel) instead;
-	// Table navigation passes none at all, per explicit design decision —
-	// its own per-row "Open →" buttons already suffice. Split across *two*
-	// <tbody>s sharing the same <table> (HTML tables support multiple)
-	// rather than one, unlike the 3 core blocks above: the Show/Hide toggle
-	// itself must stay visible even while the content underneath it is
-	// collapsed, so it can't live inside the same tbody being hidden.
+	// (e.g. Table structure's link into Obsidian's Hotkeys panel) instead,
+	// rendered as its own row (indented to match the Command column) below
+	// the title row, inside contentTbody — so it collapses along with the
+	// rest of the block, not stuck in the always-visible header. Table
+	// navigation passes none at all, per explicit design decision — its own
+	// per-row "Open →" buttons already suffice. Split across *two* <tbody>s
+	// sharing the same <table> (HTML tables support multiple) rather than
+	// one, unlike the 3 core blocks above: the toggle itself must stay
+	// visible even while the content underneath it is collapsed, so it
+	// can't live inside the same tbody being hidden. Toggled via a
+	// ▶/▼-prefixed title (mirrors the existing "▶ Individual" column-header
+	// convention below), not a Show/Hide button — those are reserved for
+	// top-level blocks (the whole QSA section, the whole Vim support
+	// section), not these nested sub-blocks.
 	private renderCollapsibleBlock(
 		table: HTMLElement,
 		title: string,
 		entries: Array<{def: CommandDef; row: HotkeyRow}>,
 		ctx: RenderCtx,
 		visible: { get(): boolean; set(v: boolean): void },
-		titleAction?: (titleFlex: HTMLElement) => void,
+		titleAction?: (linkRow: HTMLElement) => void,
 	): void {
 		const headerTbody = table.createEl('tbody');
 		const titleRow = headerTbody.createEl('tr');
 		const titleCell = titleRow.createEl('td');
 		titleCell.colSpan = 5;
 		titleCell.addClass('uch-title-cell');
-		const titleFlex = titleCell.createDiv('uch-title-flex');
-		titleFlex.createSpan({ text: title, cls: 'uch-title-text' });
-
-		if (titleAction) titleAction(titleFlex);
-
-		const showHideBtn = titleFlex.createEl('button', { text: visible.get() ? 'Hide' : 'Show' });
+		const toggleLabel = titleCell.createSpan({
+			text: `${visible.get() ? '▼' : '▶'} ${title}`,
+			cls: 'uch-title-text uch-block-toggle',
+		});
 
 		const contentTbody = table.createEl('tbody');
 		contentTbody.toggleClass('uch-hidden', !visible.get());
-		showHideBtn.addEventListener('click', () => {
+		toggleLabel.addEventListener('click', () => {
 			visible.set(!visible.get());
-			showHideBtn.setText(visible.get() ? 'Hide' : 'Show');
+			toggleLabel.setText(`${visible.get() ? '▼' : '▶'} ${title}`);
 			contentTbody.toggleClass('uch-hidden', !visible.get());
 		});
+
+		if (titleAction) {
+			const linkRow = contentTbody.createEl('tr').createEl('td', { cls: 'uch-block-link-row' });
+			linkRow.colSpan = 5;
+			titleAction(linkRow);
+		}
 
 		const headerRow = contentTbody.createEl('tr');
 		headerRow.addClass('uch-row-thick');
@@ -1169,17 +1180,17 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		this.renderBlock(table, 'Cursor movement', makeEntries('cursor'), ctx);
 		this.renderBlock(table, 'Editing',         makeEntries('editing'), ctx);
 		this.renderBlock(table, 'Other hotkeys',   makeEntries('other'), ctx);
+		this.renderCollapsibleBlock(table, 'Table navigation', makeEntries('tableNav'), ctx,
+			{ get: () => this.tableNavVisible, set: v => { this.tableNavVisible = v; } });
 		this.renderCollapsibleBlock(table, 'Table structure', makeEntries('tableStructure'), ctx,
 			{ get: () => this.tableStructureVisible, set: v => { this.tableStructureVisible = v; } },
-			titleFlex => {
-				const searchLink = titleFlex.createEl('a', { text: 'Open in hotkeys settings →', cls: 'uch-inline-link' });
+			linkRow => {
+				const searchLink = linkRow.createEl('a', { text: 'Open in hotkeys settings →', cls: 'uch-inline-link' });
 				searchLink.addEventListener('click', (e) => {
 					e.preventDefault();
 					this.openHotkeysPanelFor(getTableCommandSearchTerm());
 				});
 			});
-		this.renderCollapsibleBlock(table, 'Table navigation', makeEntries('tableNav'), ctx,
-			{ get: () => this.tableNavVisible, set: v => { this.tableNavVisible = v; } });
 		syncToggle();
 
 		// Displaced commands table
