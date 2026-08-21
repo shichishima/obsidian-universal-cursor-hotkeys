@@ -29,6 +29,8 @@
 .uch-title-cell { padding: 6px 8px; }
 .uch-title-flex { display: flex; align-items: center; gap: 10px; }
 .uch-title-text { font-weight: 600; }
+.uch-block-toggle { display: inline-block; cursor: pointer; user-select: none; }
+.uch-block-link-row { padding: 4px 8px 4px 40px; }
 
 /* ── Buttons ─────────────────────────────────────────────── */
 .uch-table .uch-apply-btn        { font-size: 0.85em; padding: 2px 10px; }
