@@ -278,17 +278,17 @@ const COMMAND_DEFS: readonly CommandDef[] = [
 	{ block: 'tableStructure', id: 'table-row-after',         fullId: 'editor:table-row-after',         name: 'Insert row below',    recommended: null },
 	{ block: 'tableStructure', id: 'table-row-up',            fullId: 'editor:table-row-up',             name: 'Move row up',         recommended: null },
 	{ block: 'tableStructure', id: 'table-row-down',          fullId: 'editor:table-row-down',           name: 'Move row down',       recommended: null },
-	{ block: 'tableStructure', id: 'table-row-delete',        fullId: 'editor:table-row-delete',         name: 'Delete row',          recommended: null },
 	{ block: 'tableStructure', id: 'table-row-copy',          fullId: 'editor:table-row-copy',           name: 'Duplicate row',       recommended: null },
+	{ block: 'tableStructure', id: 'table-row-delete',        fullId: 'editor:table-row-delete',         name: 'Delete row',          recommended: null },
 	{ block: 'tableStructure', id: 'table-col-before',        fullId: 'editor:table-col-before',         name: 'Insert column left',  recommended: null },
 	{ block: 'tableStructure', id: 'table-col-after',         fullId: 'editor:table-col-after',          name: 'Insert column right', recommended: null },
 	{ block: 'tableStructure', id: 'table-col-left',          fullId: 'editor:table-col-left',           name: 'Move column left',    recommended: null },
 	{ block: 'tableStructure', id: 'table-col-right',         fullId: 'editor:table-col-right',          name: 'Move column right',   recommended: null },
-	{ block: 'tableStructure', id: 'table-col-delete',        fullId: 'editor:table-col-delete',         name: 'Delete column',       recommended: null },
-	{ block: 'tableStructure', id: 'table-col-copy',          fullId: 'editor:table-col-copy',           name: 'Duplicate column',    recommended: null },
 	{ block: 'tableStructure', id: 'table-col-align-left',    fullId: 'editor:table-col-align-left',     name: 'Align column left',   recommended: null },
 	{ block: 'tableStructure', id: 'table-col-align-center',  fullId: 'editor:table-col-align-center',   name: 'Align column center', recommended: null },
 	{ block: 'tableStructure', id: 'table-col-align-right',   fullId: 'editor:table-col-align-right',    name: 'Align column right',  recommended: null },
+	{ block: 'tableStructure', id: 'table-col-copy',          fullId: 'editor:table-col-copy',           name: 'Duplicate column',    recommended: null },
+	{ block: 'tableStructure', id: 'table-col-delete',        fullId: 'editor:table-col-delete',         name: 'Delete column',       recommended: null },
 	{ block: 'tableStructure', id: 'insert-table',            fullId: 'editor:insert-table',             name: 'Insert table',        recommended: null },
 ];
 
@@ -856,7 +856,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		}
 	}
 
-	private renderDataRow(tbody: HTMLElement, def: CommandDef, row: HotkeyRow, ctx: RenderCtx): void {
+	private renderDataRow(tbody: HTMLElement, def: CommandDef, row: HotkeyRow, ctx: RenderCtx): HTMLTableRowElement {
 		const tr = tbody.createEl('tr');
 		tr.addClass('uch-row-thin');
 
@@ -928,6 +928,8 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		} else {
 			tdAction.createEl('button', { cls: 'uch-set-btn-spacer' });
 		}
+
+		return tr;
 	}
 
 	private renderBlock(table: HTMLElement, title: string, entries: Array<{def: CommandDef; row: HotkeyRow}>, ctx: RenderCtx): HTMLTableSectionElement {
@@ -1009,6 +1011,12 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		ctx: RenderCtx,
 		visible: { get(): boolean; set(v: boolean): void },
 		titleAction?: (linkRow: HTMLElement) => void,
+		// Command ids after which a thicker group-separator border is drawn
+		// (same uch-row-thick weight as the row under the column headers) —
+		// e.g. Table structure's own row-ops/column-ops/insert-table group
+		// boundaries, matching Obsidian's native right-click table menu's
+		// own grouping.
+		thickBorderAfterIds?: ReadonlySet<string>,
 	): void {
 		const headerTbody = table.createEl('tbody');
 		const titleRow = headerTbody.createEl('tr');
@@ -1051,7 +1059,8 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		}
 
 		for (const { def, row } of entries) {
-			this.renderDataRow(contentTbody, def, row, ctx);
+			const tr = this.renderDataRow(contentTbody, def, row, ctx);
+			if (thickBorderAfterIds?.has(def.id)) tr.addClass('uch-row-thick');
 		}
 
 		const spacerTd = contentTbody.createEl('tr').createEl('td', { cls: 'uch-block-spacer' });
@@ -1214,7 +1223,8 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					e.preventDefault();
 					this.openHotkeysPanelFor(tableSearchTerm);
 				});
-			});
+			},
+			new Set(['table-row-delete', 'table-col-delete']));
 		syncToggle();
 
 		// Displaced commands table
