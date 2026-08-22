@@ -3150,6 +3150,22 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			? Math.max(0, Math.min(explicitLine, lastLine))
 			: (forward ? lastLine : 0);
 
+		// Bare G (not count-prefixed — see below) landing on a table that runs
+		// all the way to the document's own last line: mirror tx's own EOF fix
+		// (appendBlankLineAndLand, already used for exiting a table that hits
+		// EOF) instead of landing inside the table's own last row — G means
+		// "reach the real end", and a table swallowing that end is the same
+		// problem tx already solves. Deliberately asymmetric with gg (kept
+		// as-is, no "prepend a line" equivalent, matching tx/tX's own
+		// precedent) and with count-prefixed jumps ("5G"), which target a
+		// specific line the user named explicitly, not "the very end" — those
+		// still land inside the table normally, even if that line happens to
+		// also be the document's last line.
+		if (explicitLine === null && forward && this.isPositionInTable(e, targetLine, 1)) {
+			this.appendBlankLineAndLand(e);
+			return { line: lastLine + 1, ch: 0 };
+		}
+
 		let result: { line: number; ch: number } | null;
 		if (this.isPositionInTable(e, targetLine, 1)) {
 			// gg/G always land at the *start* of the target line's content
