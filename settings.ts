@@ -369,15 +369,6 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		let advancedToggle: ToggleComponent;
 		let smartJoinEl: HTMLElement;
 		let smartJoinToggle: ToggleComponent;
-		let applyAllBtn: ButtonComponent;
-		// Apply all's own disabled state depends on smartHomeStandard/smartJoin
-		// (via vimCaretSupport/vimJoinSupport's eligibility) in addition to the
-		// Vim toggles it directly sets — recomputed here too, since
-		// setStandardDisabled (unlike a toggle's own onChange elsewhere)
-		// deliberately skips a full this.display() re-render.
-		const updateApplyAllDisabled = () => {
-			applyAllBtn?.setDisabled(this.eligibleVimSettings().every(v => v));
-		};
 		const setStandardDisabled = (disabled: boolean) => {
 			advancedEl.style.opacity       = disabled ? '0.4' : '';
 			advancedEl.style.pointerEvents = disabled ? 'none' : '';
@@ -393,7 +384,6 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				smartJoinToggle.setValue(false);
 				void this.plugin.saveSettings();
 			}
-			updateApplyAllDisabled();
 		};
 
 		new Setting(containerEl)
@@ -435,7 +425,6 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				toggle.setValue(this.plugin.settings.smartJoin)
 					.onChange(async (value) => {
 						this.plugin.settings.smartJoin = value;
-						updateApplyAllDisabled();
 						await this.plugin.saveSettings();
 					});
 			})
@@ -465,9 +454,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 
-		this.renderVimSection(containerEl, {
-			applyAllBtn: b => { applyAllBtn = b; },
-		});
+		this.renderVimSection(containerEl);
 
 		setStandardDisabled(!this.plugin.settings.smartHomeStandard);
 		containerEl.scrollTop = scrollTop;
@@ -502,24 +489,16 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		nameEl.appendText(label);
 	}
 
-	// Which Vim toggles "Apply all" can currently turn on — `^`/`I` and `J`
-	// are only eligible while their own prerequisite (Smart home (standard) /
-	// Smart join, both outside the Vim section) is on. Shared between the
-	// button's own click handler/initial disabled state (renderVimSection)
-	// and updateApplyAllDisabled (display()'s setStandardDisabled and the
-	// Smart join toggle's own onChange, neither of which trigger a full
-	// this.display() re-render).
+	// Every Vim toggle "Apply all" sets — used to compute its own disabled
+	// state (already fully applied?). Every setting here triggers a full
+	// this.display() re-render on its own change, which recomputes this
+	// fresh, so no separate update path is needed beyond that.
 	private eligibleVimSettings(): boolean[] {
 		const s = this.plugin.settings;
-		const eligible = [s.vimHlSupport, s.vimJkSupport, s.vimWordSupport, s.vimGgSupport, s.vimDisplayLineSupport, s.vimEolSupport, s.vimTableStructureSupport, s.vimTableNavigationSupport];
-		if (s.smartHomeStandard) eligible.push(s.vimCaretSupport);
-		if (s.smartJoin) eligible.push(s.vimJoinSupport);
-		return eligible;
+		return [s.vimHlSupport, s.vimJkSupport, s.vimWordSupport, s.vimGgSupport, s.vimDisplayLineSupport, s.vimEolSupport, s.vimTableStructureSupport, s.vimTableNavigationSupport, s.vimCaretSupport, s.vimJoinSupport];
 	}
 
-	private renderVimSection(containerEl: HTMLElement, refs: {
-		applyAllBtn: (b: ButtonComponent) => void;
-	}): void {
+	private renderVimSection(containerEl: HTMLElement): void {
 		this.maybeAutoExpandVimSection();
 
 		const vimSectionEls: HTMLElement[] = [];
@@ -574,20 +553,17 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				}));
 		vimSectionEls.push(leaderChoice.settingEl);
 
-		// "Apply all" — turns on every item below that can currently be turned
-		// on. `^`/`I` and `J` are skipped when their own prerequisite (Smart
-		// home (standard) / Smart join, both outside this section) is off,
-		// rather than force-enabling a toggle whose row stays disabled/grey
-		// either way — matches this same button's own "nothing left to apply"
-		// disable check below. `$` has no such gap: its own prerequisite (j/k
-		// or gj/gk) is enabled by this very same click.
+		// "Apply all" — turns on every item below unconditionally. `^`/`I` and
+		// `J` are included regardless of their own prerequisite (Smart home
+		// (standard) / Smart join, both outside this section) — both self-gate
+		// live at call time (falling back to vim's own native behavior when
+		// their prerequisite is off), so there's no correctness reason to skip
+		// them, only a cosmetic one this button doesn't need to care about.
 		const applyAll = new Setting(containerEl)
 			.setClass('uch-vim-item')
 			.setName('Apply all')
-			.then(setting => this.setHtmlDesc(setting,
-				'Turns on everything below that can currently be turned on.'))
+			.then(setting => this.setHtmlDesc(setting, 'Turns on everything below.'))
 			.addButton(btn => {
-				refs.applyAllBtn(btn);
 				btn.setButtonText('Apply all');
 				btn.setCta();
 				btn.setDisabled(this.eligibleVimSettings().every(v => v));
@@ -600,8 +576,8 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					this.plugin.vimSupport.setEolEnabled(true);
 					this.plugin.vimSupport.setTableStructureEnabled(true);
 					this.plugin.vimSupport.setTableNavigationEnabled(true);
-					if (this.plugin.settings.smartHomeStandard) this.plugin.vimSupport.setCaretEnabled(true);
-					if (this.plugin.settings.smartJoin) this.plugin.vimSupport.setJoinEnabled(true);
+					this.plugin.vimSupport.setCaretEnabled(true);
+					this.plugin.vimSupport.setJoinEnabled(true);
 					this.display();
 				});
 			});
