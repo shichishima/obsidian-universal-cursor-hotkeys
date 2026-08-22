@@ -364,16 +364,12 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		let advancedToggle: ToggleComponent;
 		let smartJoinEl: HTMLElement;
 		let smartJoinToggle: ToggleComponent;
-		let vimCaretEl: HTMLElement;
-		let vimCaretToggle: ToggleComponent;
-		let vimJoinEl: HTMLElement;
-		let vimJoinToggle: ToggleComponent;
 		let applyAllBtn: ButtonComponent;
 		// Apply all's own disabled state depends on smartHomeStandard/smartJoin
 		// (via vimCaretSupport/vimJoinSupport's eligibility) in addition to the
 		// Vim toggles it directly sets — recomputed here too, since
-		// setStandardDisabled/setSmartJoinDisabled (unlike a toggle's own
-		// onChange elsewhere) deliberately skip a full this.display() re-render.
+		// setStandardDisabled (unlike a toggle's own onChange elsewhere)
+		// deliberately skips a full this.display() re-render.
 		const updateApplyAllDisabled = () => {
 			applyAllBtn?.setDisabled(this.eligibleVimSettings().every(v => v));
 		};
@@ -382,8 +378,6 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			advancedEl.style.pointerEvents = disabled ? 'none' : '';
 			smartJoinEl.style.opacity       = disabled ? '0.4' : '';
 			smartJoinEl.style.pointerEvents = disabled ? 'none' : '';
-			vimCaretEl.style.opacity       = disabled ? '0.4' : '';
-			vimCaretEl.style.pointerEvents = disabled ? 'none' : '';
 			if (disabled && this.plugin.settings.smartHomeAdvanced) {
 				this.plugin.settings.smartHomeAdvanced = false;
 				advancedToggle.setValue(false);
@@ -393,22 +387,6 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				this.plugin.settings.smartJoin = false;
 				smartJoinToggle.setValue(false);
 				void this.plugin.saveSettings();
-			}
-			if (disabled && this.plugin.settings.vimCaretSupport) {
-				this.plugin.vimSupport.setCaretEnabled(false);
-				vimCaretToggle.setValue(false);
-			}
-			updateApplyAllDisabled();
-		};
-		// ^ only does anything beyond vim's own native `^` when Smart home
-		// (standard) is on; J only does anything beyond vim's own native join
-		// when Smart join is on — mirrors setStandardDisabled just above.
-		const setSmartJoinDisabled = (disabled: boolean) => {
-			vimJoinEl.style.opacity       = disabled ? '0.4' : '';
-			vimJoinEl.style.pointerEvents = disabled ? 'none' : '';
-			if (disabled && this.plugin.settings.vimJoinSupport) {
-				this.plugin.vimSupport.setJoinEnabled(false);
-				vimJoinToggle.setValue(false);
 			}
 			updateApplyAllDisabled();
 		};
@@ -452,7 +430,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				toggle.setValue(this.plugin.settings.smartJoin)
 					.onChange(async (value) => {
 						this.plugin.settings.smartJoin = value;
-						setSmartJoinDisabled(!value);
+						updateApplyAllDisabled();
 						await this.plugin.saveSettings();
 					});
 			})
@@ -483,13 +461,10 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				}));
 
 		this.renderVimSection(containerEl, {
-			vimCaretEl: e => { vimCaretEl = e; }, vimCaretToggle: t => { vimCaretToggle = t; },
-			vimJoinEl: e => { vimJoinEl = e; }, vimJoinToggle: t => { vimJoinToggle = t; },
 			applyAllBtn: b => { applyAllBtn = b; },
 		});
 
 		setStandardDisabled(!this.plugin.settings.smartHomeStandard);
-		setSmartJoinDisabled(!this.plugin.settings.smartJoin);
 	}
 
 	// One-time nudge: if the user opens settings with Obsidian's own "Vim key
@@ -525,8 +500,9 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 	// are only eligible while their own prerequisite (Smart home (standard) /
 	// Smart join, both outside the Vim section) is on. Shared between the
 	// button's own click handler/initial disabled state (renderVimSection)
-	// and updateApplyAllDisabled (display()'s setStandardDisabled/
-	// setSmartJoinDisabled, which don't trigger a full re-render).
+	// and updateApplyAllDisabled (display()'s setStandardDisabled and the
+	// Smart join toggle's own onChange, neither of which trigger a full
+	// this.display() re-render).
 	private eligibleVimSettings(): boolean[] {
 		const s = this.plugin.settings;
 		const eligible = [s.vimHlSupport, s.vimJkSupport, s.vimWordSupport, s.vimGgSupport, s.vimDisplayLineSupport, s.vimEolSupport, s.vimTableStructureSupport, s.vimTableNavigationSupport];
@@ -536,8 +512,6 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 	}
 
 	private renderVimSection(containerEl: HTMLElement, refs: {
-		vimCaretEl: (el: HTMLElement) => void; vimCaretToggle: (t: ToggleComponent) => void;
-		vimJoinEl: (el: HTMLElement) => void; vimJoinToggle: (t: ToggleComponent) => void;
 		applyAllBtn: (b: ButtonComponent) => void;
 	}): void {
 		this.maybeAutoExpandVimSection();
@@ -733,16 +707,13 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					'<b>OFF:</b> Vim\'s own native <span class="uch-kbd">^</span> <span class="uch-kbd">I</span>, unchanged.<br>' +
 					'<i>Requires <b>Smart home (standard)</b> to be enabled — also follows whatever <b>Smart home (advanced)</b> is set to.</i>');
 			})
-			.addToggle(toggle => {
-				refs.vimCaretToggle(toggle);
-				toggle.setValue(this.plugin.settings.vimCaretSupport)
-					.onChange((value) => {
-						this.plugin.vimSupport.setCaretEnabled(value);
-						this.display();
-					});
-			});
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.vimCaretSupport)
+				.onChange((value) => {
+					this.plugin.vimSupport.setCaretEnabled(value);
+					this.display();
+				}));
 		vimSectionEls.push(caret.settingEl);
-		refs.vimCaretEl(caret.settingEl);
 
 		const join = new Setting(containerEl)
 			.setClass('uch-vim-item')
@@ -753,16 +724,13 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					'<b>OFF:</b> Vim\'s own native join, unchanged.<br>' +
 					'<i>Requires <b>Smart join</b> to be enabled.</i>');
 			})
-			.addToggle(toggle => {
-				refs.vimJoinToggle(toggle);
-				toggle.setValue(this.plugin.settings.vimJoinSupport)
-					.onChange((value) => {
-						this.plugin.vimSupport.setJoinEnabled(value);
-						this.display();
-					});
-			});
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.vimJoinSupport)
+				.onChange((value) => {
+					this.plugin.vimSupport.setJoinEnabled(value);
+					this.display();
+				}));
 		vimSectionEls.push(join.settingEl);
-		refs.vimJoinEl(join.settingEl);
 
 		const tableStructure = new Setting(containerEl)
 			.setClass('uch-vim-item')
@@ -819,7 +787,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		limitationsEl.createDiv({ text: 'Limitations', cls: 'uch-vim-limitations-title' });
 		const list = limitationsEl.createEl('ul');
 		list.appendChild(sanitizeHTMLToDom('<li>For Obsidian\'s built-in Vim mode specifically — not intended for use alongside a plugin that replaces or manages Vim\'s table-cell behavior on its own.</li>'));
-		list.createEl('li', { text: 'Off by default — if you\'ve already customized one of these keys yourself, turning its toggle on will override your binding.' });
+		list.createEl('li', { text: 'If you\'ve already customized one of these keys yourself, having its toggle on will override your binding.' });
 		vimSectionEls.push(limitationsEl);
 
 		for (const el of vimSectionEls) el.toggleClass('uch-hidden', !this.vimSectionVisible);
