@@ -819,7 +819,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		limitationsEl.createDiv({ text: 'Limitations', cls: 'uch-vim-limitations-title' });
 		const list = limitationsEl.createEl('ul');
 		list.appendChild(sanitizeHTMLToDom('<li>For Obsidian\'s built-in Vim mode specifically — not intended for use alongside a plugin that replaces or manages Vim\'s table-cell behavior on its own.</li>'));
-		list.createEl('li', { text: 'Off by default — if you\'ve already customized one of these keys yourself, turning its toggle on will override your binding.' });
+		list.createEl('li', { text: 'If you\'ve already customized one of these keys yourself, having its toggle on will override your binding.' });
 		vimSectionEls.push(limitationsEl);
 
 		for (const el of vimSectionEls) el.toggleClass('uch-hidden', !this.vimSectionVisible);
