@@ -14,11 +14,26 @@
 // what fires, so intercepting EditorView.mouseSelectionStyle is the right
 // extension point.
 //
-// Deliberately scoped to *only* intervene when the click actually lands on a
-// CJK character — every other case (Latin text, punctuation, whitespace,
-// single/triple click) returns null so CM6's own already-correct default
-// handles it untouched. This is a narrower, lower-regression-risk stance
-// than globally replacing groupAt's own char-categorizer logic.
+// Deliberately scoped to *only* intervene when CM6's own native run at the
+// click position would actually span a CJK character somewhere in it — every
+// other case (a plain-Latin word, punctuation, whitespace, single/triple
+// click) returns null so CM6's own already-correct default handles it
+// untouched. This is a narrower, lower-regression-risk stance than globally
+// replacing groupAt's own char-categorizer logic.
+//
+// Gating on "just the clicked character" (an earlier version of this file)
+// under-fires: CM6's default word class is \p{Alphabetic}\p{Number}_ — Latin
+// letters and CJK characters both count as "Word" with no boundary between
+// them, so an ASCII term embedded in Japanese prose (e.g. 「…扱いがEmacsとは
+// 異なる…」) is one giant native run. Double-clicking squarely inside "Emacs"
+// itself has no CJK character adjacent to it, so the old adjacency-only
+// check declined to intervene there — reproducing the exact bug for that
+// sub-word (confirmed live, 2026-08-22). The fix: scan outward to find that
+// *native* run first (mirroring groupAt's own word-class boundary), and gate
+// on whether the run contains a CJK character *anywhere*, not just at the
+// click. The actual selection returned is still the narrower Intl.Segmenter
+// span (which already correctly isolates "Emacs" from the surrounding
+// Japanese on its own) — only the gating changed.
 
 import type { EditorView, MouseSelectionStyle } from '@codemirror/view';
 import { EditorSelection } from '@codemirror/state';
@@ -34,14 +49,36 @@ export function isCjkChar(ch: string): boolean {
 	return CJK_CHAR_REGEX.test(ch);
 }
 
-// Returns the segmenter-computed word span at `ch`, or null if `ch` isn't
-// adjacent to a CJK character at all (the "don't intervene" case). Checks
-// both sides of `ch` the same way CM6's own groupAt considers bias at a
-// segment boundary — a double-click can land exactly between two runs.
+// Mirrors CM6's own default charCategorizer's "Word" class exactly
+// (\p{Alphabetic}\p{Number}_, see @codemirror/state's makeCategorizer) — this
+// is deliberately broader than isCjkChar, since it needs to match whatever
+// native groupAt would treat as one contiguous run.
+const NATIVE_WORD_CHAR_REGEX = /[\p{Alphabetic}\p{Number}_]/u;
+
+function isNativeWordChar(ch: string | undefined): boolean {
+	return ch !== undefined && NATIVE_WORD_CHAR_REGEX.test(ch);
+}
+
+// Finds the same contiguous run CM6's own groupAt would land on from this
+// position (scanning outward while isNativeWordChar holds), or null if `ch`
+// isn't on/adjacent to a word-class character at all.
+function nativeWordRunAt(lineText: string, ch: number): WordSpan | null {
+	let probe = ch;
+	if (!isNativeWordChar(lineText[ch])) probe = ch - 1;
+	if (!isNativeWordChar(lineText[probe])) return null;
+	let from = probe, to = probe + 1;
+	while (from > 0 && isNativeWordChar(lineText[from - 1])) from--;
+	while (to < lineText.length && isNativeWordChar(lineText[to])) to++;
+	return { from, to };
+}
+
+// Returns the segmenter-computed word span at `ch`, or null if the native
+// word-class run at `ch` contains no CJK character at all (the "don't
+// intervene, let CM6's own default handle it" case).
 export function getCjkWordSpan(lineText: string, ch: number): WordSpan | null {
-	const after = ch < lineText.length ? lineText[ch] : undefined;
-	const before = ch > 0 ? lineText[ch - 1] : undefined;
-	if (!(after !== undefined && isCjkChar(after)) && !(before !== undefined && isCjkChar(before))) return null;
+	const run = nativeWordRunAt(lineText, ch);
+	if (!run) return null;
+	if (![...lineText.slice(run.from, run.to)].some(isCjkChar)) return null;
 	return findWordSpanOnLine(lineText, ch, true);
 }
 

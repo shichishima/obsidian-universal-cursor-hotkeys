@@ -40,6 +40,17 @@ describe('getCjkWordSpan', () => {
 	it('returns null on a pure-whitespace/empty line', () => {
 		expect(getCjkWordSpan('', 0)).toBeNull()
 	})
+
+	it('regression: double-clicking an ASCII term embedded in Japanese prose selects just that term, not the whole mixed run', () => {
+		// Live bug report (2026-08-22): CM6's default charCategorizer treats
+		// Latin letters and CJK characters as the same "Word" class, so
+		// clicking inside "Emacs" itself (no CJK character immediately
+		// adjacent to the click) used to fall through to native behavior,
+		// which glues the whole mixed run together.
+		const line = '扱いがEmacsとは異なる'
+		const emacsStart = line.indexOf('Emacs')
+		expect(getCjkWordSpan(line, emacsStart + 2)).toEqual({ from: emacsStart, to: emacsStart + 5 })
+	})
 })
 
 describe('cjkWordSelectionStyle', () => {
