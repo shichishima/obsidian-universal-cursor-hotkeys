@@ -774,12 +774,12 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					'<b>ON:</b> Wraps Obsidian\'s own built-in table commands. While this is on, a bare press of the leader key no longer behaves as vim\'s own native binding (Space normally moves right).' +
 					'<table class="uch-vim-cmd-table">' +
 					'<tr><th></th><th>Row</th><th>Column</th></tr>' +
-					'<tr><td>Insert</td><td>' + kbdMulti('to', 'tO') + '<br>' + kbdMulti('tiJ', 'tiK') + '<br>(below/above)</td><td>' + kbdMulti('tiH', 'tiL') + '<br>(left/right)</td></tr>' +
-					'<tr><td>Move</td><td>' + kbdMulti('tK', 'tJ') + '<br>(up/down)</td><td>' + kbdMulti('tH', 'tL') + '<br>(left/right)</td></tr>' +
-					'<tr><td>Delete</td><td>' + kbd('tdd') + '</td><td>' + kbd('tdc') + '</td></tr>' +
-					'<tr><td>Duplicate</td><td>' + kbd('tyyp') + '</td><td>' + kbd('tyc') + '</td></tr>' +
-					'<tr><td>Align</td><td></td><td>' + kbdMulti('tal', 'tac', 'tar') + '<br>(left/center/right)</td></tr>' +
-					'<tr><td>Insert table</td><td colspan="2">' + kbd('tm') + '</td></tr>' +
+					'<tr><td>Insert</td><td>' + kbdMulti('t o', 't O') + '<br>' + kbdMulti('t i J', 't i K') + '<br>(below/above)</td><td>' + kbdMulti('t i H', 't i L') + '<br>(left/right)</td></tr>' +
+					'<tr><td>Move</td><td>' + kbdMulti('t K', 't J') + '<br>(up/down)</td><td>' + kbdMulti('t H', 't L') + '<br>(left/right)</td></tr>' +
+					'<tr><td>Delete</td><td>' + kbd('t d d') + '</td><td>' + kbd('t d c') + '</td></tr>' +
+					'<tr><td>Duplicate</td><td>' + kbd('t y y p') + '</td><td>' + kbd('t y c') + '</td></tr>' +
+					'<tr><td>Align</td><td></td><td>' + kbdMulti('t a l', 't a c', 't a r') + '<br>(left/center/right)</td></tr>' +
+					'<tr><td>Insert table</td><td colspan="2">' + kbd('t m') + '</td></tr>' +
 					'</table>' +
 					'<b>OFF:</b> No leader-key table commands are bound.');
 			})
@@ -796,14 +796,16 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			.then(setting => {
 				const leader = this.plugin.settings.vimLeaderUseBackslash ? '\\' : 'Space';
 				this.setKeyChipName(setting, [leader, 't'], 'Table navigation (6 commands)');
-				const kbd = (s: string) => '<span class="uch-kbd">' + leader + '</span> <span class="uch-kbd">' + s + '</span>';
+				const kbdMulti = (...keys: string[]) => '<span class="uch-kbd">' + leader + '</span> ' + keys.map(k => '<span class="uch-kbd">' + k + '</span>').join(' / ');
 				this.setHtmlDesc(setting, '' +
-					'<b>ON:</b> Pure cursor movement — no-op outside a table cell.<br>' +
-					kbd('tx') + ' exit table below &nbsp; ' + kbd('tX') + ' exit table above<br>' +
-					kbd('th') + ' cell left &nbsp; ' + kbd('tj') + ' cell below &nbsp; ' + kbd('tk') + ' cell above &nbsp; ' + kbd('tl') + ' cell right<br>' +
-					'<i>Cell jumps land at that cell\'s own content start, unlike vim\'s native ' +
-					'<span class="uch-kbd">j</span>/<span class="uch-kbd">k</span> (column-preserving).</i><br>' +
-					'While this is on, a bare press of the leader key no longer behaves as vim\'s own native binding (Space normally moves right).<br>' +
+					'<b>ON:</b> Adds pure cursor-movement commands — no-op outside a table cell. While this is on, a bare press of the leader key no longer behaves as vim\'s own native binding (Space normally moves right). ' +
+					'Cell jumps land at that cell\'s own content start, unlike vim\'s native ' +
+					'<span class="uch-kbd">j</span> / <span class="uch-kbd">k</span> (column-preserving).' +
+					'<table class="uch-vim-cmd-table">' +
+					'<tr><th></th><th>Row</th><th>Column</th></tr>' +
+					'<tr><td>Move to cell</td><td>' + kbdMulti('t j', 't k') + '<br>(below/above)</td><td>' + kbdMulti('t h', 't l') + '<br>(left/right)</td></tr>' +
+					'<tr><td>Exit table</td><td colspan="2">' + kbdMulti('t x', 't X') + '<br>(below/above)</td></tr>' +
+					'</table>' +
 					'<b>OFF:</b> No leader-key table navigation commands are bound.');
 			})
 			.addToggle(toggle => toggle
