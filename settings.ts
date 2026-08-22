@@ -337,6 +337,11 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 
 	display(): void {
 		const { containerEl } = this;
+		// containerEl is itself Obsidian's own scrollable .vertical-tab-content
+		// element — a full re-render (containerEl.empty() + rebuild, triggered
+		// by many toggles' own onChange) otherwise resets scroll position to 0
+		// with no restoration, causing a visible jump on every such toggle.
+		const scrollTop = containerEl.scrollTop;
 		containerEl.empty();
 
 		// Must run before renderHotkeyManager: it may flip sectionVisible
@@ -465,6 +470,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		});
 
 		setStandardDisabled(!this.plugin.settings.smartHomeStandard);
+		containerEl.scrollTop = scrollTop;
 	}
 
 	// One-time nudge: if the user opens settings with Obsidian's own "Vim key
