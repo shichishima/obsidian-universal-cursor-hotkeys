@@ -24,6 +24,7 @@
 ### Fixed
 
 - **Vim `u` / Ctrl-R now undo/redo table-structure changes from inside a table cell:** previously only reached whichever cell's own local undo history was active, which has no record of structural edits (row/column insert/delete) — the only way to undo one was to leave the cell first. Now delegates to Obsidian's own outer-document Undo/Redo (the same one Cmd+Z and this plugin's own Undo/Redo commands use) while inside a table cell.
+- **`G` now appends a blank line at a note-ending table, instead of landing inside it:** previously landed inside the table's own last row when a note ended with a table, unlike `tx`'s own identical EOF case (append a blank line and exit). `gg` is unaffected (asymmetric, matching `tx`/`tX`'s own precedent), as are count-prefixed jumps like `5G`, which target a specific line rather than "the end".
 
 ## [0.9.0] - 2026-08-14
 
