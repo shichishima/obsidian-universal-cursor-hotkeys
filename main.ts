@@ -94,7 +94,7 @@ const DEFAULT_SETTINGS: UniversalCursorHotkeysSettings = {
 	qsaTableNavVisible: false,
 	vimHlSupport: true,
 	vimJkSupport: true,
-	vimJoinSupport: false,
+	vimJoinSupport: true,
 	vimCaretSupport: true,
 	vimWordSupport: true,
 	vimGgSupport: true,
