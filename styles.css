@@ -117,3 +117,13 @@ tbody.uch-override-active .uch-override-word { font-weight: 700; }
 .uch-vim-limitations-title { font-size: 0.8em; font-weight: 600; opacity: 0.6; margin-bottom: 4px; }
 .uch-vim-limitations ul    { margin: 0; padding-left: 1.2em; font-size: 0.9em; opacity: 0.75; }
 .uch-vim-limitations li + li { margin-top: 4px; }
+.uch-vim-cmd-table { border-collapse: collapse; margin: 4px auto; font-size: inherit; }
+.uch-vim-cmd-table td, .uch-vim-cmd-table th {
+  padding: 2px 12px 2px 0;
+  text-align: left;
+  vertical-align: top;
+  font-weight: normal;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+.uch-vim-cmd-table th { opacity: 0.6; }
+.uch-vim-cmd-table tr:last-child td { border-bottom: none; }
