@@ -473,8 +473,8 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName('Double-click word select')
 			.then(setting => this.setHtmlDesc(setting, '' +
-				'<b>ON:</b> Double-clicking Hiragana/Katakana/Kanji text selects the whole word at that position (dictionary-based), instead of the entire unbroken run of CJK characters. Dragging after the double-click extends the selection a word at a time. Latin text is unaffected.<br>' +
-				'<b>OFF:</b> Uses Obsidian\'s native double-click selection everywhere.'))
+				'<b>ON:</b> Selects just the CJK word at the click position, not the whole unbroken run — dragging extends a word at a time.<br>' +
+				'<b>OFF:</b> Uses Obsidian\'s native double-click selection.'))
 			.addToggle(toggle => toggle
 				.setValue(this.plugin.settings.cjkDoubleClickWordSelect)
 				.onChange(async (value) => {

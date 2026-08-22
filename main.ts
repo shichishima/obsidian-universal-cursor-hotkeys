@@ -32,8 +32,13 @@ interface UniversalCursorHotkeysSettings {
 	// Double-click word selection, CJK-aware (Intl.Segmenter, same engine as
 	// word-right/left and Vim w/b/e) — only intervenes when the click lands
 	// on a Hiragana/Katakana/CJK-Ideograph character; every other case falls
-	// through to CM6's own default. Off by default like every other toggle
-	// that changes a native editor behavior.
+	// through to CM6's own default. On by default: this corrects an
+	// objectively broken native result (an entire unbroken CJK run selected
+	// as one "word") rather than introducing an opinionated new behavior —
+	// same category as Smart home (standard)/Visual line movement/Cross-row
+	// navigation above, not Smart join (which stays opt-in precisely because
+	// it makes a markdown-aware judgment call). Latin-only text is
+	// unaffected either way.
 	cjkDoubleClickWordSelect: boolean;
 	qsaDisplacedCommands: DisplacedCommand[];
 	qsaSectionVisible: boolean;
@@ -81,7 +86,7 @@ const DEFAULT_SETTINGS: UniversalCursorHotkeysSettings = {
 	smartHomeAdvanced: true,
 	smartJoin: false,
 	crossRowNavigation: true,
-	cjkDoubleClickWordSelect: false,
+	cjkDoubleClickWordSelect: true,
 	qsaDisplacedCommands: [],
 	qsaSectionVisible: true,
 	qsaIndividualVisible: false,
