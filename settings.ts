@@ -550,7 +550,8 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				setting.nameEl.createSpan({ text: 'experimental', cls: 'uch-vim-badge' });
 				this.setHtmlDesc(setting,
 					'Fixes native gaps in Obsidian\'s built-in Vim mode inside Live Preview table cells, ' +
-					'and extends a few motions with this plugin\'s Smart home / Smart join. ' +
+					'extends a few motions with this plugin\'s Smart home / Smart join, ' +
+					'and adds leader-key commands for table structure editing and cell navigation. ' +
 					'If you\'re using Vim mode, you likely won\'t need the Quick setup assistant above — ' +
 					'that manages this plugin\'s Emacs-style Ctrl+P/N/B/F/A/E hotkeys instead.');
 			})
@@ -723,53 +724,6 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				}));
 		vimSectionEls.push(eol.settingEl);
 
-		const tableStructure = new Setting(containerEl)
-			.setClass('uch-vim-item')
-			.then(setting => {
-				const leader = this.plugin.settings.vimLeaderUseBackslash ? '\\' : 'Space';
-				this.setKeyChipName(setting, [leader, 't'], 'Table structure (16 commands)');
-				const kbd = (s: string) => '<span class="uch-kbd">' + leader + '</span> <span class="uch-kbd">' + s + '</span>';
-				this.setHtmlDesc(setting, '' +
-					'<b>ON:</b> Wraps Obsidian\'s own built-in table commands — no-op outside a table cell, except ' + kbd('tm') + ', which also works outside one.<br>' +
-					kbd('to') + ' insert row below &nbsp; ' + kbd('tO') + ' insert row above &nbsp; ' + kbd('tK') + ' move row up &nbsp; ' + kbd('tJ') + ' move row down &nbsp; ' + kbd('tdd') + ' delete row &nbsp; ' + kbd('tyyp') + ' duplicate row<br>' +
-					kbd('tiH') + ' insert column left &nbsp; ' + kbd('tiL') + ' insert column right &nbsp; ' + kbd('tH') + ' move column left &nbsp; ' + kbd('tL') + ' move column right &nbsp; ' + kbd('tdc') + ' delete column &nbsp; ' + kbd('tyc') + ' duplicate column<br>' +
-					kbd('tal') + ' align column left &nbsp; ' + kbd('tac') + ' align column center &nbsp; ' + kbd('tar') + ' align column right<br>' +
-					kbd('tm') + ' insert table<br>' +
-					'<i>' + kbd('tiJ') + '/' + kbd('tiK') + ' also insert a row below/above, matching ' + kbd('tiH') + '/' + kbd('tiL') + '\'s own column convention.</i><br>' +
-					'While this is on, a bare press of the leader key no longer behaves as vim\'s own native binding (Space normally moves right).<br>' +
-					'<b>OFF:</b> No leader-key table commands are bound.');
-			})
-			.addToggle(toggle => toggle
-				.setValue(this.plugin.settings.vimTableStructureSupport)
-				.onChange((value) => {
-					this.plugin.vimSupport.setTableStructureEnabled(value);
-					this.display();
-				}));
-		vimSectionEls.push(tableStructure.settingEl);
-
-		const tableNavigation = new Setting(containerEl)
-			.setClass('uch-vim-item')
-			.then(setting => {
-				const leader = this.plugin.settings.vimLeaderUseBackslash ? '\\' : 'Space';
-				this.setKeyChipName(setting, [leader, 't'], 'Table navigation (6 commands)');
-				const kbd = (s: string) => '<span class="uch-kbd">' + leader + '</span> <span class="uch-kbd">' + s + '</span>';
-				this.setHtmlDesc(setting, '' +
-					'<b>ON:</b> Pure cursor movement — no-op outside a table cell.<br>' +
-					kbd('tx') + ' exit table below &nbsp; ' + kbd('tX') + ' exit table above<br>' +
-					kbd('th') + ' cell left &nbsp; ' + kbd('tj') + ' cell below &nbsp; ' + kbd('tk') + ' cell above &nbsp; ' + kbd('tl') + ' cell right<br>' +
-					'<i>Cell jumps land at that cell\'s own content start, unlike vim\'s native ' +
-					'<span class="uch-kbd">j</span>/<span class="uch-kbd">k</span> (column-preserving).</i><br>' +
-					'While this is on, a bare press of the leader key no longer behaves as vim\'s own native binding (Space normally moves right).<br>' +
-					'<b>OFF:</b> No leader-key table navigation commands are bound.');
-			})
-			.addToggle(toggle => toggle
-				.setValue(this.plugin.settings.vimTableNavigationSupport)
-				.onChange((value) => {
-					this.plugin.vimSupport.setTableNavigationEnabled(value);
-					this.display();
-				}));
-		vimSectionEls.push(tableNavigation.settingEl);
-
 		const caret = new Setting(containerEl)
 			.setClass('uch-vim-item')
 			.then(setting => {
@@ -810,17 +764,62 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		vimSectionEls.push(join.settingEl);
 		refs.vimJoinEl(join.settingEl);
 
+		const tableStructure = new Setting(containerEl)
+			.setClass('uch-vim-item')
+			.then(setting => {
+				const leader = this.plugin.settings.vimLeaderUseBackslash ? '\\' : 'Space';
+				this.setKeyChipName(setting, [leader, 't'], 'Table structure (16 commands)');
+				const kbd = (s: string) => '<span class="uch-kbd">' + leader + '</span> <span class="uch-kbd">' + s + '</span>';
+				const kbdMulti = (...keys: string[]) => '<span class="uch-kbd">' + leader + '</span> ' + keys.map(k => '<span class="uch-kbd">' + k + '</span>').join(' / ');
+				this.setHtmlDesc(setting, '' +
+					'<b>ON:</b> Wraps the commands below. While this is on, a bare press of the leader key no longer behaves as vim\'s own native binding (Space normally moves right).' +
+					'<table class="uch-vim-cmd-table">' +
+					'<tr><th></th><th>Row</th><th>Column</th></tr>' +
+					'<tr><td>Insert</td><td>' + kbdMulti('t o', 't O') + '<br>' + kbdMulti('t i J', 't i K') + '<br>(below/above)</td><td>' + kbdMulti('t i H', 't i L') + '<br>(left/right)</td></tr>' +
+					'<tr><td>Move</td><td>' + kbdMulti('t K', 't J') + '<br>(up/down)</td><td>' + kbdMulti('t H', 't L') + '<br>(left/right)</td></tr>' +
+					'<tr><td>Delete</td><td>' + kbd('t d d') + '</td><td>' + kbd('t d c') + '</td></tr>' +
+					'<tr><td>Duplicate</td><td>' + kbd('t y y p') + '</td><td>' + kbd('t y c') + '</td></tr>' +
+					'<tr><td>Align</td><td></td><td>' + kbdMulti('t a l', 't a c', 't a r') + '<br>(left/center/right)</td></tr>' +
+					'<tr><td>Insert table</td><td colspan="2">' + kbd('t m') + '</td></tr>' +
+					'</table>' +
+					'<b>OFF:</b> No leader-key table structure commands are bound.');
+			})
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.vimTableStructureSupport)
+				.onChange((value) => {
+					this.plugin.vimSupport.setTableStructureEnabled(value);
+					this.display();
+				}));
+		vimSectionEls.push(tableStructure.settingEl);
+
+		const tableNavigation = new Setting(containerEl)
+			.setClass('uch-vim-item')
+			.then(setting => {
+				const leader = this.plugin.settings.vimLeaderUseBackslash ? '\\' : 'Space';
+				this.setKeyChipName(setting, [leader, 't'], 'Table navigation (6 commands)');
+				const kbdMulti = (...keys: string[]) => '<span class="uch-kbd">' + leader + '</span> ' + keys.map(k => '<span class="uch-kbd">' + k + '</span>').join(' / ');
+				this.setHtmlDesc(setting, '' +
+					'<b>ON:</b> Adds the commands below. While this is on, a bare press of the leader key no longer behaves as vim\'s own native binding (Space normally moves right).' +
+					'<table class="uch-vim-cmd-table">' +
+					'<tr><th></th><th>Row</th><th>Column</th></tr>' +
+					'<tr><td>Move to cell</td><td>' + kbdMulti('t j', 't k') + '<br>(below/above)</td><td>' + kbdMulti('t h', 't l') + '<br>(left/right)</td></tr>' +
+					'<tr><td>Exit table</td><td colspan="2">' + kbdMulti('t x', 't X') + '<br>(below/above)</td></tr>' +
+					'</table>' +
+					'<b>OFF:</b> No leader-key table navigation commands are bound.');
+			})
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.vimTableNavigationSupport)
+				.onChange((value) => {
+					this.plugin.vimSupport.setTableNavigationEnabled(value);
+					this.display();
+				}));
+		vimSectionEls.push(tableNavigation.settingEl);
+
 		const limitationsEl = containerEl.createDiv({ cls: 'uch-vim-limitations' });
 		limitationsEl.createDiv({ text: 'Limitations', cls: 'uch-vim-limitations-title' });
 		const list = limitationsEl.createEl('ul');
 		list.appendChild(sanitizeHTMLToDom('<li>For Obsidian\'s built-in Vim mode specifically — not intended for use alongside a plugin that replaces or manages Vim\'s table-cell behavior on its own.</li>'));
 		list.createEl('li', { text: 'Off by default — if you\'ve already customized one of these keys yourself, turning its toggle on will override your binding.' });
-		list.appendChild(sanitizeHTMLToDom('<li>A CJK (e.g. romaji-based Japanese) input source can occasionally corrupt Vim\'s own key handling (e.g. a single g/j/k misread) — a known upstream codemirror-vim issue, not caused by this plugin. Switching to an ASCII/alphanumeric input source resolves it.</li>'));
-		const displayLineLi = list.createEl('li');
-		displayLineLi.createSpan({ text: 'gj', cls: 'uch-kbd' });
-		displayLineLi.appendText(' ');
-		displayLineLi.createSpan({ text: 'gk', cls: 'uch-kbd' });
-		displayLineLi.appendText(': a count is not preserved across a row or table crossing — it stops consuming the count after the first crossing.');
 		vimSectionEls.push(limitationsEl);
 
 		for (const el of vimSectionEls) el.toggleClass('uch-hidden', !this.vimSectionVisible);
