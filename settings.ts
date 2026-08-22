@@ -550,7 +550,8 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				setting.nameEl.createSpan({ text: 'experimental', cls: 'uch-vim-badge' });
 				this.setHtmlDesc(setting,
 					'Fixes native gaps in Obsidian\'s built-in Vim mode inside Live Preview table cells, ' +
-					'and extends a few motions with this plugin\'s Smart home / Smart join. ' +
+					'extends a few motions with this plugin\'s Smart home / Smart join, ' +
+					'and adds leader-key commands for table structure editing and cell navigation. ' +
 					'If you\'re using Vim mode, you likely won\'t need the Quick setup assistant above — ' +
 					'that manages this plugin\'s Emacs-style Ctrl+P/N/B/F/A/E hotkeys instead.');
 			})
