@@ -10,6 +10,7 @@ import { EditorSelection, Transaction, findClusterBreak } from '@codemirror/stat
 import { deleteCharForward, cursorPageDown, cursorPageUp, transposeChars as cmTransposeChars } from '@codemirror/commands';
 import { getWordSpans, getBigWordSpans, findWordSpanOnLine } from './word-segmentation';
 import { exitTable, jumpAdjacentCell } from './table-navigation';
+import { cjkWordSelectionStyle } from './cjk-word-select';
 
 // Extend the Obsidian Editor interface to include the internal CodeMirror 6 instance (EditorView)
 declare module "obsidian" {
@@ -28,6 +29,12 @@ interface UniversalCursorHotkeysSettings {
 	smartHomeAdvanced: boolean;
 	smartJoin: boolean;
 	crossRowNavigation: boolean;
+	// Double-click word selection, CJK-aware (Intl.Segmenter, same engine as
+	// word-right/left and Vim w/b/e) — only intervenes when the click lands
+	// on a Hiragana/Katakana/CJK-Ideograph character; every other case falls
+	// through to CM6's own default. Off by default like every other toggle
+	// that changes a native editor behavior.
+	cjkDoubleClickWordSelect: boolean;
 	qsaDisplacedCommands: DisplacedCommand[];
 	qsaSectionVisible: boolean;
 	qsaIndividualVisible: boolean;
@@ -74,6 +81,7 @@ const DEFAULT_SETTINGS: UniversalCursorHotkeysSettings = {
 	smartHomeAdvanced: true,
 	smartJoin: false,
 	crossRowNavigation: true,
+	cjkDoubleClickWordSelect: false,
 	qsaDisplacedCommands: [],
 	qsaSectionVisible: true,
 	qsaIndividualVisible: false,
@@ -437,6 +445,12 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 					this._recenterStep = 0;
 				}
 			})
+		);
+
+		this.registerEditorExtension(
+			EditorView.mouseSelectionStyle.of(
+				cjkWordSelectionStyle(() => this.settings.cjkDoubleClickWordSelect)
+			)
 		);
 
 		this.registerDomEvent(activeDocument, 'mousedown', () => {

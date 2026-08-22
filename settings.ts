@@ -470,6 +470,18 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 
+		new Setting(containerEl)
+			.setName('Double-click word select')
+			.then(setting => this.setHtmlDesc(setting, '' +
+				'<b>ON:</b> Double-clicking Hiragana/Katakana/Kanji text selects the whole word at that position (dictionary-based), instead of the entire unbroken run of CJK characters. Dragging after the double-click extends the selection a word at a time. Latin text is unaffected.<br>' +
+				'<b>OFF:</b> Uses Obsidian\'s native double-click selection everywhere.'))
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.cjkDoubleClickWordSelect)
+				.onChange(async (value) => {
+					this.plugin.settings.cjkDoubleClickWordSelect = value;
+					await this.plugin.saveSettings();
+				}));
+
 		this.renderVimSection(containerEl, {
 			vimCaretEl: e => { vimCaretEl = e; }, vimCaretToggle: t => { vimCaretToggle = t; },
 			vimJoinEl: e => { vimJoinEl = e; }, vimJoinToggle: t => { vimJoinToggle = t; },
