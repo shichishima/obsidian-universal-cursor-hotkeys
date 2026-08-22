@@ -22,7 +22,7 @@ If you use Obsidian's built-in Vim mode, this plugin fixes a set of well-known L
 
 ### Getting Started
 
-[Command Reference](#command-reference) | [Settings](#settings) | [Limitations](#limitations)
+[Command Reference](#command-reference) | [Settings](#settings) | [Limitations](#limitations) | [Behavior Options](#behavior-options)
 
 Turn on Obsidian's built-in **Vim key bindings** (Settings → Editor). Then open **Settings → Universal Cursor Hotkeys → Vim support** and click **Apply all**.
 
@@ -85,20 +85,23 @@ This plugin's settings screen has three parts:
 - [**Behavior Options**](#behavior-options) — a few settings shared between Vim support and the Emacs-side commands.
 - **Vim support** — the toggles described below.
 
-Every item below is off by default.
+See [Command Reference](#command-reference) above for what each toggle actually does — this table covers the ON/OFF decision itself: default state and any prerequisite. Turning a toggle off restores vim's own native behavior for that key; Table structure/Table navigation instead simply stop binding any leader-key commands.
 
-**Apply all:** Turns on every item below that can currently be turned on in one click — skips `^`/`I` or `J` if their own Smart home (standard) / Smart join prerequisite is currently off.
+**Apply all:** Turns on every toggle marked ✓ in the `Apply all` column below, in one click.
 
-| Keys | Fixes |
-| :--: | ----- |
-| `h` `l` `x` | Multi-byte character miscounting and incorrect cell-jumping at line boundaries; `x` at cell boundaries. |
-| `j` `k` | Row-boundary crossing (matching Ctrl+N/P), preserving column position throughout. |
-| `w` `b` `e` (and `W`/`B`/`E`/`ge`/`gE`) | Cell/row-boundary crossing, matching vim's own document-wide word-motion behavior. |
-| `gg` `G` | Reaches the note's actual first/last line, including exiting a table cell entirely. Lands at the smart (Smart home) content position there too, not just in plain text. |
-| `gj` `gk` | Visual-line movement inside table cells (matching Ctrl+N/P), tracking the visual column across wrapped lines. |
-| `$` | Sticky end-of-line goal column when followed by j/k or gj/gk, matching real vim's own behavior. Requires `j`/`k` or `gj`/`gk` to be enabled. `D`/`C` share the same underlying vim.js motion, so this toggle affects them too, but their own behavior is identical either way. |
-| `^` `I` | Reuses Smart home to skip Markdown syntax, not just whitespace. Requires Smart home (standard). |
-| `J` | Reuses Smart join to strip blockquote/list markers and indentation on join. Requires Smart join. |
+| Toggle | Default | Apply all | Description |
+| ------ | :-----: | :-------: | ------------ |
+| Leader key | OFF<br>(Space) | — | **OFF:** `Space` (default).<br>**ON:** `\`. Only matters once Table structure or Table navigation below is on. |
+| `h` `l` `x` Character movement | ON | ✓ | — |
+| `j` `k` Line movement | ON | ✓ | — |
+| `w` `b` `e` Word motion | ON | ✓ | — |
+| `gg` `G` Document start/end | ON | ✓ | — |
+| `gj` `gk` Display-line movement | ON | ✓ | — |
+| `$` End of line (sticky column) | ON | ✓ | Requires `j` `k` Line movement or `gj` `gk` Display-line movement to be ON. |
+| `^` `I` First non-blank | ON | ✓ | Requires Smart home (standard) to be ON. |
+| `J` Join lines | ON | ✓ | Requires Smart join to be ON. |
+| `Space` `t` Table structure (16 commands) | OFF | ✓ | — |
+| `Space` `t` Table navigation (6 commands) | OFF | ✓ | — |
 
 Turning an item off restarts Obsidian to fully restore vim's native behavior (a banner prompts this when needed).
 
@@ -110,6 +113,8 @@ Turning an item off restarts Obsidian to fully restore vim's native behavior (a 
 - **`w`/`b`/`e` cross only one cell/row boundary per count:** A count like `5w` isn't fully precise once it needs to cross more than one cell or row boundary.
 - **`gj`/`gk` do not support count prefixes across a crossing:** A count like `5gj` correctly steps through multiple visual lines within a single cell, but once the count needs to cross a row boundary or enter/exit a table, it stops consuming the count after that first crossing.
 - **A count-prefixed `$` doesn't cross table rows:** `3$` stays within the current table cell rather than reaching the end of a line further down, the way real vim would outside a table.
+- **For Obsidian's built-in Vim mode specifically:** not intended for use alongside a plugin that replaces or manages Vim's table-cell behavior on its own.
+- **Turning on a toggle overrides your own binding:** if you've already customized one of these keys yourself, its toggle will override that customization while it's on.
 
 ---
 
