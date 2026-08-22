@@ -470,6 +470,18 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 
+		new Setting(containerEl)
+			.setName('Double-click word select')
+			.then(setting => this.setHtmlDesc(setting, '' +
+				'<b>ON:</b> Selects just the CJK word at the click position, not the whole unbroken run — dragging extends a word at a time.<br>' +
+				'<b>OFF:</b> Uses Obsidian\'s native double-click selection.'))
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.cjkDoubleClickWordSelect)
+				.onChange(async (value) => {
+					this.plugin.settings.cjkDoubleClickWordSelect = value;
+					await this.plugin.saveSettings();
+				}));
+
 		this.renderVimSection(containerEl, {
 			vimCaretEl: e => { vimCaretEl = e; }, vimCaretToggle: t => { vimCaretToggle = t; },
 			vimJoinEl: e => { vimJoinEl = e; }, vimJoinToggle: t => { vimJoinToggle = t; },
