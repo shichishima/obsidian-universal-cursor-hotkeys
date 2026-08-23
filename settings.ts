@@ -257,23 +257,13 @@ const COMMAND_DEFS: readonly CommandDef[] = [
 	{ block: 'other',   id: 'recenter-top-bottom',  name: 'Recenter-top-bottom', recommended: ctrl('L') },
 	{ block: 'other',   id: 'recenter',             name: 'Recenter',            recommended: null },
 
-	// Pure cursor movement — no-op outside a table cell (see
-	// table-navigation.ts). recommended: null throughout is a deliberate
-	// choice not to push a default, not "not owned" like tableStructure
-	// below — no Hotkeys-search link needed for this block (see
-	// renderCollapsibleBlock's own titleAction parameter).
-	{ block: 'tableNav', id: 'table-exit-down',      name: 'Exit table below',    recommended: null },
-	{ block: 'tableNav', id: 'table-exit-up',        name: 'Exit table above',    recommended: null },
-	{ block: 'tableNav', id: 'table-cell-left',      name: 'Move to cell left',   recommended: null },
-	{ block: 'tableNav', id: 'table-cell-right',     name: 'Move to cell right',  recommended: null },
-	{ block: 'tableNav', id: 'table-cell-down',      name: 'Move to cell below',  recommended: null },
-	{ block: 'tableNav', id: 'table-cell-up',        name: 'Move to cell above',  recommended: null },
-
 	// Obsidian's own native table commands — not owned by this plugin (no
 	// recommended hotkey is offered for any of these; see
 	// renderCollapsibleBlock's own titleAction for why: existing assignments
 	// are just made visible here, matching this same 16-command set
-	// candidate A's own Vim leader-key commands already wrap).
+	// candidate A's own Vim leader-key commands already wrap). Listed before
+	// tableNav below: basic table-editing operations first, the more
+	// auxiliary cell-navigation convenience commands after.
 	{ block: 'tableStructure', id: 'table-row-before',        fullId: 'editor:table-row-before',        name: 'Insert row above',    recommended: null },
 	{ block: 'tableStructure', id: 'table-row-after',         fullId: 'editor:table-row-after',         name: 'Insert row below',    recommended: null },
 	{ block: 'tableStructure', id: 'table-row-up',            fullId: 'editor:table-row-up',             name: 'Move row up',         recommended: null },
@@ -290,6 +280,18 @@ const COMMAND_DEFS: readonly CommandDef[] = [
 	{ block: 'tableStructure', id: 'table-col-copy',          fullId: 'editor:table-col-copy',           name: 'Duplicate column',    recommended: null },
 	{ block: 'tableStructure', id: 'table-col-delete',        fullId: 'editor:table-col-delete',         name: 'Delete column',       recommended: null },
 	{ block: 'tableStructure', id: 'insert-table',            fullId: 'editor:insert-table',             name: 'Insert table',        recommended: null },
+
+	// Pure cursor movement — no-op outside a table cell (see
+	// table-navigation.ts). recommended: null throughout is a deliberate
+	// choice not to push a default, not "not owned" like tableStructure
+	// above — no Hotkeys-search link needed for this block (see
+	// renderCollapsibleBlock's own titleAction parameter).
+	{ block: 'tableNav', id: 'table-exit-down',      name: 'Exit table below',    recommended: null },
+	{ block: 'tableNav', id: 'table-exit-up',        name: 'Exit table above',    recommended: null },
+	{ block: 'tableNav', id: 'table-cell-left',      name: 'Move to cell left',   recommended: null },
+	{ block: 'tableNav', id: 'table-cell-right',     name: 'Move to cell right',  recommended: null },
+	{ block: 'tableNav', id: 'table-cell-down',      name: 'Move to cell below',  recommended: null },
+	{ block: 'tableNav', id: 'table-cell-up',        name: 'Move to cell above',  recommended: null },
 ];
 
 export interface DisplacedCommand {
@@ -1173,8 +1175,6 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		this.renderBlock(table, 'Cursor movement', makeEntries('cursor'), ctx);
 		this.renderBlock(table, 'Editing',         makeEntries('editing'), ctx);
 		this.renderBlock(table, 'Other hotkeys',   makeEntries('other'), ctx);
-		this.renderCollapsibleBlock(table, 'Table navigation', makeEntries('tableNav'), ctx,
-			{ get: () => this.tableNavVisible, set: v => { this.tableNavVisible = v; } });
 		const tableSearchTerm = getTableCommandSearchTerm();
 		this.renderCollapsibleBlock(table, 'Table structure', makeEntries('tableStructure'), ctx,
 			{ get: () => this.tableStructureVisible, set: v => { this.tableStructureVisible = v; } },
@@ -1186,6 +1186,8 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				});
 			},
 			new Set(['table-row-delete', 'table-col-delete']));
+		this.renderCollapsibleBlock(table, 'Table navigation', makeEntries('tableNav'), ctx,
+			{ get: () => this.tableNavVisible, set: v => { this.tableNavVisible = v; } });
 		syncToggle();
 
 		// Displaced commands table
