@@ -4,7 +4,7 @@
 
 ### Added
 
-- **Vim table structure commands:** New leader-key commands under Vim support, wrapping Obsidian's own built-in table commands — `Space` is the leader by default (`\` optional).
+- **Table structure (Vim side):** New leader-key commands under Vim support, wrapping Obsidian's own built-in table commands — `Space` is the leader by default (`\` optional).
   - `tJ`/`tK` move the current row down/up, `tH`/`tL` move the current column left/right.
   - `tiJ`/`tiK` insert a row below/above, `tiH`/`tiL` insert a column left/right.
   - `to`/`tO` insert a row below/above (alias).
@@ -12,13 +12,11 @@
   - `tyyp` duplicates the current row, `tyc` duplicates the current column.
   - `tal`/`tac`/`tar` align the current column left/center/right.
   - `tm` inserts a table (the only one of the sixteen that also works outside an existing table).
-- **Table navigation commands (Vim side):** New leader-key commands, also under Vim support — pure cursor movement, no-op outside a table cell.
+- **Table navigation (Vim side):** New leader-key commands, also under Vim support — pure cursor movement, no-op outside a table cell.
   - `th`/`tj`/`tk`/`tl` jump straight to the adjacent cell, landing at its own content start — a coarser, spreadsheet-style jump distinct from vim's native `j`/`k` (which preserve column position instead).
   - `tx`/`tX` exit the current table below/above (distinct from `gg`/`G`, which jump to the whole document's edge, not just past this table).
-- **Quick setup assistant — Table structure section:** Now also lists Obsidian's own sixteen built-in table-structure commands (insert/move/delete/duplicate row or column, column alignment, insert table) in a collapsible section, so they're easy to find and assign a hotkey to even though this plugin doesn't own them. No "Apply recommended" (nothing to recommend for someone else's commands) — instead a link opens Obsidian's Hotkeys panel pre-filtered to the table-command group.
-- **Table navigation commands (Emacs side):** Also available on the Emacs side as six ordinary commands, listed in their own collapsible "Table navigation" section of the Quick setup assistant — no recommended hotkey, assignable via Settings → Hotkeys or the Quick setup assistant, same as Redo.
-  - **Move to cell left/right/below/above.**
-  - **Exit table below/above.**
+- **Table structure (Emacs side):** The Quick setup assistant now also lists Obsidian's own sixteen built-in table-structure commands (insert/move/delete/duplicate row or column, column alignment, insert table) in a collapsible section, so they're easy to find and assign a hotkey to even though this plugin doesn't own them. No "Apply recommended" (nothing to recommend for someone else's commands) — instead a link opens Obsidian's Hotkeys panel pre-filtered to the table-command group.
+- **Table navigation (Emacs side):** Also available on the Emacs side as six ordinary commands (Move to cell left/right/below/above, Exit table below/above), listed in their own collapsible "Table navigation" section of the Quick setup assistant — no recommended hotkey, assignable via Settings → Hotkeys or the Quick setup assistant, same as Redo.
 - **Double-click word select (Behavior Options):** Double-clicking Japanese/CJK text now selects the dictionary-segmented word at that position (same Intl.Segmenter engine as Word right/left and Vim's `w`/`b`/`e`), instead of Obsidian's native double-click, which treats an entire unbroken run of CJK characters as one "word" since there's no whitespace between them. Also fixes the same case for a Latin term embedded in CJK prose (e.g. "API" inside a Japanese sentence). Dragging after the double-click extends the selection a whole word at a time. On by default; Latin-only text is unaffected either way.
 
 ### Changed
