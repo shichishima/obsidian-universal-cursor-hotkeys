@@ -19,6 +19,7 @@ function makeStatefulEditor(lines: string[], initialCursor: { line: number; ch: 
 		getCursor: vi.fn(() => cursor),
 		getLine: vi.fn((n: number) => buf[n] ?? ''),
 		lineCount: vi.fn(() => buf.length),
+		lastLine: vi.fn(() => buf.length - 1),
 		replaceRange: vi.fn((_text: string, from: any) => {
 			buf.splice(from.line + 1, 0, '')
 		}),
@@ -604,6 +605,44 @@ describe('VimSupportHost bridge (main.ts)', () => {
 			expect(result).toEqual({ line: 1, ch: 2 })
 		})
 
+		// Fixed: bare G used to land inside a note-ending table's own last row
+		// (via enterTableAtLine) instead of exiting it — inconsistent with
+		// tx's own EOF fix (appendBlankLineAndLand), which G now delegates to
+		// in this exact case.
+		describe('bare G on a table that runs to the document\'s last line', () => {
+			it('appends a blank line and lands there instead of landing inside the table', () => {
+				const editor = makeStatefulEditor(['plain', '| a |'], { line: 0, ch: 0 })
+				plugin.isPositionInTable = vi.fn().mockReturnValue(true)
+				const result = plugin.jumpToDocumentLine(editor, true, null) // bare G
+				expect(editor._buf).toEqual(['plain', '| a |', ''])
+				expect(result).toEqual({ line: 2, ch: 0 })
+			})
+
+			it('does not go through enterTableAtLine at all for this case', () => {
+				const editor = makeStatefulEditor(['plain', '| a |'], { line: 0, ch: 0 })
+				plugin.isPositionInTable = vi.fn().mockReturnValue(true)
+				plugin.enterTableAtLine = vi.fn()
+				plugin.jumpToDocumentLine(editor, true, null)
+				expect(plugin.enterTableAtLine).not.toHaveBeenCalled()
+			})
+
+			it('still lands inside the table for a count-prefixed jump ("2G") even when that line is also the document\'s last line', () => {
+				const editor = makeStatefulEditor(['plain', '| a |'], { line: 0, ch: 0 })
+				plugin.isPositionInTable = vi.fn().mockReturnValue(true)
+				const result = plugin.jumpToDocumentLine(editor, true, 1) // "2G", not bare G
+				expect(editor._buf).toEqual(['plain', '| a |']) // unchanged — no line appended
+				expect(result).toEqual({ line: 1, ch: 2 })
+			})
+
+			it('does not apply to bare gg (asymmetric — gg never prepends a line, matching tx/tX\'s own precedent)', () => {
+				const editor = makeStatefulEditor(['| a |', 'plain'], { line: 1, ch: 0 })
+				plugin.isPositionInTable = vi.fn().mockReturnValue(true)
+				const result = plugin.jumpToDocumentLine(editor, false, null) // bare gg
+				expect(editor._buf).toEqual(['| a |', 'plain']) // unchanged
+				expect(result).toEqual({ line: 0, ch: 2 }) // landed inside the table, as before
+			})
+		})
+
 		it('"2G" and "2gg" land identically when the target is a delimiter row', () => {
 			// Regression: enterTableAtLine's own forward param controls which
 			// way a delimiter-row landing redirects (next row vs previous) —
@@ -869,6 +908,19 @@ describe('VimSupportHost bridge (main.ts)', () => {
 			const result = plugin.refineDisplayLineColumn(editor, 999)
 			expect(result).toEqual({ line: 3, ch: 2 })
 			expect(plugin.setCursorViaCm).not.toHaveBeenCalled()
+		})
+	})
+
+	describe('executeObsidianCommand', () => {
+		it('delegates to app.commands.executeCommandById', () => {
+			plugin.app = { commands: { executeCommandById: vi.fn().mockReturnValue(true) } }
+			expect(plugin.executeObsidianCommand('editor:table-row-after')).toBe(true)
+			expect(plugin.app.commands.executeCommandById).toHaveBeenCalledWith('editor:table-row-after')
+		})
+
+		it('returns false when there is no commands API', () => {
+			plugin.app = {}
+			expect(plugin.executeObsidianCommand('editor:table-row-after')).toBe(false)
 		})
 	})
 })

@@ -16,6 +16,8 @@ const makeSettings = (overrides: Partial<VimSupportHost['settings']> = {}): VimS
 	vimGgSupport: false,
 	vimDisplayLineSupport: false,
 	vimEolSupport: false,
+	vimTableStructureSupport: false, vimTableNavigationSupport: false,
+	vimLeaderUseBackslash: false,
 	smartJoin: false,
 	smartHomeStandard: false,
 	...overrides,
@@ -25,23 +27,32 @@ const makeHost = (settings: VimSupportHost['settings'] = makeSettings()): VimSup
 	settings,
 	saveSettings: vi.fn().mockResolvedValue(undefined),
 	crossTableRowForCell: vi.fn().mockReturnValue(null),
+	getAdjacentRowLine: vi.fn().mockReturnValue(0),
+	setCursorAcrossTableBoundary: vi.fn(),
+	appendBlankLineAndLand: vi.fn(),
+	enterTableRowSmartHome: vi.fn().mockReturnValue(null),
 	crossTableRowForWord: vi.fn().mockReturnValue(null),
 	jumpToDocumentLine: vi.fn().mockReturnValue(null),
 	isLinePartOfTable: vi.fn().mockReturnValue(false),
 	enterTableAtLine: vi.fn().mockReturnValue(null),
 	refineDisplayLineColumn: vi.fn().mockReturnValue(null),
 	getBeginningOfLinePosition: vi.fn().mockReturnValue(0),
+	executeObsidianCommand: vi.fn().mockReturnValue(true),
 })
 
 describe('VimSupport per-feature toggles', () => {
 	let defineMotion: ReturnType<typeof vi.fn>
 	let defineAction: ReturnType<typeof vi.fn>
+	let mapCommand: ReturnType<typeof vi.fn>
+	let unmap: ReturnType<typeof vi.fn>
 
 	beforeEach(() => {
 		installVimWindow()
 		defineMotion = vi.fn()
 		defineAction = vi.fn()
-		;(globalThis as any).window.CodeMirrorAdapter = { Vim: { defineMotion, defineAction, exitVisualMode: vi.fn() } }
+		mapCommand = vi.fn()
+		unmap = vi.fn().mockReturnValue(true)
+		;(globalThis as any).window.CodeMirrorAdapter = { Vim: { defineMotion, defineAction, mapCommand, unmap, exitVisualMode: vi.fn() } }
 	})
 
 	afterEach(() => {

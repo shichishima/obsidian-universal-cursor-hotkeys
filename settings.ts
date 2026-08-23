@@ -4,11 +4,65 @@ import type universalCursorHotkeysPlugin from './main';
 const PLUGIN_ID = 'universal-cursor-hotkeys';
 
 export interface CommandDef {
-	block: 'cursor' | 'editing' | 'other';
+	block: 'cursor' | 'editing' | 'other' | 'tableStructure' | 'tableNav';
 	id: string;
 	name: string;
 	recommended: Hotkey | null;
+	// Explicit full command ID override — for commands this plugin doesn't
+	// own (e.g. Obsidian's own native editor:table-* commands, listed in the
+	// tableStructure block). When absent, the full ID is derived as
+	// `${PLUGIN_ID}:${id}` as before (every other block's own defs).
+	fullId?: string;
 }
+
+// The one place that knows how to turn a CommandDef into its real command
+// ID — see CommandDef's own fullId doc comment for why this isn't always
+// just a PLUGIN_ID prefix.
+const getFullId = (def: CommandDef): string => def.fullId ?? `${PLUGIN_ID}:${def.id}`;
+
+// The tableStructure block's own "Open in Hotkeys settings" link (in place of
+// "Apply recommended" — this plugin doesn't own these commands, so there's
+// nothing of its own to apply) searches Obsidian's real Hotkeys panel for
+// its own native table-command group's own name prefix, locale-aware.
+// Live-verified (user testing) for ja/en/en-gb. The remaining entries are
+// each that locale's own translation of Obsidian's "Table:" command-group
+// prefix, keyword + ':' — except fr, which uses French typographic spacing
+// (keyword + ' :'). Any locale not listed here gets no link at all (see
+// getTableCommandSearchTerm) rather than a guessed/silently-wrong term.
+const TABLE_SEARCH_TERM_BY_LOCALE: Record<string, string> = {
+	cs: 'Tabulka:',
+	de: 'Tabelle:',
+	en: 'table:',
+	es: 'Tabla:',
+	fr: 'Tableau :',
+	id: 'Tabel:',
+	it: 'Tabella:',
+	ja: '表:',
+	ko: '표:',
+	nl: 'Tabel:',
+	pl: 'Tabela:',
+	pt: 'Tabela:',
+	ro: 'Tabel:',
+	ru: 'Таблица:',
+	tr: 'Tablo:',
+	uk: 'Таблиця:',
+	vi: 'Bảng:',
+	zh: '表格:',
+};
+
+// Obsidian sets moment's own locale to match its own UI language setting —
+// an established (if undocumented) technique for reading it, same as many
+// community plugins use for their own i18n. Live-verified (user testing).
+const getObsidianLocale = (): string =>
+	(window as unknown as { moment?: { locale(): string } }).moment?.locale() ?? 'en';
+
+// Returns null for any locale not in TABLE_SEARCH_TERM_BY_LOCALE — the call
+// site skips rendering the link entirely rather than falling back to a term
+// that may not actually match that locale's own Hotkeys panel text.
+const getTableCommandSearchTerm = (): string | null => {
+	const base = getObsidianLocale().split('-')[0];
+	return TABLE_SEARCH_TERM_BY_LOCALE[base] ?? null;
+};
 
 export type RowAction = 'override' | 'set' | 'done' | 'none';
 export interface HotkeyRow { name: string; key: string; current: string; extraCount: number; status: string; conflictIds: string[]; action: RowAction }
@@ -100,7 +154,7 @@ export const computeRow = (
 	reverseMap: Map<string, string[]>,
 	cmds: Record<string, { name: string }> | undefined,
 ): HotkeyRow => {
-	const fullId = `${PLUGIN_ID}:${def.id}`;
+	const fullId = getFullId(def);
 	const allCurrentHotkeys = effectiveHotkeys(fullId);
 	const exceptionKey = SPECIAL_KEY_EXCEPTION[def.id];
 	const currentHotkeys = exceptionKey
@@ -202,6 +256,42 @@ const COMMAND_DEFS: readonly CommandDef[] = [
 	{ block: 'editing', id: 'select-all',           name: 'Select all',          recommended: null },
 	{ block: 'other',   id: 'recenter-top-bottom',  name: 'Recenter-top-bottom', recommended: ctrl('L') },
 	{ block: 'other',   id: 'recenter',             name: 'Recenter',            recommended: null },
+
+	// Obsidian's own native table commands — not owned by this plugin (no
+	// recommended hotkey is offered for any of these; see
+	// renderCollapsibleBlock's own titleAction for why: existing assignments
+	// are just made visible here, matching this same 16-command set
+	// candidate A's own Vim leader-key commands already wrap). Listed before
+	// tableNav below: basic table-editing operations first, the more
+	// auxiliary cell-navigation convenience commands after.
+	{ block: 'tableStructure', id: 'table-row-before',        fullId: 'editor:table-row-before',        name: 'Insert row above',    recommended: null },
+	{ block: 'tableStructure', id: 'table-row-after',         fullId: 'editor:table-row-after',         name: 'Insert row below',    recommended: null },
+	{ block: 'tableStructure', id: 'table-row-up',            fullId: 'editor:table-row-up',             name: 'Move row up',         recommended: null },
+	{ block: 'tableStructure', id: 'table-row-down',          fullId: 'editor:table-row-down',           name: 'Move row down',       recommended: null },
+	{ block: 'tableStructure', id: 'table-row-copy',          fullId: 'editor:table-row-copy',           name: 'Duplicate row',       recommended: null },
+	{ block: 'tableStructure', id: 'table-row-delete',        fullId: 'editor:table-row-delete',         name: 'Delete row',          recommended: null },
+	{ block: 'tableStructure', id: 'table-col-before',        fullId: 'editor:table-col-before',         name: 'Insert column left',  recommended: null },
+	{ block: 'tableStructure', id: 'table-col-after',         fullId: 'editor:table-col-after',          name: 'Insert column right', recommended: null },
+	{ block: 'tableStructure', id: 'table-col-left',          fullId: 'editor:table-col-left',           name: 'Move column left',    recommended: null },
+	{ block: 'tableStructure', id: 'table-col-right',         fullId: 'editor:table-col-right',          name: 'Move column right',   recommended: null },
+	{ block: 'tableStructure', id: 'table-col-align-left',    fullId: 'editor:table-col-align-left',     name: 'Align column left',   recommended: null },
+	{ block: 'tableStructure', id: 'table-col-align-center',  fullId: 'editor:table-col-align-center',   name: 'Align column center', recommended: null },
+	{ block: 'tableStructure', id: 'table-col-align-right',   fullId: 'editor:table-col-align-right',    name: 'Align column right',  recommended: null },
+	{ block: 'tableStructure', id: 'table-col-copy',          fullId: 'editor:table-col-copy',           name: 'Duplicate column',    recommended: null },
+	{ block: 'tableStructure', id: 'table-col-delete',        fullId: 'editor:table-col-delete',         name: 'Delete column',       recommended: null },
+	{ block: 'tableStructure', id: 'insert-table',            fullId: 'editor:insert-table',             name: 'Insert table',        recommended: null },
+
+	// Pure cursor movement — no-op outside a table cell (see
+	// table-navigation.ts). recommended: null throughout is a deliberate
+	// choice not to push a default, not "not owned" like tableStructure
+	// above — no Hotkeys-search link needed for this block (see
+	// renderCollapsibleBlock's own titleAction parameter).
+	{ block: 'tableNav', id: 'table-cell-left',      name: 'Move to cell left',   recommended: null },
+	{ block: 'tableNav', id: 'table-cell-right',     name: 'Move to cell right',  recommended: null },
+	{ block: 'tableNav', id: 'table-cell-down',      name: 'Move to cell below',  recommended: null },
+	{ block: 'tableNav', id: 'table-cell-up',        name: 'Move to cell above',  recommended: null },
+	{ block: 'tableNav', id: 'table-exit-down',      name: 'Exit table below',    recommended: null },
+	{ block: 'tableNav', id: 'table-exit-up',        name: 'Exit table above',    recommended: null },
 ];
 
 export interface DisplacedCommand {
@@ -230,6 +320,10 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 	private set individualVisible(v: boolean) { this.plugin.settings.qsaIndividualVisible = v; void this.plugin.saveSettings(); }
 	private get sectionVisible() { return this.plugin.settings.qsaSectionVisible; }
 	private set sectionVisible(v: boolean) { this.plugin.settings.qsaSectionVisible = v; void this.plugin.saveSettings(); }
+	private get tableStructureVisible() { return this.plugin.settings.qsaTableStructureVisible; }
+	private set tableStructureVisible(v: boolean) { this.plugin.settings.qsaTableStructureVisible = v; void this.plugin.saveSettings(); }
+	private get tableNavVisible() { return this.plugin.settings.qsaTableNavVisible; }
+	private set tableNavVisible(v: boolean) { this.plugin.settings.qsaTableNavVisible = v; void this.plugin.saveSettings(); }
 	private get vimSectionVisible() { return this.plugin.settings.vimSectionVisible; }
 	private set vimSectionVisible(v: boolean) { this.plugin.settings.vimSectionVisible = v; void this.plugin.saveSettings(); }
 
@@ -245,6 +339,11 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 
 	display(): void {
 		const { containerEl } = this;
+		// containerEl is itself Obsidian's own scrollable .vertical-tab-content
+		// element — a full re-render (containerEl.empty() + rebuild, triggered
+		// by many toggles' own onChange) otherwise resets scroll position to 0
+		// with no restoration, causing a visible jump on every such toggle.
+		const scrollTop = containerEl.scrollTop;
 		containerEl.empty();
 
 		// Must run before renderHotkeyManager: it may flip sectionVisible
@@ -272,26 +371,11 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		let advancedToggle: ToggleComponent;
 		let smartJoinEl: HTMLElement;
 		let smartJoinToggle: ToggleComponent;
-		let vimCaretEl: HTMLElement;
-		let vimCaretToggle: ToggleComponent;
-		let vimJoinEl: HTMLElement;
-		let vimJoinToggle: ToggleComponent;
-		let applyAllBtn: ButtonComponent;
-		// Apply all's own disabled state depends on smartHomeStandard/smartJoin
-		// (via vimCaretSupport/vimJoinSupport's eligibility) in addition to the
-		// Vim toggles it directly sets — recomputed here too, since
-		// setStandardDisabled/setSmartJoinDisabled (unlike a toggle's own
-		// onChange elsewhere) deliberately skip a full this.display() re-render.
-		const updateApplyAllDisabled = () => {
-			applyAllBtn?.setDisabled(this.eligibleVimSettings().every(v => v));
-		};
 		const setStandardDisabled = (disabled: boolean) => {
 			advancedEl.style.opacity       = disabled ? '0.4' : '';
 			advancedEl.style.pointerEvents = disabled ? 'none' : '';
 			smartJoinEl.style.opacity       = disabled ? '0.4' : '';
 			smartJoinEl.style.pointerEvents = disabled ? 'none' : '';
-			vimCaretEl.style.opacity       = disabled ? '0.4' : '';
-			vimCaretEl.style.pointerEvents = disabled ? 'none' : '';
 			if (disabled && this.plugin.settings.smartHomeAdvanced) {
 				this.plugin.settings.smartHomeAdvanced = false;
 				advancedToggle.setValue(false);
@@ -302,23 +386,6 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				smartJoinToggle.setValue(false);
 				void this.plugin.saveSettings();
 			}
-			if (disabled && this.plugin.settings.vimCaretSupport) {
-				this.plugin.vimSupport.setCaretEnabled(false);
-				vimCaretToggle.setValue(false);
-			}
-			updateApplyAllDisabled();
-		};
-		// ^ only does anything beyond vim's own native `^` when Smart home
-		// (standard) is on; J only does anything beyond vim's own native join
-		// when Smart join is on — mirrors setStandardDisabled just above.
-		const setSmartJoinDisabled = (disabled: boolean) => {
-			vimJoinEl.style.opacity       = disabled ? '0.4' : '';
-			vimJoinEl.style.pointerEvents = disabled ? 'none' : '';
-			if (disabled && this.plugin.settings.vimJoinSupport) {
-				this.plugin.vimSupport.setJoinEnabled(false);
-				vimJoinToggle.setValue(false);
-			}
-			updateApplyAllDisabled();
 		};
 
 		new Setting(containerEl)
@@ -360,7 +427,6 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				toggle.setValue(this.plugin.settings.smartJoin)
 					.onChange(async (value) => {
 						this.plugin.settings.smartJoin = value;
-						setSmartJoinDisabled(!value);
 						await this.plugin.saveSettings();
 					});
 			})
@@ -378,14 +444,22 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 
-		this.renderVimSection(containerEl, {
-			vimCaretEl: e => { vimCaretEl = e; }, vimCaretToggle: t => { vimCaretToggle = t; },
-			vimJoinEl: e => { vimJoinEl = e; }, vimJoinToggle: t => { vimJoinToggle = t; },
-			applyAllBtn: b => { applyAllBtn = b; },
-		});
+		new Setting(containerEl)
+			.setName('Double-click word select')
+			.then(setting => this.setHtmlDesc(setting, '' +
+				'<b>ON:</b> Selects just the CJK word at the click position, not the whole unbroken run — dragging extends a word at a time.<br>' +
+				'<b>OFF:</b> Uses Obsidian\'s native double-click selection.'))
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.cjkDoubleClickWordSelect)
+				.onChange(async (value) => {
+					this.plugin.settings.cjkDoubleClickWordSelect = value;
+					await this.plugin.saveSettings();
+				}));
+
+		this.renderVimSection(containerEl);
 
 		setStandardDisabled(!this.plugin.settings.smartHomeStandard);
-		setSmartJoinDisabled(!this.plugin.settings.smartJoin);
+		containerEl.scrollTop = scrollTop;
 	}
 
 	// One-time nudge: if the user opens settings with Obsidian's own "Vim key
@@ -417,25 +491,16 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		nameEl.appendText(label);
 	}
 
-	// Which Vim toggles "Apply all" can currently turn on — `^`/`I` and `J`
-	// are only eligible while their own prerequisite (Smart home (standard) /
-	// Smart join, both outside the Vim section) is on. Shared between the
-	// button's own click handler/initial disabled state (renderVimSection)
-	// and updateApplyAllDisabled (display()'s setStandardDisabled/
-	// setSmartJoinDisabled, which don't trigger a full re-render).
+	// Every Vim toggle "Apply all" sets — used to compute its own disabled
+	// state (already fully applied?). Every setting here triggers a full
+	// this.display() re-render on its own change, which recomputes this
+	// fresh, so no separate update path is needed beyond that.
 	private eligibleVimSettings(): boolean[] {
 		const s = this.plugin.settings;
-		const eligible = [s.vimHlSupport, s.vimJkSupport, s.vimWordSupport, s.vimGgSupport, s.vimDisplayLineSupport, s.vimEolSupport];
-		if (s.smartHomeStandard) eligible.push(s.vimCaretSupport);
-		if (s.smartJoin) eligible.push(s.vimJoinSupport);
-		return eligible;
+		return [s.vimHlSupport, s.vimJkSupport, s.vimWordSupport, s.vimGgSupport, s.vimDisplayLineSupport, s.vimEolSupport, s.vimTableStructureSupport, s.vimTableNavigationSupport, s.vimCaretSupport, s.vimJoinSupport];
 	}
 
-	private renderVimSection(containerEl: HTMLElement, refs: {
-		vimCaretEl: (el: HTMLElement) => void; vimCaretToggle: (t: ToggleComponent) => void;
-		vimJoinEl: (el: HTMLElement) => void; vimJoinToggle: (t: ToggleComponent) => void;
-		applyAllBtn: (b: ButtonComponent) => void;
-	}): void {
+	private renderVimSection(containerEl: HTMLElement): void {
 		this.maybeAutoExpandVimSection();
 
 		const vimSectionEls: HTMLElement[] = [];
@@ -446,7 +511,8 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				setting.nameEl.createSpan({ text: 'experimental', cls: 'uch-vim-badge' });
 				this.setHtmlDesc(setting,
 					'Fixes native gaps in Obsidian\'s built-in Vim mode inside Live Preview table cells, ' +
-					'and extends a few motions with this plugin\'s Smart home / Smart join. ' +
+					'extends a few motions with this plugin\'s Smart home / Smart join, ' +
+					'and adds leader-key commands for table structure editing and cell navigation. ' +
 					'If you\'re using Vim mode, you likely won\'t need the Quick setup assistant above — ' +
 					'that manages this plugin\'s Emacs-style Ctrl+P/N/B/F/A/E hotkeys instead.');
 			})
@@ -474,20 +540,32 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				}));
 		restartBanner.settingEl.toggleClass('uch-hidden', !this.plugin.vimSupport.needsRestart);
 
-		// "Apply all" — turns on every item below that can currently be turned
-		// on. `^`/`I` and `J` are skipped when their own prerequisite (Smart
-		// home (standard) / Smart join, both outside this section) is off,
-		// rather than force-enabling a toggle whose row stays disabled/grey
-		// either way — matches this same button's own "nothing left to apply"
-		// disable check below. `$` has no such gap: its own prerequisite (j/k
-		// or gj/gk) is enabled by this very same click.
+		const leaderChoice = new Setting(containerEl)
+			.setClass('uch-vim-item')
+			.setName('Leader key')
+			.then(setting => this.setHtmlDesc(setting, '' +
+				'<b>ON:</b> Table structure/navigation commands below use <span class="uch-kbd">\\</span> as the leader key.<br>' +
+				'<b>OFF:</b> Uses <span class="uch-kbd">Space</span> as the leader key (default).<br>' +
+				'<i>Only affects table structure/navigation below — has no effect on its own.</i>'))
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.vimLeaderUseBackslash)
+				.onChange((value) => {
+					this.plugin.vimSupport.setLeaderUseBackslash(value);
+					this.display();
+				}));
+		vimSectionEls.push(leaderChoice.settingEl);
+
+		// "Apply all" — turns on every item below unconditionally. `^`/`I` and
+		// `J` are included regardless of their own prerequisite (Smart home
+		// (standard) / Smart join, both outside this section) — both self-gate
+		// live at call time (falling back to vim's own native behavior when
+		// their prerequisite is off), so there's no correctness reason to skip
+		// them, only a cosmetic one this button doesn't need to care about.
 		const applyAll = new Setting(containerEl)
 			.setClass('uch-vim-item')
 			.setName('Apply all')
-			.then(setting => this.setHtmlDesc(setting,
-				'Turns on everything below that can currently be turned on.'))
+			.then(setting => this.setHtmlDesc(setting, 'Turns on everything below.'))
 			.addButton(btn => {
-				refs.applyAllBtn(btn);
 				btn.setButtonText('Apply all');
 				btn.setCta();
 				btn.setDisabled(this.eligibleVimSettings().every(v => v));
@@ -498,8 +576,10 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					this.plugin.vimSupport.setGgEnabled(true);
 					this.plugin.vimSupport.setDisplayLinesEnabled(true);
 					this.plugin.vimSupport.setEolEnabled(true);
-					if (this.plugin.settings.smartHomeStandard) this.plugin.vimSupport.setCaretEnabled(true);
-					if (this.plugin.settings.smartJoin) this.plugin.vimSupport.setJoinEnabled(true);
+					this.plugin.vimSupport.setTableStructureEnabled(true);
+					this.plugin.vimSupport.setTableNavigationEnabled(true);
+					this.plugin.vimSupport.setCaretEnabled(true);
+					this.plugin.vimSupport.setJoinEnabled(true);
 					this.display();
 				});
 			});
@@ -611,16 +691,13 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					'<b>OFF:</b> Vim\'s own native <span class="uch-kbd">^</span> <span class="uch-kbd">I</span>, unchanged.<br>' +
 					'<i>Requires <b>Smart home (standard)</b> to be enabled — also follows whatever <b>Smart home (advanced)</b> is set to.</i>');
 			})
-			.addToggle(toggle => {
-				refs.vimCaretToggle(toggle);
-				toggle.setValue(this.plugin.settings.vimCaretSupport)
-					.onChange((value) => {
-						this.plugin.vimSupport.setCaretEnabled(value);
-						this.display();
-					});
-			});
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.vimCaretSupport)
+				.onChange((value) => {
+					this.plugin.vimSupport.setCaretEnabled(value);
+					this.display();
+				}));
 		vimSectionEls.push(caret.settingEl);
-		refs.vimCaretEl(caret.settingEl);
 
 		const join = new Setting(containerEl)
 			.setClass('uch-vim-item')
@@ -631,28 +708,70 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					'<b>OFF:</b> Vim\'s own native join, unchanged.<br>' +
 					'<i>Requires <b>Smart join</b> to be enabled.</i>');
 			})
-			.addToggle(toggle => {
-				refs.vimJoinToggle(toggle);
-				toggle.setValue(this.plugin.settings.vimJoinSupport)
-					.onChange((value) => {
-						this.plugin.vimSupport.setJoinEnabled(value);
-						this.display();
-					});
-			});
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.vimJoinSupport)
+				.onChange((value) => {
+					this.plugin.vimSupport.setJoinEnabled(value);
+					this.display();
+				}));
 		vimSectionEls.push(join.settingEl);
-		refs.vimJoinEl(join.settingEl);
+
+		const tableStructure = new Setting(containerEl)
+			.setClass('uch-vim-item')
+			.then(setting => {
+				const leader = this.plugin.settings.vimLeaderUseBackslash ? '\\' : 'Space';
+				this.setKeyChipName(setting, [leader, 't'], 'Table structure (16 commands)');
+				const kbd = (s: string) => '<span class="uch-kbd">' + leader + '</span> <span class="uch-kbd">' + s + '</span>';
+				const kbdMulti = (...keys: string[]) => '<span class="uch-kbd">' + leader + '</span> ' + keys.map(k => '<span class="uch-kbd">' + k + '</span>').join(' / ');
+				this.setHtmlDesc(setting, '' +
+					'<b>ON:</b> Wraps the commands below. While this is on, a bare press of the leader key no longer behaves as vim\'s own native binding (Space normally moves right).' +
+					'<table class="uch-vim-cmd-table">' +
+					'<tr><th></th><th>Row</th><th>Column</th></tr>' +
+					'<tr><td>Insert</td><td>' + kbdMulti('t o', 't O') + '<br>' + kbdMulti('t i J', 't i K') + '<br>(below/above)</td><td>' + kbdMulti('t i H', 't i L') + '<br>(left/right)</td></tr>' +
+					'<tr><td>Move</td><td>' + kbdMulti('t K', 't J') + '<br>(up/down)</td><td>' + kbdMulti('t H', 't L') + '<br>(left/right)</td></tr>' +
+					'<tr><td>Delete</td><td>' + kbd('t d d') + '</td><td>' + kbd('t d c') + '</td></tr>' +
+					'<tr><td>Duplicate</td><td>' + kbd('t y y p') + '</td><td>' + kbd('t y c') + '</td></tr>' +
+					'<tr><td>Align</td><td></td><td>' + kbdMulti('t a l', 't a c', 't a r') + '<br>(left/center/right)</td></tr>' +
+					'<tr><td>Insert table</td><td colspan="2">' + kbd('t m') + '</td></tr>' +
+					'</table>' +
+					'<b>OFF:</b> No leader-key table structure commands are bound.');
+			})
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.vimTableStructureSupport)
+				.onChange((value) => {
+					this.plugin.vimSupport.setTableStructureEnabled(value);
+					this.display();
+				}));
+		vimSectionEls.push(tableStructure.settingEl);
+
+		const tableNavigation = new Setting(containerEl)
+			.setClass('uch-vim-item')
+			.then(setting => {
+				const leader = this.plugin.settings.vimLeaderUseBackslash ? '\\' : 'Space';
+				this.setKeyChipName(setting, [leader, 't'], 'Table navigation (6 commands)');
+				const kbdMulti = (...keys: string[]) => '<span class="uch-kbd">' + leader + '</span> ' + keys.map(k => '<span class="uch-kbd">' + k + '</span>').join(' / ');
+				this.setHtmlDesc(setting, '' +
+					'<b>ON:</b> Adds the commands below. While this is on, a bare press of the leader key no longer behaves as vim\'s own native binding (Space normally moves right).' +
+					'<table class="uch-vim-cmd-table">' +
+					'<tr><th></th><th>Row</th><th>Column</th></tr>' +
+					'<tr><td>Move to cell</td><td>' + kbdMulti('t j', 't k') + '<br>(below/above)</td><td>' + kbdMulti('t h', 't l') + '<br>(left/right)</td></tr>' +
+					'<tr><td>Exit table</td><td colspan="2">' + kbdMulti('t x', 't X') + '<br>(below/above)</td></tr>' +
+					'</table>' +
+					'<b>OFF:</b> No leader-key table navigation commands are bound.');
+			})
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.vimTableNavigationSupport)
+				.onChange((value) => {
+					this.plugin.vimSupport.setTableNavigationEnabled(value);
+					this.display();
+				}));
+		vimSectionEls.push(tableNavigation.settingEl);
 
 		const limitationsEl = containerEl.createDiv({ cls: 'uch-vim-limitations' });
 		limitationsEl.createDiv({ text: 'Limitations', cls: 'uch-vim-limitations-title' });
 		const list = limitationsEl.createEl('ul');
 		list.appendChild(sanitizeHTMLToDom('<li>For Obsidian\'s built-in Vim mode specifically — not intended for use alongside a plugin that replaces or manages Vim\'s table-cell behavior on its own.</li>'));
-		list.createEl('li', { text: 'Off by default — if you\'ve already customized one of these keys yourself, turning its toggle on will override your binding.' });
-		list.appendChild(sanitizeHTMLToDom('<li>A CJK (e.g. romaji-based Japanese) input source can occasionally corrupt Vim\'s own key handling (e.g. a single g/j/k misread) — a known upstream codemirror-vim issue, not caused by this plugin. Switching to an ASCII/alphanumeric input source resolves it.</li>'));
-		const displayLineLi = list.createEl('li');
-		displayLineLi.createSpan({ text: 'gj', cls: 'uch-kbd' });
-		displayLineLi.appendText(' ');
-		displayLineLi.createSpan({ text: 'gk', cls: 'uch-kbd' });
-		displayLineLi.appendText(': a count is not preserved across a row or table crossing — it stops consuming the count after the first crossing.');
+		list.createEl('li', { text: 'If you\'ve already customized one of these keys yourself, having its toggle on will override your binding.' });
 		vimSectionEls.push(limitationsEl);
 
 		for (const el of vimSectionEls) el.toggleClass('uch-hidden', !this.vimSectionVisible);
@@ -700,12 +819,12 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		}
 	}
 
-	private renderDataRow(tbody: HTMLElement, def: CommandDef, row: HotkeyRow, ctx: RenderCtx): void {
+	private renderDataRow(tbody: HTMLElement, def: CommandDef, row: HotkeyRow, ctx: RenderCtx): HTMLTableRowElement {
 		const tr = tbody.createEl('tr');
 		tr.addClass('uch-row-thin');
 
 		const tdName = tr.createEl('td', { cls: 'uch-cell-name' });
-		const fullId = `${PLUGIN_ID}:${def.id}`;
+		const fullId = getFullId(def);
 		const openHotkeysPanel = () => this.openHotkeysPanelFor(ctx.cmds?.[fullId]?.name ?? def.name);
 		const nameLink = tdName.createEl('a', { text: row.name, cls: 'uch-cmd-link' });
 		nameLink.addEventListener('click', (e) => { e.preventDefault(); openHotkeysPanel(); });
@@ -772,9 +891,11 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		} else {
 			tdAction.createEl('button', { cls: 'uch-set-btn-spacer' });
 		}
+
+		return tr;
 	}
 
-	private renderBlock(table: HTMLElement, title: string, entries: Array<{def: CommandDef; row: HotkeyRow}>, ctx: RenderCtx): void {
+	private renderBlock(table: HTMLElement, title: string, entries: Array<{def: CommandDef; row: HotkeyRow}>, ctx: RenderCtx): HTMLTableSectionElement {
 		const tbody = table.createEl('tbody');
 
 		// Title row
@@ -823,6 +944,89 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		}
 
 		const spacerTd = tbody.createEl('tr').createEl('td', { cls: 'uch-block-spacer' });
+		spacerTd.colSpan = 5;
+		return tbody;
+	}
+
+	// Collapsible variant of renderBlock, for blocks whose entries this
+	// plugin doesn't own/control the default for — reuses renderDataRow
+	// (identical per-row shape) but not renderBlock's own title row:
+	// "Apply recommended" would always be disabled when every entry has
+	// recommended: null, so callers pass their own optional titleAction
+	// (e.g. Table structure's link into Obsidian's Hotkeys panel) instead,
+	// rendered as its own row (indented to match the Command column) below
+	// the title row, inside contentTbody — so it collapses along with the
+	// rest of the block, not stuck in the always-visible header. Table
+	// navigation passes none at all, per explicit design decision — its own
+	// per-row "Open →" buttons already suffice. Split across *two* <tbody>s
+	// sharing the same <table> (HTML tables support multiple) rather than
+	// one, unlike the 3 core blocks above: the toggle itself must stay
+	// visible even while the content underneath it is collapsed, so it
+	// can't live inside the same tbody being hidden. Toggled via a
+	// ▶/▼-prefixed title (mirrors the existing "▶ Individual" column-header
+	// convention below), not a Show/Hide button — those are reserved for
+	// top-level blocks (the whole QSA section, the whole Vim support
+	// section), not these nested sub-blocks.
+	private renderCollapsibleBlock(
+		table: HTMLElement,
+		title: string,
+		entries: Array<{def: CommandDef; row: HotkeyRow}>,
+		ctx: RenderCtx,
+		visible: { get(): boolean; set(v: boolean): void },
+		titleAction?: (linkRow: HTMLElement) => void,
+		// Command ids after which a thicker group-separator border is drawn
+		// (same uch-row-thick weight as the row under the column headers) —
+		// e.g. Table structure's own row-ops/column-ops/insert-table group
+		// boundaries, matching Obsidian's native right-click table menu's
+		// own grouping.
+		thickBorderAfterIds?: ReadonlySet<string>,
+	): void {
+		const headerTbody = table.createEl('tbody');
+		const titleRow = headerTbody.createEl('tr');
+		const titleCell = titleRow.createEl('td');
+		titleCell.colSpan = 5;
+		titleCell.addClass('uch-title-cell');
+		const toggleLabel = titleCell.createSpan({
+			text: `${visible.get() ? '▼' : '▶'} ${title}`,
+			cls: 'uch-title-text uch-block-toggle',
+		});
+
+		const contentTbody = table.createEl('tbody');
+		contentTbody.toggleClass('uch-hidden', !visible.get());
+		toggleLabel.addEventListener('click', () => {
+			visible.set(!visible.get());
+			toggleLabel.setText(`${visible.get() ? '▼' : '▶'} ${title}`);
+			contentTbody.toggleClass('uch-hidden', !visible.get());
+		});
+
+		if (titleAction) {
+			const linkRow = contentTbody.createEl('tr').createEl('td', { cls: 'uch-block-link-row' });
+			linkRow.colSpan = 5;
+			titleAction(linkRow);
+		}
+
+		const headerRow = contentTbody.createEl('tr');
+		headerRow.addClass('uch-row-thick');
+		for (const [i, h] of (['Command', 'Recommended Hotkey', 'Current Hotkey', 'Status', '▶'] as const).entries()) {
+			const td = headerRow.createEl('td', { text: h });
+			if (i === 4) {
+				td.addClass('uch-col-header', 'uch-col-header-action');
+				td.title = 'Toggle individual controls';
+				td.textContent = '▶ Individual';
+				td.addEventListener('click', () => { this.individualVisible = !this.individualVisible; ctx.syncToggle(); });
+				ctx.allActionHeaders.push(td);
+			} else {
+				td.addClass('uch-col-header');
+				if (i === 0) td.addClass('uch-col-header-first');
+			}
+		}
+
+		for (const { def, row } of entries) {
+			const tr = this.renderDataRow(contentTbody, def, row, ctx);
+			if (thickBorderAfterIds?.has(def.id)) tr.addClass('uch-row-thick');
+		}
+
+		const spacerTd = contentTbody.createEl('tr').createEl('td', { cls: 'uch-block-spacer' });
 		spacerTd.colSpan = 5;
 	}
 
@@ -904,7 +1108,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		);
 
 		const applyEntry = (def: CommandDef, row: HotkeyRow) => {
-			const fullId = `${PLUGIN_ID}:${def.id}`;
+			const fullId = getFullId(def);
 			const recId  = hotkeyId(def.recommended!);
 			if (row.action === 'override') {
 				for (const conflictId of (reverseMap.get(recId) ?? []).filter(id => id !== fullId)) {
@@ -971,6 +1175,19 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		this.renderBlock(table, 'Cursor movement', makeEntries('cursor'), ctx);
 		this.renderBlock(table, 'Editing',         makeEntries('editing'), ctx);
 		this.renderBlock(table, 'Other hotkeys',   makeEntries('other'), ctx);
+		const tableSearchTerm = getTableCommandSearchTerm();
+		this.renderCollapsibleBlock(table, 'Table structure', makeEntries('tableStructure'), ctx,
+			{ get: () => this.tableStructureVisible, set: v => { this.tableStructureVisible = v; } },
+			tableSearchTerm == null ? undefined : linkRow => {
+				const searchLink = linkRow.createEl('a', { text: 'Open in hotkeys settings →', cls: 'uch-inline-link' });
+				searchLink.addEventListener('click', (e) => {
+					e.preventDefault();
+					this.openHotkeysPanelFor(tableSearchTerm);
+				});
+			},
+			new Set(['table-row-delete', 'table-col-delete']));
+		this.renderCollapsibleBlock(table, 'Table navigation', makeEntries('tableNav'), ctx,
+			{ get: () => this.tableNavVisible, set: v => { this.tableNavVisible = v; } });
 		syncToggle();
 
 		// Displaced commands table

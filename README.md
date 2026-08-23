@@ -14,7 +14,7 @@ Obsidian's Live Preview breaks cursor behavior inside Markdown tables. This plug
 
 ## Vim support (experimental)
 
-[Getting Started](#getting-started) | [Settings](#settings) | [Limitations](#limitations)
+[Getting Started](#getting-started) | [Command Reference](#command-reference) | [Settings](#settings) | [Limitations](#limitations) | [Behavior Options](#behavior-options)
 
 If you use Obsidian's built-in Vim mode, this plugin fixes a set of well-known Live Preview table gaps: `h`/`l`/`j`/`k`/`w`/`b`/`e`/`gg`/`G`/`gj`/`gk` now work correctly inside table cells, instead of miscounting characters, refusing to cross rows, or landing in the wrong place.
 
@@ -22,13 +22,58 @@ If you use Obsidian's built-in Vim mode, this plugin fixes a set of well-known L
 
 ### Getting Started
 
-[Settings](#settings) | [Limitations](#limitations)
+[Command Reference](#command-reference) | [Settings](#settings) | [Limitations](#limitations) | [Behavior Options](#behavior-options)
 
 Turn on Obsidian's built-in **Vim key bindings** (Settings → Editor). Then open **Settings → Universal Cursor Hotkeys → Vim support** and click **Apply all**.
 
+### Command Reference
+
+[Getting Started](#getting-started) | [Settings](#settings) | [Limitations](#limitations) | [Behavior Options](#behavior-options)
+
+For what each toggle switches on/off, see [Settings](#settings) below. This section covers what each key actually does.
+
+#### Core motions
+
+Fixes to Vim's own native keys, scoped to Live Preview table cells — outside a table, these are all unchanged from vanilla Vim.
+
+| Keys | Function Summary |
+| :--: | ----------------- |
+| `h` `l` `x` | Moves/deletes by character correctly inside table cells — no multi-byte miscounting, no wrong jumps at line boundaries. |
+| `j` `k` | Crosses into the next/previous table row, preserving column position (vim's own goal column) throughout, instead of getting stuck at the cell boundary; also stops correctly at the right line within a multi-line (wrapped) cell. |
+| `w` `b` `e` (and `W`/`B`/`E`/`ge`/`gE`) | Crosses cell/row boundaries — reaching the end of the table exits into the surrounding text, matching vim's own document-wide word-motion behavior instead of getting stuck at the table's edge. CJK-aware (dictionary-based word segmentation), not just script-boundary-based like vanilla vim. |
+| `gg` `G` | Always reaches the note's actual first/last line, including exiting a table cell entirely; lands at the Smart-Home-aware content position if that line happens to be a table row. If the note ends with a table, `G` appends a blank line and lands there instead of landing inside the table (matching `tx`'s own EOF behavior below) — `gg` has no symmetric "prepend a line" case. |
+| `gj` `gk` | The visual-line (display-line) equivalent of `j`/`k` above — moves by visual line inside table cells instead of getting stuck, tracking the visual column across wrapped lines. |
+| `$` | Sticky end-of-line goal column when followed by `j`/`k` or `gj`/`gk`, matching real vim's own behavior, including across table row crossings. `D`/`C` share the same underlying motion. |
+| `^` `I` | Reuses Smart home's own content-start logic instead of vim's plain whitespace-only skip. How much it skips depends on the Behavior Options: **Smart home (standard)** skips list/checkbox markers, indentation, and blockquote markers; **Smart home (advanced)** additionally skips headings, footnotes, and callout type markers. |
+| `J` | Reuses Smart join's own line-joining logic instead of vim's plain whitespace-only join, still inserting vim's usual single space. Depends on the Behavior Options' **Smart join** setting: when it's on, strips the next line's Markdown syntax (blockquote/list markers, indentation) instead of just whitespace. |
+
+#### Table structure
+
+New leader-key commands (`<leader>` is `Space` by default, `\` optional) — not fixes to existing vim keys, but a thin wrapper around Obsidian's own built-in table commands. No-op outside a table cell, except `tm`. `tiJ`/`tiK` are aliases for `to`/`tO` — matching `tiH`/`tiL`'s own "`ti` + direction" column-insert convention.
+
+| | Row | Column |
+| --- | --- | --- |
+| Insert | `<leader>to` / `<leader>tO`<br>`<leader>tiJ` / `<leader>tiK`<br>(below/above) | `<leader>tiH` / `<leader>tiL`<br>(left/right) |
+| Move | `<leader>tK` / `<leader>tJ`<br>(up/down) | `<leader>tH` / `<leader>tL`<br>(left/right) |
+| Delete | `<leader>tdd` | `<leader>tdc` |
+| Duplicate | `<leader>tyyp` | `<leader>tyc` |
+| Align | — | `<leader>tal` / `<leader>tac` / `<leader>tar`<br>(left/center/right) |
+
+`<leader>tm` — insert a table; the only one here that also works outside an existing table.
+
+#### Table navigation
+
+New leader-key commands — pure cursor movement, original logic (not a wrapper around anything native). No-op outside a table cell.
+
+| Keys | Function Summary |
+| :--: | ----------------- |
+| `<leader>tj` / `<leader>tk` | Jump to the cell below / above (same column), landing at its own content start — distinct from vim's native `j`/`k`, which preserve column position instead of jumping to content start. |
+| `<leader>th` / `<leader>tl` | Jump to the cell to the left / right, landing at its own content start — no selection is created. Distinct from Obsidian's own built-in `Tab`/`Shift-Tab` cell navigation, which wraps to the next/previous row at a row's own left/right edge (and inserts a brand new row once it runs out of table) and selects the destination cell's entire content — `th`/`tl` always stay within the current row, no-op at its own left/right edge instead. |
+| `<leader>tx` / `<leader>tX` | Exit the current table below / above — distinct from `gg`/`G`, which jump to the whole document's edge, not just past this table. |
+
 ### Settings
 
-[Getting Started](#getting-started) | [Limitations](#limitations)
+[Getting Started](#getting-started) | [Command Reference](#command-reference) | [Limitations](#limitations) | [Behavior Options](#behavior-options)
 
 This plugin's settings screen has three parts:
 
@@ -36,37 +81,42 @@ This plugin's settings screen has three parts:
 - [**Behavior Options**](#behavior-options) — a few settings shared between Vim support and the Emacs-side commands.
 - **Vim support** — the toggles described below.
 
-Every item below is off by default.
+See [Command Reference](#command-reference) above for what each toggle actually does — this table covers the ON/OFF decision itself: default state and any prerequisite. Turning a toggle off restores vim's own native behavior for that key; Table structure/Table navigation instead simply stop binding any leader-key commands.
 
-**Apply all:** Turns on every item below that can currently be turned on in one click — skips `^`/`I` or `J` if their own Smart home (standard) / Smart join prerequisite is currently off.
+**Apply all:** Turns on every toggle marked ✓ in the `Apply all` column below, in one click.
 
-| Keys | Fixes |
-| :--: | ----- |
-| `h` `l` `x` | Multi-byte character miscounting and incorrect cell-jumping at line boundaries; `x` at cell boundaries. |
-| `j` `k` | Row-boundary crossing (matching Ctrl+N/P), preserving column position throughout. |
-| `w` `b` `e` (and `W`/`B`/`E`/`ge`/`gE`) | Cell/row-boundary crossing, matching vim's own document-wide word-motion behavior. |
-| `gg` `G` | Reaches the note's actual first/last line, including exiting a table cell entirely. Lands at the smart (Smart home) content position there too, not just in plain text. |
-| `gj` `gk` | Visual-line movement inside table cells (matching Ctrl+N/P), tracking the visual column across wrapped lines. |
-| `$` | Sticky end-of-line goal column when followed by j/k or gj/gk, matching real vim's own behavior. Requires `j`/`k` or `gj`/`gk` to be enabled. `D`/`C` share the same underlying vim.js motion, so this toggle affects them too, but their own behavior is identical either way. |
-| `^` `I` | Reuses Smart home to skip Markdown syntax, not just whitespace. Requires Smart home (standard). |
-| `J` | Reuses Smart join to strip blockquote/list markers and indentation on join. Requires Smart join. |
+| Toggle | Default | Apply all | Description |
+| ------ | :-----: | :-------: | ------------ |
+| Leader key | OFF<br>(`Space`) | — | **OFF:** `Space` (default).<br>**ON:** `\`. Only matters once Table structure or Table navigation below is on. |
+| `h` `l` `x` Character movement | ON | ✓ | — |
+| `j` `k` Line movement | ON | ✓ | — |
+| `w` `b` `e` Word motion | ON | ✓ | — |
+| `gg` `G` Document start/end | ON | ✓ | — |
+| `gj` `gk` Display-line movement | ON | ✓ | — |
+| `$` End of line (sticky column) | ON | ✓ | Requires `j` `k` Line movement or `gj` `gk` Display-line movement to be ON. |
+| `^` `I` First non-blank | ON | ✓ | Requires Smart home (standard) to be ON. |
+| `J` Join lines | ON | ✓ | Requires Smart join to be ON. |
+| `Space` `t` Table structure (16 commands) | OFF | ✓ | [Command reference →](#table-structure) |
+| `Space` `t` Table navigation (6 commands) | OFF | ✓ | [Command reference →](#table-navigation) |
 
 Turning an item off restarts Obsidian to fully restore vim's native behavior (a banner prompts this when needed).
 
 ### Limitations
 
-[Getting Started](#getting-started) | [Settings](#settings)
+[Getting Started](#getting-started) | [Command Reference](#command-reference) | [Settings](#settings) | [Behavior Options](#behavior-options)
 
 - **A CJK input source can corrupt Vim's own key handling — not caused by this plugin:** With a CJK (e.g. romaji-based Japanese) input source active, a single press of a Vim motion key (commonly `g`, `j`, or `k`) can occasionally be misread — e.g. a single `g` behaving like `gg`, or `j`/`k` moving two lines instead of one. This is a known, upstream issue in Obsidian's underlying `codemirror-vim` engine ([issue #178](https://github.com/replit/codemirror-vim/issues/178)) and reproduces identically in vanilla Obsidian Vim mode with this plugin fully disabled. **Workaround:** switch to an ASCII/alphanumeric input source before using Vim motions.
 - **`w`/`b`/`e` cross only one cell/row boundary per count:** A count like `5w` isn't fully precise once it needs to cross more than one cell or row boundary.
 - **`gj`/`gk` do not support count prefixes across a crossing:** A count like `5gj` correctly steps through multiple visual lines within a single cell, but once the count needs to cross a row boundary or enter/exit a table, it stops consuming the count after that first crossing.
 - **A count-prefixed `$` doesn't cross table rows:** `3$` stays within the current table cell rather than reaching the end of a line further down, the way real vim would outside a table.
+- **For Obsidian's built-in Vim mode specifically:** not intended for use alongside a plugin that replaces or manages Vim's table-cell behavior on its own.
+- **Turning on a toggle overrides your own binding:** if you've already customized one of these keys yourself, its toggle will override that customization while it's on.
 
 ---
 
 ## Emacs keybindings
 
-[Getting Started](#getting-started-1) | [Command Reference](#command-reference) | [Settings](#settings-1) | [Limitations](#limitations-1) | [Command Details](#command-details)
+[Getting Started](#getting-started-1) | [Command Reference](#command-reference-1) | [Settings](#settings-1) | [Limitations](#limitations-1) | [Command Details](#command-details) | [Behavior Options](#behavior-options)
 
 On macOS, cursor shortcuts — Ctrl+P (up), Ctrl+N (down), Ctrl+B/F (left/right), Ctrl+A/E (home/end), and Page Down/Up — work natively in Obsidian. This plugin restores them inside tables too, giving you seamless navigation just as physical cursor keys would — and Shift+Ctrl+P/N/B/F/A/E extend the selection the same way.
 
@@ -87,7 +137,7 @@ Kill & Yank (Ctrl+K / Ctrl+Y) and Kill Region (Ctrl+W) bring the full Emacs edit
 
 ### Getting Started
 
-[Command Reference](#command-reference) | [Settings](#settings-1) | [Limitations](#limitations-1) | [Command Details](#command-details)
+[Command Reference](#command-reference-1) | [Settings](#settings-1) | [Limitations](#limitations-1) | [Command Details](#command-details) | [Behavior Options](#behavior-options)
 
 No hotkeys are assigned by default.
 
@@ -97,7 +147,7 @@ No hotkeys are assigned by default.
 
 ### Command Reference
 
-[Getting Started](#getting-started-1) | [Settings](#settings-1) | [Limitations](#limitations-1) | [Command Details](#command-details)
+[Getting Started](#getting-started-1) | [Settings](#settings-1) | [Limitations](#limitations-1) | [Command Details](#command-details) | [Behavior Options](#behavior-options)
 
 For detailed behavior of each command, see [Command Details](#command-details) below. Grouped the same way as the Quick setup assistant in Settings.
 
@@ -111,42 +161,78 @@ For detailed behavior of each command, see [Command Details](#command-details) b
 | RIGHT | Ctrl + F           | Smart RIGHT: Move by character or jump to the next cell. | ✓ |
 | HOME  | Ctrl + A           | Smart HOME: Moves to the visual line edge, content start, or line start in steps; jumps to the previous cell inside a table. | ✓ |
 | END   | Ctrl + E           | Smart END: Moves to the visual line edge or line end in steps; jumps to the next cell inside a table. | ✓ |
-| TOP | (None)           | Jumps to the very start of the document. Table-aware. | — |
-| BOTTOM | (None)        | Jumps to the very end of the document. Table-aware. | — |
-| Page up | (None)        | Scroll up one page; the cursor stays at the same screen position. Bare PageUp can be set in the plugin's Settings. | ✓ |
-| Page down | (None)        | Scroll down one page; the cursor stays at the same screen position. Bare PageDown can be set in the plugin's Settings. | ✓ |
-| Word right | (None)        | Moves forward by word. Table-aware, CJK-aware. | ✓ |
-| Word left | (None)         | Moves backward by word. Table-aware, CJK-aware. | ✓ |
+| TOP | —          | Jumps to the very start of the document. Table-aware. |  |
+| BOTTOM | —        | Jumps to the very end of the document. Table-aware. |  |
+| Page up | —        | Scroll up one page; the cursor stays at the same screen position. Bare PageUp can be set in the plugin's Settings. | ✓ |
+| Page down | —        | Scroll down one page; the cursor stays at the same screen position. Bare PageDown can be set in the plugin's Settings. | ✓ |
+| Word right | —        | Moves forward by word. Table-aware, CJK-aware. | ✓ |
+| Word left | —         | Moves backward by word. Table-aware, CJK-aware. | ✓ |
 
 #### Editing
 
 | Command Name | Recommended<br>Hotkey | Function Summary | Key<br>Repeat |
 | :--------: | :----------------: | ---------------- | :---: |
 | Kill line | Ctrl + K      | Kill from cursor to line end. Consecutive kills accumulate in the kill cache and clipboard. | ✓ |
-| Kill region | Ctrl + W    | Cut the selected region to the kill cache. Table-aware: single-cell only; no-op for multi-row or cross-cell selections. | — |
-| Copy region | (None)    | Copy the selected region to the kill cache without deleting it. Same table-aware constraints as Kill region. | — |
+| Kill region | Ctrl + W    | Cut the selected region to the kill cache. Table-aware: single-cell only; no-op for multi-row or cross-cell selections. |  |
+| Copy region | —     | Copy the selected region to the kill cache without deleting it. Same table-aware constraints as Kill region. |  |
 | Yank | Ctrl + Y           | Paste from the OS clipboard. Table-aware: converts newlines and pipes automatically. | ✓ |
 | Delete char | Ctrl + D   | Forward-delete one character. Stops at cell boundary; joins sub-lines at `<br>` in Live Preview. | ✓ |
 | Undo | Ctrl + /   | Undo the last change. | ✓ |
-| Redo | (None)     | Redo the last undone change. | ✓ |
-| Kill word left | (None) | Kill from cursor to the start of the previous word. Table-aware: stays within the current cell, no-op at the cell's own edge. | ✓ |
-| Kill word right | (None) | Kill from cursor to the end of the next word. Table-aware: stays within the current cell, no-op at the cell's own edge. | ✓ |
-| Uppercase word | (None) | Uppercase the selection, or the whole word at the cursor. Table-aware, CJK-aware. | ✓ |
-| Lowercase word | (None) | Lowercase the selection, or the whole word at the cursor. Table-aware, CJK-aware. | ✓ |
-| Capitalize word | (None) | Capitalize the selection (word by word), or the whole word at the cursor. Table-aware, CJK-aware. | ✓ |
-| Transpose chars | (None) | Swap the two characters around the cursor; at the end of a line or cell, swaps the last two instead. Table-aware, Unicode-safe. | ✓ |
-| Select all | (None)        | Windows replacement for Select all when Ctrl+A is reassigned to HOME. | — |
+| Redo | —      | Redo the last undone change. | ✓ |
+| Kill word left | — | Kill from cursor to the start of the previous word. Table-aware: stays within the current cell, no-op at the cell's own edge. | ✓ |
+| Kill word right | — | Kill from cursor to the end of the next word. Table-aware: stays within the current cell, no-op at the cell's own edge. | ✓ |
+| Uppercase word | — | Uppercase the selection, or the whole word at the cursor. Table-aware, CJK-aware. | ✓ |
+| Lowercase word | — | Lowercase the selection, or the whole word at the cursor. Table-aware, CJK-aware. | ✓ |
+| Capitalize word | — | Capitalize the selection (word by word), or the whole word at the cursor. Table-aware, CJK-aware. | ✓ |
+| Transpose chars | — | Swap the two characters around the cursor; at the end of a line or cell, swaps the last two instead. Table-aware, Unicode-safe. | ✓ |
+| Select all | —         | Windows replacement for Select all when Ctrl+A is reassigned to HOME. |  |
 
 #### Other hotkeys
 
 | Command Name | Recommended<br>Hotkey | Function Summary | Key<br>Repeat |
 | :--------: | :----------------: | ---------------- | :---: |
-| Recenter-top-bottom | Ctrl + L | Cycle the view so the cursor appears at the center, top, or bottom of the screen on successive presses. Resets on any other action. | — |
-| Recenter | (None)        | Scroll the view so the cursor line is centered on screen. | — |
+| Recenter-top-bottom | Ctrl + L | Cycle the view so the cursor appears at the center, top, or bottom of the screen on successive presses. Resets on any other action. |  |
+| Recenter | —         | Scroll the view so the cursor line is centered on screen. |  |
+
+#### Table structure
+
+Not commands this plugin owns — Obsidian's own built-in table-editing commands, listed here (mirroring the Quick setup assistant below) so they're easy to find and assign a hotkey to.
+
+| Command Name | Recommended<br>Hotkey | Function Summary |
+| :--------: | :----------------: | ---------------- |
+| Insert row above | — | Inserts a new row above the current one. |
+| Insert row below | — | Inserts a new row below the current one. |
+| Move row up | — | Moves the current row up. |
+| Move row down | — | Moves the current row down. |
+| Duplicate row | — | Duplicates the current row. |
+| Delete row | — | Deletes the current row. |
+| Insert column left | — | Inserts a new column to the left of the current one. |
+| Insert column right | — | Inserts a new column to the right of the current one. |
+| Move column left | — | Moves the current column left. |
+| Move column right | — | Moves the current column right. |
+| Align column left | — | Left-aligns the current column. |
+| Align column center | — | Center-aligns the current column. |
+| Align column right | — | Right-aligns the current column. |
+| Duplicate column | — | Duplicates the current column. |
+| Delete column | — | Deletes the current column. |
+| Insert table | — | Inserts a new table at the cursor — the only one here that also works outside an existing table. |
+
+#### Table navigation
+
+Six ordinary commands, assignable via **Settings → Hotkeys** or the Quick setup assistant below. No-op outside a table cell.
+
+| Command Name | Recommended<br>Hotkey | Function Summary | Key<br>Repeat |
+| :--------: | :----------------: | ---------------- | :---: |
+| Move to cell left | — | Jumps to the adjacent cell to the left, landing at its own content start — no selection is created. | ✓ |
+| Move to cell right | — | Jumps to the adjacent cell to the right, landing at its own content start — no selection is created. | ✓ |
+| Move to cell below | — | Jumps to the cell in the same column one row below, landing at its own content start. | ✓ |
+| Move to cell above | — | Jumps to the cell in the same column one row above, landing at its own content start. | ✓ |
+| Exit table below | — | Exits the table to the line below. | ✓ |
+| Exit table above | — | Exits the table to the line above. | ✓ |
 
 ### Settings
 
-[Getting Started](#getting-started-1) | [Command Reference](#command-reference) | [Limitations](#limitations-1) | [Command Details](#command-details)
+[Getting Started](#getting-started-1) | [Command Reference](#command-reference-1) | [Limitations](#limitations-1) | [Command Details](#command-details) | [Behavior Options](#behavior-options)
 
 Open **Settings → Universal Cursor Hotkeys** to assign hotkeys without leaving the settings screen.
 
@@ -156,7 +242,7 @@ This plugin's settings screen has three parts:
 - [**Behavior Options**](#behavior-options) — a few settings shared with Vim support's own toggles.
 - [Vim support](#vim-support-experimental) — a separate section for Obsidian's built-in Vim mode.
 
-**Apply recommended:** Each command group has an **Apply recommended** button that assigns all recommended hotkeys at once.
+**Apply recommended:** Each command group has an **Apply recommended** button that assigns all recommended hotkeys at once. (Table structure and Table navigation below have no recommended hotkeys to apply, so they skip this button — Table structure instead links to Obsidian's own Hotkeys panel.)
 
 **Live status:** Each row shows the current state of its hotkey:
 
@@ -181,7 +267,7 @@ This plugin's settings screen has three parts:
 
 ### Limitations
 
-[Getting Started](#getting-started-1) | [Command Reference](#command-reference) | [Settings](#settings-1) | [Command Details](#command-details)
+[Getting Started](#getting-started-1) | [Command Reference](#command-reference-1) | [Settings](#settings-1) | [Command Details](#command-details) | [Behavior Options](#behavior-options)
 
 - **Range selection stops at table cell boundaries:** Shift+Ctrl+P/N/B/F/A/E extend the selection normally within plain text and within a single table cell. At a cell boundary, they neither cross into the adjacent cell (unlike plain Ctrl+B/F) nor extend the selection across cells (unlike Shift+Arrow keys). Use Shift+Arrow keys for cross-cell selection.
 
@@ -197,7 +283,7 @@ This plugin's settings screen has three parts:
 
 ### Command Details
 
-[Getting Started](#getting-started-1) | [Command Reference](#command-reference) | [Settings](#settings-1) | [Limitations](#limitations-1)
+[Getting Started](#getting-started-1) | [Command Reference](#command-reference-1) | [Settings](#settings-1) | [Limitations](#limitations-1) | [Behavior Options](#behavior-options)
 
 Note: (*) indicates behaviors specific to Live Preview mode.
 
@@ -440,6 +526,8 @@ Note: (*) indicates behaviors specific to Live Preview mode.
 
 ## Behavior Options
 
+[Vim support](#vim-support-experimental) | [Emacs keybindings](#emacs-keybindings)
+
 **Smart home (standard/advanced)** and **Smart join** are shared with the Vim support toggles (`^`/`I`, `J`) above. **Visual line movement** and **Cross-row navigation** apply to the Emacs-side commands only.
 
 | Setting | Default | Description |
@@ -449,6 +537,7 @@ Note: (*) indicates behaviors specific to Live Preview mode.
 | Smart home (advanced) | ON | **ON:** also skips past headings (`# `), footnotes (`[^1]: `), and callout type markers (`[!type]`). Requires Smart home (standard) to be ON. |
 | Smart join | OFF | **ON:** Kill Line join lands at the next line's content start, removing blockquote markers, list markers, and indentation. Pairs with Smart home (advanced) for headings and footnotes. Requires Smart home (standard) to be ON.<br>**OFF:** joins the next line as-is. |
 | Cross-row navigation | ON | *Emacs-side only (LEFT/RIGHT/HOME/END).*<br>**ON:** LEFT / HOME at the first cell and RIGHT / END at the last cell wrap to the adjacent row.<br>**OFF:** stops at the boundary. |
+| Double-click word select | ON | **ON:** double-clicking CJK (Chinese/Japanese) text selects just the word at that position — dictionary-based, not the entire unbroken run. Dragging afterward extends the selection a word at a time.<br>**OFF:** uses Obsidian's native double-click selection. |
 
 
 ## Acknowledgments

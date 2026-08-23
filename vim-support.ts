@@ -1,6 +1,7 @@
 import { findClusterBreak } from '@codemirror/state';
-import { getCellIndex } from './table-cell-utils';
+import { getCellIndex, getChByCellIndex } from './table-cell-utils';
 import { getWordSpans } from './word-segmentation';
+import { exitTable, jumpAdjacentCell } from './table-navigation';
 
 // Obsidian's built-in Vim mode (codemirror-vim) — not exposed in obsidian.d.ts.
 interface VimPos { line: number; ch: number }
@@ -42,6 +43,25 @@ interface VimApi {
 	defineMotion(name: string, fn: VimMotionFn): void;
 	defineAction(name: string, fn: VimActionFn): void;
 	exitVisualMode(cm: unknown, moveHead?: boolean): void;
+	// defineMotion/defineAction only override an *existing* action/motion
+	// name already wired to some key — mapCommand is what actually binds a
+	// brand-new key sequence (e.g. a leader sequence) in the first place.
+	// Real codemirror-vim signature (verified against Obsidian's own bundled
+	// vim.js): command[type] = name, no context unless passed via extra.
+	mapCommand(keys: string, type: 'action', name: string, args?: Record<string, unknown>): void;
+	// Real codemirror-vim signature is 2-arg only (verified against
+	// Obsidian's own bundled vim.js) — there is no third "includeDefaults"
+	// option despite some third-party type declarations suggesting one; the
+	// match condition is a strict `defaultKeymap[i].context === context`, so
+	// unmapping a binding with no explicit context (e.g. vim.js's own
+	// built-in `<Space>` = `l`) requires passing `undefined`, not `'normal'`.
+	unmap(lhs: string, context?: 'normal' | 'insert' | 'visual'): boolean;
+	// The actual function Obsidian's own CM6-vim bridge calls to decide
+	// whether to preventDefault() a keydown (confirmed by tracing Obsidian's
+	// bundled app.js) — exposed here so the Space-insertion-leak guard (see
+	// applySpaceLeakGuard) can wrap it. Real return value is effectively
+	// true/undefined (never a literal false).
+	multiSelectHandleKey(this: void, cm: unknown, key: string, origin?: string): unknown;
 }
 interface VimCm {
 	getLine(line: number): string;
@@ -62,12 +82,29 @@ interface VimCm {
 	// uses lower-level coordsAtPos/posAtCoords (via InnerCmLike) instead,
 	// bypassing this method's own flaky boundary heuristics for that case.
 	findPosV(cur: VimPos, dir: number, unit: 'line', goalColumn: number): VimPos & { hitSide?: boolean };
+	// `operation` batches the repeat-count loop into one CM transaction/render,
+	// matching vim.js's own `cm.operation(...)` wrapping in the real action.
+	operation(fn: () => void): void;
 }
 // A found word's span, from vim.js's own findWord (see moveByWords).
 interface VimWordSpan { from: number; to: number; line: number }
 
+// window.CodeMirrorAdapter itself (not just its own .Vim property) is the
+// CM5-compat namespace vim.js's own actions call `CodeMirror.commands.undo`/
+// `redo` against — confirmed live (a first attempt calling `cm.undo()`
+// directly threw "t.undo is not a function": the vim cm adapter object has
+// no such method of its own; undo/redo only exist on this separate
+// `.commands` bag, taking that same cm adapter as their own argument).
+interface VimCommandsApi {
+	undo(cm: unknown): void;
+	redo(cm: unknown): void;
+}
+
 const getVim = (): VimApi | undefined =>
 	(window as unknown as { CodeMirrorAdapter?: { Vim?: VimApi } }).CodeMirrorAdapter?.Vim;
+
+const getVimCommands = (): VimCommandsApi | undefined =>
+	(window as unknown as { CodeMirrorAdapter?: { commands?: VimCommandsApi } }).CodeMirrorAdapter?.commands;
 
 // The inner EditorView, as seen from outside a synchronous vim motion callback —
 // just enough to read back the post-crossing cursor position (see
@@ -107,10 +144,37 @@ interface InnerCmLike {
 // same reason as VimSupportHost below.
 interface EditorBridge {
 	inTableCell: boolean;
-	getCursor(): VimPos;
+	// Real Obsidian Editor signature: getCursor(side?: 'from'|'to'|'head'|'anchor').
+	// tableUndo/tableRedo below pass 'from' specifically (see their own
+	// comment) — matching vim.js's own real undo, which collapses to the
+	// *start* of the selection its own CodeMirror.commands.undo leaves behind,
+	// not Obsidian's own bare default (equivalent to 'head', i.e. the end).
+	getCursor(side?: 'from' | 'to' | 'head' | 'anchor'): VimPos;
+	// Collapses any active selection to a plain cursor (standard CM5-compat
+	// `setCursor` semantics) — used right after undo()/redo() below, whose own
+	// selection-leaving side effect needs clearing (see tableUndo's own
+	// comment for why).
+	setCursor(pos: VimPos): void;
 	getLine(line: number): string;
 	activeCM?: InnerCmLike;
 	cm?: InnerCmLike;
+	// Obsidian's own Editor.undo()/redo() — operate on the outer/whole-document
+	// history (same one Cmd+Z and this plugin's own Ctrl+/ Undo command use),
+	// unlike vim's native `u`/Ctrl-r which only see whichever cm is currently
+	// active. See tableUndo/tableRedo for why that distinction matters inside
+	// a table cell.
+	undo(): void;
+	redo(): void;
+	// Document's own last line number — used by exitTable's own scan loop to
+	// know where to stop.
+	lastLine(): number;
+	// Restores DOM focus — needed after a command that tears down/rebuilds the
+	// active table cell's own inline editor (confirmed live: some table
+	// commands leave inTableCell false afterward even though the cursor is
+	// still logically inside a table row). setCursor() alone updates the
+	// logical position (readable back via getCursor()) but not DOM focus, so
+	// without this the cursor is set correctly yet renders nowhere visible.
+	focus(): void;
 }
 
 const getActiveEditor = (): EditorBridge | undefined =>
@@ -140,6 +204,21 @@ export interface VimSupportHost {
 		vimGgSupport: boolean;
 		vimDisplayLineSupport: boolean;
 		vimEolSupport: boolean;
+		// Bundles the leader-key table-structure commands (currently just
+		// insert-row-below — more follow the same wiring later). Off by
+		// default like every other Vim feature.
+		vimTableStructureSupport: boolean;
+		// Pure cursor movement (exit table, jump to adjacent cell) — separate
+		// from vimTableStructureSupport above (which wraps Obsidian's own
+		// structure-*mutating* commands) since this never mutates anything.
+		// Shares the same leader key and native-Space-unmap/leak-guard
+		// machinery, gated to only tear either down once *both* are off (see
+		// restoreTableStructure/restoreTableNavigation's own comments).
+		vimTableNavigationSupport: boolean;
+		// Leader key for table-structure/table-navigation commands. false
+		// (default) = Space; true = backslash. Only has an effect once one of
+		// those is on — a preference, not an on/off feature of its own.
+		vimLeaderUseBackslash: boolean;
 		smartJoin: boolean;
 		smartHomeStandard: boolean;
 	};
@@ -158,6 +237,47 @@ export interface VimSupportHost {
 	// current cell's own range still need to be consumed — see moveByLines.
 	// Returns the outer {line, ch} landed on (or null), for goal-column resync.
 	crossTableRowForCell(editor: unknown, cellIndex: number, forward: boolean, goalCh: number, overshoot: number): { line: number; ch: number } | null;
+	// Side-effect-free row lookup (the same getNextRowLine/getPrevRowLine
+	// Ctrl-P/N and crossTableRowForCell's own row-finding already use
+	// internally — correctly skips the delimiter row, etc.) — -1 if there is
+	// no next/previous row. Needed because crossTableRowForCell itself is
+	// *not* side-effect-free at a table boundary: by design (matching Ctrl-P/
+	// N's own convention), it exits the table rather than reporting "no
+	// landing" — confirmed live to already move the cursor there before its
+	// return value is even inspected. Callers that want a real no-op at the
+	// boundary (unlike gj/gk, which want the exit) must check this first.
+	getAdjacentRowLine(editor: unknown, forward: boolean): number;
+	// Dispatches the host's own setCursorViaCm (real CM6 transaction on the
+	// *outer* view, not Editor.setCursor()) — confirmed live that
+	// Editor.setCursor() plain does not reliably transition inTableCell to
+	// false nor move visible DOM focus when leaving a table cell for plain
+	// text, even paired with an explicit focus() call, unlike this. Needed by
+	// exitTable specifically; jumpAdjacentCell's own cell-to-cell landings
+	// (never leaving the table) work fine with the plain EditorBridge
+	// setCursor already used elsewhere in this file.
+	setCursorAcrossTableBoundary(editor: unknown, line: number, ch: number): void;
+	// Mirrors Ctrl-N's own setCursorToNextRow "last data row: exit below"
+	// fix for a table that runs all the way to the document's own last
+	// line — appends a blank line there and lands on it. exitTable's own
+	// scan already walks past any remaining table rows (delimiter, etc.)
+	// before giving up, so by the time this is called the document's real
+	// lastLine is already confirmed to still be part of the table. No
+	// symmetric "prepend a line" exists for the backward/tX direction
+	// (matches setCursorToPrevRow's own precedent — real vim's own `k` at
+	// the buffer's first line is a no-op, not an insert).
+	appendBlankLineAndLand(editor: unknown): void;
+	// Lands on targetLine's own leftmost cell content-start, Smart-Home
+	// refined — the exact same enterTableAtLine + refineTableLandingForSmartHome
+	// combo gg/G's own jumpToDocumentLine already uses when landing inside a
+	// table (see main.ts's own doc comment: table cells get the same
+	// Markdown-aware skip Home/^/J already give plain lines, not just a bare
+	// whitespace skip). Self-dispatching (enterTableAtLine's own underlying
+	// landInCellSegment already moves the cursor; the Smart Home refinement
+	// only re-dispatches if it actually changes the position) — no separate
+	// setCursorAcrossTableBoundary call needed. Used by exitTable's own
+	// "table starts at the document's first line" fallback (tX with nowhere
+	// above to exit to).
+	enterTableRowSmartHome(editor: unknown, targetLine: number): { line: number; ch: number } | null;
 	// Vim's w/b/e cell-crossing (single cell only — no multi-cell count
 	// precision, a deliberate scope cut mirroring j/k's own "known gap").
 	// Finds the next/prev row (or exits the table entirely if there is none),
@@ -212,6 +332,12 @@ export interface VimSupportHost {
 	// Returns the outer {line, ch} after correction (or the unchanged rough
 	// landing if no correction was possible/needed).
 	refineDisplayLineColumn(editor: unknown, pixelGoal: number): { line: number; ch: number } | null;
+	// Executes a built-in (or any registered) Obsidian command by ID — the
+	// app-level call vim-support.ts itself never makes directly (see this
+	// interface's own file-split boundary). Used by Vim's leader-key
+	// table-structure commands to wrap Obsidian's own editor:table-row-* /
+	// editor:table-col-* commands rather than reimplementing table mutation.
+	executeObsidianCommand(commandId: string): boolean;
 }
 
 export class VimSupport {
@@ -223,6 +349,12 @@ export class VimSupport {
 	// afterward does *not* clear this — once a restart is genuinely needed to
 	// guarantee a clean state, it stays needed for the rest of the session.
 	needsRestart = false;
+
+	// The pre-patch multiSelectHandleKey, saved so restoreSpaceLeakGuard can
+	// put it back exactly (unlike defineMotion/defineAction, which have no
+	// getter, this wrap is fully reversible since we hold the real original).
+	private originalMultiSelectHandleKey: VimApi['multiSelectHandleKey'] | undefined;
+	private spaceLeakGuardWrapper: VimApi['multiSelectHandleKey'] | undefined;
 
 	constructor(host: VimSupportHost) {
 		this.host = host;
@@ -294,6 +426,8 @@ export class VimSupport {
 		if (this.host.settings.vimGgSupport) this.applyGg();
 		if (this.host.settings.vimDisplayLineSupport) this.applyDisplayLines();
 		if (this.host.settings.vimEolSupport) this.applyEol();
+		if (this.host.settings.vimTableStructureSupport) this.applyTableStructure();
+		if (this.host.settings.vimTableNavigationSupport) this.applyTableNavigation();
 	}
 
 	// Call from the plugin's onunload(). Best-effort only — see each restore*'s own caveat.
@@ -306,6 +440,8 @@ export class VimSupport {
 		this.restoreDisplayLines();
 		this.restoreGg();
 		this.restoreEol();
+		this.restoreTableStructure();
+		this.restoreTableNavigation();
 	}
 
 	setHlEnabled(on: boolean): void {
@@ -437,6 +573,368 @@ export class VimSupport {
 
 	private restoreEol(): void {
 		getVim()?.defineMotion('moveToEol', VimSupport.VIM_DEFAULT_MOVE_TO_EOL);
+	}
+
+	private static readonly LEADER_SPACE_NOTATION = '<Space>';
+
+	private leaderNotation(): string {
+		return this.host.settings.vimLeaderUseBackslash ? '\\' : VimSupport.LEADER_SPACE_NOTATION;
+	}
+
+	private tableCommandLhs(leaderSuffix: string): string {
+		return `${this.leaderNotation()}${leaderSuffix}`;
+	}
+
+	// Thin wrapper factory — every table-structure command shares the same
+	// shape (in-table-cell gate, then delegate to Obsidian's own built-in
+	// command by ID; no table-mutation logic of our own). requireInTableCell
+	// is false only for "insert table" (tableInsert), whose whole point is to
+	// work OUTSIDE an existing table.
+	private tableCommandAction(commandId: string, requireInTableCell = true): VimActionFn {
+		return () => {
+			if (requireInTableCell && !getActiveEditor()?.inTableCell) return;
+			this.host.executeObsidianCommand(commandId);
+		};
+	}
+
+	// Column-preserving variant, for commands that rewrite the current row's
+	// own text (re-padding cell content) without changing which row/column
+	// it's in — unlike tableRowDelete, the target is always the *same* line,
+	// never a fallback one. Obsidian's own align commands don't preserve the
+	// cursor on their own (confirmed live: it disappears entirely) — restores
+	// it to the same cell afterward, same getChByCellIndex resolution as
+	// tableRowDelete's own landing logic. Also confirmed live: align tears
+	// down the active table cell's own inline editor (inTableCell reads false
+	// immediately afterward) — setCursor() alone updates the logical position
+	// but leaves DOM focus nowhere, so the cursor is set but invisible unless
+	// focus() is called too (see EditorBridge's own comment on focus()).
+	private tableColPreservingCommandAction(commandId: string): VimActionFn {
+		return () => {
+			const editor = getActiveEditor();
+			if (!editor?.inTableCell) return;
+			const before = editor.getCursor();
+			const cellIndex = getCellIndex(editor.getLine(before.line), before.ch);
+			this.host.executeObsidianCommand(commandId);
+			const editorAfter = getActiveEditor();
+			if (!editorAfter) return;
+			const ch = getChByCellIndex(editorAfter.getLine(before.line), cellIndex);
+			if (ch === -1) return;
+			editorAfter.setCursor({ line: before.line, ch });
+			editorAfter.focus();
+		};
+	}
+
+	// leader + "to"/"tO"/etc — mnemonics echo real vim's own single-key
+	// semantics: `o`/`O` open below/above, `dd` deletes (linewise), `i`
+	// prefixes "insert" (vs. bare H/L reserved for a possible future "move
+	// column" — not part of this MVP). Action names are UCH-prefixed (not
+	// e.g. bare "tableRowAfter") to avoid colliding with the same names a
+	// competing plugin ("Vim Motions") registers on the same shared Vim
+	// singleton. Key suffixes deliberately match Vim Motions' own scheme for
+	// muscle-memory transfer (source-confirmed via their tables.ts).
+	private readonly tableRowAfter = this.tableCommandAction('editor:table-row-after');
+	private readonly tableRowBefore = this.tableCommandAction('editor:table-row-before');
+	private readonly tableRowUp = this.tableCommandAction('editor:table-row-up');
+	private readonly tableRowDown = this.tableCommandAction('editor:table-row-down');
+
+	// dd's own convention: deleting a line leaves the cursor at the same row
+	// *index* — landing on whatever row slid up into that position (or, when
+	// deleting the last row, the new last row). Obsidian's own
+	// editor:table-row-delete does not preserve this on its own (confirmed
+	// live: it moves the cursor back to the table's first row instead) — this
+	// captures the cell position beforehand and restores the vim-conventional
+	// landing afterward, rather than using the shared tableCommandAction
+	// wrapper (whose whole point is *not* having table-mutation logic of its
+	// own — this is the one command where that no longer holds).
+	private readonly tableRowDelete: VimActionFn = () => {
+		const editor = getActiveEditor();
+		if (!editor?.inTableCell) return;
+		const before = editor.getCursor();
+		const cellIndex = getCellIndex(editor.getLine(before.line), before.ch);
+		this.host.executeObsidianCommand('editor:table-row-delete');
+		const editorAfter = getActiveEditor();
+		if (!editorAfter) return;
+		const targetLine = this.host.isLinePartOfTable(editorAfter, before.line, 1) ? before.line : before.line - 1;
+		if (!this.host.isLinePartOfTable(editorAfter, targetLine, 1)) return;
+		const ch = getChByCellIndex(editorAfter.getLine(targetLine), cellIndex);
+		if (ch === -1) return;
+		editorAfter.setCursor({ line: targetLine, ch });
+	};
+
+	private readonly tableColBefore = this.tableCommandAction('editor:table-col-before');
+	private readonly tableColAfter = this.tableCommandAction('editor:table-col-after');
+	private readonly tableColLeft = this.tableCommandAction('editor:table-col-left');
+	private readonly tableColRight = this.tableCommandAction('editor:table-col-right');
+	private readonly tableColDelete = this.tableCommandAction('editor:table-col-delete');
+	private readonly tableInsert = this.tableCommandAction('editor:insert-table', false);
+
+	// The remaining 5 commands Obsidian exposes a command ID for beyond the
+	// original MVP-11 (source-confirmed directly against Obsidian's own
+	// bundled app.js command-registration loop — sort and clear/delete-
+	// selection genuinely have no command ID and can't be reached this way,
+	// but duplicate row/col do, contrary to this branch's own original design
+	// notes). Neither Vim Motions' own leader-key scheme nor its Ex commands
+	// cover duplicate row/col at all, and its align commands are Ex-command-
+	// only (no leader key) — so these 5 keys are UCH's own, not borrowed.
+	private readonly tableRowCopy = this.tableCommandAction('editor:table-row-copy');
+	private readonly tableColCopy = this.tableCommandAction('editor:table-col-copy');
+	private readonly tableColAlignLeft = this.tableColPreservingCommandAction('editor:table-col-align-left');
+	private readonly tableColAlignCenter = this.tableColPreservingCommandAction('editor:table-col-align-center');
+	private readonly tableColAlignRight = this.tableColPreservingCommandAction('editor:table-col-align-right');
+
+	// The full table-structure command family (16 — the ceiling of what
+	// Obsidian exposes as invokable commands for its native table widget).
+	// apply/restore/leader-switch all loop over this rather than
+	// hand-repeating each command's own registration.
+	private get tableCommands(): ReadonlyArray<{ action: string; leaderSuffix: string; fn: VimActionFn }> {
+		return [
+			{ action: 'uchTableRowAfter', leaderSuffix: 'to', fn: this.tableRowAfter },
+			{ action: 'uchTableRowBefore', leaderSuffix: 'tO', fn: this.tableRowBefore },
+			{ action: 'uchTableRowUp', leaderSuffix: 'tK', fn: this.tableRowUp },
+			{ action: 'uchTableRowDown', leaderSuffix: 'tJ', fn: this.tableRowDown },
+			{ action: 'uchTableRowDelete', leaderSuffix: 'tdd', fn: this.tableRowDelete },
+			// "yy" then "p" — the real vim keystrokes for duplicating a line.
+			{ action: 'uchTableRowCopy', leaderSuffix: 'tyyp', fn: this.tableRowCopy },
+			{ action: 'uchTableColBefore', leaderSuffix: 'tiH', fn: this.tableColBefore },
+			{ action: 'uchTableColAfter', leaderSuffix: 'tiL', fn: this.tableColAfter },
+			// Aliases of to/tO above — "ti" + direction becomes a fully symmetric
+			// insert convention across rows (J/K, matching tJ/tK's own down/up)
+			// and columns (H/L, matching tH/tL's own left/right).
+			{ action: 'uchTableRowAfter', leaderSuffix: 'tiJ', fn: this.tableRowAfter },
+			{ action: 'uchTableRowBefore', leaderSuffix: 'tiK', fn: this.tableRowBefore },
+			{ action: 'uchTableColLeft', leaderSuffix: 'tH', fn: this.tableColLeft },
+			{ action: 'uchTableColRight', leaderSuffix: 'tL', fn: this.tableColRight },
+			{ action: 'uchTableColDelete', leaderSuffix: 'tdc', fn: this.tableColDelete },
+			// "c" for column, matching tdc's own suffix — no real vim idiom to
+			// borrow here (columns aren't a native vim concept).
+			{ action: 'uchTableColCopy', leaderSuffix: 'tyc', fn: this.tableColCopy },
+			{ action: 'uchTableColAlignLeft', leaderSuffix: 'tal', fn: this.tableColAlignLeft },
+			{ action: 'uchTableColAlignCenter', leaderSuffix: 'tac', fn: this.tableColAlignCenter },
+			{ action: 'uchTableColAlignRight', leaderSuffix: 'tar', fn: this.tableColAlignRight },
+			{ action: 'uchTableInsert', leaderSuffix: 'tm', fn: this.tableInsert },
+		];
+	}
+
+	// tx/tX/th/tj/tk/tl's own logic lives in table-navigation.ts, shared with
+	// main.ts's own plain Emacs-side commands (see that file's own doc
+	// comment for why it isn't here) — these are just the VimActionFn
+	// wrappers, matching every other gated table command's own shape.
+	private readonly tableExitDown: VimActionFn = () => {
+		const editor = getActiveEditor();
+		if (!editor?.inTableCell) return;
+		exitTable(editor, this.host, true);
+	};
+
+	private readonly tableExitUp: VimActionFn = () => {
+		const editor = getActiveEditor();
+		if (!editor?.inTableCell) return;
+		exitTable(editor, this.host, false);
+	};
+
+	private readonly tableCellLeft: VimActionFn = () => {
+		const editor = getActiveEditor();
+		if (!editor?.inTableCell) return;
+		jumpAdjacentCell(editor, this.host, 'h');
+	};
+
+	private readonly tableCellRight: VimActionFn = () => {
+		const editor = getActiveEditor();
+		if (!editor?.inTableCell) return;
+		jumpAdjacentCell(editor, this.host, 'l');
+	};
+
+	private readonly tableCellDown: VimActionFn = () => {
+		const editor = getActiveEditor();
+		if (!editor?.inTableCell) return;
+		jumpAdjacentCell(editor, this.host, 'j');
+	};
+
+	private readonly tableCellUp: VimActionFn = () => {
+		const editor = getActiveEditor();
+		if (!editor?.inTableCell) return;
+		jumpAdjacentCell(editor, this.host, 'k');
+	};
+
+	// "x"/"X" for eXit — deliberately case-differentiated from the structural
+	// tJ/tK (move row) and tH/tL (move column) despite sharing a namespace: a
+	// mis-press here just lands the cursor in the wrong place (trivial to
+	// correct), unlike a mis-press on those. th/tj/tk/tl are the same kind of
+	// intentional case pair against tH/tL/tJ/tK — lowercase is always plain
+	// cursor movement, uppercase always structural, by design (see this
+	// branch's own design notes for the full reasoning).
+	private get tableNavigationCommands(): ReadonlyArray<{ action: string; leaderSuffix: string; fn: VimActionFn }> {
+		return [
+			{ action: 'uchTableExitDown', leaderSuffix: 'tx', fn: this.tableExitDown },
+			{ action: 'uchTableExitUp', leaderSuffix: 'tX', fn: this.tableExitUp },
+			{ action: 'uchTableCellLeft', leaderSuffix: 'th', fn: this.tableCellLeft },
+			{ action: 'uchTableCellDown', leaderSuffix: 'tj', fn: this.tableCellDown },
+			{ action: 'uchTableCellUp', leaderSuffix: 'tk', fn: this.tableCellUp },
+			{ action: 'uchTableCellRight', leaderSuffix: 'tl', fn: this.tableCellRight },
+		];
+	}
+
+	// Space is natively bound in vim.js's own default keymap (a keyToKey
+	// synonym for `l`, move right) — leaving it bound would race our own
+	// longer "<Space>to" sequence. Must unmap with context `undefined`, not
+	// `'normal'`: the built-in binding has no explicit context, and unmap's
+	// match is a strict equality check (verified against Obsidian's own
+	// bundled vim.js). Backslash has no default binding, so nothing to do.
+	private unmapLeaderNativeBinding(): void {
+		if (this.host.settings.vimLeaderUseBackslash) return;
+		getVim()?.unmap(VimSupport.LEADER_SPACE_NOTATION, undefined);
+	}
+
+	// vim.js's own findKey lets an unmatched key fall through to CM6's default
+	// text-insertion handling UNLESS that key is a single character — a plain
+	// letter like "g" or "q" is always safely swallowed as a no-op, but a
+	// bracket-notation key (vim.js's own name for it, e.g. "<Space>", is
+	// longer than 1 character) is not, and leaks through. Normally invisible
+	// (Space keeps its own real vim.js binding, so it's never left
+	// "unmatched"), but reachable the moment unmapLeaderNativeBinding removes
+	// that binding — confirmed live: an incomplete "<Space>to" attempt (e.g.
+	// Space pressed twice) inserts a literal space character into the
+	// document. Traced directly in Obsidian's own bundled vim.js/app.js:
+	// multiSelectHandleKey's return value is exactly what the app's own CM6-
+	// vim bridge checks before calling preventDefault(). Not fixable via
+	// defineAction/mapCommand/unmap alone — this wraps (never replaces
+	// outright) multiSelectHandleKey so every other key/plugin is untouched.
+	// Scoped to exactly <Space> outside Insert mode (where Space should of
+	// course still type a literal space) — a competing plugin's own
+	// changelog documents the failure mode of a broader regex here
+	// (swallowing Tab/F-keys too) and having to walk it back.
+	// Installed once the feature is on, independent of the current leader
+	// choice: Space's native binding, once removed, never comes back this
+	// session (see unmapLeaderNativeBinding), so a leak is still reachable
+	// even after switching to backslash.
+	private applySpaceLeakGuard(): void {
+		const vim = getVim();
+		if (!vim || this.spaceLeakGuardWrapper) return;
+		const original = vim.multiSelectHandleKey;
+		this.originalMultiSelectHandleKey = original;
+		this.spaceLeakGuardWrapper = (cm, key, origin) => {
+			const handled = original(cm, key, origin);
+			if (handled) return handled;
+			const insertMode = (cm as { state?: { vim?: { insertMode?: boolean } } })?.state?.vim?.insertMode;
+			if (key === VimSupport.LEADER_SPACE_NOTATION && !insertMode) return true;
+			return handled;
+		};
+		vim.multiSelectHandleKey = this.spaceLeakGuardWrapper;
+	}
+
+	// Fully reversible (unlike defineMotion/defineAction's restore targets) —
+	// only restores if nothing else has re-patched multiSelectHandleKey since
+	// (avoids clobbering a later, unrelated patch).
+	private restoreSpaceLeakGuard(): void {
+		const vim = getVim();
+		if (!vim || !this.originalMultiSelectHandleKey) return;
+		if (vim.multiSelectHandleKey === this.spaceLeakGuardWrapper) {
+			vim.multiSelectHandleKey = this.originalMultiSelectHandleKey;
+		}
+		this.originalMultiSelectHandleKey = undefined;
+		this.spaceLeakGuardWrapper = undefined;
+	}
+
+	private applyTableStructure(): void {
+		const vim = getVim();
+		if (!vim) return;
+		this.unmapLeaderNativeBinding();
+		for (const cmd of this.tableCommands) {
+			vim.defineAction(cmd.action, cmd.fn);
+			vim.mapCommand(this.tableCommandLhs(cmd.leaderSuffix), 'action', cmd.action);
+		}
+		// Overrides the real 'undo'/'redo' action names (unlike the table
+		// commands above, these already existed and are bound to u/Ctrl-r by
+		// vim.js's own default keymap) — see tableUndo/tableRedo for why this
+		// is scoped to the table-structure feature rather than always-on.
+		vim.defineAction('undo', this.tableUndo);
+		vim.defineAction('redo', this.tableRedo);
+		this.applySpaceLeakGuard();
+	}
+
+	// Only unmaps our own leader sequences — there's no prior default action
+	// to restore (these action names never existed before UCH registered
+	// them). Space's native binding can't be restored either (no read-back
+	// API) — same needsRestart-latch story as the other toggles. undo/redo
+	// restore to the hardcoded vim.js-equivalent defaults instead, same as
+	// every other defineMotion/defineAction override in this file.
+	// restoreSpaceLeakGuard is only torn down once table-navigation is *also*
+	// off — the two features share one guard (both register `<Space>t...`
+	// sequences), and tearing it down while the sibling feature is still
+	// active would break its own leader presses too.
+	private restoreTableStructure(): void {
+		const vim = getVim();
+		for (const cmd of this.tableCommands) {
+			vim?.unmap(this.tableCommandLhs(cmd.leaderSuffix), undefined);
+		}
+		vim?.defineAction('undo', VimSupport.VIM_DEFAULT_UNDO);
+		vim?.defineAction('redo', VimSupport.VIM_DEFAULT_REDO);
+		if (!this.host.settings.vimTableNavigationSupport) this.restoreSpaceLeakGuard();
+	}
+
+	setTableStructureEnabled(on: boolean): void {
+		this.setFeature(on, v => { this.host.settings.vimTableStructureSupport = v; }, () => this.applyTableStructure(), () => this.restoreTableStructure());
+	}
+
+	// Pure cursor movement — exit table (tx/tX) and jump-to-adjacent-cell
+	// (th/tj/tk/tl). Mirrors applyTableStructure's own shape exactly (shared
+	// leader-unmap/leak-guard machinery, no per-command mutation logic here
+	// either) since these commands, like the table-structure ones, are all
+	// thin wrappers — see exitTable/jumpAdjacentCell for the actual logic.
+	private applyTableNavigation(): void {
+		const vim = getVim();
+		if (!vim) return;
+		this.unmapLeaderNativeBinding();
+		for (const cmd of this.tableNavigationCommands) {
+			vim.defineAction(cmd.action, cmd.fn);
+			vim.mapCommand(this.tableCommandLhs(cmd.leaderSuffix), 'action', cmd.action);
+		}
+		this.applySpaceLeakGuard();
+	}
+
+	// See restoreTableStructure's own comment on why restoreSpaceLeakGuard is
+	// gated on the sibling feature also being off.
+	private restoreTableNavigation(): void {
+		const vim = getVim();
+		for (const cmd of this.tableNavigationCommands) {
+			vim?.unmap(this.tableCommandLhs(cmd.leaderSuffix), undefined);
+		}
+		if (!this.host.settings.vimTableStructureSupport) this.restoreSpaceLeakGuard();
+	}
+
+	setTableNavigationEnabled(on: boolean): void {
+		this.setFeature(on, v => { this.host.settings.vimTableNavigationSupport = v; }, () => this.applyTableNavigation(), () => this.restoreTableNavigation());
+	}
+
+	// Leader-key choice — a preference, not a feature on/off, so this
+	// bypasses setFeature() entirely. If either feature is already enabled,
+	// its old lhs's are unmapped and the new leader's own native binding (if
+	// any) is removed before mapping the new lhs's live — all fully
+	// reversible remaps, so (unlike turning a whole feature off) this
+	// doesn't need needsRestart on its own: Space's native binding, if it's
+	// ever removed at all, is removed silently the same way turning a
+	// feature on in the first place already is (no restart banner for that
+	// either) — this switch either does that same removal or is a no-op,
+	// never something worse.
+	setLeaderUseBackslash(on: boolean): void {
+		const structureOn = this.host.settings.vimTableStructureSupport;
+		const navigationOn = this.host.settings.vimTableNavigationSupport;
+		const vim = (structureOn || navigationOn) ? getVim() : undefined;
+		const oldLhsList = [
+			...(structureOn ? this.tableCommands : []),
+			...(navigationOn ? this.tableNavigationCommands : []),
+		].map(cmd => this.tableCommandLhs(cmd.leaderSuffix));
+		this.host.settings.vimLeaderUseBackslash = on;
+		if (vim) {
+			for (const oldLhs of oldLhsList) vim.unmap(oldLhs, undefined);
+			this.unmapLeaderNativeBinding();
+			if (structureOn) {
+				for (const cmd of this.tableCommands) vim.mapCommand(this.tableCommandLhs(cmd.leaderSuffix), 'action', cmd.action);
+			}
+			if (navigationOn) {
+				for (const cmd of this.tableNavigationCommands) vim.mapCommand(this.tableCommandLhs(cmd.leaderSuffix), 'action', cmd.action);
+			}
+		}
+		void this.host.saveSettings();
 	}
 
 	// --- w/b/e (moveByWords) — faithful port of vim.js's own word-motion
@@ -771,6 +1269,84 @@ export class VimSupport {
 	// next line is entirely whitespace).
 	private static readonly VIM_DEFAULT_JOIN_LINES: VimActionFn = (cm, actionArgs, vim) => {
 		VimSupport.runJoinLines(cm as VimCm, actionArgs, vim as { visualMode?: boolean } | undefined, false, () => 0);
+	};
+
+	// Vim's own undo/redo defaults (see VIM_DEFAULT_MOVE_BY_CHARACTERS for why
+	// these must be hardcoded rather than captured) — restore targets for
+	// tableUndo/tableRedo below on toggle-off/unload. Mirrors vim.js's real
+	// `actions.undo`/`actions.redo` bodies: repeat-loop the CM5-compat
+	// undo/redo `repeat` times inside one `operation`, then (undo only) clamp
+	// the cursor into the resulting line's own normal-mode bounds — vim.js's
+	// own `clipCursorToContent`, simplified to line/ch clamping only (no
+	// surrogate-pair edge case, not reachable through plain undo/redo).
+	private static readonly VIM_DEFAULT_UNDO: VimActionFn = (cm, actionArgs) => {
+		const vcm = cm as VimCm;
+		const commands = getVimCommands();
+		if (!commands) return;
+		vcm.operation(() => {
+			for (let i = 0; i < actionArgs.repeat; i++) commands.undo(cm);
+			const cur = vcm.getCursor('start');
+			const line = Math.max(0, Math.min(vcm.lastLine(), cur.line));
+			vcm.setCursor({ line, ch: Math.min(cur.ch, VimSupport.maxNormalModeCh(vcm.getLine(line))) });
+		});
+	};
+
+	private static readonly VIM_DEFAULT_REDO: VimActionFn = (cm, actionArgs) => {
+		const vcm = cm as VimCm;
+		const commands = getVimCommands();
+		if (!commands) return;
+		vcm.operation(() => {
+			for (let i = 0; i < actionArgs.repeat; i++) commands.redo(cm);
+		});
+	};
+
+	// u/Ctrl-r's own table-cell gap: vim's native undo/redo only ever see
+	// whichever cm is currently active. Outside a table this is the one and
+	// only cm, so the native default (above) is fine untouched. Inside a table
+	// cell it's a per-cell view whose own local history has no record of
+	// table-structure edits (row/column insert/delete) — those are applied at
+	// the outer/whole-document level (confirmed via Obsidian's own bundled
+	// app.js: the table widget's own Mod-z keymap explicitly targets a
+	// separate `t.table.editor.cm`, not any per-cell view). Obsidian's own
+	// Editor.undo()/redo() (== Cmd+Z, == this plugin's own Ctrl+/ Undo
+	// command) already operate at that correct outer level and were confirmed
+	// live to walk back through a plain-text edit → table-structure edit →
+	// plain-text edit chain seamlessly — so inside a table cell, delegate to
+	// that instead of vim's own (cell-scoped) default. Gated purely on
+	// inTableCell, not on whether the specific change being undone was itself
+	// structural — live testing showed that's the only condition that
+	// actually predicts vim's native undo failing (see this branch's own
+	// design notes).
+	// Obsidian's own Editor.undo()/redo() (real CM6 @codemirror/commands
+	// undo/redo underneath) leaves the just-restored range *selected* — normal
+	// CM6 behavior, but disastrous for a following "u": vim.js's own default
+	// keymap binds `u` to a *different* action while a selection is live
+	// (`{ keys: 'u', ..., context: 'visual' }` — lowercase-selection, not
+	// undo). Left alone, the very next "u" press silently no-ops (routed to
+	// that visual-mode binding instead of ours) until something (Escape, a
+	// motion) collapses the selection back to normal mode — confirmed live.
+	// vim's own native undo (VIM_DEFAULT_UNDO below) never hits this because
+	// it already ends with an explicit setCursor of its own (for unrelated
+	// reasons — see its own comment) that happens to collapse any selection
+	// as a side effect; this mirrors that same collapse explicitly.
+	private readonly tableUndo: VimActionFn = (cm, actionArgs, vim) => {
+		const editor = getActiveEditor();
+		if (editor?.inTableCell) {
+			for (let i = 0; i < actionArgs.repeat; i++) editor.undo();
+			editor.setCursor(editor.getCursor('from'));
+			return;
+		}
+		VimSupport.VIM_DEFAULT_UNDO(cm, actionArgs, vim);
+	};
+
+	private readonly tableRedo: VimActionFn = (cm, actionArgs, vim) => {
+		const editor = getActiveEditor();
+		if (editor?.inTableCell) {
+			for (let i = 0; i < actionArgs.repeat; i++) editor.redo();
+			editor.setCursor(editor.getCursor('from'));
+			return;
+		}
+		VimSupport.VIM_DEFAULT_REDO(cm, actionArgs, vim);
 	};
 
 	// Markdown-aware replacement for J (joinLines). When settings.smartJoin is on,

@@ -9,6 +9,8 @@ import { EditorView } from "@codemirror/view";
 import { EditorSelection, Transaction, findClusterBreak } from '@codemirror/state';
 import { deleteCharForward, cursorPageDown, cursorPageUp, transposeChars as cmTransposeChars } from '@codemirror/commands';
 import { getWordSpans, getBigWordSpans, findWordSpanOnLine } from './word-segmentation';
+import { exitTable, jumpAdjacentCell } from './table-navigation';
+import { cjkWordSelectionStyle } from './cjk-word-select';
 
 // Extend the Obsidian Editor interface to include the internal CodeMirror 6 instance (EditorView)
 declare module "obsidian" {
@@ -27,9 +29,27 @@ interface UniversalCursorHotkeysSettings {
 	smartHomeAdvanced: boolean;
 	smartJoin: boolean;
 	crossRowNavigation: boolean;
+	// Double-click word selection, CJK-aware (Intl.Segmenter, same engine as
+	// word-right/left and Vim w/b/e) — only intervenes when the click lands
+	// on a Hiragana/Katakana/CJK-Ideograph character; every other case falls
+	// through to CM6's own default. On by default: this corrects an
+	// objectively broken native result (an entire unbroken CJK run selected
+	// as one "word") rather than introducing an opinionated new behavior —
+	// same category as Smart home (standard)/Visual line movement/Cross-row
+	// navigation above, not Smart join (which stays opt-in precisely because
+	// it makes a markdown-aware judgment call). Latin-only text is
+	// unaffected either way.
+	cjkDoubleClickWordSelect: boolean;
 	qsaDisplacedCommands: DisplacedCommand[];
 	qsaSectionVisible: boolean;
 	qsaIndividualVisible: boolean;
+	// Collapsed by default — both are secondary, supplementary sections
+	// (table-structure wraps Obsidian's own native commands, not owned by
+	// this plugin; table-navigation's own recommended: null is a deliberate
+	// no-default choice, not a "not owned" one), unlike the 3 core QSA
+	// groups above them, which stay always-visible.
+	qsaTableStructureVisible: boolean;
+	qsaTableNavVisible: boolean;
 	vimHlSupport: boolean;
 	vimJkSupport: boolean;
 	vimJoinSupport: boolean;
@@ -38,6 +58,18 @@ interface UniversalCursorHotkeysSettings {
 	vimGgSupport: boolean;
 	vimDisplayLineSupport: boolean;
 	vimEolSupport: boolean;
+	// Bundles the leader-key table-structure commands (currently just
+	// insert-row-below — more follow the same wiring later). Off by
+	// default like every other Vim feature.
+	vimTableStructureSupport: boolean;
+	// Pure cursor movement (exit table, jump to adjacent cell) — see
+	// vim-support.ts's own doc comment for how this differs from
+	// vimTableStructureSupport above.
+	vimTableNavigationSupport: boolean;
+	// Leader key for table-structure/table-navigation commands. false
+	// (default) = Space; true = backslash. Only has an effect once one of
+	// those is on — a preference, not an on/off feature of its own.
+	vimLeaderUseBackslash: boolean;
 	vimSectionVisible: boolean;
 	// Whether the settings tab has already auto-expanded the Vim support
 	// section (and collapsed the QSA section, on the theory that a Vim-mode
@@ -54,17 +86,23 @@ const DEFAULT_SETTINGS: UniversalCursorHotkeysSettings = {
 	smartHomeAdvanced: true,
 	smartJoin: false,
 	crossRowNavigation: true,
+	cjkDoubleClickWordSelect: true,
 	qsaDisplacedCommands: [],
 	qsaSectionVisible: true,
 	qsaIndividualVisible: false,
-	vimHlSupport: false,
-	vimJkSupport: false,
-	vimJoinSupport: false,
-	vimCaretSupport: false,
-	vimWordSupport: false,
-	vimGgSupport: false,
-	vimDisplayLineSupport: false,
-	vimEolSupport: false,
+	qsaTableStructureVisible: false,
+	qsaTableNavVisible: false,
+	vimHlSupport: true,
+	vimJkSupport: true,
+	vimJoinSupport: true,
+	vimCaretSupport: true,
+	vimWordSupport: true,
+	vimGgSupport: true,
+	vimDisplayLineSupport: true,
+	vimEolSupport: true,
+	vimTableStructureSupport: false,
+	vimTableNavigationSupport: false,
+	vimLeaderUseBackslash: false,
 	vimSectionVisible: false,
 	vimAutoExpandDone: false,
 };
@@ -222,6 +260,68 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			}
 		});
 
+		// Table navigation — shares its implementation with the Vim leader-key
+		// commands of the same name (tx/tX/th/tj/tk/tl, see table-navigation.ts)
+		// rather than duplicating the logic; this file already implements
+		// TableNavHost (isLinePartOfTable/getBeginningOfLinePosition/
+		// crossTableRowForCell are all defined below), so `this` is passed
+		// directly. No recommended hotkey, same as Redo above — these are
+		// opt-in via Settings → Hotkeys / the Quick setup assistant, not bound
+		// by default.
+		this.addCommand({
+			id: 'table-cell-left',
+			name: 'Move to cell left',
+			repeatable: true,
+			editorCallback: (editor: Editor) => {
+				if (editor.inTableCell) jumpAdjacentCell(editor, this, 'h');
+			}
+		});
+
+		this.addCommand({
+			id: 'table-cell-right',
+			name: 'Move to cell right',
+			repeatable: true,
+			editorCallback: (editor: Editor) => {
+				if (editor.inTableCell) jumpAdjacentCell(editor, this, 'l');
+			}
+		});
+
+		this.addCommand({
+			id: 'table-cell-down',
+			name: 'Move to cell below',
+			repeatable: true,
+			editorCallback: (editor: Editor) => {
+				if (editor.inTableCell) jumpAdjacentCell(editor, this, 'j');
+			}
+		});
+
+		this.addCommand({
+			id: 'table-cell-up',
+			name: 'Move to cell above',
+			repeatable: true,
+			editorCallback: (editor: Editor) => {
+				if (editor.inTableCell) jumpAdjacentCell(editor, this, 'k');
+			}
+		});
+
+		this.addCommand({
+			id: 'table-exit-down',
+			name: 'Exit table below',
+			repeatable: true,
+			editorCallback: (editor: Editor) => {
+				if (editor.inTableCell) exitTable(editor, this, true);
+			}
+		});
+
+		this.addCommand({
+			id: 'table-exit-up',
+			name: 'Exit table above',
+			repeatable: true,
+			editorCallback: (editor: Editor) => {
+				if (editor.inTableCell) exitTable(editor, this, false);
+			}
+		});
+
 		this.addCommand({
 			id: 'kill-region',
 			name: 'Kill region',
@@ -350,6 +450,12 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 					this._recenterStep = 0;
 				}
 			})
+		);
+
+		this.registerEditorExtension(
+			EditorView.mouseSelectionStyle.of(
+				cjkWordSelectionStyle(() => this.settings.cjkDoubleClickWordSelect)
+			)
 		);
 
 		this.registerDomEvent(activeDocument, 'mousedown', () => {
@@ -2846,6 +2952,63 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		return this.walkTableRows(e, cellIndex, forward, startLine, overshoot, goalCh);
 	}
 
+	// See vim-support.ts's own VimSupportHost.getAdjacentRowLine doc comment
+	// for why this exists as its own read-only check, separate from
+	// crossTableRowForCell above.
+	getAdjacentRowLine(editor: unknown, forward: boolean): number {
+		const e = editor as Editor;
+		return forward ? this.getNextRowLine(e) : this.getPrevRowLine(e);
+	}
+
+	// See vim-support.ts's own VimSupportHost.setCursorAcrossTableBoundary doc
+	// comment for why table-navigation.ts's own exitTable needs this instead
+	// of the plain EditorBridge setCursor used elsewhere. exitTable's own
+	// jumps can cross arbitrarily many lines (the whole height of a table) —
+	// unlike setCursorViaCm's other, already-onscreen-range callers, this
+	// needs the same explicit scroll-into-view follow-up
+	// exitTableWithColumn/jumpToDocumentLine already use for their own
+	// long-distance jumps (confirmed live: without it, the cursor can land
+	// off-screen with no visible scroll).
+	setCursorAcrossTableBoundary(editor: unknown, line: number, ch: number): void {
+		const e = editor as Editor;
+		this.setCursorViaCm(e, line, ch);
+		const cm = e.cm;
+		const pos = e.posToOffset({ line, ch });
+		cm.dispatch({ selection: { anchor: pos, head: pos }, scrollIntoView: true, userEvent: 'move' });
+	}
+
+	// See vim-support.ts's own VimSupportHost.appendBlankLineAndLand doc
+	// comment — mirrors setCursorToNextRow's own identical EOF fix.
+	appendBlankLineAndLand(editor: unknown): void {
+		const e = editor as Editor;
+		const lastLine = e.lastLine();
+		e.replaceRange('\n', { line: lastLine, ch: e.getLine(lastLine).length });
+		this.setCursorViaCm(e, lastLine + 1, 0);
+		// Same explicit scroll-into-view follow-up as
+		// setCursorAcrossTableBoundary — see its own doc comment.
+		const cm = e.cm;
+		const pos = e.posToOffset({ line: lastLine + 1, ch: 0 });
+		cm.dispatch({ selection: { anchor: pos, head: pos }, scrollIntoView: true, userEvent: 'move' });
+	}
+
+	// See vim-support.ts's own VimSupportHost.enterTableRowSmartHome doc
+	// comment — the same enterTableAtLine + refineTableLandingForSmartHome
+	// combo jumpToDocumentLine (gg/G) already uses below, including its own
+	// explicit scroll-into-view follow-up (see jumpToDocumentLine's own doc
+	// comment on why setCursorViaCm's underlying dispatches don't request one
+	// on their own).
+	enterTableRowSmartHome(editor: unknown, targetLine: number): { line: number; ch: number } | null {
+		const e = editor as Editor;
+		let result = this.enterTableAtLine(e, targetLine, 0, true, 0, 0);
+		if (result) result = this.refineTableLandingForSmartHome(e, result);
+		if (result) {
+			const cm = e.cm;
+			const pos = e.posToOffset(result);
+			cm.dispatch({ selection: { anchor: pos, head: pos }, scrollIntoView: true, userEvent: 'move' });
+		}
+		return result;
+	}
+
 	// See vim-support.ts's own VimSupportHost.refineDisplayLineColumn doc
 	// comment for the full rationale (step 2 of gj/gk's own row-crossing,
 	// always preceded by a crossTableRowForCell(..., 0, 1) rough landing).
@@ -2891,6 +3054,14 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const headLine = outer.state.doc.lineAt(head);
 		this.setCursorViaCm(e, outerCursor.line, resolved - headLine.from);
 		return e.getCursor();
+	}
+
+	// Obsidian internal API (not in obsidian.d.ts) — narrower than
+	// settings.ts's own like-named ObsidianInternals, which also needs
+	// hotkeyManager/setting/vault; this file only ever touches commands.
+	executeObsidianCommand(commandId: string): boolean {
+		return (this.app as unknown as { commands?: { executeCommandById?(id: string): boolean } })
+			.commands?.executeCommandById?.(commandId) ?? false;
 	}
 
 	// Shared by both branches of refineDisplayLineColumn above: finds the
@@ -2978,6 +3149,22 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const targetLine = explicitLine !== null
 			? Math.max(0, Math.min(explicitLine, lastLine))
 			: (forward ? lastLine : 0);
+
+		// Bare G (not count-prefixed — see below) landing on a table that runs
+		// all the way to the document's own last line: mirror tx's own EOF fix
+		// (appendBlankLineAndLand, already used for exiting a table that hits
+		// EOF) instead of landing inside the table's own last row — G means
+		// "reach the real end", and a table swallowing that end is the same
+		// problem tx already solves. Deliberately asymmetric with gg (kept
+		// as-is, no "prepend a line" equivalent, matching tx/tX's own
+		// precedent) and with count-prefixed jumps ("5G"), which target a
+		// specific line the user named explicitly, not "the very end" — those
+		// still land inside the table normally, even if that line happens to
+		// also be the document's last line.
+		if (explicitLine === null && forward && this.isPositionInTable(e, targetLine, 1)) {
+			this.appendBlankLineAndLand(e);
+			return { line: lastLine + 1, ch: 0 };
+		}
 
 		let result: { line: number; ch: number } | null;
 		if (this.isPositionInTable(e, targetLine, 1)) {
