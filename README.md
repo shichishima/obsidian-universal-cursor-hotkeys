@@ -49,23 +49,7 @@ Fixes to Vim's own native keys, scoped to Live Preview table cells — outside a
 
 #### Table structure
 
-New leader-key commands (`<leader>` is `Space` by default, `\` optional) — not fixes to existing vim keys, but a thin wrapper around Obsidian's own built-in table commands. No-op outside a table cell, except `tm`.
-
-| Keys | Function Summary |
-| :--: | ----------------- |
-| `<leader>to` / `<leader>tO` | Insert a row below / above. |
-| `<leader>tiJ` / `<leader>tiK` | Alias for `to`/`tO` — matches `tiH`/`tiL`'s own "`ti` + direction" column-insert convention. |
-| `<leader>tK` / `<leader>tJ` | Move the current row up / down. |
-| `<leader>tdd` | Delete the current row. |
-| `<leader>tyyp` | Duplicate the current row. |
-| `<leader>tiH` / `<leader>tiL` | Insert a column left / right. |
-| `<leader>tH` / `<leader>tL` | Move the current column left / right. |
-| `<leader>tdc` | Delete the current column. |
-| `<leader>tyc` | Duplicate the current column. |
-| `<leader>tal` / `<leader>tac` / `<leader>tar` | Align the current column left / center / right. |
-| `<leader>tm` | Insert a table — the only one in this table that also works outside an existing table. |
-
-**Alternate layout (matches the Settings screen's own Row/Column matrix — kept side by side for comparison, not yet decided which one stays):**
+New leader-key commands (`<leader>` is `Space` by default, `\` optional) — not fixes to existing vim keys, but a thin wrapper around Obsidian's own built-in table commands. No-op outside a table cell, except `tm`. `tiJ`/`tiK` are aliases for `to`/`tO` — matching `tiH`/`tiL`'s own "`ti` + direction" column-insert convention.
 
 | | Row | Column |
 | --- | --- | --- |
