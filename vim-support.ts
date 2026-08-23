@@ -629,9 +629,9 @@ export class VimSupport {
 	// prefixes "insert" (vs. bare H/L reserved for a possible future "move
 	// column" — not part of this MVP). Action names are UCH-prefixed (not
 	// e.g. bare "tableRowAfter") to avoid colliding with the same names a
-	// competing plugin ("Vim Motions") registers on the same shared Vim
-	// singleton. Key suffixes deliberately match Vim Motions' own scheme for
-	// muscle-memory transfer (source-confirmed via their tables.ts).
+	// competing plugin registers on the same shared Vim singleton. Key
+	// suffixes deliberately match that plugin's own scheme for muscle-memory
+	// transfer (source-confirmed against its own table-command module).
 	private readonly tableRowAfter = this.tableCommandAction('editor:table-row-after');
 	private readonly tableRowBefore = this.tableCommandAction('editor:table-row-before');
 	private readonly tableRowUp = this.tableCommandAction('editor:table-row-up');
@@ -673,9 +673,10 @@ export class VimSupport {
 	// bundled app.js command-registration loop — sort and clear/delete-
 	// selection genuinely have no command ID and can't be reached this way,
 	// but duplicate row/col do, contrary to this branch's own original design
-	// notes). Neither Vim Motions' own leader-key scheme nor its Ex commands
-	// cover duplicate row/col at all, and its align commands are Ex-command-
-	// only (no leader key) — so these 5 keys are UCH's own, not borrowed.
+	// notes). Neither that competing plugin's own leader-key scheme nor its
+	// Ex commands cover duplicate row/col at all, and its align commands are
+	// Ex-command-only (no leader key) — so these 5 keys are UCH's own, not
+	// borrowed.
 	private readonly tableRowCopy = this.tableCommandAction('editor:table-row-copy');
 	private readonly tableColCopy = this.tableCommandAction('editor:table-col-copy');
 	private readonly tableColAlignLeft = this.tableColPreservingCommandAction('editor:table-col-align-left');
