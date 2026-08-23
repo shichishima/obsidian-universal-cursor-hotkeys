@@ -96,8 +96,8 @@ See [Command Reference](#command-reference) above for what each toggle actually 
 | `$` End of line (sticky column) | ON | ✓ | Requires `j` `k` Line movement or `gj` `gk` Display-line movement to be ON. |
 | `^` `I` First non-blank | ON | ✓ | Requires Smart home (standard) to be ON. |
 | `J` Join lines | ON | ✓ | Requires Smart join to be ON. |
-| `Space` `t` Table structure (16 commands) | OFF | ✓ | — |
-| `Space` `t` Table navigation (6 commands) | OFF | ✓ | — |
+| `Space` `t` Table structure (16 commands) | OFF | ✓ | [Command reference →](#table-structure) |
+| `Space` `t` Table navigation (6 commands) | OFF | ✓ | [Command reference →](#table-navigation) |
 
 Turning an item off restarts Obsidian to fully restore vim's native behavior (a banner prompts this when needed).
 
@@ -489,6 +489,8 @@ Note: (*) indicates behaviors specific to Live Preview mode.
 
 
 ## Behavior Options
+
+[Vim support](#vim-support-experimental) | [Emacs keybindings](#emacs-keybindings)
 
 **Smart home (standard/advanced)** and **Smart join** are shared with the Vim support toggles (`^`/`I`, `J`) above. **Visual line movement** and **Cross-row navigation** apply to the Emacs-side commands only.
 
