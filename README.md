@@ -65,15 +65,27 @@ New leader-key commands (`<leader>` is `Space` by default, `\` optional) — not
 | `<leader>tal` / `<leader>tac` / `<leader>tar` | Align the current column left / center / right. |
 | `<leader>tm` | Insert a table — the only one in this table that also works outside an existing table. |
 
+**Alternate layout (matches the Settings screen's own Row/Column matrix — kept side by side for comparison, not yet decided which one stays):**
+
+| | Row | Column |
+| --- | --- | --- |
+| Insert | `<leader>to` / `<leader>tO`<br>`<leader>tiJ` / `<leader>tiK`<br>(below/above) | `<leader>tiH` / `<leader>tiL`<br>(left/right) |
+| Move | `<leader>tK` / `<leader>tJ`<br>(up/down) | `<leader>tH` / `<leader>tL`<br>(left/right) |
+| Delete | `<leader>tdd` | `<leader>tdc` |
+| Duplicate | `<leader>tyyp` | `<leader>tyc` |
+| Align | — | `<leader>tal` / `<leader>tac` / `<leader>tar`<br>(left/center/right) |
+
+`<leader>tm` — insert a table; the only one here that also works outside an existing table.
+
 #### Table navigation
 
 New leader-key commands — pure cursor movement, original logic (not a wrapper around anything native). No-op outside a table cell.
 
 | Keys | Function Summary |
 | :--: | ----------------- |
-| `<leader>tx` / `<leader>tX` | Exit the current table below / above — distinct from `gg`/`G`, which jump to the whole document's edge, not just past this table. |
-| `<leader>th` / `<leader>tl` | Jump to the cell to the left / right, landing at its own content start. Distinct from Obsidian's own built-in `Tab`/`Shift-Tab` cell navigation, which wraps to the next/previous row at a row's own left/right edge (and inserts a brand new row once it runs out of table) — `th`/`tl` always stay within the current row, no-op at its own left/right edge instead. |
 | `<leader>tj` / `<leader>tk` | Jump to the cell below / above (same column), landing at its own content start — distinct from vim's native `j`/`k`, which preserve column position instead of jumping to content start. |
+| `<leader>th` / `<leader>tl` | Jump to the cell to the left / right, landing at its own content start. Distinct from Obsidian's own built-in `Tab`/`Shift-Tab` cell navigation, which wraps to the next/previous row at a row's own left/right edge (and inserts a brand new row once it runs out of table) — `th`/`tl` always stay within the current row, no-op at its own left/right edge instead. |
+| `<leader>tx` / `<leader>tX` | Exit the current table below / above — distinct from `gg`/`G`, which jump to the whole document's edge, not just past this table. |
 
 ### Settings
 
@@ -91,7 +103,7 @@ See [Command Reference](#command-reference) above for what each toggle actually 
 
 | Toggle | Default | Apply all | Description |
 | ------ | :-----: | :-------: | ------------ |
-| Leader key | OFF<br>(Space) | — | **OFF:** `Space` (default).<br>**ON:** `\`. Only matters once Table structure or Table navigation below is on. |
+| Leader key | OFF<br>(`Space`) | — | **OFF:** `Space` (default).<br>**ON:** `\`. Only matters once Table structure or Table navigation below is on. |
 | `h` `l` `x` Character movement | ON | ✓ | — |
 | `j` `k` Line movement | ON | ✓ | — |
 | `w` `b` `e` Word motion | ON | ✓ | — |
