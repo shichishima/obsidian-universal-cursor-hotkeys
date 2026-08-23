@@ -223,12 +223,12 @@ Six ordinary commands, assignable via **Settings → Hotkeys** or the Quick setu
 
 | Command Name | Recommended<br>Hotkey | Function Summary | Key<br>Repeat |
 | :--------: | :----------------: | ---------------- | :---: |
-| Exit table below | — | Exits the table to the line below. | ✓ |
-| Exit table above | — | Exits the table to the line above. | ✓ |
 | Move to cell left | — | Jumps to the adjacent cell to the left, landing at its own content start — no selection is created. | ✓ |
 | Move to cell right | — | Jumps to the adjacent cell to the right, landing at its own content start — no selection is created. | ✓ |
 | Move to cell below | — | Jumps to the cell in the same column one row below, landing at its own content start. | ✓ |
 | Move to cell above | — | Jumps to the cell in the same column one row above, landing at its own content start. | ✓ |
+| Exit table below | — | Exits the table to the line below. | ✓ |
+| Exit table above | — | Exits the table to the line above. | ✓ |
 
 ### Settings
 

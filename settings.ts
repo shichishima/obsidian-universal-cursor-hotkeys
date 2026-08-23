@@ -286,12 +286,12 @@ const COMMAND_DEFS: readonly CommandDef[] = [
 	// choice not to push a default, not "not owned" like tableStructure
 	// above — no Hotkeys-search link needed for this block (see
 	// renderCollapsibleBlock's own titleAction parameter).
-	{ block: 'tableNav', id: 'table-exit-down',      name: 'Exit table below',    recommended: null },
-	{ block: 'tableNav', id: 'table-exit-up',        name: 'Exit table above',    recommended: null },
 	{ block: 'tableNav', id: 'table-cell-left',      name: 'Move to cell left',   recommended: null },
 	{ block: 'tableNav', id: 'table-cell-right',     name: 'Move to cell right',  recommended: null },
 	{ block: 'tableNav', id: 'table-cell-down',      name: 'Move to cell below',  recommended: null },
 	{ block: 'tableNav', id: 'table-cell-up',        name: 'Move to cell above',  recommended: null },
+	{ block: 'tableNav', id: 'table-exit-down',      name: 'Exit table below',    recommended: null },
+	{ block: 'tableNav', id: 'table-exit-up',        name: 'Exit table above',    recommended: null },
 ];
 
 export interface DisplacedCommand {

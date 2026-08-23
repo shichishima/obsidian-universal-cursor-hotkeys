@@ -269,24 +269,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// opt-in via Settings → Hotkeys / the Quick setup assistant, not bound
 		// by default.
 		this.addCommand({
-			id: 'table-exit-down',
-			name: 'Exit table below',
-			repeatable: true,
-			editorCallback: (editor: Editor) => {
-				if (editor.inTableCell) exitTable(editor, this, true);
-			}
-		});
-
-		this.addCommand({
-			id: 'table-exit-up',
-			name: 'Exit table above',
-			repeatable: true,
-			editorCallback: (editor: Editor) => {
-				if (editor.inTableCell) exitTable(editor, this, false);
-			}
-		});
-
-		this.addCommand({
 			id: 'table-cell-left',
 			name: 'Move to cell left',
 			repeatable: true,
@@ -319,6 +301,24 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
 				if (editor.inTableCell) jumpAdjacentCell(editor, this, 'k');
+			}
+		});
+
+		this.addCommand({
+			id: 'table-exit-down',
+			name: 'Exit table below',
+			repeatable: true,
+			editorCallback: (editor: Editor) => {
+				if (editor.inTableCell) exitTable(editor, this, true);
+			}
+		});
+
+		this.addCommand({
+			id: 'table-exit-up',
+			name: 'Exit table above',
+			repeatable: true,
+			editorCallback: (editor: Editor) => {
+				if (editor.inTableCell) exitTable(editor, this, false);
 			}
 		});
 
