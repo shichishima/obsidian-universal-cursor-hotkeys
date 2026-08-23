@@ -537,7 +537,7 @@ Note: (*) indicates behaviors specific to Live Preview mode.
 | Smart home (advanced) | ON | **ON:** also skips past headings (`# `), footnotes (`[^1]: `), and callout type markers (`[!type]`). Requires Smart home (standard) to be ON. |
 | Smart join | OFF | **ON:** Kill Line join lands at the next line's content start, removing blockquote markers, list markers, and indentation. Pairs with Smart home (advanced) for headings and footnotes. Requires Smart home (standard) to be ON.<br>**OFF:** joins the next line as-is. |
 | Cross-row navigation | ON | *Emacs-side only (LEFT/RIGHT/HOME/END).*<br>**ON:** LEFT / HOME at the first cell and RIGHT / END at the last cell wrap to the adjacent row.<br>**OFF:** stops at the boundary. |
-| Double-click word select | ON | **ON:** double-clicking CJK (Japanese/Chinese) text selects just the word at that position — dictionary-based, not the entire unbroken run. Dragging afterward extends the selection a word at a time.<br>**OFF:** uses Obsidian's native double-click selection. |
+| Double-click word select | ON | **ON:** double-clicking CJK (Chinese/Japanese) text selects just the word at that position — dictionary-based, not the entire unbroken run. Dragging afterward extends the selection a word at a time.<br>**OFF:** uses Obsidian's native double-click selection. |
 
 
 ## Acknowledgments
