@@ -68,7 +68,7 @@ New leader-key commands — pure cursor movement, original logic (not a wrapper 
 | Keys | Function Summary |
 | :--: | ----------------- |
 | `<leader>tj` / `<leader>tk` | Jump to the cell below / above (same column), landing at its own content start — distinct from vim's native `j`/`k`, which preserve column position instead of jumping to content start. |
-| `<leader>th` / `<leader>tl` | Jump to the cell to the left / right, landing at its own content start. Distinct from Obsidian's own built-in `Tab`/`Shift-Tab` cell navigation, which wraps to the next/previous row at a row's own left/right edge (and inserts a brand new row once it runs out of table) — `th`/`tl` always stay within the current row, no-op at its own left/right edge instead. |
+| `<leader>th` / `<leader>tl` | Jump to the cell to the left / right, landing at its own content start — no selection is created. Distinct from Obsidian's own built-in `Tab`/`Shift-Tab` cell navigation, which wraps to the next/previous row at a row's own left/right edge (and inserts a brand new row once it runs out of table) and selects the destination cell's entire content — `th`/`tl` always stay within the current row, no-op at its own left/right edge instead. |
 | `<leader>tx` / `<leader>tX` | Exit the current table below / above — distinct from `gg`/`G`, which jump to the whole document's edge, not just past this table. |
 
 ### Settings
@@ -137,7 +137,7 @@ Kill & Yank (Ctrl+K / Ctrl+Y) and Kill Region (Ctrl+W) bring the full Emacs edit
 
 ### Getting Started
 
-[Command Reference](#command-reference-1) | [Settings](#settings-1) | [Limitations](#limitations-1) | [Command Details](#command-details)
+[Command Reference](#command-reference-1) | [Settings](#settings-1) | [Limitations](#limitations-1) | [Command Details](#command-details) | [Behavior Options](#behavior-options)
 
 No hotkeys are assigned by default.
 
