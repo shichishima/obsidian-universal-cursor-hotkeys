@@ -13,22 +13,26 @@
   - `tal`/`tac`/`tar` align the current column left/center/right.
   - `tm` inserts a table (the only one of the sixteen that also works outside an existing table).
 - **Table navigation commands (Vim side):** New leader-key commands, also under Vim support — pure cursor movement, no-op outside a table cell.
-  - `tx`/`tX` exit the current table below/above (distinct from `gg`/`G`, which jump to the whole document's edge, not just past this table).
   - `th`/`tj`/`tk`/`tl` jump straight to the adjacent cell, landing at its own content start — a coarser, spreadsheet-style jump distinct from vim's native `j`/`k` (which preserve column position instead).
-- **Table navigation commands (Emacs side):** Also available on the Emacs side as six ordinary commands, listed in their own collapsible "Table navigation" section of the Quick setup assistant — no recommended hotkey, assignable via Settings → Hotkeys or the Quick setup assistant, same as Redo.
-  - **Exit table below/above.**
-  - **Move to cell left/right/below/above.**
+  - `tx`/`tX` exit the current table below/above (distinct from `gg`/`G`, which jump to the whole document's edge, not just past this table).
 - **Quick setup assistant — Table structure section:** Now also lists Obsidian's own sixteen built-in table-structure commands (insert/move/delete/duplicate row or column, column alignment, insert table) in a collapsible section, so they're easy to find and assign a hotkey to even though this plugin doesn't own them. No "Apply recommended" (nothing to recommend for someone else's commands) — instead a link opens Obsidian's Hotkeys panel pre-filtered to the table-command group.
+- **Table navigation commands (Emacs side):** Also available on the Emacs side as six ordinary commands, listed in their own collapsible "Table navigation" section of the Quick setup assistant — no recommended hotkey, assignable via Settings → Hotkeys or the Quick setup assistant, same as Redo.
+  - **Move to cell left/right/below/above.**
+  - **Exit table below/above.**
 - **Double-click word select (Behavior Options):** Double-clicking Japanese/CJK text now selects the dictionary-segmented word at that position (same Intl.Segmenter engine as Word right/left and Vim's `w`/`b`/`e`), instead of Obsidian's native double-click, which treats an entire unbroken run of CJK characters as one "word" since there's no whitespace between them. Also fixes the same case for a Latin term embedded in CJK prose (e.g. "API" inside a Japanese sentence). Dragging after the double-click extends the selection a whole word at a time. On by default; Latin-only text is unaffected either way.
 
 ### Changed
 
-- **Vim support: the native motion-fix toggles are now on by default for new installs** — Character movement, Line movement, Word motion, Document start/end, Display-line movement, End of line (sticky column), and First non-blank (Smart home). These only change behavior inside Live Preview table cells (already-broken native Vim behavior), so the risk of silently overriding a real custom binding is low. Table structure, Table navigation, and Join lines (Smart join) remain off by default — the first two bind a leader-key sequence on top of Vim's own native `Space` binding, and Join lines depends on Smart join, which itself defaults off. Existing installs keep whatever values are already saved; this only affects fresh installs.
+- **Vim support: the native motion-fix toggles, plus Join lines, are now on by default for new installs** — Character movement, Line movement, Word motion, Document start/end, Display-line movement, End of line (sticky column), First non-blank (Smart home), and Join lines. The motion-fix toggles only change behavior inside Live Preview table cells (already-broken native Vim behavior), so the risk of silently overriding a real custom binding is low; Join lines self-gates on its own Smart join prerequisite (still off by default) and falls back to vim's native join until Smart join is turned on. Table structure and Table navigation remain off by default — both bind a leader-key sequence on top of Vim's own native `Space` binding. Existing installs keep whatever values are already saved; this only affects fresh installs.
+- **First non-blank/Join lines toggles no longer gray out when their Smart home (standard)/Smart join prerequisite is off:** both already self-gated live at call time (falling back to vim's native behavior until the prerequisite is on), so the grayout was cosmetic only — it just forced an unnecessary two-step enable sequence.
 
 ### Fixed
 
 - **Vim `u` / Ctrl-R now undo/redo table-structure changes from inside a table cell:** previously only reached whichever cell's own local undo history was active, which has no record of structural edits (row/column insert/delete) — the only way to undo one was to leave the cell first. Now delegates to Obsidian's own outer-document Undo/Redo (the same one Cmd+Z and this plugin's own Undo/Redo commands use) while inside a table cell.
+- **Table structure `tdd` (delete row) now leaves the cursor on the row that took the deleted one's place** — matching vim's own `dd` convention — instead of jumping back to the table's first row.
 - **`G` now appends a blank line at a note-ending table, instead of landing inside it:** previously landed inside the table's own last row when a note ended with a table, unlike `tx`'s own identical EOF case (append a blank line and exit). `gg` is unaffected (asymmetric, matching `tx`/`tX`'s own precedent), as are count-prefixed jumps like `5G`, which target a specific line rather than "the end".
+- **Vim support's "Apply all" now turns on First non-blank/Join lines unconditionally:** previously skipped either one if its own Smart home (standard)/Smart join prerequisite was off at the time — both already fall back safely to vim's native behavior in that case, so there was no correctness reason to skip them.
+- **Settings tab no longer jumps to the top on every toggle:** scroll position is now preserved across the tab's internal re-renders.
 
 ## [0.9.0] - 2026-08-14
 
