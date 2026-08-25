@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- **CJK double-click-drag now segments correctly when the drag starts on non-CJK text:** previously, double-clicking an English-only line then dragging into an adjacent CJK (Chinese/Japanese) line never segmented the CJK side — starting the gesture on non-CJK text handed the whole drag to Obsidian's native handler. Also fixes a related same-line case: dragging from CJK text into plain English text now extends to the whole word, instead of stopping at the exact drag position.
+
 ## [0.10.0] - 2026-08-23
 
 ### Added
