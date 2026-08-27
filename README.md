@@ -223,12 +223,12 @@ Six ordinary commands, assignable via **Settings → Hotkeys** or the Quick setu
 
 | Command Name | Recommended<br>Hotkey | Function Summary | Key<br>Repeat |
 | :--------: | :----------------: | ---------------- | :---: |
-| Move to cell left | — | Jumps to the adjacent cell to the left, landing at its own content start — no selection is created. | ✓ |
-| Move to cell right | — | Jumps to the adjacent cell to the right, landing at its own content start — no selection is created. | ✓ |
-| Move to cell below | — | Jumps to the cell in the same column one row below, landing at its own content start. | ✓ |
-| Move to cell above | — | Jumps to the cell in the same column one row above, landing at its own content start. | ✓ |
-| Exit table below | — | Exits the table to the line below. | ✓ |
-| Exit table above | — | Exits the table to the line above. | ✓ |
+| Move to cell left | — | Jumps to the adjacent cell to the left, landing at its own content start — no selection is created. Distinct from Obsidian's own built-in `Tab`/`Shift-Tab` cell navigation, which wraps to the next/previous row at a row's own left/right edge (inserting a new row once it runs out of table) and selects the destination cell's entire content. | ✓ |
+| Move to cell right | — | Jumps to the adjacent cell to the right, landing at its own content start — no selection is created. Same distinction from `Tab`/`Shift-Tab` as Move to cell left. | ✓ |
+| Move to cell below | — | Jumps directly to the cell in the row below (same table column), landing at its own content start. | ✓ |
+| Move to cell above | — | Jumps directly to the cell in the row above (same table column), landing at its own content start. | ✓ |
+| Exit table below | — | Exits the table to the line below — distinct from Cursor BOTTOM, which jumps to the whole document's end, not just past this table. | ✓ |
+| Exit table above | — | Exits the table to the line above — distinct from Cursor TOP, which jumps to the whole document's start, not just past this table. | ✓ |
 
 ### Settings
 
@@ -520,6 +520,27 @@ Note: (*) indicates behaviors specific to Live Preview mode.
 
 - Scrolls the view so that the line the cursor is on appears at the vertical center of the screen. The cursor position does not change.
 - Works the same regardless of cursor position — plain text or inside a table cell.
+
+</details>
+
+<details>
+<summary>Move to cell left / right / above / below</summary>
+
+- Jumps directly to the adjacent cell in the given direction, landing at that cell's own content start — no selection is created.
+- **Left/right:** Distinct from Obsidian's own built-in `Tab`/`Shift-Tab` cell navigation, which wraps to the next/previous row at a row's own left/right edge (inserting a new row once it runs out of table) and selects the destination cell's entire content. Move to cell left/right always stays within the current row instead.
+- **At a table edge** (leftmost/rightmost cell for left/right, first/last row for above/below): no operation, rather than wrapping or leaving the table.
+- **No-op outside a table cell.**
+
+</details>
+
+<details>
+<summary>Exit table above / below</summary>
+
+- Moves the cursor out of the table entirely, to the line immediately above (Exit table above) or below (Exit table below) — distinct from Cursor TOP/BOTTOM, which jump to the whole document's true start/end, not just past this one table.
+- Lands using the same Smart Home–aware positioning as this plugin's other table-adjacent landings.
+- **No-op outside a table cell.**
+- **If the table runs all the way to the document's last line (Exit table below):** Appends a blank line and lands there, matching Cursor DOWN's own end-of-file behavior.
+- **If the table starts at the document's very first line (Exit table above):** There's no line above to exit to; instead of a no-op, lands on the table's own topmost row, leftmost cell (Smart Home–refined) — the furthest point actually reachable, matching Cursor TOP's own intent of always reaching the document's real first line.
 
 </details>
 
