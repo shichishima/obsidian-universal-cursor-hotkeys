@@ -982,6 +982,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 
 	// Handles goUp when the cursor is on the line directly below a table in Live Preview mode.
+	//
+	// Always lands in the leftmost cell (cellIndex 0), same permanent scope
+	// boundary as moveCursorDownIntoTable's own doc comment explains — no
+	// pixel-to-cell resolution is available via CM6 APIs for an unfocused
+	// table row (confirmed live 2026-08-27/28).
 	private moveCursorUpIntoTable(editor: Editor) {
 		const cursor = editor.getCursor();
 		// Only enter the table if on VL1; if on VL2+, a regular goUp suffices.
@@ -1115,6 +1120,21 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 
 	// Handles goDown when the cursor is on the line directly above a table in Live Preview mode.
+	//
+	// Always lands in the leftmost cell (cellIndex 0) rather than resolving
+	// which cell the cursor's own goal column would fall under — confirmed
+	// live (2026-08-27/28) that this isn't a gap to fix, but a real
+	// constraint: the outer CM6 view has no per-character position info for
+	// an unfocused table row's own raw markdown text (it's fully replaced by
+	// the Live Preview table widget). posAtCoords at varying x all resolved
+	// to the identical offset regardless of x, and coordsAtPos collapsed to
+	// one fixed point past the row's own start — there's no pixel-to-cell
+	// resolution available via CM6 APIs alone here, unlike the row-crossing
+	// and table-exit cases (which only ever refine position *within* an
+	// already-known, already-focused cell/line). Resolving this would need
+	// literal DOM measurement of the rendered <table>'s own cells instead of
+	// CM6 APIs — a different, more fragile mechanism than anything else in
+	// this file — so this stays a permanent scope boundary, not a TODO.
 	private moveCursorDownIntoTable(editor: Editor) {
 		const cursor = editor.getCursor();
 		const targetCh = getChByCellIndex(editor.getLine(cursor.line + 1), 0);

@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- **Ctrl-N/Ctrl-P now preserve the cursor's column when crossing table row boundaries, matching Vim's own `gj`/`gk` convention:** previously, crossing into the row above/below (or exiting the table entirely into plain text) always landed at the cell's or line's own content start, discarding whichever column the cursor was actually at. This also fixes the column being silently forgotten when a crossing happens to pass through a blank or short line. Entering a table fresh from plain text still always lands in the leftmost cell — Obsidian's Live Preview table widget gives the outer editor no per-character position information for an unfocused table row, so there's no way to resolve which cell a given column falls under before landing in one (Vim's own `gj`/`gk` has the same limitation for the same reason).
+
 ## [0.10.1] - 2026-08-27
 
 ### Fixed
