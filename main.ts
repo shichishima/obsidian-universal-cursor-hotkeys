@@ -902,11 +902,14 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const startOfCellContent = getStartOfCellContent(line, cursor.ch);
 		const cellIndex = getCellIndex(line, cursor.ch);
 		const eoc = getEndOfCellContent(line, cursor.ch);
+		// Captured once, before anything below crosses a row — see
+		// computeRowCrossPixelGoal's own doc comment.
+		const pixelGoal = this.computeRowCrossPixelGoal(editor);
 
 		// Empty cell: no navigable content, so go directly to the previous row.
 		if (startOfCellContent === eoc) {
 			this.setCursorToPrevRow(editor, cellIndex);
-			this.placeAtBottomVL(editor);
+			this.placeAtBottomVL(editor, pixelGoal);
 			return;
 		}
 
@@ -948,7 +951,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 					this.setCursorViaCm(editor, cursorAfter.line, targetCh);
 				}
 			}
-			this.placeAtBottomVL(editor);
+			this.placeAtBottomVL(editor, pixelGoal);
 			return;
 		}
 
@@ -956,7 +959,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (cursor.ch <= startOfCellContent) {
 			// Was at cell start -> go to previous row.
 			this.setCursorToPrevRow(editor, cellIndex);
-			this.placeAtBottomVL(editor);
+			this.placeAtBottomVL(editor, pixelGoal);
 			return;
 		}
 
@@ -969,9 +972,9 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			if (cursor.ch >= endOfCellContent) {
 				// VL1 end of non-wrapped cell -> go to previous row.
 				this.setCursorToPrevRow(editor, cellIndex);
-				this.placeAtBottomVL(editor);
+				this.placeAtBottomVL(editor, pixelGoal);
 			} else {
-				this.handleCellStartSnap(editor, cursor.line, cursor.ch, cellIndex, innerHeadBeforeGoUp);
+				this.handleCellStartSnap(editor, cursor.line, cursor.ch, cellIndex, pixelGoal, innerHeadBeforeGoUp);
 			}
 		}
 		// else: goUp moved within the cell to the visual line above - done.
@@ -1003,10 +1006,14 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const line = editor.getLine(cursor.line);
 		const cellIndex = getCellIndex(line, cursor.ch);
 		const eoc = getEndOfCellContent(line, cursor.ch);
+		// Captured once, before anything below crosses a row — see
+		// computeRowCrossPixelGoal's own doc comment.
+		const pixelGoal = this.computeRowCrossPixelGoal(editor);
 
 		// Empty cell: no navigable content, so go directly to the next row.
 		if (getStartOfCellContent(line, cursor.ch) === eoc) {
 			this.setCursorToNextRow(editor, cellIndex);
+			this.applyRowCrossGoalColumn(editor, pixelGoal);
 			return;
 		}
 
@@ -1043,6 +1050,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// below).  Navigate to the next row directly.
 		if (cursor.ch >= eoc) {
 			this.setCursorToNextRow(editor, cellIndex);
+			this.applyRowCrossGoalColumn(editor, pixelGoal);
 			return;
 		}
 
@@ -1079,6 +1087,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			const isDelim = this.TABLE_DELIMITER_REGEX.test(afterText);
 			if (isDelim) {
 				this.setCursorToNextRow(editor, cellIndex);
+				this.applyRowCrossGoalColumn(editor, pixelGoal);
 			}
 			return;
 		}
@@ -1086,6 +1095,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (after.ch === cursor.ch) {
 			// Complete no-op: nothing below (file-end).
 			this.setCursorToNextRow(editor, cellIndex);
+			this.applyRowCrossGoalColumn(editor, pixelGoal);
 			return;
 		}
 
@@ -1094,6 +1104,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			if (isOnLastVL) {
 				// Was already on VL_N: goDown clipped in place → exit to next row.
 				this.setCursorToNextRow(editor, cellIndex);
+				this.applyRowCrossGoalColumn(editor, pixelGoal);
 			}
 			// Was on VL_N-1: goDown moved to VL_N and clipped to eoc → VL advance, stay.
 			return;
@@ -1472,6 +1483,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		originalLine: number,
 		originalCh: number,
 		cellIndex: number,
+		pixelGoal: number | null,
 		innerHeadBeforeGoUp?: number,
 	) {
 		const inner = editor.activeCM;
@@ -1485,7 +1497,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				}
 				// VL1 middle: go to previous row.
 				this.setCursorToPrevRow(editor, cellIndex);
-				this.placeAtBottomVL(editor);
+				this.placeAtBottomVL(editor, pixelGoal);
 				return;
 			}
 		}
@@ -1500,14 +1512,18 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			// VL1 middle: undo probe, go to previous row.
 			editor.exec('goUp');
 			this.setCursorToPrevRow(editor, cellIndex);
-			this.placeAtBottomVL(editor);
+			this.placeAtBottomVL(editor, pixelGoal);
 		}
 	}
 
 
 	// Move to the bottom visual line synchronously if the inner view is already
-	// mounted, otherwise defer via scheduleBottomVisualLine.
-	private placeAtBottomVL(editor: Editor) {
+	// mounted, otherwise defer via scheduleBottomVisualLine. `pixelGoal`
+	// (moveCursorUpInTable's row-crossing goal column, or null/omitted for the
+	// unrelated moveCursorUpIntoTable caller) is applied right after each of
+	// this function's own two completion points, rather than polled
+	// independently, so it can't race against them.
+	private placeAtBottomVL(editor: Editor, pixelGoal: number | null = null) {
 		const inner = editor.activeCM;
 		if (inner && inner !== editor.cm) {
 			// Check cursor position (not content end) for on-screen detection:
@@ -1516,20 +1532,22 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			// moveToBottomVisualLineOfCell handles the off-screen content end via goDown fallback.
 			if (inner.coordsAtPos(inner.state.selection.main.head)) {
 				this.moveToBottomVisualLineOfCell(editor);
+				this.applyRowCrossGoalColumnSync(editor, pixelGoal);
 				return;
 			}
 		}
-		this.scheduleBottomVisualLine(editor);
+		this.scheduleBottomVisualLine(editor, pixelGoal);
 	}
 
 
 	// Schedules moveToBottomVisualLineOfCell for the next event loop tick.
 	// Used after synchronous cursor placement to let the DOM settle first.
-	private scheduleBottomVisualLine(editor: Editor) {
+	private scheduleBottomVisualLine(editor: Editor, pixelGoal: number | null = null) {
 		if (this._inScrollPage) return;
 		window.setTimeout(() => {
 			if (editor.inTableCell) {
 				this.moveToBottomVisualLineOfCell(editor);
+				this.applyRowCrossGoalColumnSync(editor, pixelGoal);
 			}
 		}, 0);
 	}
@@ -1610,6 +1628,76 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (breakReason === 'exitedLine') {
 			editor.exec('goUp');
 		}
+	}
+
+
+	// Reads the pixel-x "goal column" to preserve across a table row-crossing,
+	// straight off CM6's own native SelectionRange.goalColumn — the same field
+	// @codemirror/commands' cursorLineUp/cursorLineDown maintain, which is why
+	// intra-cell goUp/goDown already preserve column "for free" (see
+	// handleCellStartSnap's own "CM6 goal-column memory" comment). No new
+	// plugin-owned tracking: typing/clicking dispatch a fresh selection with no
+	// goalColumn set, so a later read here naturally falls back to the live
+	// coordsAtPos position — the same reset-for-free behavior real Vim/Emacs
+	// curswant semantics need. Must be called BEFORE the crossing happens,
+	// while the source cell's inner view is still the active one. Returns null
+	// outside a table cell (table-exit / plain-text landings don't
+	// participate in this mechanism — see applyRowCrossGoalColumnSync).
+	private computeRowCrossPixelGoal(editor: Editor): number | null {
+		const inner = editor.activeCM;
+		if (!inner || inner === editor.cm) return null;
+		const goalColumn = inner.state.selection.main.goalColumn;
+		if (goalColumn !== undefined) return inner.contentDOM.getBoundingClientRect().left + goalColumn;
+		const coords = inner.coordsAtPos(inner.state.selection.main.head);
+		return coords ? coords.left : null;
+	}
+
+	// Re-seeds the destination cell's own inner view with the preserved goal
+	// column, once the row-crossing has already landed. Reuses
+	// refineDisplayLineColumn (vim-mode gj/gk's own step-2 primitive)
+	// unmodified for the horizontal correction itself, then re-reads
+	// editor.activeCM afterward — refineDisplayLineColumn dispatches via
+	// setCursorViaCm, which can trigger Obsidian's own inner-view (re)focus —
+	// and writes goalColumn onto that settled view's own selection, same
+	// same-position-dispatch-for-metadata idiom the assoc-fix blocks in
+	// moveCursorUpInTable/moveCursorDownInTable already use. Assumes the
+	// destination inner view is already mounted; callers that aren't sure
+	// (moveCursorDownInTable has no existing placement step to piggyback on)
+	// go through applyRowCrossGoalColumn instead. No-op if there's no goal to
+	// preserve, or the landing exited the table entirely (goalColumn has no
+	// meaning in plain text).
+	private applyRowCrossGoalColumnSync(editor: Editor, pixelGoal: number | null) {
+		if (pixelGoal === null) return;
+		this.refineDisplayLineColumn(editor, pixelGoal);
+		const inner = editor.activeCM;
+		if (!inner || inner === editor.cm) return;
+		const head = inner.state.selection.main.head;
+		const assoc = inner.state.selection.main.assoc;
+		const rect = inner.contentDOM.getBoundingClientRect();
+		inner.dispatch({
+			selection: EditorSelection.create([
+				EditorSelection.cursor(head, assoc, undefined, pixelGoal - rect.left),
+			]),
+		});
+	}
+
+	// Sync-or-deferred wrapper for moveCursorDownInTable's row-crossings,
+	// mirroring scheduleBottomVisualLine's own "mounted? apply now : defer one
+	// tick" idiom (moveCursorUpInTable's own crossings instead piggyback on
+	// placeAtBottomVL's existing split — see its own call sites below).
+	private applyRowCrossGoalColumn(editor: Editor, pixelGoal: number | null) {
+		if (pixelGoal === null) return;
+		const inner = editor.activeCM;
+		if (inner && inner !== editor.cm && inner.coordsAtPos(inner.state.selection.main.head)) {
+			this.applyRowCrossGoalColumnSync(editor, pixelGoal);
+			return;
+		}
+		if (this._inScrollPage) return;
+		window.setTimeout(() => {
+			if (editor.inTableCell) {
+				this.applyRowCrossGoalColumnSync(editor, pixelGoal);
+			}
+		}, 0);
 	}
 
 
