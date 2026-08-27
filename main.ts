@@ -1535,8 +1535,16 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				this.applyRowCrossGoalColumnSync(editor, pixelGoal);
 				return;
 			}
+			this.scheduleBottomVisualLine(editor, pixelGoal);
+			return;
 		}
-		this.scheduleBottomVisualLine(editor, pixelGoal);
+		// No distinct inner view: the crossing exited the table entirely (not
+		// "not yet mounted" — the outer document view is always already
+		// mounted). moveToBottomVisualLineOfCell is cell-specific and doesn't
+		// apply here; just re-seed the preserved column directly against the
+		// now-current outer-view landing (refineDisplayLineColumn's own
+		// outer-view branch handles this — see its doc comment).
+		this.applyRowCrossGoalColumnSync(editor, pixelGoal);
 	}
 
 
@@ -1664,17 +1672,21 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// destination inner view is already mounted; callers that aren't sure
 	// (moveCursorDownInTable has no existing placement step to piggyback on)
 	// go through applyRowCrossGoalColumn instead. No-op if there's no goal to
-	// preserve, or the landing exited the table entirely (goalColumn has no
-	// meaning in plain text).
+	// preserve. Re-seeds onto editor.activeCM — the inner cell view, or the
+	// outer document view if the crossing exited the table entirely — since
+	// goalColumn still matters in plain text: without writing it here, a
+	// landing on a blank line (content-less, so refineDisplayLineColumn can
+	// only place the cursor at ch 0) would otherwise leave nothing for a
+	// later native goDown/goUp to inherit, silently forgetting the preserved
+	// column the moment the crossing passes through any zero-width line.
 	private applyRowCrossGoalColumnSync(editor: Editor, pixelGoal: number | null) {
 		if (pixelGoal === null) return;
 		this.refineDisplayLineColumn(editor, pixelGoal);
-		const inner = editor.activeCM;
-		if (!inner || inner === editor.cm) return;
-		const head = inner.state.selection.main.head;
-		const assoc = inner.state.selection.main.assoc;
-		const rect = inner.contentDOM.getBoundingClientRect();
-		inner.dispatch({
+		const view = editor.activeCM;
+		const head = view.state.selection.main.head;
+		const assoc = view.state.selection.main.assoc;
+		const rect = view.contentDOM.getBoundingClientRect();
+		view.dispatch({
 			selection: EditorSelection.create([
 				EditorSelection.cursor(head, assoc, undefined, pixelGoal - rect.left),
 			]),
@@ -1688,7 +1700,14 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private applyRowCrossGoalColumn(editor: Editor, pixelGoal: number | null) {
 		if (pixelGoal === null) return;
 		const inner = editor.activeCM;
-		if (inner && inner !== editor.cm && inner.coordsAtPos(inner.state.selection.main.head)) {
+		if (!inner || inner === editor.cm) {
+			// Exited the table entirely — the outer document view is always
+			// already mounted (no "not yet mounted" concern like a fresh
+			// inner cell view), so this applies immediately, no defer needed.
+			this.applyRowCrossGoalColumnSync(editor, pixelGoal);
+			return;
+		}
+		if (inner.coordsAtPos(inner.state.selection.main.head)) {
 			this.applyRowCrossGoalColumnSync(editor, pixelGoal);
 			return;
 		}

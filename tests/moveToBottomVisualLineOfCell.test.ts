@@ -215,11 +215,14 @@ describe('placeAtBottomVL', () => {
 	// async fallback: scheduleBottomVisualLine called
 	// ===========================================================================
 
-	it('no inner view (activeCM === cm) → scheduleBottomVisualLine called', () => {
+	it('no inner view (activeCM === cm) → exited the table entirely: applies goal column directly, no scheduling', () => {
+		// The outer document view is always already mounted (unlike a fresh
+		// inner cell view), so this is a direct call, not a deferred retry.
 		const cm     = {}
 		const editor = makeEditor(cm, cm)
-		plugin.placeAtBottomVL(editor)
-		expect(plugin.scheduleBottomVisualLine).toHaveBeenCalledWith(editor, null)
+		plugin.placeAtBottomVL(editor, 555)
+		expect(plugin.applyRowCrossGoalColumnSync).toHaveBeenCalledWith(editor, 555)
+		expect(plugin.scheduleBottomVisualLine).not.toHaveBeenCalled()
 		expect(plugin.moveToBottomVisualLineOfCell).not.toHaveBeenCalled()
 	})
 

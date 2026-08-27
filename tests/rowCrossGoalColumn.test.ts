@@ -98,12 +98,21 @@ describe('applyRowCrossGoalColumnSync', () => {
 		expect(call.selection.main.goalColumn).toBe(40)
 	})
 
-	it('landing exited the table entirely (no distinct inner view after refinement) → refineDisplayLineColumn called, no dispatch attempted', () => {
-		const cm = {}
+	it('landing exited the table entirely (no distinct inner view after refinement) → still re-seeds goalColumn, onto the outer view', () => {
+		// A blank/short exit line has no content for refineDisplayLineColumn to
+		// place the cursor beyond ch 0 — goalColumn must still be written onto
+		// the outer view itself, or a later native goDown/goUp through that
+		// line would have nothing to inherit and would silently forget the
+		// preserved column (this is the real bug this test guards against).
+		const cm = makeInner(0, 1, 60)
 		const editor: any = { activeCM: cm, cm }
 		plugin.applyRowCrossGoalColumnSync(editor, 100)
 		expect(plugin.refineDisplayLineColumn).toHaveBeenCalledWith(editor, 100)
-		// No inner view to dispatch onto — must not throw, must not call anything further.
+		expect(cm.dispatch).toHaveBeenCalledTimes(1)
+		const call = cm.dispatch.mock.calls[0][0]
+		expect(call.selection.main.head).toBe(0)
+		expect(call.selection.main.assoc).toBe(1)
+		expect(call.selection.main.goalColumn).toBe(40) // 100 - 60
 	})
 })
 
@@ -129,6 +138,13 @@ describe('applyRowCrossGoalColumn', () => {
 		plugin.applyRowCrossGoalColumn(editor, null)
 		vi.advanceTimersByTime(0)
 		expect(plugin.applyRowCrossGoalColumnSync).not.toHaveBeenCalled()
+	})
+
+	it('no distinct inner view (activeCM === cm) → exited the table entirely: applies synchronously, no defer', () => {
+		const cm = {}
+		const editor = { activeCM: cm, cm, inTableCell: false }
+		plugin.applyRowCrossGoalColumn(editor, 200)
+		expect(plugin.applyRowCrossGoalColumnSync).toHaveBeenCalledWith(editor, 200)
 	})
 
 	it('destination inner view already mounted (coordsAtPos resolves) → applies synchronously', () => {
