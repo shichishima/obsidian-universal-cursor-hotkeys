@@ -14,12 +14,15 @@
 // what fires, so intercepting EditorView.mouseSelectionStyle is the right
 // extension point.
 //
-// Deliberately scoped to *only* intervene when CM6's own native run at the
-// click position would actually span a CJK character somewhere in it — every
-// other case (a plain-Latin word, punctuation, whitespace, single/triple
-// click) returns null so CM6's own already-correct default handles it
-// untouched. This is a narrower, lower-regression-risk stance than globally
-// replacing groupAt's own char-categorizer logic.
+// Single/triple click and non-primary-button gestures still return null so
+// CM6's own default handles them untouched. For a real double-click,
+// dragSpanAt (below) only ever applies segmenter-based CJK logic when the
+// native run at a given position actually spans a CJK character somewhere
+// in it — a plain-Latin position falls back to the same native run CM6's
+// own groupAt would have picked, so this is a narrower, lower-regression-risk
+// stance than globally replacing groupAt's own char-categorizer logic, even
+// though the gesture itself is now always claimed once enabled (see
+// cjkWordSelectionStyle's own comment on why).
 //
 // Gating on "just the clicked character" (an earlier version of this file)
 // under-fires: CM6's default word class is \p{Alphabetic}\p{Number}_ — Latin
@@ -82,14 +85,27 @@ export function getCjkWordSpan(lineText: string, ch: number): WordSpan | null {
 	return findWordSpanOnLine(lineText, ch, true);
 }
 
+// Returns the span this position should use during a double-click-drag
+// gesture, regardless of script: the segmenter-computed CJK span if the
+// native run here contains a CJK character, otherwise the same native
+// word-class run CM6's own default double-click would select (so a plain
+// word still gets its own sensible "whole word" span, not a collapsed
+// point) — a bare point only when `ch` isn't on/adjacent to any word-class
+// character at all (whitespace/punctuation). Always returns a span, never
+// null, so the caller can claim the whole gesture unconditionally and still
+// do the right thing per line as the drag crosses between scripts (see
+// cjkWordSelectionStyle's own comment on why it can't decide this lazily).
+function dragSpanAt(lineText: string, ch: number): WordSpan {
+	return getCjkWordSpan(lineText, ch) ?? nativeWordRunAt(lineText, ch) ?? { from: ch, to: ch };
+}
+
 interface DocLike {
 	lineAt(pos: number): { from: number; to: number; text: string };
 }
 
-function absoluteSpanAt(doc: DocLike, pos: number): { from: number; to: number } | null {
+function absoluteSpanAt(doc: DocLike, pos: number): { from: number; to: number } {
 	const line = doc.lineAt(pos);
-	const span = getCjkWordSpan(line.text, pos - line.from);
-	if (!span) return null;
+	const span = dragSpanAt(line.text, pos - line.from);
 	return { from: line.from + span.from, to: line.from + span.to };
 }
 
@@ -99,6 +115,18 @@ function absoluteSpanAt(doc: DocLike, pos: number): { from: number; to: number }
 // mousedown) rather than by conditionally registering/unregistering the
 // facet, since there's no native binding to unmap here (unlike the Vim
 // leader-key toggles).
+//
+// Once enabled and a real double-click fires, the gesture is claimed
+// unconditionally — CM6's own mouseSelectionStyle facet only allows a
+// one-time claim/decline decision at mousedown, with no way to opt in later
+// once dragging starts. An earlier version declined here whenever the
+// anchor's own word wasn't CJK, handing the *entire* drag to CM6's native
+// handler — including any later part of the drag that crossed into CJK
+// text (e.g. double-click an English-only line, drag into an adjacent
+// Japanese line: the Japanese side never got segmented). dragSpanAt's own
+// native-word-run fallback means a non-CJK anchor still behaves exactly
+// like CM6's native double-click would have, so always claiming here loses
+// nothing for the plain-Latin case.
 export function cjkWordSelectionStyle(isEnabled: () => boolean) {
 	return (view: EditorView, event: MouseEvent): MouseSelectionStyle | null => {
 		if (!isEnabled()) return null;
@@ -107,7 +135,6 @@ export function cjkWordSelectionStyle(isEnabled: () => boolean) {
 		let startPos = view.posAtCoords({ x: event.clientX, y: event.clientY });
 		if (startPos == null) return null;
 		let startSpan = absoluteSpanAt(view.state.doc, startPos);
-		if (!startSpan) return null;
 
 		const startSel = view.state.selection;
 
@@ -116,16 +143,16 @@ export function cjkWordSelectionStyle(isEnabled: () => boolean) {
 				if (update.docChanged) {
 					startPos = update.changes.mapPos(startPos!);
 					startSpan = {
-						from: update.changes.mapPos(startSpan!.from),
-						to: update.changes.mapPos(startSpan!.to),
+						from: update.changes.mapPos(startSpan.from),
+						to: update.changes.mapPos(startSpan.to),
 					};
 				}
 			},
 			get(curEvent, extend, multiple) {
 				const anchorPos = startPos!;
-				const anchorSpan = startSpan!;
+				const anchorSpan = startSpan;
 				const curPos = view.posAtCoords({ x: curEvent.clientX, y: curEvent.clientY }) ?? anchorPos;
-				const curSpan = absoluteSpanAt(view.state.doc, curPos) ?? { from: curPos, to: curPos };
+				const curSpan = absoluteSpanAt(view.state.doc, curPos);
 
 				let range = EditorSelection.range(curSpan.from, curSpan.to);
 				if (curPos !== anchorPos && !extend) {

@@ -88,9 +88,56 @@ describe('cjkWordSelectionStyle', () => {
 		expect(style).toBeNull()
 	})
 
-	it('returns null on ASCII text — defers to CM6\'s own native double-click', () => {
-		const style = cjkWordSelectionStyle(() => true)(makeView('hello world'), makeEvent(2))
-		expect(style).toBeNull()
+	it('a no-drag double-click on ASCII text still selects the whole native word, matching CM6\'s own default', () => {
+		// The gesture is claimed unconditionally (so a later drag into CJK text
+		// on a different line can still segment correctly), but a plain word
+		// with no CJK anywhere falls back to the same native word-class run
+		// CM6's own groupAt would have picked, not a collapsed point.
+		const view = makeView('hello world')
+		const style = cjkWordSelectionStyle(() => true)(view, makeEvent(2))
+		expect(style).not.toBeNull()
+		const sel = style!.get(makeEvent(2), false, false)
+		expect(sel.main.from).toBe(0)
+		expect(sel.main.to).toBe(5)
+	})
+
+	it('regression: double-click on an English-only line then drag into an adjacent Japanese line segments the Japanese side', () => {
+		// Live bug report: starting the gesture on non-CJK text used to hand
+		// the *entire* drag to CM6's native handler, so a later crossing into
+		// CJK text on a different line never got segmented.
+		const lines: Record<number, { from: number; to: number; text: string }> = {
+			0: { from: 0, to: 11, text: 'hello world' }, // English-only line
+			1: { from: 12, to: 12 + JP_LINE.length, text: JP_LINE }, // 私は日本語を勉強しています
+		}
+		const view = {
+			state: {
+				doc: { lineAt: (pos: number) => (pos <= 11 ? lines[0] : lines[1]) },
+				selection: EditorSelection.single(0),
+			},
+			posAtCoords: ({ x }: { x: number }) => x,
+		} as any
+		const style = cjkWordSelectionStyle(() => true)(view, makeEvent(2))! // anchor: "hello" [0,5)
+		const sel = style.get(makeEvent(12 + 3), false, false) // drag into 日本語 [12+2, 12+5)
+		expect(sel.main.anchor).toBe(0)
+		expect(sel.main.head).toBe(12 + 5)
+	})
+
+	it('regression: double-click on a Japanese line then drag into an adjacent English-only line still segments the Japanese anchor', () => {
+		const lines: Record<number, { from: number; to: number; text: string }> = {
+			0: { from: 0, to: JP_LINE.length, text: JP_LINE },
+			1: { from: JP_LINE.length + 1, to: JP_LINE.length + 1 + 11, text: 'hello world' },
+		}
+		const view = {
+			state: {
+				doc: { lineAt: (pos: number) => (pos <= JP_LINE.length ? lines[0] : lines[1]) },
+				selection: EditorSelection.single(0),
+			},
+			posAtCoords: ({ x }: { x: number }) => x,
+		} as any
+		const style = cjkWordSelectionStyle(() => true)(view, makeEvent(3))! // anchor: 日本語 [2,5)
+		const sel = style.get(makeEvent(JP_LINE.length + 1 + 2), false, false) // drag into "hello" [+0,+5)
+		expect(sel.main.anchor).toBe(2)
+		expect(sel.main.head).toBe(JP_LINE.length + 1 + 5)
 	})
 
 	it('double-click on a CJK word selects just that segmenter word, not the whole run', () => {
@@ -118,13 +165,19 @@ describe('cjkWordSelectionStyle', () => {
 		expect(sel.main.head).toBe(2)
 	})
 
-	it('dragging from a CJK word into plain ASCII text still produces a sensible merged range', () => {
+	it('dragging from a CJK word into plain ASCII text extends to the whole native word, not just the click position', () => {
+		// Previously the drag position's own span fell back to a bare point
+		// (not a real word span) whenever it landed on non-CJK text, so this
+		// used to stop mid-word ("hell", head=6) instead of at the actual word
+		// boundary — the same underlying gap as the cross-line bug, just
+		// within a single line. dragSpanAt's native-word-run fallback fixes
+		// this uniformly, so the drag now correctly reaches the end of "hello".
 		const mixed = '日本語 hello' // 日本語[0,3) space[3] hello[4,9)
 		const view = makeView(mixed)
 		const style = cjkWordSelectionStyle(() => true)(view, makeEvent(1))! // inside 日本語
 		const sel = style.get(makeEvent(6), false, false) // drag into "hello" (not CJK)
 		expect(sel.main.anchor).toBe(0)
-		expect(sel.main.head).toBe(6)
+		expect(sel.main.head).toBe(9)
 	})
 
 	it('extend=true extends the existing selection\'s main range instead of replacing it wholesale', () => {
