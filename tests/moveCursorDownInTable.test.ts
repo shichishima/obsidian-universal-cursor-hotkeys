@@ -42,6 +42,12 @@ describe('moveCursorDownInTable', () => {
 		plugin.setCursorToNextRow = vi.fn()
 		plugin.setCursorViaCm    = vi.fn()
 		plugin.getNextRowLine    = vi.fn().mockReturnValue(-1)
+		// Row-crossing goal-column helpers: stubbed so tests exercise only
+		// moveCursorDownInTable's own threading, not these helpers' own logic
+		// (covered separately in rowCrossGoalColumn.test.ts). Fixed sentinel
+		// value lets assertions confirm the exact value is threaded through.
+		plugin.computeRowCrossPixelGoal = vi.fn().mockReturnValue(999)
+		plugin.applyRowCrossGoalColumn  = vi.fn()
 	})
 
 	// Build editor mock with explicit getCursor return sequence.
@@ -173,6 +179,7 @@ describe('moveCursorDownInTable', () => {
 		plugin.moveCursorDownInTable(editor)
 		expect(editor.exec).toHaveBeenCalledTimes(1)
 		expect(plugin.setCursorToNextRow).not.toHaveBeenCalled()
+		expect(plugin.applyRowCrossGoalColumn).not.toHaveBeenCalled()
 	})
 
 	it('type=middle: goDown called once, setCursorToNextRow NOT called', () => {
@@ -192,6 +199,7 @@ describe('moveCursorDownInTable', () => {
 		plugin.moveCursorDownInTable(editor)
 		expect(editor.exec).not.toHaveBeenCalled()
 		expect(plugin.setCursorToNextRow).toHaveBeenCalled()
+		expect(plugin.applyRowCrossGoalColumn).toHaveBeenCalledWith(editor, 999)
 	})
 
 	// ===========================================================================
@@ -204,6 +212,7 @@ describe('moveCursorDownInTable', () => {
 		plugin.moveCursorDownInTable(editor)
 		expect(editor.exec).not.toHaveBeenCalled()
 		expect(plugin.setCursorToNextRow).toHaveBeenCalled()
+		expect(plugin.applyRowCrossGoalColumn).toHaveBeenCalledWith(editor, 999)
 	})
 
 	it('type=single, ch>eoc: no goDown, setCursorToNextRow called', () => {
@@ -234,6 +243,7 @@ describe('moveCursorDownInTable', () => {
 		plugin.moveCursorDownInTable(editor)
 		expect(editor.exec).toHaveBeenCalledTimes(1)
 		expect(plugin.setCursorToNextRow).toHaveBeenCalled()
+		expect(plugin.applyRowCrossGoalColumn).toHaveBeenCalledWith(editor, 999)
 	})
 
 	it('1st goDown exits to normal line → setCursorToNextRow NOT called', () => {
@@ -255,6 +265,7 @@ describe('moveCursorDownInTable', () => {
 		plugin.moveCursorDownInTable(editor)
 		expect(editor.exec).toHaveBeenCalledTimes(1)
 		expect(plugin.setCursorToNextRow).toHaveBeenCalled()
+		expect(plugin.applyRowCrossGoalColumn).toHaveBeenCalledWith(editor, 999)
 	})
 
 	it('type=last: 1st goDown no-op → setCursorToNextRow called', () => {
@@ -328,5 +339,6 @@ describe('moveCursorDownInTable', () => {
 		plugin.moveCursorDownInTable(editor)
 		expect(editor.exec).toHaveBeenCalledTimes(1)
 		expect(plugin.setCursorToNextRow).toHaveBeenCalled()
+		expect(plugin.applyRowCrossGoalColumn).toHaveBeenCalledWith(editor, 999)
 	})
 })

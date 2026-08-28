@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 vi.mock('@codemirror/language', () => ({
 	syntaxTree: vi.fn(),
@@ -169,8 +169,9 @@ describe('placeAtBottomVL', () => {
 		plugin = Object.create(UniversalCursorHotkeysPlugin.prototype)
 		plugin.CELL_SEPARATOR_REGEX  = /(?<!\\)\|/g
 		plugin.TABLE_DELIMITER_REGEX = /^\s*\|?[:\s]*?-+[:\s-]*\|[:\s-|]*$/
-		plugin.moveToBottomVisualLineOfCell = vi.fn()
-		plugin.scheduleBottomVisualLine     = vi.fn()
+		plugin.moveToBottomVisualLineOfCell   = vi.fn()
+		plugin.scheduleBottomVisualLine       = vi.fn()
+		plugin.applyRowCrossGoalColumnSync    = vi.fn()
 	})
 
 	function makeEditor(inner: object, cm: object = {}) {
@@ -196,15 +197,32 @@ describe('placeAtBottomVL', () => {
 		expect(plugin.scheduleBottomVisualLine).not.toHaveBeenCalled()
 	})
 
+	it('inner view available, coordsAtPos succeeds, pixelGoal given → applyRowCrossGoalColumnSync called with it', () => {
+		const coordsAtPos = vi.fn((pos: number) =>
+			pos === 8 ? { top: 100, bottom: 118, left: 100, right: 200 } : null
+		)
+		const inner  = {
+			state: { doc: { lines: 1, line: () => ({ from: 0, text: ' content' }) }, selection: { main: { head: 8 } } },
+			coordsAtPos,
+		}
+		const editor = makeEditor(inner)
+		plugin.placeAtBottomVL(editor, 555)
+		expect(plugin.moveToBottomVisualLineOfCell).toHaveBeenCalledWith(editor)
+		expect(plugin.applyRowCrossGoalColumnSync).toHaveBeenCalledWith(editor, 555)
+	})
+
 	// ===========================================================================
 	// async fallback: scheduleBottomVisualLine called
 	// ===========================================================================
 
-	it('no inner view (activeCM === cm) → scheduleBottomVisualLine called', () => {
+	it('no inner view (activeCM === cm) → exited the table entirely: applies goal column directly, no scheduling', () => {
+		// The outer document view is always already mounted (unlike a fresh
+		// inner cell view), so this is a direct call, not a deferred retry.
 		const cm     = {}
 		const editor = makeEditor(cm, cm)
-		plugin.placeAtBottomVL(editor)
-		expect(plugin.scheduleBottomVisualLine).toHaveBeenCalledWith(editor)
+		plugin.placeAtBottomVL(editor, 555)
+		expect(plugin.applyRowCrossGoalColumnSync).toHaveBeenCalledWith(editor, 555)
+		expect(plugin.scheduleBottomVisualLine).not.toHaveBeenCalled()
 		expect(plugin.moveToBottomVisualLineOfCell).not.toHaveBeenCalled()
 	})
 
@@ -215,7 +233,74 @@ describe('placeAtBottomVL', () => {
 		}
 		const editor = makeEditor(inner)
 		plugin.placeAtBottomVL(editor)
-		expect(plugin.scheduleBottomVisualLine).toHaveBeenCalledWith(editor)
+		expect(plugin.scheduleBottomVisualLine).toHaveBeenCalledWith(editor, null)
+		expect(plugin.moveToBottomVisualLineOfCell).not.toHaveBeenCalled()
+	})
+
+	it('async fallback with pixelGoal given → scheduleBottomVisualLine forwards it', () => {
+		const inner  = {
+			state: { doc: { lines: 1, line: () => ({ from: 0, text: ' content' }) }, selection: { main: { head: 8 } } },
+			coordsAtPos: vi.fn(() => null),
+		}
+		const editor = makeEditor(inner)
+		plugin.placeAtBottomVL(editor, 555)
+		expect(plugin.scheduleBottomVisualLine).toHaveBeenCalledWith(editor, 555)
+	})
+})
+
+
+describe('scheduleBottomVisualLine', () => {
+	let plugin: any
+
+	beforeEach(() => {
+		// This test environment is plain 'node' (no jsdom) — window.setTimeout
+		// (what scheduleBottomVisualLine actually calls) needs a polyfill here.
+		// Every other test in this repo avoids this by stubbing
+		// scheduleBottomVisualLine away entirely rather than exercising it
+		// directly; this describe block is the exception, since it's the one
+		// testing scheduleBottomVisualLine's own deferred behavior.
+		vi.stubGlobal('window', globalThis)
+		vi.useFakeTimers()
+		plugin = Object.create(UniversalCursorHotkeysPlugin.prototype)
+		plugin._inScrollPage = false
+		plugin.moveToBottomVisualLineOfCell = vi.fn()
+		plugin.applyRowCrossGoalColumnSync  = vi.fn()
+	})
+
+	afterEach(() => {
+		vi.useRealTimers()
+		vi.unstubAllGlobals()
+	})
+
+	it('deferred callback forwards pixelGoal to applyRowCrossGoalColumnSync, after moveToBottomVisualLineOfCell', () => {
+		const editor = { inTableCell: true }
+		plugin.scheduleBottomVisualLine(editor, 555)
+		expect(plugin.moveToBottomVisualLineOfCell).not.toHaveBeenCalled()
+		vi.advanceTimersByTime(0)
+		expect(plugin.moveToBottomVisualLineOfCell).toHaveBeenCalledWith(editor)
+		expect(plugin.applyRowCrossGoalColumnSync).toHaveBeenCalledWith(editor, 555)
+	})
+
+	it('defaults pixelGoal to null when omitted', () => {
+		const editor = { inTableCell: true }
+		plugin.scheduleBottomVisualLine(editor)
+		vi.advanceTimersByTime(0)
+		expect(plugin.applyRowCrossGoalColumnSync).toHaveBeenCalledWith(editor, null)
+	})
+
+	it('no longer in a table cell by the time the timer fires → neither helper runs', () => {
+		const editor = { inTableCell: false }
+		plugin.scheduleBottomVisualLine(editor, 555)
+		vi.advanceTimersByTime(0)
+		expect(plugin.moveToBottomVisualLineOfCell).not.toHaveBeenCalled()
+		expect(plugin.applyRowCrossGoalColumnSync).not.toHaveBeenCalled()
+	})
+
+	it('_inScrollPage true → does not schedule at all', () => {
+		plugin._inScrollPage = true
+		const editor = { inTableCell: true }
+		plugin.scheduleBottomVisualLine(editor, 555)
+		vi.advanceTimersByTime(0)
 		expect(plugin.moveToBottomVisualLineOfCell).not.toHaveBeenCalled()
 	})
 })
@@ -231,6 +316,11 @@ describe('handleCellStartSnap', () => {
 		plugin.setCursorToPrevRow = vi.fn()
 		plugin.placeAtBottomVL   = vi.fn()
 	})
+
+	// Sentinel threaded through every handleCellStartSnap call below, to
+	// confirm it reaches placeAtBottomVL unchanged regardless of which
+	// internal branch (coordsAtPos primary vs. goDown-probe fallback) fires.
+	const PIXEL_GOAL = 777
 
 	// Build inner view mock with fixed coords for two positions.
 	// afterHead: coords of current cursor after goUp (VL1 start)
@@ -295,6 +385,38 @@ describe('handleCellStartSnap', () => {
 	}
 
 	// ===========================================================================
+	// coordsAtPos path — boundary position: originalHead sits exactly at a VL
+	// wrap boundary (VL1's own right edge == the same raw offset as VL2's own
+	// left edge). Regression test for a real bug (confirmed live 2026-08-28):
+	// querying that offset's coords without forcing side=-1 returned VL2's
+	// row instead of VL1's, so a cursor genuinely on VL1's right edge was
+	// wrongly classified as "VL2+, stay" instead of "VL1, previous row".
+	// ===========================================================================
+
+	it('originalHead at a VL wrap boundary: side=-1 resolves it to VL1 (the row it terminates), not VL2 (the row it also starts)', () => {
+		const boundaryOffset = 18
+		const inner = {
+			state: { selection: { main: { head: 0 } } }, // after goUp: VL1 start
+			coordsAtPos: vi.fn((pos: number, side?: number) => {
+				if (pos === 0) return { top: 100, bottom: 118, left: 100, right: 200 } // VL1's own row
+				if (pos === boundaryOffset) {
+					// Same offset renders on VL1 (its own end) with side=-1,
+					// or VL2 (the row it also starts) with any other side.
+					return side === -1
+						? { top: 100, bottom: 118, left: 300, right: 300 }
+						: { top: 120, bottom: 138, left: 100, right: 100 }
+				}
+				return null
+			}),
+		}
+		const editor = makeEditorWithInner(inner)
+		plugin.handleCellStartSnap(editor, 1, boundaryOffset, 0, PIXEL_GOAL, boundaryOffset)
+		expect(inner.coordsAtPos).toHaveBeenCalledWith(boundaryOffset, -1)
+		expect(plugin.setCursorToPrevRow).toHaveBeenCalledWith(editor, 0)
+		expect(plugin.placeAtBottomVL).toHaveBeenCalledWith(editor, PIXEL_GOAL)
+	})
+
+	// ===========================================================================
 	// coordsAtPos path — VL2+ left edge: originalCoords.top > vl1Coords.top + 2
 	// ===========================================================================
 
@@ -302,7 +424,7 @@ describe('handleCellStartSnap', () => {
 		// afterHead=0 (VL1 start, top=100), beforeHead=10 (VL2+ pos, top=120)
 		const inner  = makeInnerWithCoords(0, 100, 10, 120)
 		const editor = makeEditorWithInner(inner)
-		plugin.handleCellStartSnap(editor, 1, 5, 0, 10)
+		plugin.handleCellStartSnap(editor, 1, 5, 0, PIXEL_GOAL, 10)
 		expect(plugin.setCursorToPrevRow).not.toHaveBeenCalled()
 		expect(plugin.placeAtBottomVL).not.toHaveBeenCalled()
 	})
@@ -311,7 +433,7 @@ describe('handleCellStartSnap', () => {
 		// top diff = 3 > 2 → stay
 		const inner  = makeInnerWithCoords(0, 100, 10, 103)
 		const editor = makeEditorWithInner(inner)
-		plugin.handleCellStartSnap(editor, 1, 5, 0, 10)
+		plugin.handleCellStartSnap(editor, 1, 5, 0, PIXEL_GOAL, 10)
 		expect(plugin.setCursorToPrevRow).not.toHaveBeenCalled()
 		expect(plugin.placeAtBottomVL).not.toHaveBeenCalled()
 	})
@@ -324,18 +446,18 @@ describe('handleCellStartSnap', () => {
 		// afterHead=0 (top=100), beforeHead=5 (top=100) — same VL
 		const inner  = makeInnerWithCoords(0, 100, 5, 100)
 		const editor = makeEditorWithInner(inner)
-		plugin.handleCellStartSnap(editor, 1, 5, 0, 5)
+		plugin.handleCellStartSnap(editor, 1, 5, 0, PIXEL_GOAL, 5)
 		expect(plugin.setCursorToPrevRow).toHaveBeenCalledWith(editor, 0)
-		expect(plugin.placeAtBottomVL).toHaveBeenCalledWith(editor)
+		expect(plugin.placeAtBottomVL).toHaveBeenCalledWith(editor, PIXEL_GOAL)
 	})
 
 	it('coordsAtPos path: originalCoords.top = vl1Coords.top + 2 → VL1 middle (boundary)', () => {
 		// diff = 2 → not > 2 → VL1 middle path
 		const inner  = makeInnerWithCoords(0, 100, 5, 102)
 		const editor = makeEditorWithInner(inner)
-		plugin.handleCellStartSnap(editor, 1, 5, 0, 5)
+		plugin.handleCellStartSnap(editor, 1, 5, 0, PIXEL_GOAL, 5)
 		expect(plugin.setCursorToPrevRow).toHaveBeenCalledWith(editor, 0)
-		expect(plugin.placeAtBottomVL).toHaveBeenCalledWith(editor)
+		expect(plugin.placeAtBottomVL).toHaveBeenCalledWith(editor, PIXEL_GOAL)
 	})
 
 	// ===========================================================================
@@ -347,7 +469,7 @@ describe('handleCellStartSnap', () => {
 		const inner  = makeInnerWithCoords(0, null, 5, 100)
 		// goDown → same position → VL2+
 		const editor = makeEditorWithInner(inner, [{ line: 1, ch: 5 }])
-		plugin.handleCellStartSnap(editor, 1, 5, 0, 5)
+		plugin.handleCellStartSnap(editor, 1, 5, 0, PIXEL_GOAL, 5)
 		expect(editor.exec).toHaveBeenNthCalledWith(1, 'goDown')
 		expect(editor.exec).toHaveBeenNthCalledWith(2, 'goUp')
 		expect(plugin.setCursorToPrevRow).not.toHaveBeenCalled()
@@ -358,11 +480,11 @@ describe('handleCellStartSnap', () => {
 		const inner  = makeInnerWithCoords(0, 100, 5, null)
 		// goDown → different position → VL1 middle
 		const editor = makeEditorWithInner(inner, [{ line: 1, ch: 7 }])
-		plugin.handleCellStartSnap(editor, 1, 5, 0, 5)
+		plugin.handleCellStartSnap(editor, 1, 5, 0, PIXEL_GOAL, 5)
 		expect(editor.exec).toHaveBeenNthCalledWith(1, 'goDown')
 		expect(editor.exec).toHaveBeenNthCalledWith(2, 'goUp')
 		expect(plugin.setCursorToPrevRow).toHaveBeenCalledWith(editor, 0)
-		expect(plugin.placeAtBottomVL).toHaveBeenCalledWith(editor)
+		expect(plugin.placeAtBottomVL).toHaveBeenCalledWith(editor, PIXEL_GOAL)
 	})
 
 	// ===========================================================================
@@ -373,7 +495,7 @@ describe('handleCellStartSnap', () => {
 		const inner  = makeInnerWithCoords(0, 100, 5, 120)
 		// goDown → same position → VL2+
 		const editor = makeEditorWithInner(inner, [{ line: 1, ch: 5 }])
-		plugin.handleCellStartSnap(editor, 1, 5, 0, undefined)
+		plugin.handleCellStartSnap(editor, 1, 5, 0, PIXEL_GOAL, undefined)
 		expect(editor.exec).toHaveBeenNthCalledWith(1, 'goDown')
 		expect(editor.exec).toHaveBeenNthCalledWith(2, 'goUp')
 		expect(plugin.setCursorToPrevRow).not.toHaveBeenCalled()
@@ -383,11 +505,11 @@ describe('handleCellStartSnap', () => {
 		const inner  = makeInnerWithCoords(0, 100, 5, 100)
 		// goDown → different position → VL1 middle
 		const editor = makeEditorWithInner(inner, [{ line: 1, ch: 7 }])
-		plugin.handleCellStartSnap(editor, 1, 5, 0, undefined)
+		plugin.handleCellStartSnap(editor, 1, 5, 0, PIXEL_GOAL, undefined)
 		expect(editor.exec).toHaveBeenNthCalledWith(1, 'goDown')
 		expect(editor.exec).toHaveBeenNthCalledWith(2, 'goUp')
 		expect(plugin.setCursorToPrevRow).toHaveBeenCalledWith(editor, 0)
-		expect(plugin.placeAtBottomVL).toHaveBeenCalledWith(editor)
+		expect(plugin.placeAtBottomVL).toHaveBeenCalledWith(editor, PIXEL_GOAL)
 	})
 
 	// ===========================================================================
@@ -397,7 +519,7 @@ describe('handleCellStartSnap', () => {
 	it('no inner view (activeCM === cm) → goDown probe: VL2+ → goUp only', () => {
 		// goDown → same position
 		const editor = makeEditorWithoutInner([{ line: 1, ch: 5 }])
-		plugin.handleCellStartSnap(editor, 1, 5, 0, 5)
+		plugin.handleCellStartSnap(editor, 1, 5, 0, PIXEL_GOAL, 5)
 		expect(editor.exec).toHaveBeenNthCalledWith(1, 'goDown')
 		expect(editor.exec).toHaveBeenNthCalledWith(2, 'goUp')
 		expect(plugin.setCursorToPrevRow).not.toHaveBeenCalled()
@@ -406,10 +528,10 @@ describe('handleCellStartSnap', () => {
 	it('no inner view (activeCM === cm) → goDown probe: VL1 middle → prevRow', () => {
 		// goDown → different position
 		const editor = makeEditorWithoutInner([{ line: 1, ch: 7 }])
-		plugin.handleCellStartSnap(editor, 1, 5, 0, 5)
+		plugin.handleCellStartSnap(editor, 1, 5, 0, PIXEL_GOAL, 5)
 		expect(editor.exec).toHaveBeenNthCalledWith(1, 'goDown')
 		expect(editor.exec).toHaveBeenNthCalledWith(2, 'goUp')
 		expect(plugin.setCursorToPrevRow).toHaveBeenCalledWith(editor, 0)
-		expect(plugin.placeAtBottomVL).toHaveBeenCalledWith(editor)
+		expect(plugin.placeAtBottomVL).toHaveBeenCalledWith(editor, PIXEL_GOAL)
 	})
 })
