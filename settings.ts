@@ -96,7 +96,11 @@ interface ObsidianInternals {
 
 const MAC_MOD:  Record<string, string> = { Ctrl: '⌃', Shift: '⇧', Alt: '⌥', Meta: '⌘', Mod: '⌘' };
 const WIN_MOD:  Record<string, string> = { Ctrl: 'Ctrl', Shift: 'Shift', Alt: 'Alt', Meta: 'Win', Mod: 'Ctrl' };
-const KEY_DISP: Record<string, string> = { PageDown: 'Page Down', PageUp: 'Page Up' };
+const KEY_DISP: Record<string, string> = {
+	PageDown: 'Page Down', PageUp: 'Page Up',
+	ArrowLeft: '←', ArrowRight: '→', ArrowUp: '↑', ArrowDown: '↓',
+	Backspace: '⌫', Delete: '⌦',
+};
 const MOD_ORDER: Record<string, number> = { Mod: 0, Ctrl: 1, Alt: 2, Shift: 3, Meta: 4 };
 
 export const normMods = (mods: string | string[]): string[] =>
@@ -113,12 +117,11 @@ export const formatHotkey = (hk: AnyHotkey, isMacOS = Platform.isMacOS): string 
 		: [...mods.map(m => WIN_MOD[m] ?? m), key].join('+');
 };
 
-const SPECIAL_KEY_EXCEPTION: Partial<Record<string, string>> = {
-	'cursor-home': 'Home',
-	'cursor-end':  'End',
-	'page-up':     'PageUp',
-	'page-down':   'PageDown',
-};
+// SPECIAL_KEY_EXCEPTION is declared further below (derived from
+// KEY_UPGRADE_DEFS) — computeRow/selectCurrentChips below only reference it
+// inside their own function bodies, which don't run until display() calls
+// them, long after the whole module (including that later declaration) has
+// finished evaluating.
 
 export const selectCurrentChips = (
 	allHks: BakedHotkey[],
@@ -225,6 +228,92 @@ export const computeRow = (
 	return { name: def.name, key: recFmt, current: currentDisplay, extraCount, status: '🔵Available', conflictIds: [], action: 'set' };
 };
 
+// Key Upgrades — physical/native keys (bare, for now — Home/End/Page Up/Page
+// Down) reinforced with table- and CJK-aware behavior, for users who don't
+// care about Vim/Emacs conventions. Unlike COMMAND_DEFS/computeRow (command
+// is the subject, "which key should this command have"), the mapping here is
+// key-first and always 1:1, additive-only, never displacing another
+// command's binding — so the status model collapses to two independent
+// booleans (is this exact key currently on the target command; is this exact
+// key also held by some other command) rather than QSA's fuller
+// recommended-vs-custom-key vocabulary. See computeRow's own doc history for
+// why that fuller vocabulary doesn't apply here.
+export interface KeyUpgradeDef {
+	group: 'navBasics' | 'wordCommands';
+	label: string;
+	commandId: string;
+	// Mac-only for now (2026-08-28 first pass) — Ctrl/Alt/Meta all resolve to
+	// their literal Windows/Linux meaning if this ever runs there (Alt stays
+	// Alt, Meta stays the Windows key), not yet OS-conditional. Bare
+	// (modifiers: []) entries like Home/End are unaffected by that, since a
+	// bare key means the same physical key on every OS.
+	modifiers: Modifier[];
+	key: string;
+}
+
+export interface KeyUpgradeRow {
+	fullId: string;
+	targetHotkey: Hotkey;
+	assigned: boolean;
+	conflictIds: string[];
+}
+
+export const computeKeyUpgradeRow = (
+	def: KeyUpgradeDef,
+	effectiveHotkeys: (cmdId: string) => BakedHotkey[],
+	reverseMap: Map<string, string[]>,
+	cmds: Record<string, { name: string }> | undefined,
+): KeyUpgradeRow => {
+	const fullId  = `${PLUGIN_ID}:${def.commandId}`;
+	const targetHotkey: Hotkey = { modifiers: def.modifiers, key: def.key };
+	const keyId   = hotkeyId(targetHotkey);
+	const assigned = effectiveHotkeys(fullId).some(hk => hotkeyId(hk) === keyId);
+	const conflictIds = (reverseMap.get(keyId) ?? []).filter(id => id !== fullId && cmds?.[id] !== undefined);
+	return { fullId, targetHotkey, assigned, conflictIds };
+};
+
+// Single source of truth for every Key Upgrades entry — also drives
+// SPECIAL_KEY_EXCEPTION below (derived, not hand-duplicated), so a bare-key
+// entry added here automatically gets the same "Apply recommended still
+// applies the Ctrl-combo even though the bare key is already set" treatment
+// Home/End/Page Up/Page Down already had, without a second place to
+// remember to update (missed once already, for Up/Down — see git history).
+// Navigation basics is bare-key (works identically on every OS); Word
+// commands is Mac-only for now (2026-08-28 first pass) — see KeyUpgradeDef's
+// own doc comment. OS-conditional Windows/Linux equivalents are a
+// deliberately deferred follow-up, not yet built.
+// Order within each group matches COMMAND_DEFS's own QSA ordering (cursor
+// block, then editing block) — QSA is treated as the canonical order.
+const KEY_UPGRADE_DEFS: readonly KeyUpgradeDef[] = [
+	{ group: 'navBasics', label: 'Column-aware',      commandId: 'cursor-up',   modifiers: [], key: 'ArrowUp'   },
+	{ group: 'navBasics', label: 'Column-aware',      commandId: 'cursor-down', modifiers: [], key: 'ArrowDown' },
+	{ group: 'navBasics', label: '3-step Smart home', commandId: 'cursor-home', modifiers: [], key: 'Home'     },
+	{ group: 'navBasics', label: 'Table-aware',       commandId: 'cursor-end',  modifiers: [], key: 'End'      },
+	{ group: 'navBasics', label: 'Document start - table-aware', commandId: 'cursor-top',    modifiers: ['Meta'], key: 'ArrowUp'   },
+	{ group: 'navBasics', label: 'Document end - table-aware',   commandId: 'cursor-bottom', modifiers: ['Meta'], key: 'ArrowDown' },
+	{ group: 'navBasics', label: 'Table-aware',       commandId: 'page-up',     modifiers: [], key: 'PageUp'   },
+	{ group: 'navBasics', label: 'Table-aware',       commandId: 'page-down',   modifiers: [], key: 'PageDown' },
+	{ group: 'wordCommands', label: 'Word right - table & CJK aware', commandId: 'word-right', modifiers: ['Alt'], key: 'ArrowRight' },
+	{ group: 'wordCommands', label: 'Word left - table & CJK aware',  commandId: 'word-left',  modifiers: ['Alt'], key: 'ArrowLeft'  },
+	// Real macOS convention confirmed live (2026-08-28): Option, not Cmd. The
+	// physical "delete" key on a Mac keyboard sends Backspace; Fn+that key
+	// sends Delete (forward-delete) — no separate "Fn" modifier exists to
+	// bind, Fn just changes which key code is sent.
+	{ group: 'wordCommands', label: 'Kill word left - table & CJK aware',  commandId: 'kill-word-left',  modifiers: ['Alt'], key: 'Backspace' },
+	{ group: 'wordCommands', label: 'Kill word right - table & CJK aware', commandId: 'kill-word-right', modifiers: ['Alt'], key: 'Delete'    },
+];
+
+// Derived from KEY_UPGRADE_DEFS's own bare (no-modifier) entries only — this
+// exception mechanism exists specifically to let a bare physical key (e.g.
+// Home) coexist on the same command as a modified QSA-recommended key (e.g.
+// Ctrl-A) without either blocking the other's own "already assigned"
+// status. Modifier-bearing entries (Word left/right, Document start/end,
+// Kill word left/right) don't need it — those commands have no QSA
+// `recommended` hotkey to disambiguate against in the first place.
+const SPECIAL_KEY_EXCEPTION: Partial<Record<string, string>> = Object.fromEntries(
+	KEY_UPGRADE_DEFS.filter(d => d.modifiers.length === 0).map(d => [d.commandId, d.key])
+);
+
 const ctrl = (...keys: string[]): Hotkey => ({ modifiers: ['Ctrl'], key: keys[0] });
 
 const COMMAND_DEFS: readonly CommandDef[] = [
@@ -312,6 +401,14 @@ interface RenderCtx {
 	allActionHeaders: HTMLElement[];
 	allOverrideNotes: HTMLElement[];
 	syncToggle: () => void;
+}
+
+interface KeyUpgradeCtx {
+	hm: HotkeyManager;
+	effectiveHotkeys: (id: string) => BakedHotkey[];
+	reverseMap: Map<string, string[]>;
+	cmds: Record<string, { name: string }> | undefined;
+	toHotkey: (hk: BakedHotkey) => Hotkey;
 }
 
 export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
@@ -948,6 +1045,76 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		return tbody;
 	}
 
+	// One Key Upgrades row: key chip | status (only for Conflict/Used — Set/
+	// Available are conveyed by the toggle's own on/off state, no badge
+	// needed) | toggle. Toggling on appends the bare key to the target
+	// command's hotkeys (additive, never displaces); toggling off removes
+	// just this one key. Disabled when the key is held by another command and
+	// not yet on the target command (Used) — turning it on here would create
+	// a fresh conflict this section is designed to never produce; Conflict
+	// (already on both) stays togglable off, since that only ever resolves
+	// this command's own side.
+	private renderKeyUpgradeRow(tbody: HTMLElement, def: KeyUpgradeDef, ctx: KeyUpgradeCtx): HTMLTableRowElement {
+		const { fullId, targetHotkey, assigned, conflictIds } = computeKeyUpgradeRow(def, ctx.effectiveHotkeys, ctx.reverseMap, ctx.cmds);
+		const hasConflict = conflictIds.length > 0;
+
+		const tr = tbody.createEl('tr');
+		tr.addClass('uch-row-thin');
+
+		const tdKey = tr.createEl('td', { cls: 'uch-cell-name' });
+		this.makeKeyCell(tdKey, formatHotkey(targetHotkey), () => this.openHotkeysPanelByKey(targetHotkey));
+
+		tr.createEl('td', { text: def.label, cls: 'uch-key-upgrade-label' });
+
+		const tdStatus = tr.createEl('td', { cls: 'uch-key-upgrade-status' });
+		if (hasConflict) {
+			tdStatus.setText(assigned ? '🔴Conflict' : '🔴Used');
+		}
+
+		const tdToggle = tr.createEl('td', { cls: 'uch-cell-toggle' });
+		const toggle = new ToggleComponent(tdToggle);
+		toggle.setValue(assigned);
+		toggle.setDisabled(!assigned && hasConflict);
+		if (!assigned && hasConflict) {
+			tdToggle.title = 'Already used by another command — free it up in Hotkeys settings first.';
+		}
+		toggle.onChange((value) => {
+			ctx.hm.setHotkeys(fullId, value
+				? [...ctx.effectiveHotkeys(fullId).map(ctx.toHotkey), targetHotkey]
+				: ctx.effectiveHotkeys(fullId).filter(hk => hotkeyId(hk) !== hotkeyId(targetHotkey)).map(ctx.toHotkey));
+			ctx.hm.save();
+			ctx.hm.bake();
+			void this.plugin.saveSettings();
+			this.display();
+		});
+
+		return tr;
+	}
+
+	// One Key Upgrades group: a title + one-line description of what the
+	// group's keys get upgraded to do, then one row per key. Command-family
+	// pairs (e.g. a future Word left/right entry) share one description here
+	// rather than repeating it per row, since the row itself only needs to
+	// show the key and its assignment state.
+	private renderKeyUpgradeGroup(table: HTMLElement, title: string, desc: string | null, defs: readonly KeyUpgradeDef[], ctx: KeyUpgradeCtx): HTMLTableSectionElement {
+		const tbody = table.createEl('tbody');
+
+		const titleRow = tbody.createEl('tr');
+		const titleCell = titleRow.createEl('td');
+		titleCell.colSpan = 4;
+		titleCell.addClass('uch-title-cell');
+		titleCell.createDiv({ text: title, cls: 'uch-title-text' });
+		if (desc !== null) titleCell.createDiv({ text: desc, cls: 'uch-key-upgrade-group-desc' });
+
+		for (const def of defs) {
+			this.renderKeyUpgradeRow(tbody, def, ctx);
+		}
+
+		const spacerTd = tbody.createEl('tr').createEl('td', { cls: 'uch-block-spacer' });
+		spacerTd.colSpan = 4;
+		return tbody;
+	}
+
 	// Collapsible variant of renderBlock, for blocks whose entries this
 	// plugin doesn't own/control the default for — reuses renderDataRow
 	// (identical per-row shape) but not renderBlock's own title row:
@@ -1255,40 +1422,54 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			noDisp.colSpan = 5;
 		}
 
-		// Special Key Assignments
-		const SPECIAL_DEFS: Array<{ label: string; commandId: string; key: string }> = [
-			{ label: 'Set Home',      commandId: 'cursor-home', key: 'Home'     },
-			{ label: 'Set End',       commandId: 'cursor-end',  key: 'End'      },
-			{ label: 'Set Page Down', commandId: 'page-down',   key: 'PageDown' },
-			{ label: 'Set Page Up',   commandId: 'page-up',     key: 'PageUp'   },
-		];
+		// Key Upgrades — see computeKeyUpgradeRow's own doc comment for why this
+		// is key-first rather than command-first like the QSA table above. The
+		// actual defs live in the module-level KEY_UPGRADE_DEFS (also feeds
+		// SPECIAL_KEY_EXCEPTION above) — just grouped here for rendering.
+		const NAV_BASICS_DEFS    = KEY_UPGRADE_DEFS.filter(d => d.group === 'navBasics');
+		const WORD_COMMAND_DEFS  = KEY_UPGRADE_DEFS.filter(d => d.group === 'wordCommands');
 
-		const specialEl = containerEl.createDiv({ cls: 'uch-special-section' });
-		specialEl.createDiv({ text: 'Special key assignments', cls: 'uch-special-title' });
-		specialEl.createDiv({
-			text: "These keys cannot be set in Obsidian's hotkeys panel. Assign them here.",
-			cls: 'uch-special-desc',
+		const keyUpgradeCtx: KeyUpgradeCtx = { hm, effectiveHotkeys, reverseMap, cmds, toHotkey };
+
+		const keyUpgradesEl = containerEl.createDiv({ cls: 'uch-key-upgrades-section' });
+		const keyUpgradesTitleFlex = keyUpgradesEl.createDiv('uch-title-flex');
+		keyUpgradesTitleFlex.createSpan({ text: 'Key Upgrades', cls: 'uch-key-upgrades-title' });
+		const eligible = KEY_UPGRADE_DEFS.filter(def => {
+			const row = computeKeyUpgradeRow(def, keyUpgradeCtx.effectiveHotkeys, keyUpgradeCtx.reverseMap, keyUpgradeCtx.cmds);
+			return !row.assigned && row.conflictIds.length === 0;
+		});
+		const applyAllBtn = keyUpgradesTitleFlex.createEl('button', { text: 'Apply all' });
+		applyAllBtn.addClass('mod-cta', 'uch-apply-btn');
+		if (eligible.length === 0) applyAllBtn.disabled = true;
+		applyAllBtn.addEventListener('click', () => {
+			for (const def of eligible) {
+				const row = computeKeyUpgradeRow(def, keyUpgradeCtx.effectiveHotkeys, keyUpgradeCtx.reverseMap, keyUpgradeCtx.cmds);
+				hm.setHotkeys(row.fullId, [...keyUpgradeCtx.effectiveHotkeys(row.fullId).map(toHotkey), row.targetHotkey]);
+			}
+			hm.save();
+			hm.bake();
+			void this.plugin.saveSettings();
+			this.display();
 		});
 
-		const specialBtnRow = specialEl.createDiv({ cls: 'uch-special-btns' });
-		for (const def of SPECIAL_DEFS) {
-			const fullId  = `${PLUGIN_ID}:${def.commandId}`;
-			const bareKey: Hotkey = { modifiers: [], key: def.key };
-			const isSet   = effectiveHotkeys(fullId).some(hk => hotkeyId(hk) === hotkeyId(bareKey));
-			const btn     = specialBtnRow.createEl('button', { text: isSet ? `${def.label} ✅` : def.label });
-			if (!isSet) btn.addClass('mod-cta');
-			btn.disabled  = isSet;
-			if (!isSet) {
-				btn.addEventListener('click', () => {
-					hm.setHotkeys(fullId, [...effectiveHotkeys(fullId).map(toHotkey), bareKey]);
-					hm.save();
-					hm.bake();
-					void this.plugin.saveSettings();
-					this.display();
-				});
-			}
-		}
-		collect(specialEl);
+		keyUpgradesEl.createDiv({
+			text: "Give your everyday keys table- and CJK-aware behavior. Some of these physical keys can't be reassigned in Obsidian's own Hotkeys panel; toggle them on here instead.",
+			cls: 'uch-key-upgrades-desc',
+		});
+
+		const keyUpgradesTable = keyUpgradesEl.createEl('table');
+		keyUpgradesTable.addClass('uch-table');
+		this.renderKeyUpgradeGroup(
+			keyUpgradesTable, 'Navigation basics',
+			null,
+			NAV_BASICS_DEFS, keyUpgradeCtx,
+		);
+		this.renderKeyUpgradeGroup(
+			keyUpgradesTable, 'Word commands',
+			"Chinese/Japanese word boundaries, which standard navigation and deletion don't recognize",
+			WORD_COMMAND_DEFS, keyUpgradeCtx,
+		);
+		collect(keyUpgradesEl);
 		for (const el of sectionEls) el.toggleClass('uch-hidden', !this.sectionVisible);
 	}
 
