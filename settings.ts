@@ -282,17 +282,19 @@ export const computeKeyUpgradeRow = (
 // commands is Mac-only for now (2026-08-28 first pass) — see KeyUpgradeDef's
 // own doc comment. OS-conditional Windows/Linux equivalents are a
 // deliberately deferred follow-up, not yet built.
+// Order within each group matches COMMAND_DEFS's own QSA ordering (cursor
+// block, then editing block) — QSA is treated as the canonical order.
 const KEY_UPGRADE_DEFS: readonly KeyUpgradeDef[] = [
 	{ group: 'navBasics', label: 'Column-aware',      commandId: 'cursor-up',   modifiers: [], key: 'ArrowUp'   },
 	{ group: 'navBasics', label: 'Column-aware',      commandId: 'cursor-down', modifiers: [], key: 'ArrowDown' },
-	{ group: 'navBasics', label: 'Table-aware',       commandId: 'page-up',     modifiers: [], key: 'PageUp'   },
-	{ group: 'navBasics', label: 'Table-aware',       commandId: 'page-down',   modifiers: [], key: 'PageDown' },
-	{ group: 'navBasics', label: 'Document start - table-aware', commandId: 'cursor-top',    modifiers: ['Meta'], key: 'ArrowUp'   },
-	{ group: 'navBasics', label: 'Document end - table-aware',   commandId: 'cursor-bottom', modifiers: ['Meta'], key: 'ArrowDown' },
 	{ group: 'navBasics', label: '3-step Smart home', commandId: 'cursor-home', modifiers: [], key: 'Home'     },
 	{ group: 'navBasics', label: 'Table-aware',       commandId: 'cursor-end',  modifiers: [], key: 'End'      },
-	{ group: 'wordCommands', label: 'Word left - table & CJK aware',  commandId: 'word-left',  modifiers: ['Alt'], key: 'ArrowLeft'  },
+	{ group: 'navBasics', label: 'Document start - table-aware', commandId: 'cursor-top',    modifiers: ['Meta'], key: 'ArrowUp'   },
+	{ group: 'navBasics', label: 'Document end - table-aware',   commandId: 'cursor-bottom', modifiers: ['Meta'], key: 'ArrowDown' },
+	{ group: 'navBasics', label: 'Table-aware',       commandId: 'page-up',     modifiers: [], key: 'PageUp'   },
+	{ group: 'navBasics', label: 'Table-aware',       commandId: 'page-down',   modifiers: [], key: 'PageDown' },
 	{ group: 'wordCommands', label: 'Word right - table & CJK aware', commandId: 'word-right', modifiers: ['Alt'], key: 'ArrowRight' },
+	{ group: 'wordCommands', label: 'Word left - table & CJK aware',  commandId: 'word-left',  modifiers: ['Alt'], key: 'ArrowLeft'  },
 	// Real macOS convention confirmed live (2026-08-28): Option, not Cmd. The
 	// physical "delete" key on a Mac keyboard sends Backspace; Fn+that key
 	// sends Delete (forward-delete) — no separate "Fn" modifier exists to
@@ -1451,7 +1453,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		});
 
 		keyUpgradesEl.createDiv({
-			text: "Give your everyday keys table- and CJK-aware behavior — no Vim/Emacs knowledge required. These physical keys can't be reassigned in Obsidian's own Hotkeys panel; toggle them on here instead.",
+			text: "Give your everyday keys table- and CJK-aware behavior. Some of these physical keys can't be reassigned in Obsidian's own Hotkeys panel; toggle them on here instead.",
 			cls: 'uch-key-upgrades-desc',
 		});
 
