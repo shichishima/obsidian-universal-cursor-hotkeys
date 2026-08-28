@@ -111,7 +111,7 @@ describe('applyRowCrossGoalColumnSync', () => {
 		// a "settled" view distinct from the one current when this was called —
 		// re-seeding must use the *settled* view, not the pre-refinement one.
 		const staleInner   = makeInner(5, 1, 50)
-		const settledInner = makeInner(20, -1, 90)
+		const settledInner = makeInner(20, 1, 90)
 		const editor: any = { activeCM: staleInner, cm: {} }
 		plugin.refineDisplayLineColumn = vi.fn(() => { editor.activeCM = settledInner })
 
@@ -130,6 +130,8 @@ describe('applyRowCrossGoalColumnSync', () => {
 		expect(settledInner.dispatch).toHaveBeenCalledTimes(1)
 		const call = settledInner.dispatch.mock.calls[0][0]
 		expect(call.selection.main.head).toBe(20)
+		// assoc is always forced to -1, regardless of what the settled view's
+		// own selection carried (1, here) — see this function's own comment.
 		expect(call.selection.main.assoc).toBe(-1)
 		// goalColumn is content-relative to the settled view's own rect (130 - 90 = 40).
 		expect(call.selection.main.goalColumn).toBe(40)
@@ -149,7 +151,7 @@ describe('applyRowCrossGoalColumnSync', () => {
 		expect(cm.dispatch).toHaveBeenCalledTimes(1)
 		const call = cm.dispatch.mock.calls[0][0]
 		expect(call.selection.main.head).toBe(0)
-		expect(call.selection.main.assoc).toBe(1)
+		expect(call.selection.main.assoc).toBe(-1)
 		expect(call.selection.main.goalColumn).toBe(40) // 100 - 60
 	})
 })

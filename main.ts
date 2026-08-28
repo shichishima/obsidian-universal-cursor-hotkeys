@@ -1749,11 +1749,19 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				this.refineDisplayLineColumn(editor, pixelGoal, true);
 				const view = editor.activeCM;
 				const head = view.state.selection.main.head;
-				const assoc = view.state.selection.main.assoc;
 				const rect = view.contentDOM.getBoundingClientRect();
+				// assoc=-1: head may sit exactly on a visual-line wrap boundary —
+				// this function's own result always represents "the rightmost
+				// point of the line being refined that still fits pixelGoal", so
+				// it must always render as that line's own right edge, never as
+				// the start of the next visual line. Confirmed live (2026-08-28):
+				// reusing whatever assoc the selection already carried defaulted
+				// to rendering a same-cell row-crossing's clamped landing as the
+				// destination's *second* visual line's left edge instead of its
+				// first (intended) visual line's right edge.
 				view.dispatch({
 					selection: EditorSelection.create([
-						EditorSelection.cursor(head, assoc, undefined, pixelGoal - rect.left),
+						EditorSelection.cursor(head, -1, undefined, pixelGoal - rect.left),
 					]),
 				});
 			});
