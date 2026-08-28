@@ -385,6 +385,38 @@ describe('handleCellStartSnap', () => {
 	}
 
 	// ===========================================================================
+	// coordsAtPos path — boundary position: originalHead sits exactly at a VL
+	// wrap boundary (VL1's own right edge == the same raw offset as VL2's own
+	// left edge). Regression test for a real bug (confirmed live 2026-08-28):
+	// querying that offset's coords without forcing side=-1 returned VL2's
+	// row instead of VL1's, so a cursor genuinely on VL1's right edge was
+	// wrongly classified as "VL2+, stay" instead of "VL1, previous row".
+	// ===========================================================================
+
+	it('originalHead at a VL wrap boundary: side=-1 resolves it to VL1 (the row it terminates), not VL2 (the row it also starts)', () => {
+		const boundaryOffset = 18
+		const inner = {
+			state: { selection: { main: { head: 0 } } }, // after goUp: VL1 start
+			coordsAtPos: vi.fn((pos: number, side?: number) => {
+				if (pos === 0) return { top: 100, bottom: 118, left: 100, right: 200 } // VL1's own row
+				if (pos === boundaryOffset) {
+					// Same offset renders on VL1 (its own end) with side=-1,
+					// or VL2 (the row it also starts) with any other side.
+					return side === -1
+						? { top: 100, bottom: 118, left: 300, right: 300 }
+						: { top: 120, bottom: 138, left: 100, right: 100 }
+				}
+				return null
+			}),
+		}
+		const editor = makeEditorWithInner(inner)
+		plugin.handleCellStartSnap(editor, 1, boundaryOffset, 0, PIXEL_GOAL, boundaryOffset)
+		expect(inner.coordsAtPos).toHaveBeenCalledWith(boundaryOffset, -1)
+		expect(plugin.setCursorToPrevRow).toHaveBeenCalledWith(editor, 0)
+		expect(plugin.placeAtBottomVL).toHaveBeenCalledWith(editor, PIXEL_GOAL)
+	})
+
+	// ===========================================================================
 	// coordsAtPos path — VL2+ left edge: originalCoords.top > vl1Coords.top + 2
 	// ===========================================================================
 

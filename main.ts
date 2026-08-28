@@ -1518,8 +1518,23 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	) {
 		const inner = editor.activeCM;
 		if (innerHeadBeforeGoUp !== undefined && inner && inner !== editor.cm) {
-			const vl1Coords      = inner.coordsAtPos(inner.state.selection.main.head);
-			const originalCoords = inner.coordsAtPos(innerHeadBeforeGoUp);
+			const vl1Coords = inner.coordsAtPos(inner.state.selection.main.head);
+			// side=-1: innerHeadBeforeGoUp may sit exactly on a VL wrap boundary
+			// (the right edge of VL1 is the same raw offset as the left edge of
+			// VL2). Without forcing a side, coordsAtPos falls back to its own
+			// default (the start of the line *after* the boundary, i.e. VL2),
+			// silently misreporting a genuine VL1-right-edge position as VL2 —
+			// confirmed live (2026-08-28, via direct coordsAtPos logging): a
+			// same-offset query returned VL2's own y instead of VL1's, causing
+			// this to wrongly conclude "already VL2+, stay" for a cursor that
+			// was actually on VL1 and should cross to the row above. -1
+			// matches "the end of the line this position terminates" — the
+			// correct interpretation for the right-edge case this originalCh
+			// capture is meant to represent (mirrors the same assoc<0 "already
+			// correctly placed at VL_N's own right edge" reasoning the
+			// assoc-correction block right above this function's own call site
+			// already relies on).
+			const originalCoords = inner.coordsAtPos(innerHeadBeforeGoUp, -1);
 			if (vl1Coords && originalCoords) {
 				if (originalCoords.top > vl1Coords.top + 2) {
 					// VL2+ left edge: cursor already at VL1 start — nothing to do.
@@ -1686,8 +1701,13 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private computeRowCrossPixelGoal(editor: Editor): number | null {
 		const view = editor.activeCM;
 		const goalColumn = view.state.selection.main.goalColumn;
-		if (goalColumn !== undefined) return view.contentDOM.getBoundingClientRect().left + goalColumn;
-		const coords = view.coordsAtPos(view.state.selection.main.head);
+		const rect = view.contentDOM.getBoundingClientRect();
+		if (goalColumn !== undefined) return rect.left + goalColumn;
+		// side=-1: head may sit exactly on a visual-line wrap boundary (e.g.
+		// right after a trailing space that wraps) — without it, CM6 defaults
+		// to reporting the *next* visual line's start (x = rect.left) instead
+		// of the true end of the line the cursor is visually on.
+		const coords = view.coordsAtPos(view.state.selection.main.head, -1);
 		return coords ? coords.left : null;
 	}
 
@@ -1726,7 +1746,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (pixelGoal === null) return;
 		window.requestAnimationFrame(() => {
 			window.requestAnimationFrame(() => {
-				this.refineDisplayLineColumn(editor, pixelGoal);
+				this.refineDisplayLineColumn(editor, pixelGoal, true);
 				const view = editor.activeCM;
 				const head = view.state.selection.main.head;
 				const assoc = view.state.selection.main.assoc;
@@ -3174,12 +3194,17 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// re-dispatches via setCursorViaCm — never a raw EditorView.dispatch — if
 	// it differs from the rough landing. Never lets the correction change
 	// which (inner) line the cursor is on; its job is purely horizontal.
-	refineDisplayLineColumn(editor: unknown, pixelGoal: number): { line: number; ch: number } | null {
+	// allowLineEnd: Vim's gj/gk (the only other caller) needs Normal-mode-legal
+	// clamping — the cursor may never rest past a line's last character. The
+	// new Emacs Ctrl-N/P row-crossing (main.ts's own
+	// applyRowCrossGoalColumnSync) is not modal and must be able to land one
+	// past the last character (e.g. "shortcuts|"), so it passes true here.
+	refineDisplayLineColumn(editor: unknown, pixelGoal: number, allowLineEnd = false): { line: number; ch: number } | null {
 		const e = editor as Editor;
 		const inner = e.activeCM;
 		if (inner && inner !== e.cm) {
 			const head = inner.state.selection.main.head;
-			const resolved = universalCursorHotkeysPlugin.resolveSameLineOffset(inner, head, pixelGoal);
+			const resolved = universalCursorHotkeysPlugin.resolveSameLineOffset(inner, head, pixelGoal, allowLineEnd);
 			if (resolved === null) return e.getCursor();
 
 			// Convert the (confirmed same-line) refined inner ch back into an
@@ -3203,7 +3228,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const outer = e.cm;
 		const outerCursor = e.getCursor();
 		const head = e.posToOffset(outerCursor);
-		const resolved = universalCursorHotkeysPlugin.resolveSameLineOffset(outer, head, pixelGoal);
+		const resolved = universalCursorHotkeysPlugin.resolveSameLineOffset(outer, head, pixelGoal, allowLineEnd);
 		if (resolved === null) return outerCursor;
 		const headLine = outer.state.doc.lineAt(head);
 		this.setCursorViaCm(e, outerCursor.line, resolved - headLine.from);
@@ -3223,7 +3248,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// current line's own visual band (see refineDisplayLineColumn's own
 	// comment for the +9 y-offset rationale). Returns null if no correction
 	// should be applied (unresolvable, would cross a line, or unchanged).
-	private static resolveSameLineOffset(view: EditorView, head: number, pixelGoal: number): number | null {
+	private static resolveSameLineOffset(view: EditorView, head: number, pixelGoal: number, allowLineEnd = false): number | null {
 		const coords = view.coordsAtPos(head);
 		if (!coords) return null;
 		const targetPos = view.posAtCoords({ x: pixelGoal, y: coords.top + 9 }, false);
@@ -3231,7 +3256,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const headLine = view.state.doc.lineAt(head);
 		const targetLine = view.state.doc.lineAt(targetPos);
 		if (targetLine.number !== headLine.number) return null;
-		const maxCh = Math.max(0, headLine.length - 1);
+		const maxCh = Math.max(0, headLine.length - (allowLineEnd ? 0 : 1));
 		const clamped = Math.min(targetPos, headLine.from + maxCh);
 		return clamped === head ? null : clamped;
 	}

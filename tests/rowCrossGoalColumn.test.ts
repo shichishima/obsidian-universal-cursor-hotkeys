@@ -46,7 +46,10 @@ describe('computeRowCrossPixelGoal', () => {
 		const inner = makeInner({ goalColumn: undefined, coords: { left: 77 } })
 		const editor = { activeCM: inner, cm: {} }
 		expect(plugin.computeRowCrossPixelGoal(editor)).toBe(77)
-		expect(inner.coordsAtPos).toHaveBeenCalledWith(42)
+		// side=-1: head may sit exactly on a visual-line wrap boundary — without
+		// it, CM6 defaults to reporting the *next* visual line's start instead
+		// of the true end of the line the cursor is visually on.
+		expect(inner.coordsAtPos).toHaveBeenCalledWith(42, -1)
 	})
 
 	it('goalColumn undefined, coordsAtPos also returns null → null', () => {
@@ -119,7 +122,10 @@ describe('applyRowCrossGoalColumnSync', () => {
 		expect(plugin.refineDisplayLineColumn).not.toHaveBeenCalled()
 
 		flushFrame() // 2nd deferred frame — the real correction runs now
-		expect(plugin.refineDisplayLineColumn).toHaveBeenCalledWith(editor, 130)
+		// allowLineEnd=true: unlike vim's gj/gk (Normal-mode-legal clamping),
+		// Emacs Ctrl-N/P is not modal and must be able to land past the last
+		// character (e.g. "shortcuts|").
+		expect(plugin.refineDisplayLineColumn).toHaveBeenCalledWith(editor, 130, true)
 		expect(staleInner.dispatch).not.toHaveBeenCalled()
 		expect(settledInner.dispatch).toHaveBeenCalledTimes(1)
 		const call = settledInner.dispatch.mock.calls[0][0]
@@ -139,7 +145,7 @@ describe('applyRowCrossGoalColumnSync', () => {
 		const editor: any = { activeCM: cm, cm }
 		plugin.applyRowCrossGoalColumnSync(editor, 100)
 		flushFrame(); flushFrame()
-		expect(plugin.refineDisplayLineColumn).toHaveBeenCalledWith(editor, 100)
+		expect(plugin.refineDisplayLineColumn).toHaveBeenCalledWith(editor, 100, true)
 		expect(cm.dispatch).toHaveBeenCalledTimes(1)
 		const call = cm.dispatch.mock.calls[0][0]
 		expect(call.selection.main.head).toBe(0)

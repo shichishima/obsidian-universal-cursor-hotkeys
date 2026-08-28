@@ -820,6 +820,22 @@ describe('VimSupportHost bridge (main.ts)', () => {
 			expect(plugin.setCursorViaCm).toHaveBeenCalledWith(editor, 3, 3)
 		})
 
+		it('allowLineEnd=true lets the correction land past the Normal-mode-legal bound, onto the line\'s own true end', () => {
+			// Emacs Ctrl-N/P (main.ts's own applyRowCrossGoalColumnSync) is not
+			// modal — unlike vim's gj/gk, it must be able to land one past the
+			// last character (e.g. "shortcuts|", not "shortcut|s").
+			const inner = makeInner(0, 2) // 2-char inner line -> line's own true end = 2
+			inner.posAtCoords.mockReturnValue(2) // resolves to the line's own end
+			const editor = {
+				activeCM: inner, cm: {},
+				getCursor: () => ({ line: 3, ch: 2 }),
+				getLine: () => LINE_3SEG,
+			}
+			plugin.refineDisplayLineColumn(editor, 999, true)
+			// clampedInnerCh = min(2, 2) = 2 -> targetOuterCh = 2 + 2 = 4
+			expect(plugin.setCursorViaCm).toHaveBeenCalledWith(editor, 3, 4)
+		})
+
 		it('regression: never lets the correction change lines — returns the unchanged landing when posAtCoords resolves onto an adjacent line', () => {
 			const head = 2
 			const inner = {
