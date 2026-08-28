@@ -1407,8 +1407,30 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			{ label: 'Kill word right - table & CJK aware', commandId: 'kill-word-right', modifiers: ['Alt'], key: 'Delete'    },
 		];
 
+		const keyUpgradeCtx: KeyUpgradeCtx = { hm, effectiveHotkeys, reverseMap, cmds, toHotkey };
+		const ALL_KEY_UPGRADE_DEFS: readonly KeyUpgradeDef[] = [...NAV_BASICS_DEFS, ...WORD_COMMAND_DEFS];
+
 		const keyUpgradesEl = containerEl.createDiv({ cls: 'uch-key-upgrades-section' });
-		keyUpgradesEl.createDiv({ text: 'Key Upgrades', cls: 'uch-key-upgrades-title' });
+		const keyUpgradesTitleFlex = keyUpgradesEl.createDiv('uch-title-flex');
+		keyUpgradesTitleFlex.createSpan({ text: 'Key Upgrades', cls: 'uch-key-upgrades-title' });
+		const eligible = ALL_KEY_UPGRADE_DEFS.filter(def => {
+			const row = computeKeyUpgradeRow(def, keyUpgradeCtx.effectiveHotkeys, keyUpgradeCtx.reverseMap, keyUpgradeCtx.cmds);
+			return !row.assigned && row.conflictIds.length === 0;
+		});
+		const applyAllBtn = keyUpgradesTitleFlex.createEl('button', { text: 'Apply all' });
+		applyAllBtn.addClass('mod-cta', 'uch-apply-btn');
+		if (eligible.length === 0) applyAllBtn.disabled = true;
+		applyAllBtn.addEventListener('click', () => {
+			for (const def of eligible) {
+				const row = computeKeyUpgradeRow(def, keyUpgradeCtx.effectiveHotkeys, keyUpgradeCtx.reverseMap, keyUpgradeCtx.cmds);
+				hm.setHotkeys(row.fullId, [...keyUpgradeCtx.effectiveHotkeys(row.fullId).map(toHotkey), row.targetHotkey]);
+			}
+			hm.save();
+			hm.bake();
+			void this.plugin.saveSettings();
+			this.display();
+		});
+
 		keyUpgradesEl.createDiv({
 			text: "Give your everyday keys table- and CJK-aware behavior — no Vim/Emacs knowledge required. These physical keys can't be reassigned in Obsidian's own Hotkeys panel; toggle them on here instead.",
 			cls: 'uch-key-upgrades-desc',
@@ -1416,7 +1438,6 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 
 		const keyUpgradesTable = keyUpgradesEl.createEl('table');
 		keyUpgradesTable.addClass('uch-table');
-		const keyUpgradeCtx: KeyUpgradeCtx = { hm, effectiveHotkeys, reverseMap, cmds, toHotkey };
 		this.renderKeyUpgradeGroup(
 			keyUpgradesTable, 'Navigation basics',
 			null,
