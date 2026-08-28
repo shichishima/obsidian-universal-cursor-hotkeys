@@ -117,12 +117,11 @@ export const formatHotkey = (hk: AnyHotkey, isMacOS = Platform.isMacOS): string 
 		: [...mods.map(m => WIN_MOD[m] ?? m), key].join('+');
 };
 
-const SPECIAL_KEY_EXCEPTION: Partial<Record<string, string>> = {
-	'cursor-home': 'Home',
-	'cursor-end':  'End',
-	'page-up':     'PageUp',
-	'page-down':   'PageDown',
-};
+// SPECIAL_KEY_EXCEPTION is declared further below (derived from
+// KEY_UPGRADE_DEFS) — computeRow/selectCurrentChips below only reference it
+// inside their own function bodies, which don't run until display() calls
+// them, long after the whole module (including that later declaration) has
+// finished evaluating.
 
 export const selectCurrentChips = (
 	allHks: BakedHotkey[],
@@ -240,6 +239,7 @@ export const computeRow = (
 // recommended-vs-custom-key vocabulary. See computeRow's own doc history for
 // why that fuller vocabulary doesn't apply here.
 export interface KeyUpgradeDef {
+	group: 'navBasics' | 'wordCommands';
 	label: string;
 	commandId: string;
 	// Mac-only for now (2026-08-28 first pass) — Ctrl/Alt/Meta all resolve to
@@ -271,6 +271,46 @@ export const computeKeyUpgradeRow = (
 	const conflictIds = (reverseMap.get(keyId) ?? []).filter(id => id !== fullId && cmds?.[id] !== undefined);
 	return { fullId, targetHotkey, assigned, conflictIds };
 };
+
+// Single source of truth for every Key Upgrades entry — also drives
+// SPECIAL_KEY_EXCEPTION below (derived, not hand-duplicated), so a bare-key
+// entry added here automatically gets the same "Apply recommended still
+// applies the Ctrl-combo even though the bare key is already set" treatment
+// Home/End/Page Up/Page Down already had, without a second place to
+// remember to update (missed once already, for Up/Down — see git history).
+// Navigation basics is bare-key (works identically on every OS); Word
+// commands is Mac-only for now (2026-08-28 first pass) — see KeyUpgradeDef's
+// own doc comment. OS-conditional Windows/Linux equivalents are a
+// deliberately deferred follow-up, not yet built.
+const KEY_UPGRADE_DEFS: readonly KeyUpgradeDef[] = [
+	{ group: 'navBasics', label: 'Column-aware',      commandId: 'cursor-up',   modifiers: [], key: 'ArrowUp'   },
+	{ group: 'navBasics', label: 'Column-aware',      commandId: 'cursor-down', modifiers: [], key: 'ArrowDown' },
+	{ group: 'navBasics', label: 'Table-aware',       commandId: 'page-up',     modifiers: [], key: 'PageUp'   },
+	{ group: 'navBasics', label: 'Table-aware',       commandId: 'page-down',   modifiers: [], key: 'PageDown' },
+	{ group: 'navBasics', label: 'Document start - table-aware', commandId: 'cursor-top',    modifiers: ['Meta'], key: 'ArrowUp'   },
+	{ group: 'navBasics', label: 'Document end - table-aware',   commandId: 'cursor-bottom', modifiers: ['Meta'], key: 'ArrowDown' },
+	{ group: 'navBasics', label: '3-step Smart home', commandId: 'cursor-home', modifiers: [], key: 'Home'     },
+	{ group: 'navBasics', label: 'Table-aware',       commandId: 'cursor-end',  modifiers: [], key: 'End'      },
+	{ group: 'wordCommands', label: 'Word left - table & CJK aware',  commandId: 'word-left',  modifiers: ['Alt'], key: 'ArrowLeft'  },
+	{ group: 'wordCommands', label: 'Word right - table & CJK aware', commandId: 'word-right', modifiers: ['Alt'], key: 'ArrowRight' },
+	// Real macOS convention confirmed live (2026-08-28): Option, not Cmd. The
+	// physical "delete" key on a Mac keyboard sends Backspace; Fn+that key
+	// sends Delete (forward-delete) — no separate "Fn" modifier exists to
+	// bind, Fn just changes which key code is sent.
+	{ group: 'wordCommands', label: 'Kill word left - table & CJK aware',  commandId: 'kill-word-left',  modifiers: ['Alt'], key: 'Backspace' },
+	{ group: 'wordCommands', label: 'Kill word right - table & CJK aware', commandId: 'kill-word-right', modifiers: ['Alt'], key: 'Delete'    },
+];
+
+// Derived from KEY_UPGRADE_DEFS's own bare (no-modifier) entries only — this
+// exception mechanism exists specifically to let a bare physical key (e.g.
+// Home) coexist on the same command as a modified QSA-recommended key (e.g.
+// Ctrl-A) without either blocking the other's own "already assigned"
+// status. Modifier-bearing entries (Word left/right, Document start/end,
+// Kill word left/right) don't need it — those commands have no QSA
+// `recommended` hotkey to disambiguate against in the first place.
+const SPECIAL_KEY_EXCEPTION: Partial<Record<string, string>> = Object.fromEntries(
+	KEY_UPGRADE_DEFS.filter(d => d.modifiers.length === 0).map(d => [d.commandId, d.key])
+);
 
 const ctrl = (...keys: string[]): Hotkey => ({ modifiers: ['Ctrl'], key: keys[0] });
 
@@ -1381,39 +1421,18 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		}
 
 		// Key Upgrades — see computeKeyUpgradeRow's own doc comment for why this
-		// is key-first rather than command-first like the QSA table above.
-		// Navigation basics is bare-key (works identically on every OS); the
-		// other three groups are Mac-only for now (2026-08-28 first pass) — see
-		// KeyUpgradeDef's own doc comment. OS-conditional Windows/Linux
-		// equivalents are a deliberately deferred follow-up, not yet built.
-		const NAV_BASICS_DEFS: readonly KeyUpgradeDef[] = [
-			{ label: 'Column-aware',      commandId: 'cursor-up',   modifiers: [], key: 'ArrowUp'   },
-			{ label: 'Column-aware',      commandId: 'cursor-down', modifiers: [], key: 'ArrowDown' },
-			{ label: 'Table-aware',       commandId: 'page-up',     modifiers: [], key: 'PageUp'   },
-			{ label: 'Table-aware',       commandId: 'page-down',   modifiers: [], key: 'PageDown' },
-			{ label: 'Document start - table-aware', commandId: 'cursor-top',    modifiers: ['Meta'], key: 'ArrowUp'   },
-			{ label: 'Document end - table-aware',   commandId: 'cursor-bottom', modifiers: ['Meta'], key: 'ArrowDown' },
-			{ label: '3-step Smart home', commandId: 'cursor-home', modifiers: [], key: 'Home'     },
-			{ label: 'Table-aware',       commandId: 'cursor-end',  modifiers: [], key: 'End'      },
-		];
-		const WORD_COMMAND_DEFS: readonly KeyUpgradeDef[] = [
-			{ label: 'Word left - table & CJK aware',  commandId: 'word-left',  modifiers: ['Alt'], key: 'ArrowLeft'  },
-			{ label: 'Word right - table & CJK aware', commandId: 'word-right', modifiers: ['Alt'], key: 'ArrowRight' },
-			// Real macOS convention confirmed live (2026-08-28): Option, not
-			// Cmd. The physical "delete" key on a Mac keyboard sends Backspace;
-			// Fn+that key sends Delete (forward-delete) — no separate "Fn"
-			// modifier exists to bind, Fn just changes which key code is sent.
-			{ label: 'Kill word left - table & CJK aware',  commandId: 'kill-word-left',  modifiers: ['Alt'], key: 'Backspace' },
-			{ label: 'Kill word right - table & CJK aware', commandId: 'kill-word-right', modifiers: ['Alt'], key: 'Delete'    },
-		];
+		// is key-first rather than command-first like the QSA table above. The
+		// actual defs live in the module-level KEY_UPGRADE_DEFS (also feeds
+		// SPECIAL_KEY_EXCEPTION above) — just grouped here for rendering.
+		const NAV_BASICS_DEFS    = KEY_UPGRADE_DEFS.filter(d => d.group === 'navBasics');
+		const WORD_COMMAND_DEFS  = KEY_UPGRADE_DEFS.filter(d => d.group === 'wordCommands');
 
 		const keyUpgradeCtx: KeyUpgradeCtx = { hm, effectiveHotkeys, reverseMap, cmds, toHotkey };
-		const ALL_KEY_UPGRADE_DEFS: readonly KeyUpgradeDef[] = [...NAV_BASICS_DEFS, ...WORD_COMMAND_DEFS];
 
 		const keyUpgradesEl = containerEl.createDiv({ cls: 'uch-key-upgrades-section' });
 		const keyUpgradesTitleFlex = keyUpgradesEl.createDiv('uch-title-flex');
 		keyUpgradesTitleFlex.createSpan({ text: 'Key Upgrades', cls: 'uch-key-upgrades-title' });
-		const eligible = ALL_KEY_UPGRADE_DEFS.filter(def => {
+		const eligible = KEY_UPGRADE_DEFS.filter(def => {
 			const row = computeKeyUpgradeRow(def, keyUpgradeCtx.effectiveHotkeys, keyUpgradeCtx.reverseMap, keyUpgradeCtx.cmds);
 			return !row.assigned && row.conflictIds.length === 0;
 		});
