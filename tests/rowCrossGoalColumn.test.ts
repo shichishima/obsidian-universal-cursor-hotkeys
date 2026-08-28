@@ -25,10 +25,14 @@ describe('computeRowCrossPixelGoal', () => {
 		}
 	}
 
-	it('no distinct inner view (activeCM === cm) → null', () => {
-		const cm = {}
+	it('no distinct inner view (activeCM === cm, i.e. still in plain text) → reads the outer view directly, same as an inner cell view', () => {
+		// Table entry (moveCursorUpIntoTable/moveCursorDownIntoTable) calls
+		// this while still in plain text, before any cell exists to focus —
+		// editor.activeCM already resolves to the outer view in that case, so
+		// no special-casing is needed here.
+		const cm = makeInner({ goalColumn: 15, rectLeft: 40 })
 		const editor = { activeCM: cm, cm }
-		expect(plugin.computeRowCrossPixelGoal(editor)).toBeNull()
+		expect(plugin.computeRowCrossPixelGoal(editor)).toBe(55)
 	})
 
 	it('goalColumn defined → rect.left + goalColumn (screen-absolute), coordsAtPos not consulted', () => {
@@ -55,10 +59,30 @@ describe('computeRowCrossPixelGoal', () => {
 
 describe('applyRowCrossGoalColumnSync', () => {
 	let plugin: any
+	let rafQueue: Array<() => void>
+
+	// Manual requestAnimationFrame queue (not vitest's fake timers): this
+	// environment is plain 'node' (no requestAnimationFrame global at all),
+	// and we need precise control over exactly how many frames have fired —
+	// applyRowCrossGoalColumnSync defers its real work two frames deep (see
+	// its own doc comment: confirmed live that Obsidian's own cell-focus
+	// reconciliation resets the cursor one frame after a synchronous
+	// correction, so the fix must land strictly after that settles).
+	function flushFrame() {
+		const due = rafQueue
+		rafQueue = []
+		due.forEach(cb => cb())
+	}
 
 	beforeEach(() => {
+		rafQueue = []
+		vi.stubGlobal('window', { requestAnimationFrame: (cb: () => void) => { rafQueue.push(cb); return rafQueue.length } })
 		plugin = Object.create(UniversalCursorHotkeysPlugin.prototype)
 		plugin.refineDisplayLineColumn = vi.fn()
+	})
+
+	afterEach(() => {
+		vi.unstubAllGlobals()
 	})
 
 	function makeInner(head: number, assoc: number, rectLeft: number) {
@@ -69,15 +93,17 @@ describe('applyRowCrossGoalColumnSync', () => {
 		}
 	}
 
-	it('pixelGoal === null → no-op, refineDisplayLineColumn not called', () => {
+	it('pixelGoal === null → no-op, refineDisplayLineColumn not called, nothing scheduled', () => {
 		const inner = makeInner(10, 1, 0)
 		const editor = { activeCM: inner, cm: {} }
 		plugin.applyRowCrossGoalColumnSync(editor, null)
+		expect(rafQueue).toHaveLength(0)
+		flushFrame(); flushFrame()
 		expect(plugin.refineDisplayLineColumn).not.toHaveBeenCalled()
 		expect(inner.dispatch).not.toHaveBeenCalled()
 	})
 
-	it('pixelGoal given → calls refineDisplayLineColumn, then re-reads activeCM and writes goalColumn onto the settled view', () => {
+	it('pixelGoal given → does nothing for one frame, then (on the second) calls refineDisplayLineColumn and re-reads activeCM to write goalColumn onto the settled view', () => {
 		// Simulate refineDisplayLineColumn dispatching and shifting activeCM to
 		// a "settled" view distinct from the one current when this was called —
 		// re-seeding must use the *settled* view, not the pre-refinement one.
@@ -87,7 +113,12 @@ describe('applyRowCrossGoalColumnSync', () => {
 		plugin.refineDisplayLineColumn = vi.fn(() => { editor.activeCM = settledInner })
 
 		plugin.applyRowCrossGoalColumnSync(editor, 130)
+		expect(plugin.refineDisplayLineColumn).not.toHaveBeenCalled()
 
+		flushFrame() // 1st deferred frame — still nothing yet
+		expect(plugin.refineDisplayLineColumn).not.toHaveBeenCalled()
+
+		flushFrame() // 2nd deferred frame — the real correction runs now
 		expect(plugin.refineDisplayLineColumn).toHaveBeenCalledWith(editor, 130)
 		expect(staleInner.dispatch).not.toHaveBeenCalled()
 		expect(settledInner.dispatch).toHaveBeenCalledTimes(1)
@@ -107,6 +138,7 @@ describe('applyRowCrossGoalColumnSync', () => {
 		const cm = makeInner(0, 1, 60)
 		const editor: any = { activeCM: cm, cm }
 		plugin.applyRowCrossGoalColumnSync(editor, 100)
+		flushFrame(); flushFrame()
 		expect(plugin.refineDisplayLineColumn).toHaveBeenCalledWith(editor, 100)
 		expect(cm.dispatch).toHaveBeenCalledTimes(1)
 		const call = cm.dispatch.mock.calls[0][0]

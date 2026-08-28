@@ -983,12 +983,21 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	// Handles goUp when the cursor is on the line directly below a table in Live Preview mode.
 	//
-	// Always lands in the leftmost cell (cellIndex 0), same permanent scope
-	// boundary as moveCursorDownIntoTable's own doc comment explains — no
-	// pixel-to-cell resolution is available via CM6 APIs for an unfocused
-	// table row (confirmed live 2026-08-27/28).
+	// Always lands in the leftmost cell (cellIndex 0) — like Vim's own gj/gk
+	// table entry (scheduleDisplayLineEntry), no pixel-to-cell resolution is
+	// attempted (Obsidian's Live Preview table widget gives the outer view no
+	// per-character position info for an unfocused row, so there's no way to
+	// tell which cell a column falls under before landing in one). Once
+	// landed, though, the column *within* that cell is preserved — same
+	// gj/gk-mirroring shape as the rest of this feature: a rough landing at
+	// cellIndex 0 first, then placeAtBottomVL's own pixelGoal threading
+	// refines the horizontal position against the now-mounted, now-real
+	// inner view (see computeRowCrossPixelGoal's own doc comment).
 	private moveCursorUpIntoTable(editor: Editor) {
 		const cursor = editor.getCursor();
+		// Captured before crossing, while editor.activeCM is still the outer
+		// (plain-text) view.
+		const pixelGoal = this.computeRowCrossPixelGoal(editor);
 		// Only enter the table if on VL1; if on VL2+, a regular goUp suffices.
 		editor.exec('goUp');
 		if (editor.getCursor().line === cursor.line) {
@@ -1001,7 +1010,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (targetCh !== -1) {
 			editor.setCursor({ line: targetLine, ch: targetCh });
 		}
-		this.placeAtBottomVL(editor);
+		this.placeAtBottomVL(editor, pixelGoal);
 	}
 
 
@@ -1121,24 +1130,25 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	// Handles goDown when the cursor is on the line directly above a table in Live Preview mode.
 	//
-	// Always lands in the leftmost cell (cellIndex 0) rather than resolving
-	// which cell the cursor's own goal column would fall under — confirmed
-	// live (2026-08-27/28) that this isn't a gap to fix, but a real
-	// constraint: the outer CM6 view has no per-character position info for
-	// an unfocused table row's own raw markdown text (it's fully replaced by
-	// the Live Preview table widget). posAtCoords at varying x all resolved
-	// to the identical offset regardless of x, and coordsAtPos collapsed to
-	// one fixed point past the row's own start — there's no pixel-to-cell
-	// resolution available via CM6 APIs alone here, unlike the row-crossing
-	// and table-exit cases (which only ever refine position *within* an
-	// already-known, already-focused cell/line). Resolving this would need
-	// literal DOM measurement of the rendered <table>'s own cells instead of
-	// CM6 APIs — a different, more fragile mechanism than anything else in
-	// this file — so this stays a permanent scope boundary, not a TODO.
+	// Always lands in the leftmost cell (cellIndex 0) — confirmed live
+	// (2026-08-27/28) that the outer CM6 view has no per-character position
+	// info for an unfocused table row (fully replaced by the Live Preview
+	// table widget: posAtCoords at varying x all resolved to the identical
+	// offset), so there's no way to tell which cell a column falls under
+	// before landing in one — same as Vim's own gj/gk table entry
+	// (scheduleDisplayLineEntry), which has the identical restriction for
+	// the identical reason. Once landed, though, the column *within* that
+	// cell is preserved via applyRowCrossGoalColumn's own pixelGoal
+	// threading, refined against the now-mounted, now-real inner view —
+	// mirroring gj/gk's own "rough landing, then refine" two-step shape.
 	private moveCursorDownIntoTable(editor: Editor) {
 		const cursor = editor.getCursor();
+		// Captured before crossing, while editor.activeCM is still the outer
+		// (plain-text) view.
+		const pixelGoal = this.computeRowCrossPixelGoal(editor);
 		const targetCh = getChByCellIndex(editor.getLine(cursor.line + 1), 0);
 		editor.setCursor({ line: cursor.line + 1, ch: targetCh });
+		this.applyRowCrossGoalColumn(editor, pixelGoal);
 	}
 
 
@@ -1659,24 +1669,25 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 
-	// Reads the pixel-x "goal column" to preserve across a table row-crossing,
-	// straight off CM6's own native SelectionRange.goalColumn — the same field
-	// @codemirror/commands' cursorLineUp/cursorLineDown maintain, which is why
-	// intra-cell goUp/goDown already preserve column "for free" (see
-	// handleCellStartSnap's own "CM6 goal-column memory" comment). No new
-	// plugin-owned tracking: typing/clicking dispatch a fresh selection with no
-	// goalColumn set, so a later read here naturally falls back to the live
-	// coordsAtPos position — the same reset-for-free behavior real Vim/Emacs
-	// curswant semantics need. Must be called BEFORE the crossing happens,
-	// while the source cell's inner view is still the active one. Returns null
-	// outside a table cell (table-exit / plain-text landings don't
-	// participate in this mechanism — see applyRowCrossGoalColumnSync).
+	// Reads the pixel-x "goal column" to preserve across a table row-crossing
+	// (or table entry from plain text), straight off CM6's own native
+	// SelectionRange.goalColumn — the same field @codemirror/commands'
+	// cursorLineUp/cursorLineDown maintain, which is why intra-cell goUp/
+	// goDown already preserve column "for free" (see handleCellStartSnap's
+	// own "CM6 goal-column memory" comment). No new plugin-owned tracking:
+	// typing/clicking dispatch a fresh selection with no goalColumn set, so a
+	// later read here naturally falls back to the live coordsAtPos position —
+	// the same reset-for-free behavior real Vim/Emacs curswant semantics
+	// need. Must be called BEFORE the crossing happens, while the source view
+	// (an inner cell view, or the outer plain-text view when entering a
+	// table fresh — see moveCursorUpIntoTable/moveCursorDownIntoTable) is
+	// still the active one. editor.activeCM already resolves to whichever of
+	// those is current, so no inner-vs-outer branching is needed here.
 	private computeRowCrossPixelGoal(editor: Editor): number | null {
-		const inner = editor.activeCM;
-		if (!inner || inner === editor.cm) return null;
-		const goalColumn = inner.state.selection.main.goalColumn;
-		if (goalColumn !== undefined) return inner.contentDOM.getBoundingClientRect().left + goalColumn;
-		const coords = inner.coordsAtPos(inner.state.selection.main.head);
+		const view = editor.activeCM;
+		const goalColumn = view.state.selection.main.goalColumn;
+		if (goalColumn !== undefined) return view.contentDOM.getBoundingClientRect().left + goalColumn;
+		const coords = view.coordsAtPos(view.state.selection.main.head);
 		return coords ? coords.left : null;
 	}
 
@@ -1699,17 +1710,33 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// only place the cursor at ch 0) would otherwise leave nothing for a
 	// later native goDown/goUp to inherit, silently forgetting the preserved
 	// column the moment the crossing passes through any zero-width line.
+	//
+	// The actual correction is deferred two animation frames past whatever
+	// tick this is called on. Confirmed live (2026-08-28, via a dedicated
+	// frame-by-frame diagnostic, not guessed) that entering a table cell from
+	// plain text triggers an Obsidian-internal cell-focus reconciliation that
+	// silently resets the cursor back to that cell's own line-start,
+	// asynchronously, one animation frame after the frame this function's
+	// own (otherwise-correct) dispatches land on — i.e. calling this
+	// synchronously wins the position for exactly one frame and then loses
+	// it to that reset. Landed empirically on two frames of deferral (the
+	// reset was fully settled by the second frame in every observed run);
+	// there is no public Obsidian API to await that reconciliation directly.
 	private applyRowCrossGoalColumnSync(editor: Editor, pixelGoal: number | null) {
 		if (pixelGoal === null) return;
-		this.refineDisplayLineColumn(editor, pixelGoal);
-		const view = editor.activeCM;
-		const head = view.state.selection.main.head;
-		const assoc = view.state.selection.main.assoc;
-		const rect = view.contentDOM.getBoundingClientRect();
-		view.dispatch({
-			selection: EditorSelection.create([
-				EditorSelection.cursor(head, assoc, undefined, pixelGoal - rect.left),
-			]),
+		window.requestAnimationFrame(() => {
+			window.requestAnimationFrame(() => {
+				this.refineDisplayLineColumn(editor, pixelGoal);
+				const view = editor.activeCM;
+				const head = view.state.selection.main.head;
+				const assoc = view.state.selection.main.assoc;
+				const rect = view.contentDOM.getBoundingClientRect();
+				view.dispatch({
+					selection: EditorSelection.create([
+						EditorSelection.cursor(head, assoc, undefined, pixelGoal - rect.left),
+					]),
+				});
+			});
 		});
 	}
 
