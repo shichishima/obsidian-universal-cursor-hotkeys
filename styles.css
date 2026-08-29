@@ -3,6 +3,7 @@
   width: 100%;
   border-collapse: collapse;
 }
+.uch-qsa-frame-gap { height: 1.5em; }
 .uch-disp-table {
   width: 100%;
   border-collapse: collapse;
@@ -25,12 +26,43 @@
   font-family: var(--font-interface);
 }
 
+/* ── QSA frame tab bar ───────────────────────────────────── */
+.uch-tab-bar {
+  display: flex;
+  gap: 4px;
+  padding: 4px 8px 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+  margin-bottom: 12px;
+}
+.uch-tab-bar .uch-tab-btn {
+  font-size: 0.9em;
+  padding: 6px 12px;
+  background-color: var(--background-modifier-hover);
+  box-shadow: none;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s, 4px) var(--radius-s, 4px) 0 0;
+  margin-bottom: -1px;
+  color: var(--text-muted);
+}
+.uch-tab-bar .uch-tab-btn:hover {
+  color: var(--text-normal);
+  background-color: var(--background-secondary);
+}
+.uch-tab-bar .uch-tab-btn-active,
+.uch-tab-bar .uch-tab-btn-active:hover {
+  color: var(--text-normal);
+  background-color: var(--background-primary);
+  border-color: var(--background-modifier-border);
+  border-bottom-color: var(--background-primary);
+  font-weight: 600;
+}
+
 /* ── Title row ───────────────────────────────────────────── */
 .uch-title-cell { padding: 6px 8px; }
 .uch-title-flex { display: flex; align-items: center; gap: 10px; }
 .uch-title-text { font-weight: 600; }
 .uch-block-toggle { display: inline-block; cursor: pointer; user-select: none; }
-.uch-block-link-row { padding: 4px 8px 4px 40px; }
+.uch-block-link-row { padding: 4px 8px 4px 40px; font-size: 0.9em; opacity: 0.5; }
 
 /* ── Buttons ─────────────────────────────────────────────── */
 .uch-table .uch-apply-btn        { font-size: 0.85em; padding: 2px 10px; }
@@ -89,38 +121,38 @@ tbody.uch-override-active .uch-override-word { font-weight: 700; }
 .uch-disp-desc li { margin: 1px 0; }
 
 /* ── Key Upgrades section ─────────────────────────────────── */
-.uch-key-upgrades-section  { margin-top: 1em; margin-bottom: 2em; }
+/* Same gap after every tab's own intro header, regardless of whether the
+   table that follows happens to be nested inside this div or a sibling. */
+.uch-key-upgrades-section  { margin-top: 1em; margin-bottom: 0.75em; }
 .uch-key-upgrades-title    { font-weight: 600; padding: 6px 8px; }
 .uch-key-upgrades-desc     { padding: 2px 8px 6px; font-size: 0.9em; opacity: 0.5; }
 .uch-key-upgrade-group-desc { font-size: 0.8em; opacity: 0.5; font-weight: normal; margin-top: 2px; }
-.uch-key-upgrade-label      { padding: 2px 8px; opacity: 0.6; white-space: nowrap; width: 100%; }
-.uch-key-upgrade-status     { padding: 2px 8px; font-size: 0.9em; white-space: nowrap; }
-.uch-cell-toggle            { padding: 2px 8px; text-align: right; }
+.uch-key-upgrade-label      { padding: 4px 8px; opacity: 0.6; white-space: nowrap; width: 100%; }
+.uch-key-upgrade-status     { padding: 4px 8px; font-size: 0.9em; white-space: nowrap; }
+.uch-cell-toggle            { padding: 4px 8px; text-align: right; }
+/* Scoped override, not the shared .uch-cell-name rule — the Emacs QSA table's own row height was trimmed separately and must stay untouched. */
+.uch-key-upgrades-table .uch-cell-name { padding-top: 4px; padding-bottom: 4px; }
 
 /* ── Vim support section ──────────────────────────────────── */
-.uch-vim-badge {
-  font-size: 0.7em;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--text-accent);
-  background: var(--background-modifier-border);
-  border-radius: var(--radius-s, 4px);
-  padding: 2px 6px;
-  margin-left: 8px;
-}
 /* Compound selector so this reliably wins over the Setting component's own
    display regardless of source order — .uch-hidden alone has the same
    specificity as any other single-class rule, so cascade order alone can't
    be relied on to make it win. */
 .uch-vim-restart-banner.uch-hidden { display: none; }
 .uch-vim-restart-text { color: var(--text-warning); font-weight: 600; }
-.uch-vim-item .setting-item-info { padding-left: 40px; }
 .uch-vim-limitations       { padding: 8px 0 8px 40px; }
 .uch-vim-limitations-title { font-size: 0.8em; font-weight: 600; opacity: 0.6; margin-bottom: 4px; }
 .uch-vim-limitations ul    { margin: 0; padding-left: 1.2em; font-size: 0.9em; opacity: 0.75; }
 .uch-vim-limitations li + li { margin-top: 4px; }
-.uch-vim-cmd-table { border-collapse: collapse; margin: 4px 0 4px 70px; font-size: inherit; }
+/* Matches a Setting's own .setting-item-description sizing/color — this
+   detail row lived there before moving into a table. */
+.uch-vim-cmd-detail {
+  padding: 4px 8px 10px 72px;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+/* One level deeper than the surrounding ON:/OFF: text's own indent. */
+.uch-vim-cmd-table { border-collapse: collapse; margin: 4px 0 4px 48px; font-size: inherit; }
 .uch-vim-cmd-table td, .uch-vim-cmd-table th {
   padding: 2px 12px 2px 0;
   text-align: left;

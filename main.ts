@@ -70,13 +70,17 @@ interface UniversalCursorHotkeysSettings {
 	// (default) = Space; true = backslash. Only has an effect once one of
 	// those is on — a preference, not an on/off feature of its own.
 	vimLeaderUseBackslash: boolean;
-	vimSectionVisible: boolean;
-	// Whether the settings tab has already auto-expanded the Vim support
-	// section (and collapsed the QSA section, on the theory that a Vim-mode
-	// user has little use for Emacs-style Ctrl+P/N/B/F/A/E cursor hotkeys)
-	// once in response to Obsidian's own "Vim key bindings" core setting
-	// being on. Fires at most once ever, so it never fights a user's own
-	// subsequent manual Show/Hide choice on either section.
+	// The QSA frame (Behavior Options' own sibling, see settings.ts) holds
+	// three tabs sharing one open/close state (qsaSectionVisible below) —
+	// this selects which one is currently showing. 'general' = Key Upgrades
+	// (for every user, no Vim/Emacs knowledge needed), 'vim' = Vim support,
+	// 'emacs' = the original Emacs-style QSA table + Displaced commands.
+	activeSettingsTab: 'general' | 'vim' | 'emacs';
+	// Whether the settings tab has already auto-switched to the Vim tab (and
+	// expanded the QSA frame if it was closed), on the theory that a
+	// Vim-mode user wants to land there first, in response to Obsidian's own
+	// "Vim key bindings" core setting being on. Fires at most once ever, so
+	// it never fights a user's own subsequent manual tab/Show-Hide choice.
 	vimAutoExpandDone: boolean;
 }
 
@@ -103,7 +107,7 @@ const DEFAULT_SETTINGS: UniversalCursorHotkeysSettings = {
 	vimTableStructureSupport: false,
 	vimTableNavigationSupport: false,
 	vimLeaderUseBackslash: false,
-	vimSectionVisible: false,
+	activeSettingsTab: 'general',
 	vimAutoExpandDone: false,
 };
 
