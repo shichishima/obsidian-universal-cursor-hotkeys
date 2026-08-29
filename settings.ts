@@ -653,7 +653,6 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		const vimHeaderEl = containerEl.createDiv({ cls: 'uch-key-upgrades-section' });
 		const vimTitleFlex = vimHeaderEl.createDiv('uch-title-flex');
 		vimTitleFlex.createSpan({ text: 'Vim support', cls: 'uch-key-upgrades-title' });
-		vimTitleFlex.createSpan({ text: 'experimental', cls: 'uch-vim-badge' });
 		vimHeaderEl.createDiv({
 			cls: 'uch-key-upgrades-desc',
 			text: "Fixes Obsidian's built-in Vim mode's cursor behavior inside Markdown tables, and adds commands for table editing and navigation.",
