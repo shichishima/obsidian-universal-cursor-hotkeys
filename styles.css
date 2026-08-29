@@ -25,6 +25,26 @@
   font-family: var(--font-interface);
 }
 
+/* ── QSA frame tab bar ───────────────────────────────────── */
+.uch-tab-bar {
+  display: flex;
+  gap: 4px;
+  padding: 4px 8px 12px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  margin-bottom: 8px;
+}
+.uch-tab-btn {
+  font-size: 0.85em;
+  padding: 4px 12px;
+  border-radius: var(--radius-s, 4px);
+  background: transparent;
+  box-shadow: none;
+}
+.uch-tab-btn-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
 /* ── Title row ───────────────────────────────────────────── */
 .uch-title-cell { padding: 6px 8px; }
 .uch-title-flex { display: flex; align-items: center; gap: 10px; }

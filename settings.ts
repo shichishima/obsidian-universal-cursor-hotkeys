@@ -1,4 +1,4 @@
-import { App, ButtonComponent, Hotkey, Modifier, Platform, PluginSettingTab, Setting, ToggleComponent, sanitizeHTMLToDom } from 'obsidian';
+import { App, Hotkey, Modifier, Platform, PluginSettingTab, Setting, ToggleComponent, sanitizeHTMLToDom } from 'obsidian';
 import type universalCursorHotkeysPlugin from './main';
 
 const PLUGIN_ID = 'universal-cursor-hotkeys';
@@ -421,8 +421,8 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 	private set tableStructureVisible(v: boolean) { this.plugin.settings.qsaTableStructureVisible = v; void this.plugin.saveSettings(); }
 	private get tableNavVisible() { return this.plugin.settings.qsaTableNavVisible; }
 	private set tableNavVisible(v: boolean) { this.plugin.settings.qsaTableNavVisible = v; void this.plugin.saveSettings(); }
-	private get vimSectionVisible() { return this.plugin.settings.vimSectionVisible; }
-	private set vimSectionVisible(v: boolean) { this.plugin.settings.vimSectionVisible = v; void this.plugin.saveSettings(); }
+	private get activeTab() { return this.plugin.settings.activeSettingsTab; }
+	private set activeTab(v: 'general' | 'vim' | 'emacs') { this.plugin.settings.activeSettingsTab = v; void this.plugin.saveSettings(); }
 
 	constructor(app: App, plugin: universalCursorHotkeysPlugin) {
 		super(app, plugin);
@@ -443,14 +443,12 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		const scrollTop = containerEl.scrollTop;
 		containerEl.empty();
 
-		// Must run before renderHotkeyManager: it may flip sectionVisible
-		// (collapsing QSA), and renderHotkeyManager reads that value to decide
-		// how it renders — a later call (its other call site, inside
-		// renderVimSection, kept as a no-op safety net via its own one-time
-		// guard) would be too late to affect this same render pass.
+		// Must run before renderQsaFrame: it may flip sectionVisible/activeTab
+		// (opening the frame onto the Vim tab), and renderQsaFrame reads both
+		// to decide how it renders.
 		this.maybeAutoExpandVimSection();
 
-		this.renderHotkeyManager(containerEl);
+		this.renderQsaFrame(containerEl);
 
 		new Setting(containerEl)
 			.setName('Visual line movement')
@@ -553,26 +551,23 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 
-		this.renderVimSection(containerEl);
-
 		setStandardDisabled(!this.plugin.settings.smartHomeStandard);
 		containerEl.scrollTop = scrollTop;
 	}
 
 	// One-time nudge: if the user opens settings with Obsidian's own "Vim key
-	// bindings" core setting on and has never seen this auto-expand fire
-	// before, expand the Vim support section for visibility — and collapse
-	// QSA at the same time, since a Vim-mode user has little use for the
-	// Emacs-style Ctrl+P/N/B/F/A/E cursor hotkeys it manages. Never fires
-	// again afterward, so it never fights a user's own later Show/Hide choice
-	// on either section (see the vimAutoExpandDone doc comment in main.ts).
+	// bindings" core setting on and has never seen this auto-switch fire
+	// before, open the QSA frame (if closed) and switch it to the Vim tab,
+	// since a Vim-mode user likely wants that tab first. Never fires again
+	// afterward, so it never fights a user's own later tab/Show-Hide choice
+	// (see the vimAutoExpandDone doc comment in main.ts).
 	private maybeAutoExpandVimSection(): void {
 		if (this.plugin.settings.vimAutoExpandDone) return;
 		const vault = (this.app as unknown as ObsidianInternals).vault;
 		const vimModeOn = vault.getConfig?.('vimMode') === true;
 		if (!vimModeOn) return;
-		this.vimSectionVisible = true;
-		this.sectionVisible = false;
+		this.sectionVisible = true;
+		this.activeTab = 'vim';
 		this.plugin.settings.vimAutoExpandDone = true;
 		void this.plugin.saveSettings();
 	}
@@ -597,11 +592,10 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		return [s.vimHlSupport, s.vimJkSupport, s.vimWordSupport, s.vimGgSupport, s.vimDisplayLineSupport, s.vimEolSupport, s.vimTableStructureSupport, s.vimTableNavigationSupport, s.vimCaretSupport, s.vimJoinSupport];
 	}
 
-	private renderVimSection(containerEl: HTMLElement): void {
-		this.maybeAutoExpandVimSection();
-
-		const vimSectionEls: HTMLElement[] = [];
-
+	// Vim mode tab content — the frame's own header/tab-bar (renderQsaFrame)
+	// owns visibility now, so this only renders once the Vim tab is actually
+	// selected; no own Show/Hide, no own visibility bookkeeping needed.
+	private renderVimTabContent(containerEl: HTMLElement): void {
 		new Setting(containerEl)
 			.setName('Vim support')
 			.then(setting => {
@@ -609,17 +603,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				this.setHtmlDesc(setting,
 					'Fixes native gaps in Obsidian\'s built-in Vim mode inside Live Preview table cells, ' +
 					'extends a few motions with this plugin\'s Smart home / Smart join, ' +
-					'and adds leader-key commands for table structure editing and cell navigation. ' +
-					'If you\'re using Vim mode, you likely won\'t need the Quick setup assistant above — ' +
-					'that manages this plugin\'s Emacs-style Ctrl+P/N/B/F/A/E hotkeys instead.');
-			})
-			.addButton(btn => {
-				btn.setButtonText(this.vimSectionVisible ? 'Hide' : 'Show');
-				btn.onClick(() => {
-					this.vimSectionVisible = !this.vimSectionVisible;
-					btn.setButtonText(this.vimSectionVisible ? 'Hide' : 'Show');
-					for (const el of vimSectionEls) el.toggleClass('uch-hidden', !this.vimSectionVisible);
-				});
+					'and adds leader-key commands for table structure editing and cell navigation.');
 			});
 
 		const restartBanner = new Setting(containerEl)
@@ -637,7 +621,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				}));
 		restartBanner.settingEl.toggleClass('uch-hidden', !this.plugin.vimSupport.needsRestart);
 
-		const leaderChoice = new Setting(containerEl)
+		new Setting(containerEl)
 			.setClass('uch-vim-item')
 			.setName('Leader key')
 			.then(setting => this.setHtmlDesc(setting, '' +
@@ -650,7 +634,6 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					this.plugin.vimSupport.setLeaderUseBackslash(value);
 					this.display();
 				}));
-		vimSectionEls.push(leaderChoice.settingEl);
 
 		// "Apply all" — turns on every item below unconditionally. `^`/`I` and
 		// `J` are included regardless of their own prerequisite (Smart home
@@ -658,7 +641,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		// live at call time (falling back to vim's own native behavior when
 		// their prerequisite is off), so there's no correctness reason to skip
 		// them, only a cosmetic one this button doesn't need to care about.
-		const applyAll = new Setting(containerEl)
+		new Setting(containerEl)
 			.setClass('uch-vim-item')
 			.setName('Apply all')
 			.then(setting => this.setHtmlDesc(setting, 'Turns on everything below.'))
@@ -680,9 +663,8 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					this.display();
 				});
 			});
-		vimSectionEls.push(applyAll.settingEl);
 
-		const hl = new Setting(containerEl)
+		new Setting(containerEl)
 			.setClass('uch-vim-item')
 			.then(setting => {
 				this.setKeyChipName(setting, ['h', 'l', 'x'], 'Character movement');
@@ -697,9 +679,8 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					this.plugin.vimSupport.setHlEnabled(value);
 					this.display();
 				}));
-		vimSectionEls.push(hl.settingEl);
 
-		const jk = new Setting(containerEl)
+		new Setting(containerEl)
 			.setClass('uch-vim-item')
 			.then(setting => {
 				this.setKeyChipName(setting, ['j', 'k'], 'Line movement');
@@ -713,9 +694,8 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					this.plugin.vimSupport.setJkEnabled(value);
 					this.display();
 				}));
-		vimSectionEls.push(jk.settingEl);
 
-		const words = new Setting(containerEl)
+		new Setting(containerEl)
 			.setClass('uch-vim-item')
 			.then(setting => {
 				this.setKeyChipName(setting, ['w', 'b', 'e'], 'Word motion');
@@ -729,9 +709,8 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					this.plugin.vimSupport.setWordsEnabled(value);
 					this.display();
 				}));
-		vimSectionEls.push(words.settingEl);
 
-		const gg = new Setting(containerEl)
+		new Setting(containerEl)
 			.setClass('uch-vim-item')
 			.then(setting => {
 				this.setKeyChipName(setting, ['gg', 'G'], 'Document start/end')
@@ -745,9 +724,8 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					this.plugin.vimSupport.setGgEnabled(value);
 					this.display();
 				}));
-		vimSectionEls.push(gg.settingEl);
 
-		const displayLine = new Setting(containerEl)
+		new Setting(containerEl)
 			.setClass('uch-vim-item')
 			.then(setting => {
 				this.setKeyChipName(setting, ['gj', 'gk'], 'Display-line movement');
@@ -761,9 +739,8 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					this.plugin.vimSupport.setDisplayLinesEnabled(value);
 					this.display();
 				}));
-		vimSectionEls.push(displayLine.settingEl);
 
-		const eol = new Setting(containerEl)
+		new Setting(containerEl)
 			.setClass('uch-vim-item')
 			.then(setting => {
 				this.setKeyChipName(setting, ['$'], 'End of line (sticky column)');
@@ -777,9 +754,8 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					this.plugin.vimSupport.setEolEnabled(value);
 					this.display();
 				}));
-		vimSectionEls.push(eol.settingEl);
 
-		const caret = new Setting(containerEl)
+		new Setting(containerEl)
 			.setClass('uch-vim-item')
 			.then(setting => {
 				this.setKeyChipName(setting, ['^', 'I'], 'First non-blank (Smart home)');
@@ -794,9 +770,8 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					this.plugin.vimSupport.setCaretEnabled(value);
 					this.display();
 				}));
-		vimSectionEls.push(caret.settingEl);
 
-		const join = new Setting(containerEl)
+		new Setting(containerEl)
 			.setClass('uch-vim-item')
 			.then(setting => {
 				this.setKeyChipName(setting, ['J'], 'Join lines (Smart join)');
@@ -811,9 +786,8 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					this.plugin.vimSupport.setJoinEnabled(value);
 					this.display();
 				}));
-		vimSectionEls.push(join.settingEl);
 
-		const tableStructure = new Setting(containerEl)
+		new Setting(containerEl)
 			.setClass('uch-vim-item')
 			.then(setting => {
 				const leader = this.plugin.settings.vimLeaderUseBackslash ? '\\' : 'Space';
@@ -839,9 +813,8 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					this.plugin.vimSupport.setTableStructureEnabled(value);
 					this.display();
 				}));
-		vimSectionEls.push(tableStructure.settingEl);
 
-		const tableNavigation = new Setting(containerEl)
+		new Setting(containerEl)
 			.setClass('uch-vim-item')
 			.then(setting => {
 				const leader = this.plugin.settings.vimLeaderUseBackslash ? '\\' : 'Space';
@@ -862,16 +835,12 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					this.plugin.vimSupport.setTableNavigationEnabled(value);
 					this.display();
 				}));
-		vimSectionEls.push(tableNavigation.settingEl);
 
 		const limitationsEl = containerEl.createDiv({ cls: 'uch-vim-limitations' });
 		limitationsEl.createDiv({ text: 'Limitations', cls: 'uch-vim-limitations-title' });
 		const list = limitationsEl.createEl('ul');
 		list.appendChild(sanitizeHTMLToDom('<li>For Obsidian\'s built-in Vim mode specifically — not intended for use alongside a plugin that replaces or manages Vim\'s table-cell behavior on its own.</li>'));
 		list.createEl('li', { text: 'If you\'ve already customized one of these keys yourself, having its toggle on will override your binding.' });
-		vimSectionEls.push(limitationsEl);
-
-		for (const el of vimSectionEls) el.toggleClass('uch-hidden', !this.vimSectionVisible);
 	}
 
 	private openHotkeysPanelFor(query: string): void {
@@ -1197,48 +1166,47 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		spacerTd.colSpan = 5;
 	}
 
-	private renderHotkeyManager(containerEl: HTMLElement): void {
-		const sectionEls: HTMLElement[] = [];
-		const collect = (el: HTMLElement) => sectionEls.push(el);
-		let showHideBtn: ButtonComponent;
-
-		// Section header — desc contains the link to Obsidian's hotkeys settings
+	// The QSA frame: one shared open/close control (sectionVisible), then —
+	// once open — a 3-tab bar (general/vim/emacs, sharing activeTab) and
+	// whichever one tab's own content. Only the active tab's DOM is ever
+	// built (matching this file's existing "any state change -> full
+	// containerEl.empty()+rebuild" idiom already used everywhere else), so
+	// there's no separate hidden-tab visibility bookkeeping to maintain.
+	private renderQsaFrame(containerEl: HTMLElement): void {
 		new Setting(containerEl)
 			.setName('Quick setup assistant')
-			.then(setting => {
-				setting.descEl.createSpan({ text: 'No hotkeys are assigned by default. Set only the commands you want — group by group, or ' });
-				const indivLink = setting.descEl.createEl('a', { text: 'Individually', cls: 'uch-inline-link' });
-				indivLink.addEventListener('click', (e) => {
-					e.preventDefault();
-					if (!this.sectionVisible) {
-						this.sectionVisible = true;
-						showHideBtn.setButtonText('Hide');
-						for (const el of sectionEls) el.removeClass('uch-hidden');
-					}
-					this.individualVisible = true;
-					syncToggle();
-				});
-				setting.descEl.createSpan({ text: '.' });
-				setting.descEl.createEl('br');
-				setting.descEl.createSpan({ text: 'To assign a command to a key other than the recommended, use ' });
-				const hotkeyLink = setting.descEl.createEl('a', { text: "Obsidian's built-in hotkeys settings" });
-				hotkeyLink.addClass('uch-inline-link');
-				hotkeyLink.addEventListener('click', (e) => {
-					e.preventDefault();
-					this.openHotkeysPanelFor('universal-cursor-hotkeys');
-				});
-				setting.descEl.createSpan({ text: '.' });
-				})
 			.addButton(btn => {
-				showHideBtn = btn;
 				btn.setButtonText(this.sectionVisible ? 'Hide' : 'Show');
 				btn.onClick(() => {
 					this.sectionVisible = !this.sectionVisible;
-					btn.setButtonText(this.sectionVisible ? 'Hide' : 'Show');
-					for (const el of sectionEls) el.toggleClass('uch-hidden', !this.sectionVisible);
+					this.display();
 				});
 			});
 
+		if (!this.sectionVisible) return;
+
+		const tabBar = containerEl.createDiv({ cls: 'uch-tab-bar' });
+		const TABS: ReadonlyArray<{ id: 'general' | 'vim' | 'emacs'; label: string }> = [
+			{ id: 'general', label: 'Key Upgrades' },
+			{ id: 'vim',   label: 'Vim mode' },
+			{ id: 'emacs', label: 'macOS-style (Emacs keybindings)' },
+		];
+		for (const tab of TABS) {
+			const tabBtn = tabBar.createEl('button', { text: tab.label, cls: 'uch-tab-btn' });
+			if (this.activeTab === tab.id) tabBtn.addClass('uch-tab-btn-active');
+			tabBtn.addEventListener('click', () => {
+				this.activeTab = tab.id;
+				this.display();
+			});
+		}
+
+		if (this.activeTab === 'vim') {
+			this.renderVimTabContent(containerEl);
+			return;
+		}
+
+		// Shared hotkey-manager infra — needed by both the 'all' (Key
+		// Upgrades) and 'emacs' (QSA table) tabs.
 		const app = this.app as unknown as ObsidianInternals;
 		const hm  = app.hotkeyManager;
 		// Re-bake so bakedIds/bakedHotkeys reflect the latest user changes
@@ -1269,10 +1237,49 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			key: hk.key,
 		});
 
+		if (this.activeTab === 'emacs') {
+			this.renderEmacsTabContent(containerEl, hm, effectiveHotkeys, reverseMap, cmds, toHotkey);
+		} else {
+			this.renderKeyUpgradesTabContent(containerEl, hm, effectiveHotkeys, reverseMap, cmds, toHotkey);
+		}
+	}
+
+	// macOS-style tab: the original Emacs-QSA table plus Displaced commands.
+	private renderEmacsTabContent(
+		containerEl: HTMLElement,
+		hm: HotkeyManager,
+		effectiveHotkeys: (cmdId: string) => BakedHotkey[],
+		reverseMap: Map<string, string[]>,
+		cmds: Record<string, { name: string }> | undefined,
+		toHotkey: (hk: BakedHotkey) => Hotkey,
+	): void {
 		// Remove displaced commands whose original command now has any hotkey assigned
 		this.plugin.settings.qsaDisplacedCommands = this.plugin.settings.qsaDisplacedCommands.filter(
 			d => effectiveHotkeys(d.commandId).length === 0
 		);
+
+		// Desc contains the link to Obsidian's hotkeys settings
+		new Setting(containerEl)
+			.setName('No hotkeys are assigned by default')
+			.then(setting => {
+				setting.descEl.createSpan({ text: 'Set only the commands you want — group by group, or ' });
+				const indivLink = setting.descEl.createEl('a', { text: 'Individually', cls: 'uch-inline-link' });
+				indivLink.addEventListener('click', (e) => {
+					e.preventDefault();
+					this.individualVisible = true;
+					syncToggle();
+				});
+				setting.descEl.createSpan({ text: '.' });
+				setting.descEl.createEl('br');
+				setting.descEl.createSpan({ text: 'To assign a command to a key other than the recommended, use ' });
+				const hotkeyLink = setting.descEl.createEl('a', { text: "Obsidian's built-in hotkeys settings" });
+				hotkeyLink.addClass('uch-inline-link');
+				hotkeyLink.addEventListener('click', (e) => {
+					e.preventDefault();
+					this.openHotkeysPanelFor('universal-cursor-hotkeys');
+				});
+				setting.descEl.createSpan({ text: '.' });
+				});
 
 		const applyEntry = (def: CommandDef, row: HotkeyRow) => {
 			const fullId = getFullId(def);
@@ -1334,7 +1341,6 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		// Single shared table — all blocks share the same column widths
 		const table = containerEl.createEl('table');
 		table.addClass('uch-table');
-		collect(table);
 
 		const makeEntries = (block: CommandDef['block']) =>
 			COMMAND_DEFS.filter(d => d.block === block).map(def => ({ def, row: computeRow(def, effectiveHotkeys, reverseMap, cmds) }));
@@ -1359,7 +1365,6 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 
 		// Displaced commands table
 		const dispTable = containerEl.createEl('table', { cls: 'uch-disp-table' });
-		collect(dispTable);
 
 		const dispTbody = dispTable.createEl('tbody');
 
@@ -1421,11 +1426,20 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			const noDisp = dispTbody.createEl('tr', { cls: 'uch-row-thin' }).createEl('td', { text: 'No displaced commands.', cls: 'uch-no-displaced' });
 			noDisp.colSpan = 5;
 		}
+	}
 
-		// Key Upgrades — see computeKeyUpgradeRow's own doc comment for why this
-		// is key-first rather than command-first like the QSA table above. The
-		// actual defs live in the module-level KEY_UPGRADE_DEFS (also feeds
-		// SPECIAL_KEY_EXCEPTION above) — just grouped here for rendering.
+	// "for All users" tab — see computeKeyUpgradeRow's own doc comment for why
+	// this is key-first rather than command-first like the Emacs tab's QSA
+	// table. The actual defs live in the module-level KEY_UPGRADE_DEFS (also
+	// feeds SPECIAL_KEY_EXCEPTION above) — just grouped here for rendering.
+	private renderKeyUpgradesTabContent(
+		containerEl: HTMLElement,
+		hm: HotkeyManager,
+		effectiveHotkeys: (cmdId: string) => BakedHotkey[],
+		reverseMap: Map<string, string[]>,
+		cmds: Record<string, { name: string }> | undefined,
+		toHotkey: (hk: BakedHotkey) => Hotkey,
+	): void {
 		const NAV_BASICS_DEFS    = KEY_UPGRADE_DEFS.filter(d => d.group === 'navBasics');
 		const WORD_COMMAND_DEFS  = KEY_UPGRADE_DEFS.filter(d => d.group === 'wordCommands');
 
@@ -1469,8 +1483,6 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			"Chinese/Japanese word boundaries, which standard navigation and deletion don't recognize",
 			WORD_COMMAND_DEFS, keyUpgradeCtx,
 		);
-		collect(keyUpgradesEl);
-		for (const el of sectionEls) el.toggleClass('uch-hidden', !this.sectionVisible);
 	}
 
 	private setHtmlDesc(setting: Setting, html: string): Setting {
