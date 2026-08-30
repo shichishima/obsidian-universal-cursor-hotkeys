@@ -454,12 +454,18 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 	plugin: universalCursorHotkeysPlugin;
 	private get individualVisible() { return this.plugin.settings.qsaIndividualVisible; }
 	private set individualVisible(v: boolean) { this.plugin.settings.qsaIndividualVisible = v; void this.plugin.saveSettings(); }
-	private get sectionVisible() { return this.plugin.settings.qsaSectionVisible; }
-	private set sectionVisible(v: boolean) { this.plugin.settings.qsaSectionVisible = v; void this.plugin.saveSettings(); }
+	private get cursorMovementVisible() { return this.plugin.settings.qsaCursorMovementVisible; }
+	private set cursorMovementVisible(v: boolean) { this.plugin.settings.qsaCursorMovementVisible = v; void this.plugin.saveSettings(); }
+	private get editingVisible() { return this.plugin.settings.qsaEditingVisible; }
+	private set editingVisible(v: boolean) { this.plugin.settings.qsaEditingVisible = v; void this.plugin.saveSettings(); }
+	private get otherHotkeysVisible() { return this.plugin.settings.qsaOtherHotkeysVisible; }
+	private set otherHotkeysVisible(v: boolean) { this.plugin.settings.qsaOtherHotkeysVisible = v; void this.plugin.saveSettings(); }
 	private get tableStructureVisible() { return this.plugin.settings.qsaTableStructureVisible; }
 	private set tableStructureVisible(v: boolean) { this.plugin.settings.qsaTableStructureVisible = v; void this.plugin.saveSettings(); }
 	private get tableNavVisible() { return this.plugin.settings.qsaTableNavVisible; }
 	private set tableNavVisible(v: boolean) { this.plugin.settings.qsaTableNavVisible = v; void this.plugin.saveSettings(); }
+	private get displacedVisible() { return this.plugin.settings.qsaDisplacedVisible; }
+	private set displacedVisible(v: boolean) { this.plugin.settings.qsaDisplacedVisible = v; void this.plugin.saveSettings(); }
 	private get activeTab() { return this.plugin.settings.activeSettingsTab; }
 	private set activeTab(v: 'general' | 'vim' | 'emacs') { this.plugin.settings.activeSettingsTab = v; void this.plugin.saveSettings(); }
 
@@ -482,49 +488,53 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		const scrollTop = containerEl.scrollTop;
 		containerEl.empty();
 
-		// Must run before renderQsaFrame: it may flip sectionVisible/activeTab
-		// (opening the frame onto the Vim tab), and renderQsaFrame reads both
-		// to decide how it renders.
+		// Must run before renderQsaFrame: it may flip activeTab (switching to
+		// the Vim tab), which renderQsaFrame reads to decide which tab to render.
 		this.maybeAutoExpandVimSection();
 
 		this.renderQsaFrame(containerEl);
 
-		// Consistent gap before Behavior Options, regardless of which tab (and
-		// so which kind of trailing content) the QSA frame last rendered —
-		// but only when the frame is actually open; collapsed, there's no
-		// trailing content to separate from.
-		if (this.sectionVisible) containerEl.createDiv({ cls: 'uch-qsa-frame-gap' });
+		containerEl.scrollTop = scrollTop;
+	}
 
-		new Setting(containerEl)
-			.setName('Visual line movement')
-			.then(setting => this.setHtmlDesc(setting, '' +
-				'<b>ON:</b> HOME/END first moves to the visual line edge, then to the logical line start/end.<br>' +
-				'<b>OFF:</b> Moves directly to the logical line start/end.'))
-			.addToggle(toggle => toggle
-				.setValue(this.plugin.settings.visualLineMovement)
-				.onChange(async (value) => {
-					this.plugin.settings.visualLineMovement = value;
-					await this.plugin.saveSettings();
-				}));
+	// Behavior Options used to be one fixed block shown below all three tabs
+	// regardless of which was active — but each option only actually affects
+	// a subset of tabs (Smart home affects all three; Smart join affects
+	// Vim's `J` and Emacs's Kill Line join-at-EOL step; Visual line movement
+	// and Cross-row navigation are Emacs-only; Double-click word select is
+	// the only genuinely tab-agnostic one). Moved into each relevant tab's
+	// own content instead, so a tab never shows an option it has no bearing
+	// on. Smart home (standard/advanced) is the one option shared by all
+	// three tabs — rendered independently in each (same underlying setting,
+	// same onChange), since only one tab's content exists in the DOM at a
+	// time anyway.
 
+	// Smart home (standard/advanced), optionally with Smart join alongside
+	// it (Vim and Emacs both need Smart join; Key Upgrades' bare HOME has no
+	// join-adjacent command, so it omits it). The standard→advanced/join
+	// disable-cascade is scoped to whichever toggles this call actually
+	// renders.
+	private renderSmartHomeToggles(containerEl: HTMLElement, includeSmartJoin: boolean): void {
 		let advancedEl: HTMLElement;
 		let advancedToggle: ToggleComponent;
-		let smartJoinEl: HTMLElement;
-		let smartJoinToggle: ToggleComponent;
+		let smartJoinEl: HTMLElement | undefined;
+		let smartJoinToggle: ToggleComponent | undefined;
 		const setStandardDisabled = (disabled: boolean) => {
 			advancedEl.style.opacity       = disabled ? '0.4' : '';
 			advancedEl.style.pointerEvents = disabled ? 'none' : '';
-			smartJoinEl.style.opacity       = disabled ? '0.4' : '';
-			smartJoinEl.style.pointerEvents = disabled ? 'none' : '';
 			if (disabled && this.plugin.settings.smartHomeAdvanced) {
 				this.plugin.settings.smartHomeAdvanced = false;
 				advancedToggle.setValue(false);
 				void this.plugin.saveSettings();
 			}
-			if (disabled && this.plugin.settings.smartJoin) {
-				this.plugin.settings.smartJoin = false;
-				smartJoinToggle.setValue(false);
-				void this.plugin.saveSettings();
+			if (smartJoinEl) {
+				smartJoinEl.style.opacity       = disabled ? '0.4' : '';
+				smartJoinEl.style.pointerEvents = disabled ? 'none' : '';
+				if (disabled && this.plugin.settings.smartJoin) {
+					this.plugin.settings.smartJoin = false;
+					smartJoinToggle!.setValue(false);
+					void this.plugin.saveSettings();
+				}
 			}
 		};
 
@@ -556,22 +566,29 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			})
 			.settingEl;
 
-		smartJoinEl = new Setting(containerEl)
-			.setName('Smart join')
-			.then(setting => this.setHtmlDesc(setting, '' +
-				'<b>ON:</b> Kill Line join lands at the next line\'s content start, removing blockquote markers, list markers, and indentation. Pairs with Smart home (advanced) for headings and footnotes.<br>' +
-				'<b>OFF:</b> Joins the next line as-is.<br>' +
-				'<i>Requires <b>Smart home (standard)</b> to be enabled.</i>'))
-			.addToggle(toggle => {
-				smartJoinToggle = toggle;
-				toggle.setValue(this.plugin.settings.smartJoin)
-					.onChange(async (value) => {
-						this.plugin.settings.smartJoin = value;
-						await this.plugin.saveSettings();
-					});
-			})
-			.settingEl;
+		if (includeSmartJoin) {
+			smartJoinEl = new Setting(containerEl)
+				.setName('Smart join')
+				.then(setting => this.setHtmlDesc(setting, '' +
+					'<b>ON:</b> Kill Line join (Emacs) and <code>J</code> (Vim) land at the next line\'s content start, removing blockquote markers, list markers, and indentation. Pairs with Smart home (advanced) for headings and footnotes.<br>' +
+					'<b>OFF:</b> Joins the next line as-is.<br>' +
+					'<i>Requires <b>Smart home (standard)</b> to be enabled.</i>'))
+				.addToggle(toggle => {
+					smartJoinToggle = toggle;
+					toggle.setValue(this.plugin.settings.smartJoin)
+						.onChange(async (value) => {
+							this.plugin.settings.smartJoin = value;
+							await this.plugin.saveSettings();
+						});
+				})
+				.settingEl;
+		}
 
+		setStandardDisabled(!this.plugin.settings.smartHomeStandard);
+	}
+
+	// Emacs-only: LEFT/HOME/RIGHT/END row-wrapping behavior.
+	private renderCrossRowNavigationToggle(containerEl: HTMLElement): void {
 		new Setting(containerEl)
 			.setName('Cross-row navigation')
 			.then(setting => this.setHtmlDesc(setting, '' +
@@ -583,7 +600,26 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					this.plugin.settings.crossRowNavigation = value;
 					await this.plugin.saveSettings();
 				}));
+	}
 
+	// Emacs-only: HOME/END's visual-line-first step.
+	private renderVisualLineMovementToggle(containerEl: HTMLElement): void {
+		new Setting(containerEl)
+			.setName('Visual line movement')
+			.then(setting => this.setHtmlDesc(setting, '' +
+				'<b>ON:</b> HOME/END first moves to the visual line edge, then to the logical line start/end.<br>' +
+				'<b>OFF:</b> Moves directly to the logical line start/end.'))
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.visualLineMovement)
+				.onChange(async (value) => {
+					this.plugin.settings.visualLineMovement = value;
+					await this.plugin.saveSettings();
+				}));
+	}
+
+	// Tab-agnostic: works the same regardless of Vim/Emacs/Key Upgrades usage
+	// — lives in the "For everyone" tab as the one option genuinely for everyone.
+	private renderDoubleClickWordSelectToggle(containerEl: HTMLElement): void {
 		new Setting(containerEl)
 			.setName('Double-click word select')
 			.then(setting => this.setHtmlDesc(setting, '' +
@@ -595,23 +631,18 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 					this.plugin.settings.cjkDoubleClickWordSelect = value;
 					await this.plugin.saveSettings();
 				}));
-
-		setStandardDisabled(!this.plugin.settings.smartHomeStandard);
-		containerEl.scrollTop = scrollTop;
 	}
 
 	// One-time nudge: if the user opens settings with Obsidian's own "Vim key
 	// bindings" core setting on and has never seen this auto-switch fire
-	// before, open the QSA frame (if closed) and switch it to the Vim tab,
-	// since a Vim-mode user likely wants that tab first. Never fires again
-	// afterward, so it never fights a user's own later tab/Show-Hide choice
-	// (see the vimAutoExpandDone doc comment in main.ts).
+	// before, switch to the Vim tab, since a Vim-mode user likely wants that
+	// tab first. Never fires again afterward, so it never fights a user's
+	// own later tab choice (see the vimAutoExpandDone doc comment in main.ts).
 	private maybeAutoExpandVimSection(): void {
 		if (this.plugin.settings.vimAutoExpandDone) return;
 		const vault = (this.app as unknown as ObsidianInternals).vault;
 		const vimModeOn = vault.getConfig?.('vimMode') === true;
 		if (!vimModeOn) return;
-		this.sectionVisible = true;
 		this.activeTab = 'vim';
 		this.plugin.settings.vimAutoExpandDone = true;
 		void this.plugin.saveSettings();
@@ -690,8 +721,6 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 	// selected; no own Show/Hide, no own visibility bookkeeping needed.
 	private renderVimTabContent(containerEl: HTMLElement): void {
 		const vimHeaderEl = containerEl.createDiv({ cls: 'uch-key-upgrades-section' });
-		const vimTitleFlex = vimHeaderEl.createDiv('uch-title-flex');
-		vimTitleFlex.createSpan({ text: 'Vim support', cls: 'uch-key-upgrades-title' });
 		vimHeaderEl.createDiv({
 			cls: 'uch-key-upgrades-desc',
 			text: "Fixes Obsidian's built-in Vim mode's cursor behavior inside Markdown tables, and adds commands for table editing and navigation.",
@@ -719,7 +748,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		const motionTitleCell = motionTbody.createEl('tr').createEl('td');
 		motionTitleCell.colSpan = 3;
 		motionTitleCell.addClass('uch-title-cell');
-		motionTitleCell.createDiv({ text: 'Motion Upgrades', cls: 'uch-title-text' });
+		motionTitleCell.createDiv({ text: 'Motion upgrades', cls: 'uch-title-text' });
 		motionTitleCell.createDiv({
 			text: "Each toggle below replaces one native motion in Obsidian's own built-in Vim mode — turning it off restores its original, unmodified behavior.",
 			cls: 'uch-key-upgrade-group-desc',
@@ -762,7 +791,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		tableCmdTitleCell.colSpan = 3;
 		tableCmdTitleCell.addClass('uch-title-cell');
 		const tableCmdTitleFlex = tableCmdTitleCell.createDiv('uch-title-flex');
-		tableCmdTitleFlex.createSpan({ text: 'Table Commands', cls: 'uch-title-text' });
+		tableCmdTitleFlex.createSpan({ text: 'Table commands', cls: 'uch-title-text' });
 		const applyBothBtn = tableCmdTitleFlex.createEl('button', { text: 'Apply both' });
 		applyBothBtn.addClass('mod-cta', 'uch-apply-btn');
 		if (this.plugin.settings.vimTableStructureSupport && this.plugin.settings.vimTableNavigationSupport) {
@@ -810,6 +839,9 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			'<i>Only affects table structure/navigation above — has no effect on its own.</i>',
 			this.plugin.settings.vimLeaderUseBackslash,
 			(v) => this.plugin.vimSupport.setLeaderUseBackslash(v));
+
+		containerEl.createDiv({ text: 'Behavior options', cls: 'uch-behavior-heading' });
+		this.renderSmartHomeToggles(containerEl, true);
 
 		const limitationsEl = containerEl.createDiv({ cls: 'uch-vim-limitations' });
 		limitationsEl.createDiv({ text: 'Limitations', cls: 'uch-vim-limitations-title' });
@@ -936,24 +968,49 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		return tr;
 	}
 
-	private renderBlock(table: HTMLElement, title: string, entries: Array<{def: CommandDef; row: HotkeyRow}>, ctx: RenderCtx): HTMLTableSectionElement {
-		const tbody = table.createEl('tbody');
+	// Collapsible — every block under Hotkey settings shares the same ▶/▼
+	// affordance (see renderCollapsibleBlock's own doc comment on why a
+	// toggleable title, not a Show/Hide button, is used here), signaling
+	// "this is a child of Hotkey settings" uniformly regardless of each
+	// block's own default open/closed state. Split across header/content
+	// tbody for the same reason renderCollapsibleBlock is: the title (and
+	// its Apply recommended button) must stay visible even while the
+	// content underneath is collapsed.
+	private renderBlock(
+		table: HTMLElement,
+		title: string,
+		entries: Array<{def: CommandDef; row: HotkeyRow}>,
+		ctx: RenderCtx,
+		visible: { get(): boolean; set(v: boolean): void },
+	): HTMLTableSectionElement {
+		const headerTbody = table.createEl('tbody');
 
 		// Title row
-		const titleRow = tbody.createEl('tr');
+		const titleRow = headerTbody.createEl('tr');
 		const titleCell = titleRow.createEl('td');
 		titleCell.colSpan = 5;
 		titleCell.addClass('uch-title-cell');
 		const titleFlex = titleCell.createDiv('uch-title-flex');
-		titleFlex.createSpan({ text: title, cls: 'uch-title-text' });
+		const toggleLabel = titleFlex.createSpan({
+			text: `${visible.get() ? '▼' : '▶'} ${title}`,
+			cls: 'uch-title-text uch-block-toggle',
+		});
 		const setAllBtn = titleFlex.createEl('button', { text: 'Apply recommended' });
 		setAllBtn.addClass('mod-cta', 'uch-apply-btn');
 		if (!entries.some(e => e.row.action === 'set' || e.row.action === 'override'))
 			setAllBtn.disabled = true;
 		setAllBtn.addEventListener('click', () => { ctx.applyBlock(entries); });
 
+		const contentTbody = table.createEl('tbody');
+		contentTbody.toggleClass('uch-hidden', !visible.get());
+		toggleLabel.addEventListener('click', () => {
+			visible.set(!visible.get());
+			toggleLabel.setText(`${visible.get() ? '▼' : '▶'} ${title}`);
+			contentTbody.toggleClass('uch-hidden', !visible.get());
+		});
+
 		// Column header row
-		const headerRow = tbody.createEl('tr');
+		const headerRow = contentTbody.createEl('tr');
 		headerRow.addClass('uch-row-thick');
 		for (const [i, h] of (['Command', 'Recommended Hotkey', 'Current Hotkey', 'Status', '▶'] as const).entries()) {
 			const td = headerRow.createEl('td', { text: h });
@@ -971,11 +1028,11 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 
 		// Data rows
 		for (const { def, row } of entries) {
-			this.renderDataRow(tbody, def, row, ctx);
+			this.renderDataRow(contentTbody, def, row, ctx);
 		}
 
 		if (entries.some(e => e.row.action === 'override')) {
-			const noteRow = tbody.createEl('tr');
+			const noteRow = contentTbody.createEl('tr');
 			const noteTd = noteRow.createEl('td', { cls: 'uch-override-note' });
 			noteTd.colSpan = 5;
 			noteTd.appendText('"');
@@ -984,9 +1041,9 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			ctx.allOverrideNotes.push(noteRow);
 		}
 
-		const spacerTd = tbody.createEl('tr').createEl('td', { cls: 'uch-block-spacer' });
+		const spacerTd = contentTbody.createEl('tr').createEl('td', { cls: 'uch-block-spacer' });
 		spacerTd.colSpan = 5;
-		return tbody;
+		return contentTbody;
 	}
 
 	// One Key Upgrades row: key chip | status (only for Conflict/Used — Set/
@@ -1142,25 +1199,12 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		spacerTd.colSpan = 5;
 	}
 
-	// The QSA frame: one shared open/close control (sectionVisible), then —
-	// once open — a 3-tab bar (general/vim/emacs, sharing activeTab) and
+	// Always-visible 3-tab bar (general/vim/emacs, sharing activeTab) and
 	// whichever one tab's own content. Only the active tab's DOM is ever
 	// built (matching this file's existing "any state change -> full
 	// containerEl.empty()+rebuild" idiom already used everywhere else), so
 	// there's no separate hidden-tab visibility bookkeeping to maintain.
 	private renderQsaFrame(containerEl: HTMLElement): void {
-		new Setting(containerEl)
-			.setName('Quick setup assistant')
-			.addButton(btn => {
-				btn.setButtonText(this.sectionVisible ? 'Hide' : 'Show');
-				btn.onClick(() => {
-					this.sectionVisible = !this.sectionVisible;
-					this.display();
-				});
-			});
-
-		if (!this.sectionVisible) return;
-
 		const tabBar = containerEl.createDiv({ cls: 'uch-tab-bar' });
 		const TABS: ReadonlyArray<{ id: 'general' | 'vim' | 'emacs'; label: string }> = [
 			{ id: 'general', label: 'For everyone' },
@@ -1318,9 +1362,12 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		const makeEntries = (block: CommandDef['block']) =>
 			COMMAND_DEFS.filter(d => d.block === block).map(def => ({ def, row: computeRow(def, effectiveHotkeys, reverseMap, cmds) }));
 
-		this.renderBlock(table, 'Cursor movement', makeEntries('cursor'), ctx);
-		this.renderBlock(table, 'Editing',         makeEntries('editing'), ctx);
-		this.renderBlock(table, 'Other hotkeys',   makeEntries('other'), ctx);
+		this.renderBlock(table, 'Cursor movement', makeEntries('cursor'), ctx,
+			{ get: () => this.cursorMovementVisible, set: v => { this.cursorMovementVisible = v; } });
+		this.renderBlock(table, 'Editing',         makeEntries('editing'), ctx,
+			{ get: () => this.editingVisible, set: v => { this.editingVisible = v; } });
+		this.renderBlock(table, 'Other hotkeys',   makeEntries('other'), ctx,
+			{ get: () => this.otherHotkeysVisible, set: v => { this.otherHotkeysVisible = v; } });
 		const tableSearchTerm = getTableCommandSearchTerm();
 		this.renderCollapsibleBlock(table, 'Table structure', makeEntries('tableStructure'), ctx,
 			{ get: () => this.tableStructureVisible, set: v => { this.tableStructureVisible = v; } },
@@ -1337,15 +1384,25 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			{ get: () => this.tableNavVisible, set: v => { this.tableNavVisible = v; } });
 		syncToggle();
 
-		// Displaced commands table
+		// Displaced commands table — collapsible like every other block under
+		// Hotkey settings (see renderBlock's own doc comment on why).
 		const dispTable = containerEl.createEl('table', { cls: 'uch-disp-table' });
 
-		const dispTbody = dispTable.createEl('tbody');
-
-		// Title row
-		const dispTitleCell = dispTbody.createEl('tr').createEl('td', { cls: 'uch-title-cell' });
+		const dispHeaderTbody = dispTable.createEl('tbody');
+		const dispTitleCell = dispHeaderTbody.createEl('tr').createEl('td', { cls: 'uch-title-cell' });
 		dispTitleCell.colSpan = 5;
-		dispTitleCell.createSpan({ text: 'Displaced commands', cls: 'uch-title-text' });
+		const dispToggleLabel = dispTitleCell.createSpan({
+			text: `${this.displacedVisible ? '▼' : '▶'} Displaced commands`,
+			cls: 'uch-title-text uch-block-toggle',
+		});
+
+		const dispTbody = dispTable.createEl('tbody');
+		dispTbody.toggleClass('uch-hidden', !this.displacedVisible);
+		dispToggleLabel.addEventListener('click', () => {
+			this.displacedVisible = !this.displacedVisible;
+			dispToggleLabel.setText(`${this.displacedVisible ? '▼' : '▶'} Displaced commands`);
+			dispTbody.toggleClass('uch-hidden', !this.displacedVisible);
+		});
 
 		// Description row
 		const dispDescTd = dispTbody.createEl('tr').createEl('td', { cls: 'uch-disp-desc' });
@@ -1400,6 +1457,11 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			const noDisp = dispTbody.createEl('tr', { cls: 'uch-row-thin' }).createEl('td', { text: 'No displaced commands.', cls: 'uch-no-displaced' });
 			noDisp.colSpan = 5;
 		}
+
+		containerEl.createDiv({ text: 'Behavior options', cls: 'uch-behavior-heading' });
+		this.renderSmartHomeToggles(containerEl, true);
+		this.renderVisualLineMovementToggle(containerEl);
+		this.renderCrossRowNavigationToggle(containerEl);
 	}
 
 	// "for All users" tab — see computeKeyUpgradeRow's own doc comment for why
@@ -1421,7 +1483,6 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 
 		const keyUpgradesEl = containerEl.createDiv({ cls: 'uch-key-upgrades-section' });
 		const keyUpgradesTitleFlex = keyUpgradesEl.createDiv('uch-title-flex');
-		keyUpgradesTitleFlex.createSpan({ text: 'Key Upgrades', cls: 'uch-key-upgrades-title' });
 		const eligible = KEY_UPGRADE_DEFS.filter(def => {
 			const row = computeKeyUpgradeRow(def, keyUpgradeCtx.effectiveHotkeys, keyUpgradeCtx.reverseMap, keyUpgradeCtx.cmds);
 			return !row.assigned && row.conflictIds.length === 0;
@@ -1448,15 +1509,19 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		const keyUpgradesTable = containerEl.createEl('table');
 		keyUpgradesTable.addClass('uch-table', 'uch-key-upgrades-table');
 		this.renderKeyUpgradeGroup(
-			keyUpgradesTable, 'Navigation basics',
+			keyUpgradesTable, 'Upgrade navigation basics',
 			null,
 			NAV_BASICS_DEFS, keyUpgradeCtx,
 		);
 		this.renderKeyUpgradeGroup(
-			keyUpgradesTable, 'Word commands',
+			keyUpgradesTable, 'Upgrade word commands',
 			null,
 			WORD_COMMAND_DEFS, keyUpgradeCtx,
 		);
+
+		containerEl.createDiv({ text: 'Behavior options', cls: 'uch-behavior-heading' });
+		this.renderSmartHomeToggles(containerEl, false);
+		this.renderDoubleClickWordSelectToggle(containerEl);
 	}
 
 	private setHtmlDesc(setting: Setting, html: string): Setting {

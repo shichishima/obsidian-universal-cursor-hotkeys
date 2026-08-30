@@ -3,7 +3,6 @@
   width: 100%;
   border-collapse: collapse;
 }
-.uch-qsa-frame-gap { height: 1.5em; }
 .uch-disp-table {
   width: 100%;
   border-collapse: collapse;
@@ -144,6 +143,10 @@ tbody.uch-override-active .uch-override-word { font-weight: 700; }
 .uch-vim-limitations-title { font-size: 0.8em; font-weight: 600; opacity: 0.6; margin-bottom: 4px; }
 .uch-vim-limitations ul    { margin: 0; padding-left: 1.2em; font-size: 0.9em; opacity: 0.75; }
 .uch-vim-limitations li + li { margin-top: 4px; }
+/* Per-tab Behavior options subset heading — same visual weight as its
+   sibling group headings (Upgrade navigation basics / Motion upgrades /
+   Hotkey settings), not the muted Limitations title. */
+.uch-behavior-heading      { font-weight: 600; padding: 6px 8px; margin-top: 12px; }
 /* Matches a Setting's own .setting-item-description sizing/color — this
    detail row lived there before moving into a table. */
 .uch-vim-cmd-detail {
