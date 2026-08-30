@@ -1012,7 +1012,8 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 
 		const tdStatus = tr.createEl('td', { cls: 'uch-key-upgrade-status' });
 		if (hasConflict) {
-			tdStatus.setText(assigned ? '🔴Conflict' : '🔴Used');
+			tdStatus.createEl('a', { text: assigned ? '🔴Conflict' : '🔴Used', cls: 'uch-cmd-link' })
+				.addEventListener('click', (e) => { e.preventDefault(); this.openHotkeysPanelByKey(targetHotkey); });
 		}
 
 		const tdToggle = tr.createEl('td', { cls: 'uch-cell-toggle' });
