@@ -24,5 +24,5 @@ export class Setting {
 
 export class MarkdownView {}
 export class Editor {}
-export const Platform = { isMacOS: false }
+export const Platform = { isMacOS: false, isIosApp: false }
 export type Modifier = 'Mod' | 'Ctrl' | 'Meta' | 'Shift' | 'Alt'

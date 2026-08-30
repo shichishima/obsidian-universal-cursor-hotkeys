@@ -238,17 +238,22 @@ export const computeRow = (
 // key also held by some other command) rather than QSA's fuller
 // recommended-vs-custom-key vocabulary. See computeRow's own doc history for
 // why that fuller vocabulary doesn't apply here.
+// A per-OS (modifiers, key) pair. Every KeyUpgradeDef entry carries one of
+// each — mac and win — uniformly, even bare entries where the two are
+// identical, rather than special-casing "same key, different modifier" vs.
+// "different key entirely" (Document start/end needs the latter: Cmd+Up on
+// Mac, but Ctrl+*Home*, not Ctrl+Up, on Windows) at the type level.
+export interface KeyUpgradeHotkey {
+	modifiers: Modifier[];
+	key: string;
+}
+
 export interface KeyUpgradeDef {
 	group: 'navBasics' | 'wordCommands';
 	label: string;
 	commandId: string;
-	// Mac-only for now (2026-08-28 first pass) — Ctrl/Alt/Meta all resolve to
-	// their literal Windows/Linux meaning if this ever runs there (Alt stays
-	// Alt, Meta stays the Windows key), not yet OS-conditional. Bare
-	// (modifiers: []) entries like Home/End are unaffected by that, since a
-	// bare key means the same physical key on every OS.
-	modifiers: Modifier[];
-	key: string;
+	mac: KeyUpgradeHotkey;
+	win: KeyUpgradeHotkey;
 }
 
 export interface KeyUpgradeRow {
@@ -258,14 +263,24 @@ export interface KeyUpgradeRow {
 	conflictIds: string[];
 }
 
+// isMacStyle mirrors formatHotkey's own isMacOS default-param pattern (an
+// explicit override for tests, defaulting to the real runtime check) —
+// Linux/Android follow the Windows-style (Ctrl-based) convention here, iOS
+// follows the Mac-style (Option/Cmd-based) one, matching each platform's own
+// real external-keyboard shortcut conventions rather than a literal
+// isMacOS/isWin/isLinux/isIosApp/isAndroidApp 5-way split.
+export const isMacStyle = (override = Platform.isMacOS || Platform.isIosApp): boolean => override;
+
 export const computeKeyUpgradeRow = (
 	def: KeyUpgradeDef,
 	effectiveHotkeys: (cmdId: string) => BakedHotkey[],
 	reverseMap: Map<string, string[]>,
 	cmds: Record<string, { name: string }> | undefined,
+	macStyle: boolean = isMacStyle(),
 ): KeyUpgradeRow => {
 	const fullId  = `${PLUGIN_ID}:${def.commandId}`;
-	const targetHotkey: Hotkey = { modifiers: def.modifiers, key: def.key };
+	const { modifiers, key } = macStyle ? def.mac : def.win;
+	const targetHotkey: Hotkey = { modifiers, key };
 	const keyId   = hotkeyId(targetHotkey);
 	const assigned = effectiveHotkeys(fullId).some(hk => hotkeyId(hk) === keyId);
 	const conflictIds = (reverseMap.get(keyId) ?? []).filter(id => id !== fullId && cmds?.[id] !== undefined);
@@ -278,40 +293,64 @@ export const computeKeyUpgradeRow = (
 // applies the Ctrl-combo even though the bare key is already set" treatment
 // Home/End/Page Up/Page Down already had, without a second place to
 // remember to update (missed once already, for Up/Down — see git history).
-// Navigation basics is bare-key (works identically on every OS); Word
-// commands is Mac-only for now (2026-08-28 first pass) — see KeyUpgradeDef's
-// own doc comment. OS-conditional Windows/Linux equivalents are a
-// deliberately deferred follow-up, not yet built.
+// Navigation basics is bare-key (works identically on every OS, mac==win)
+// except Document start/end, which — like every wordCommands entry — is
+// OS-conditional (see KeyUpgradeHotkey's own doc comment).
 // Order within each group matches COMMAND_DEFS's own QSA ordering (cursor
 // block, then editing block) — QSA is treated as the canonical order.
+const bare = (key: string): { mac: KeyUpgradeHotkey; win: KeyUpgradeHotkey } => {
+	const hk = { modifiers: [] as Modifier[], key };
+	return { mac: hk, win: hk };
+};
 const KEY_UPGRADE_DEFS: readonly KeyUpgradeDef[] = [
-	{ group: 'navBasics', label: 'Column-aware',      commandId: 'cursor-up',   modifiers: [], key: 'ArrowUp'   },
-	{ group: 'navBasics', label: 'Column-aware',      commandId: 'cursor-down', modifiers: [], key: 'ArrowDown' },
-	{ group: 'navBasics', label: '3-step Smart home', commandId: 'cursor-home', modifiers: [], key: 'Home'     },
-	{ group: 'navBasics', label: 'Table-aware',       commandId: 'cursor-end',  modifiers: [], key: 'End'      },
-	{ group: 'navBasics', label: 'Document start — table-aware', commandId: 'cursor-top',    modifiers: ['Meta'], key: 'ArrowUp'   },
-	{ group: 'navBasics', label: 'Document end — table-aware',   commandId: 'cursor-bottom', modifiers: ['Meta'], key: 'ArrowDown' },
-	{ group: 'navBasics', label: 'Table-aware',       commandId: 'page-up',     modifiers: [], key: 'PageUp'   },
-	{ group: 'navBasics', label: 'Table-aware',       commandId: 'page-down',   modifiers: [], key: 'PageDown' },
-	{ group: 'wordCommands', label: 'Word right — table & CJK aware', commandId: 'word-right', modifiers: ['Alt'], key: 'ArrowRight' },
-	{ group: 'wordCommands', label: 'Word left — table & CJK aware',  commandId: 'word-left',  modifiers: ['Alt'], key: 'ArrowLeft'  },
+	{ group: 'navBasics', label: 'Column-aware',      commandId: 'cursor-up',   ...bare('ArrowUp')   },
+	{ group: 'navBasics', label: 'Column-aware',      commandId: 'cursor-down', ...bare('ArrowDown') },
+	{ group: 'navBasics', label: '3-step Smart home', commandId: 'cursor-home', ...bare('Home')      },
+	{ group: 'navBasics', label: 'Table-aware',       commandId: 'cursor-end',  ...bare('End')       },
+	// Windows' own document-start/end convention uses Home/End (Ctrl+Home /
+	// Ctrl+End), not the arrow keys Mac's Cmd+Up/Down uses — the key itself
+	// changes, not just the modifier. Still no conflict with the bare
+	// Home/End rows above: Ctrl+Home and bare Home are different hotkeys.
+	{ group: 'navBasics', label: 'Document start — table-aware',
+		commandId: 'cursor-top',
+		mac: { modifiers: ['Meta'], key: 'ArrowUp' }, win: { modifiers: ['Ctrl'], key: 'Home' } },
+	{ group: 'navBasics', label: 'Document end — table-aware',
+		commandId: 'cursor-bottom',
+		mac: { modifiers: ['Meta'], key: 'ArrowDown' }, win: { modifiers: ['Ctrl'], key: 'End' } },
+	{ group: 'navBasics', label: 'Table-aware',       commandId: 'page-up',     ...bare('PageUp')   },
+	{ group: 'navBasics', label: 'Table-aware',       commandId: 'page-down',   ...bare('PageDown') },
+	{ group: 'wordCommands', label: 'Word right — table & CJK aware',
+		commandId: 'word-right',
+		mac: { modifiers: ['Alt'], key: 'ArrowRight' }, win: { modifiers: ['Ctrl'], key: 'ArrowRight' } },
+	{ group: 'wordCommands', label: 'Word left — table & CJK aware',
+		commandId: 'word-left',
+		mac: { modifiers: ['Alt'], key: 'ArrowLeft' }, win: { modifiers: ['Ctrl'], key: 'ArrowLeft' } },
 	// Real macOS convention confirmed live (2026-08-28): Option, not Cmd. The
 	// physical "delete" key on a Mac keyboard sends Backspace; Fn+that key
 	// sends Delete (forward-delete) — no separate "Fn" modifier exists to
-	// bind, Fn just changes which key code is sent.
-	{ group: 'wordCommands', label: 'Kill word left — table & CJK aware',  commandId: 'kill-word-left',  modifiers: ['Alt'], key: 'Backspace' },
-	{ group: 'wordCommands', label: 'Kill word right — table & CJK aware', commandId: 'kill-word-right', modifiers: ['Alt'], key: 'Delete'    },
+	// bind, Fn just changes which key code is sent. Windows' own word-delete
+	// convention (Ctrl+Backspace/Delete) uses the same two physical keys, so
+	// only the modifier differs here, unlike Document start/end above.
+	{ group: 'wordCommands', label: 'Kill word left — table & CJK aware',
+		commandId: 'kill-word-left',
+		mac: { modifiers: ['Alt'], key: 'Backspace' }, win: { modifiers: ['Ctrl'], key: 'Backspace' } },
+	{ group: 'wordCommands', label: 'Kill word right — table & CJK aware',
+		commandId: 'kill-word-right',
+		mac: { modifiers: ['Alt'], key: 'Delete' }, win: { modifiers: ['Ctrl'], key: 'Delete' } },
 ];
 
-// Derived from KEY_UPGRADE_DEFS's own bare (no-modifier) entries only — this
-// exception mechanism exists specifically to let a bare physical key (e.g.
-// Home) coexist on the same command as a modified QSA-recommended key (e.g.
-// Ctrl-A) without either blocking the other's own "already assigned"
-// status. Modifier-bearing entries (Word left/right, Document start/end,
-// Kill word left/right) don't need it — those commands have no QSA
-// `recommended` hotkey to disambiguate against in the first place.
+// Derived from KEY_UPGRADE_DEFS's own bare (mac==win, no-modifier) entries
+// only — this exception mechanism exists specifically to let a bare
+// physical key (e.g. Home) coexist on the same command as a modified
+// QSA-recommended key (e.g. Ctrl-A) without either blocking the other's own
+// "already assigned" status. OS-conditional entries (Word left/right,
+// Document start/end, Kill word left/right) don't need it — those commands
+// have no QSA `recommended` hotkey to disambiguate against in the first
+// place.
 const SPECIAL_KEY_EXCEPTION: Partial<Record<string, string>> = Object.fromEntries(
-	KEY_UPGRADE_DEFS.filter(d => d.modifiers.length === 0).map(d => [d.commandId, d.key])
+	KEY_UPGRADE_DEFS
+		.filter(d => d.mac.modifiers.length === 0 && d.win.modifiers.length === 0)
+		.map(d => [d.commandId, d.mac.key])
 );
 
 const ctrl = (...keys: string[]): Hotkey => ({ modifiers: ['Ctrl'], key: keys[0] });
