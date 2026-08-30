@@ -508,129 +508,156 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 	// three tabs — rendered independently in each (same underlying setting,
 	// same onChange), since only one tab's content exists in the DOM at a
 	// time anyway.
+	//
+	// Each toggle renders as a row in that tab's own shared table (same "one
+	// <table>, many <tbody> groups" idiom as renderKeyUpgradeGroup), not a
+	// standalone Setting block — colspan merges every column but the last
+	// into one cell so the toggle itself lands in the same column as every
+	// other row's own toggle/action cell in that table (Key Upgrades: 4
+	// columns → colspan 3; Vim: 3 → colspan 2; Emacs: 5 → colspan 4). The
+	// merged cell still uses Obsidian's own .setting-item-name/
+	// .setting-item-description classes, so the name/description keep
+	// their normal Setting-block typography despite no longer living
+	// inside an actual Setting.
+
+	// Group title row — a new tbody appended to the tab's own table.
+	// colspan = that table's full column count.
+	private renderBehaviorOptionsTitle(table: HTMLElement, colspan: number): HTMLElement {
+		const tbody = table.createEl('tbody');
+		const titleCell = tbody.createEl('tr').createEl('td');
+		titleCell.colSpan = colspan;
+		titleCell.addClass('uch-title-cell');
+		titleCell.createDiv({ text: 'Behavior options', cls: 'uch-title-text' });
+		return tbody;
+	}
+
+	// One toggle row. No this.display() on change (unlike Key Upgrade rows)
+	// — nothing else on screen depends on a Behavior option's own value, so
+	// the toggle's own setValue() is enough, matching this block's original
+	// (pre-table) Setting-based behavior.
+	private renderBehaviorToggleRow(
+		tbody: HTMLElement,
+		colspan: number,
+		name: string,
+		descHtml: string,
+		value: boolean,
+		onChange: (value: boolean) => void,
+	): { tr: HTMLTableRowElement; toggle: ToggleComponent } {
+		const tr = tbody.createEl('tr');
+		tr.addClass('uch-row-thin', 'uch-behavior-row');
+		const td = tr.createEl('td', { cls: 'uch-behavior-cell' });
+		td.colSpan = colspan;
+		td.createDiv({ text: name, cls: 'setting-item-name' });
+		td.createDiv({ cls: 'setting-item-description' }).appendChild(sanitizeHTMLToDom(descHtml));
+		const tdToggle = tr.createEl('td', { cls: 'uch-cell-toggle' });
+		const toggle = new ToggleComponent(tdToggle);
+		toggle.setValue(value);
+		toggle.onChange((v) => onChange(v));
+		return { tr, toggle };
+	}
 
 	// Smart home (standard/advanced), optionally with Smart join alongside
 	// it (Vim and Emacs both need Smart join; Key Upgrades' bare HOME has no
 	// join-adjacent command, so it omits it). The standard→advanced/join
 	// disable-cascade is scoped to whichever toggles this call actually
 	// renders.
-	private renderSmartHomeToggles(containerEl: HTMLElement, includeSmartJoin: boolean): void {
-		let advancedEl: HTMLElement;
+	private renderSmartHomeToggles(tbody: HTMLElement, colspan: number, includeSmartJoin: boolean): void {
+		let advancedRow: HTMLTableRowElement;
 		let advancedToggle: ToggleComponent;
-		let smartJoinEl: HTMLElement | undefined;
-		let smartJoinToggle: ToggleComponent | undefined;
+		let joinRow: HTMLTableRowElement | undefined;
+		let joinToggle: ToggleComponent | undefined;
 		const setStandardDisabled = (disabled: boolean) => {
-			advancedEl.style.opacity       = disabled ? '0.4' : '';
-			advancedEl.style.pointerEvents = disabled ? 'none' : '';
+			advancedRow.style.opacity       = disabled ? '0.4' : '';
+			advancedRow.style.pointerEvents = disabled ? 'none' : '';
 			if (disabled && this.plugin.settings.smartHomeAdvanced) {
 				this.plugin.settings.smartHomeAdvanced = false;
 				advancedToggle.setValue(false);
 				void this.plugin.saveSettings();
 			}
-			if (smartJoinEl) {
-				smartJoinEl.style.opacity       = disabled ? '0.4' : '';
-				smartJoinEl.style.pointerEvents = disabled ? 'none' : '';
+			if (joinRow) {
+				joinRow.style.opacity       = disabled ? '0.4' : '';
+				joinRow.style.pointerEvents = disabled ? 'none' : '';
 				if (disabled && this.plugin.settings.smartJoin) {
 					this.plugin.settings.smartJoin = false;
-					smartJoinToggle!.setValue(false);
+					joinToggle!.setValue(false);
 					void this.plugin.saveSettings();
 				}
 			}
 		};
 
-		new Setting(containerEl)
-			.setName('Smart home (standard)')
-			.then(setting => this.setHtmlDesc(setting, '' +
-				'<b>ON:</b> HOME skips leading Markdown syntax (lists, checkboxes, indents, etc.) to reach content start — Windows Home / macOS Cmd+← style.<br>' +
-				'<b>OFF:</b> HOME moves directly to the start of the line — macOS / Emacs Ctrl+A style.'))
-			.addToggle(toggle => toggle
-				.setValue(this.plugin.settings.smartHomeStandard)
-				.onChange(async (value) => {
-					this.plugin.settings.smartHomeStandard = value;
-					setStandardDisabled(!value);
-					await this.plugin.saveSettings();
-				}));
+		this.renderBehaviorToggleRow(tbody, colspan, 'Smart home (standard)', '' +
+			'<b>ON:</b> HOME skips leading Markdown syntax (lists, checkboxes, indents, etc.) to reach content start — Windows Home / macOS Cmd+← style.<br>' +
+			'<b>OFF:</b> HOME moves directly to the start of the line — macOS / Emacs Ctrl+A style.',
+			this.plugin.settings.smartHomeStandard,
+			(value) => {
+				this.plugin.settings.smartHomeStandard = value;
+				setStandardDisabled(!value);
+				void this.plugin.saveSettings();
+			});
 
-		advancedEl = new Setting(containerEl)
-			.setName('Smart home (advanced)')
-			.then(setting => this.setHtmlDesc(setting, '' +
-				'<b>ON:</b> Also skips past headings (<code>#</code>), footnotes (<code>[^1]:</code>), and callout type markers (<code>[!type]</code>).<br>' +
-				'<i>Requires <b>Smart home (standard)</b> to be enabled.</i>'))
-			.addToggle(toggle => {
-				advancedToggle = toggle;
-				toggle.setValue(this.plugin.settings.smartHomeAdvanced)
-					.onChange(async (value) => {
-						this.plugin.settings.smartHomeAdvanced = value;
-						await this.plugin.saveSettings();
-					});
-			})
-			.settingEl;
+		const advancedResult = this.renderBehaviorToggleRow(tbody, colspan, 'Smart home (advanced)', '' +
+			'<b>ON:</b> Also skips past headings (<code>#</code>), footnotes (<code>[^1]:</code>), and callout type markers (<code>[!type]</code>).<br>' +
+			'<i>Requires <b>Smart home (standard)</b> to be enabled.</i>',
+			this.plugin.settings.smartHomeAdvanced,
+			(value) => {
+				this.plugin.settings.smartHomeAdvanced = value;
+				void this.plugin.saveSettings();
+			});
+		advancedRow = advancedResult.tr;
+		advancedToggle = advancedResult.toggle;
 
 		if (includeSmartJoin) {
-			smartJoinEl = new Setting(containerEl)
-				.setName('Smart join')
-				.then(setting => this.setHtmlDesc(setting, '' +
-					'<b>ON:</b> Kill Line join (Emacs) and <code>J</code> (Vim) land at the next line\'s content start, removing blockquote markers, list markers, and indentation. Pairs with Smart home (advanced) for headings and footnotes.<br>' +
-					'<b>OFF:</b> Joins the next line as-is.<br>' +
-					'<i>Requires <b>Smart home (standard)</b> to be enabled.</i>'))
-				.addToggle(toggle => {
-					smartJoinToggle = toggle;
-					toggle.setValue(this.plugin.settings.smartJoin)
-						.onChange(async (value) => {
-							this.plugin.settings.smartJoin = value;
-							await this.plugin.saveSettings();
-						});
-				})
-				.settingEl;
+			const joinResult = this.renderBehaviorToggleRow(tbody, colspan, 'Smart join', '' +
+				'<b>ON:</b> Kill Line join (Emacs) and <code>J</code> (Vim) land at the next line\'s content start, removing blockquote markers, list markers, and indentation. Pairs with Smart home (advanced) for headings and footnotes.<br>' +
+				'<b>OFF:</b> Joins the next line as-is.<br>' +
+				'<i>Requires <b>Smart home (standard)</b> to be enabled.</i>',
+				this.plugin.settings.smartJoin,
+				(value) => {
+					this.plugin.settings.smartJoin = value;
+					void this.plugin.saveSettings();
+				});
+			joinRow = joinResult.tr;
+			joinToggle = joinResult.toggle;
 		}
 
 		setStandardDisabled(!this.plugin.settings.smartHomeStandard);
 	}
 
 	// Emacs-only: LEFT/HOME/RIGHT/END row-wrapping behavior.
-	private renderCrossRowNavigationToggle(containerEl: HTMLElement): void {
-		new Setting(containerEl)
-			.setName('Cross-row navigation')
-			.then(setting => this.setHtmlDesc(setting, '' +
-				'<b>ON:</b> LEFT/HOME at the leftmost cell and RIGHT/END at the rightmost cell wrap to the adjacent row.<br>' +
-				'<b>OFF:</b> Stops at the boundary.'))
-			.addToggle(toggle => toggle
-				.setValue(this.plugin.settings.crossRowNavigation)
-				.onChange(async (value) => {
-					this.plugin.settings.crossRowNavigation = value;
-					await this.plugin.saveSettings();
-				}));
+	private renderCrossRowNavigationToggle(tbody: HTMLElement, colspan: number): void {
+		this.renderBehaviorToggleRow(tbody, colspan, 'Cross-row navigation', '' +
+			'<b>ON:</b> LEFT/HOME at the leftmost cell and RIGHT/END at the rightmost cell wrap to the adjacent row.<br>' +
+			'<b>OFF:</b> Stops at the boundary.',
+			this.plugin.settings.crossRowNavigation,
+			(value) => {
+				this.plugin.settings.crossRowNavigation = value;
+				void this.plugin.saveSettings();
+			});
 	}
 
 	// Emacs-only: HOME/END's visual-line-first step.
-	private renderVisualLineMovementToggle(containerEl: HTMLElement): void {
-		new Setting(containerEl)
-			.setName('Visual line movement')
-			.then(setting => this.setHtmlDesc(setting, '' +
-				'<b>ON:</b> HOME/END first moves to the visual line edge, then to the logical line start/end.<br>' +
-				'<b>OFF:</b> Moves directly to the logical line start/end.'))
-			.addToggle(toggle => toggle
-				.setValue(this.plugin.settings.visualLineMovement)
-				.onChange(async (value) => {
-					this.plugin.settings.visualLineMovement = value;
-					await this.plugin.saveSettings();
-				}));
+	private renderVisualLineMovementToggle(tbody: HTMLElement, colspan: number): void {
+		this.renderBehaviorToggleRow(tbody, colspan, 'Visual line movement', '' +
+			'<b>ON:</b> HOME/END first moves to the visual line edge, then to the logical line start/end.<br>' +
+			'<b>OFF:</b> Moves directly to the logical line start/end.',
+			this.plugin.settings.visualLineMovement,
+			(value) => {
+				this.plugin.settings.visualLineMovement = value;
+				void this.plugin.saveSettings();
+			});
 	}
 
 	// Tab-agnostic: works the same regardless of Vim/Emacs/Key Upgrades usage
 	// — lives in the "For everyone" tab as the one option genuinely for everyone.
-	private renderDoubleClickWordSelectToggle(containerEl: HTMLElement): void {
-		new Setting(containerEl)
-			.setName('Double-click word select')
-			.then(setting => this.setHtmlDesc(setting, '' +
-				'<b>ON:</b> Selects just the CJK word at the click position, not the whole unbroken run — dragging extends a word at a time.<br>' +
-				'<b>OFF:</b> Uses Obsidian\'s native double-click selection.'))
-			.addToggle(toggle => toggle
-				.setValue(this.plugin.settings.cjkDoubleClickWordSelect)
-				.onChange(async (value) => {
-					this.plugin.settings.cjkDoubleClickWordSelect = value;
-					await this.plugin.saveSettings();
-				}));
+	private renderDoubleClickWordSelectToggle(tbody: HTMLElement, colspan: number): void {
+		this.renderBehaviorToggleRow(tbody, colspan, 'Double-click word select', '' +
+			'<b>ON:</b> Selects just the CJK word at the click position, not the whole unbroken run — dragging extends a word at a time.<br>' +
+			'<b>OFF:</b> Uses Obsidian\'s native double-click selection.',
+			this.plugin.settings.cjkDoubleClickWordSelect,
+			(value) => {
+				this.plugin.settings.cjkDoubleClickWordSelect = value;
+				void this.plugin.saveSettings();
+			});
 	}
 
 	// One-time nudge: if the user opens settings with Obsidian's own "Vim key
@@ -840,8 +867,8 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			this.plugin.settings.vimLeaderUseBackslash,
 			(v) => this.plugin.vimSupport.setLeaderUseBackslash(v));
 
-		containerEl.createDiv({ text: 'Behavior options', cls: 'uch-behavior-heading' });
-		this.renderSmartHomeToggles(containerEl, true);
+		const vimBehaviorTbody = this.renderBehaviorOptionsTitle(vimTable, 3);
+		this.renderSmartHomeToggles(vimBehaviorTbody, 2, true);
 
 		const limitationsEl = containerEl.createDiv({ cls: 'uch-vim-limitations' });
 		limitationsEl.createDiv({ text: 'Limitations', cls: 'uch-vim-limitations-title' });
@@ -1458,10 +1485,10 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			noDisp.colSpan = 5;
 		}
 
-		containerEl.createDiv({ text: 'Behavior options', cls: 'uch-behavior-heading' });
-		this.renderSmartHomeToggles(containerEl, true);
-		this.renderVisualLineMovementToggle(containerEl);
-		this.renderCrossRowNavigationToggle(containerEl);
+		const emacsBehaviorTbody = this.renderBehaviorOptionsTitle(dispTable, 5);
+		this.renderSmartHomeToggles(emacsBehaviorTbody, 4, true);
+		this.renderVisualLineMovementToggle(emacsBehaviorTbody, 4);
+		this.renderCrossRowNavigationToggle(emacsBehaviorTbody, 4);
 	}
 
 	// "for All users" tab — see computeKeyUpgradeRow's own doc comment for why
@@ -1519,12 +1546,8 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			WORD_COMMAND_DEFS, keyUpgradeCtx,
 		);
 
-		containerEl.createDiv({ text: 'Behavior options', cls: 'uch-behavior-heading' });
-		this.renderSmartHomeToggles(containerEl, false);
-		this.renderDoubleClickWordSelectToggle(containerEl);
-	}
-
-	private setHtmlDesc(setting: Setting, html: string): Setting {
-		return setting.setDesc(sanitizeHTMLToDom(html));
+		const everyoneBehaviorTbody = this.renderBehaviorOptionsTitle(keyUpgradesTable, 4);
+		this.renderSmartHomeToggles(everyoneBehaviorTbody, 3, false);
+		this.renderDoubleClickWordSelectToggle(everyoneBehaviorTbody, 3);
 	}
 }

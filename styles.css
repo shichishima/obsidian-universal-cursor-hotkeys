@@ -139,14 +139,20 @@ tbody.uch-override-active .uch-override-word { font-weight: 700; }
    be relied on to make it win. */
 .uch-vim-restart-banner.uch-hidden { display: none; }
 .uch-vim-restart-text { color: var(--text-warning); font-weight: 600; }
-.uch-vim-limitations       { padding: 8px 0 8px 40px; }
+.uch-vim-limitations       { padding: 8px 0; }
 .uch-vim-limitations-title { font-size: 0.8em; font-weight: 600; opacity: 0.6; margin-bottom: 4px; }
 .uch-vim-limitations ul    { margin: 0; padding-left: 1.2em; font-size: 0.9em; opacity: 0.75; }
 .uch-vim-limitations li + li { margin-top: 4px; }
-/* Per-tab Behavior options subset heading — same visual weight as its
-   sibling group headings (Upgrade navigation basics / Motion upgrades /
-   Hotkey settings), not the muted Limitations title. */
-.uch-behavior-heading      { font-weight: 600; padding: 6px 8px; margin-top: 12px; }
+/* Behavior options toggle row's merged name+description cell — keeps
+   Obsidian's own .setting-item-name/.setting-item-description look despite
+   living in a table cell instead of an actual Setting. Left padding matches
+   .uch-cell-name exactly, so the text lines up with the key chip (Key
+   Upgrades/Vim) or command name (Emacs) column in the rows above it. */
+.uch-behavior-cell         { padding: 6px 8px 6px 40px; }
+.uch-behavior-cell .setting-item-name,
+.uch-behavior-cell .setting-item-description { padding: 0; }
+.uch-behavior-cell .setting-item-name         { font-size: var(--font-ui-medium); font-weight: 600; }
+.uch-behavior-row > td     { vertical-align: top; }
 /* Matches a Setting's own .setting-item-description sizing/color — this
    detail row lived there before moving into a table. */
 .uch-vim-cmd-detail {
