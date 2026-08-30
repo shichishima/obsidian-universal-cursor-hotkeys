@@ -1163,9 +1163,9 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 
 		const tabBar = containerEl.createDiv({ cls: 'uch-tab-bar' });
 		const TABS: ReadonlyArray<{ id: 'general' | 'vim' | 'emacs'; label: string }> = [
-			{ id: 'general', label: 'Key Upgrades' },
+			{ id: 'general', label: 'For everyone' },
 			{ id: 'vim',   label: 'Vim mode' },
-			{ id: 'emacs', label: 'macOS-style (Emacs keybindings)' },
+			{ id: 'emacs', label: 'macOS (Emacs) style' },
 		];
 		for (const tab of TABS) {
 			const tabBtn = tabBar.createEl('button', { text: tab.label, cls: 'uch-tab-btn' });
