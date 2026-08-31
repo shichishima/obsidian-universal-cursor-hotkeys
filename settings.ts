@@ -1250,7 +1250,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			{ id: 'emacs', label: 'macOS (Emacs) style' },
 		];
 		for (const tab of TABS) {
-			const tabBtn = tabBar.createEl('button', { text: tab.label, cls: 'uch-tab-btn' });
+			const tabBtn = tabBar.createEl('button', { text: tab.label, cls: `uch-tab-btn uch-tab-btn-${tab.id}` });
 			if (this.activeTab === tab.id) tabBtn.addClass('uch-tab-btn-active');
 			tabBtn.addEventListener('click', () => {
 				this.activeTab = tab.id;

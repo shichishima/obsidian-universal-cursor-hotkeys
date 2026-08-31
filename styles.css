@@ -26,33 +26,53 @@
 }
 
 /* ── QSA frame tab bar ───────────────────────────────────── */
+/* iOS-style segmented control — a filled "track" holding three equal-width
+   segments, with the active one rendered as a raised, lighter pill (not a
+   bold accent fill — matches Apple's own HIG spec: a light/elevated pill
+   on a neutral track, not a colored one). Replaces an earlier folder-tab
+   look (skeuomorphic, dated) and an even earlier underline-tab attempt
+   (read as plain text, not obviously clickable) — a raised active state
+   is a much stronger "this is a button" signal than either. */
 .uch-tab-bar {
   display: flex;
-  gap: 4px;
-  padding: 4px 8px 0;
-  border-bottom: 1px solid var(--background-modifier-border);
+  gap: 2px;
+  padding: 3px;
+  /* Must track the sum of the three .uch-tab-btn-* min-widths below (100 +
+     80 + 160) plus 2 gaps (2px each) and this padding (3px each side) —
+     otherwise the track's own background stops growing before its
+     children do, and the tabs visually spill past the gray background. */
+  min-width: 350px;
+  background-color: var(--background-secondary);
+  border-radius: var(--radius-m, 8px);
   margin-bottom: 12px;
 }
 .uch-tab-bar .uch-tab-btn {
+  flex: 1;
+  text-align: center;
   font-size: 0.9em;
-  padding: 6px 12px;
-  background-color: var(--background-modifier-hover);
+  padding: 6px 14px;
+  background-color: transparent;
   box-shadow: none;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-s, 4px) var(--radius-s, 4px) 0 0;
-  margin-bottom: -1px;
+  border: none;
+  border-radius: var(--radius-s, 6px);
   color: var(--text-muted);
 }
+/* Per-tab minimum widths, sized to each label's own text — "macOS (Emacs)
+   style" is by far the longest, so giving all three the same min-width
+   wasted space on the two short ones. With flex:1 sharing equally, these
+   floors only kick in once the window gets narrow enough to matter. */
+.uch-tab-bar .uch-tab-btn-general { min-width: 100px; }
+.uch-tab-bar .uch-tab-btn-vim     { min-width: 80px; }
+.uch-tab-bar .uch-tab-btn-emacs   { min-width: 160px; }
 .uch-tab-bar .uch-tab-btn:hover {
   color: var(--text-normal);
-  background-color: var(--background-secondary);
+  background-color: var(--background-modifier-hover);
 }
 .uch-tab-bar .uch-tab-btn-active,
 .uch-tab-bar .uch-tab-btn-active:hover {
   color: var(--text-normal);
   background-color: var(--background-primary);
-  border-color: var(--background-modifier-border);
-  border-bottom-color: var(--background-primary);
+  box-shadow: var(--shadow-s, 0 1px 2px rgba(0, 0, 0, 0.15));
   font-weight: 600;
 }
 
