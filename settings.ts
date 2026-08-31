@@ -530,7 +530,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		const tbody = table.createEl('tbody');
 		const titleCell = tbody.createEl('tr').createEl('td');
 		titleCell.colSpan = colspan;
-		titleCell.addClass('uch-title-cell');
+		titleCell.addClass('uch-title-cell', 'uch-behavior-title-cell');
 		titleCell.createDiv({ text: 'Behavior options', cls: 'uch-title-text' });
 		return tbody;
 	}
@@ -1185,7 +1185,13 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		const titleRow = headerTbody.createEl('tr');
 		const titleCell = titleRow.createEl('td');
 		titleCell.colSpan = 5;
-		titleCell.addClass('uch-title-cell');
+		titleCell.addClass('uch-title-cell', 'uch-title-cell-tall');
+		// padding-top always stays fixed (from .uch-title-cell-tall) — only
+		// padding-bottom toggles with collapse state, so the heading text's
+		// own vertical position never moves when clicked, unlike the earlier
+		// min-height/align-items:center approach (which re-centered the text
+		// within a changing box height and made it visibly jump).
+		titleCell.toggleClass('uch-title-cell-expanded', visible.get());
 		const toggleLabel = titleCell.createSpan({
 			text: `${visible.get() ? '▼' : '▶'} ${title}`,
 			cls: 'uch-title-text uch-block-toggle',
@@ -1196,6 +1202,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		toggleLabel.addEventListener('click', () => {
 			visible.set(!visible.get());
 			toggleLabel.setText(`${visible.get() ? '▼' : '▶'} ${title}`);
+			titleCell.toggleClass('uch-title-cell-expanded', visible.get());
 			contentTbody.toggleClass('uch-hidden', !visible.get());
 		});
 
@@ -1420,8 +1427,9 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		const dispTable = containerEl.createEl('table', { cls: 'uch-disp-table' });
 
 		const dispHeaderTbody = dispTable.createEl('tbody');
-		const dispTitleCell = dispHeaderTbody.createEl('tr').createEl('td', { cls: 'uch-title-cell' });
+		const dispTitleCell = dispHeaderTbody.createEl('tr').createEl('td', { cls: 'uch-title-cell uch-title-cell-tall' });
 		dispTitleCell.colSpan = 5;
+		dispTitleCell.toggleClass('uch-title-cell-expanded', this.displacedVisible);
 		const dispToggleLabel = dispTitleCell.createSpan({
 			text: `${this.displacedVisible ? '▼' : '▶'} Displaced commands`,
 			cls: 'uch-title-text uch-block-toggle',
@@ -1432,6 +1440,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		dispToggleLabel.addEventListener('click', () => {
 			this.displacedVisible = !this.displacedVisible;
 			dispToggleLabel.setText(`${this.displacedVisible ? '▼' : '▶'} Displaced commands`);
+			dispTitleCell.toggleClass('uch-title-cell-expanded', this.displacedVisible);
 			dispTbody.toggleClass('uch-hidden', !this.displacedVisible);
 		});
 

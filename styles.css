@@ -1,13 +1,13 @@
 /* ── Tables ─────────────────────────────────────────────── */
 .uch-table {
   width: 100%;
+  margin: 0;
   border-collapse: collapse;
 }
 .uch-disp-table {
   width: 100%;
+  margin: 0 0 2em;
   border-collapse: collapse;
-  margin-top: 1em;
-  margin-bottom: 2em;
 }
 
 /* ── Row separators ──────────────────────────────────────── */
@@ -58,6 +58,23 @@
 
 /* ── Title row ───────────────────────────────────────────── */
 .uch-title-cell { padding: 6px 8px; }
+/* Button-less collapsible title cells (Table structure/Table navigation/
+   Displaced commands) — collapsed state uses top 11/bottom 12 (23px +
+   19px content = 42px, matching a title-with-button row's own height, and
+   splitting the padding close to evenly so the text reads at roughly the
+   same vertical band as a centered button+text row instead of looking
+   pinned to one edge). Expanded state keeps padding-top fixed at 11px
+   (so the heading text's own position never moves when toggled — an
+   earlier min-height/align-items:center attempt re-centered the text
+   within a changing box height and made it visibly jump) and drops
+   padding-bottom to 6px, tightening the gap before that block's own
+   content. */
+.uch-title-cell-tall { padding: 11px 8px 12px; }
+.uch-title-cell-tall.uch-title-cell-expanded { padding-bottom: 5px; }
+/* Matches the same top padding as .uch-title-cell-tall above — with that
+   scheme in place, Behavior options no longer needs its own extra top
+   padding to read as a new sibling group. */
+.uch-behavior-title-cell { padding-top: 11px; }
 .uch-title-flex { display: flex; align-items: center; gap: 10px; }
 .uch-title-text { font-weight: 600; }
 .uch-block-toggle { display: inline-block; cursor: pointer; user-select: none; }
