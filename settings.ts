@@ -99,6 +99,10 @@ const WIN_MOD:  Record<string, string> = { Ctrl: 'Ctrl', Shift: 'Shift', Alt: 'A
 const KEY_DISP: Record<string, string> = {
 	PageDown: 'Page Down', PageUp: 'Page Up',
 	ArrowLeft: '←', ArrowRight: '→', ArrowUp: '↑', ArrowDown: '↓',
+};
+// Mac keyboard cap glyphs — Backspace/Delete have no equivalent glyph
+// convention on Windows, which spells them out as plain words instead.
+const MAC_KEY_DISP: Record<string, string> = {
 	Backspace: '⌫', Delete: '⌦',
 };
 const MOD_ORDER: Record<string, number> = { Mod: 0, Ctrl: 1, Alt: 2, Shift: 3, Meta: 4 };
@@ -111,7 +115,7 @@ export const hotkeyId = (hk: AnyHotkey): string =>
 
 export const formatHotkey = (hk: AnyHotkey, isMacOS = Platform.isMacOS): string => {
 	const mods = normMods(hk.modifiers).sort((a, b) => (MOD_ORDER[a] ?? 9) - (MOD_ORDER[b] ?? 9));
-	const key  = KEY_DISP[hk.key] ?? hk.key;
+	const key  = (isMacOS ? MAC_KEY_DISP[hk.key] : undefined) ?? KEY_DISP[hk.key] ?? hk.key;
 	return isMacOS
 		? mods.map(m => MAC_MOD[m] ?? m).join('') + ' ' + key
 		: [...mods.map(m => WIN_MOD[m] ?? m), key].join('+');
