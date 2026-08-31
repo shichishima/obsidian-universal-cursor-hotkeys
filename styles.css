@@ -103,7 +103,7 @@
 /* ── Data cells ──────────────────────────────────────────── */
 .uch-cell-name   { padding: 2px 8px 2px 40px; white-space: nowrap; }
 .uch-cell-key    { padding: 2px 8px; white-space: nowrap; }
-.uch-key-stack   { display: flex; flex-direction: row; align-items: center; gap: 4px; }
+.uch-key-stack   { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px; }
 .uch-cell-status { padding: 2px 8px; font-size: 0.9em; width: 100%; }
 .uch-cell-action { padding: 2px 8px; white-space: nowrap; }
 
@@ -143,7 +143,10 @@ tbody.uch-override-active .uch-override-word { font-weight: 700; }
 .uch-key-upgrades-title    { font-weight: 600; padding: 6px 8px; }
 .uch-key-upgrades-desc     { padding: 2px 8px 6px; font-size: 0.9em; opacity: 0.5; }
 .uch-key-upgrade-group-desc { font-size: 0.8em; opacity: 0.5; font-weight: normal; margin-top: 2px; }
-.uch-key-upgrade-label      { padding: 4px 8px; opacity: 0.6; white-space: nowrap; width: 100%; }
+/* white-space needs an explicit override, not just omission — this label
+   is sometimes nested inside a nowrap .uch-cell-name (Vim's Table
+   commands row), and white-space is an inherited property. */
+.uch-key-upgrade-label      { padding: 4px 8px; opacity: 0.6; width: 100%; white-space: normal; }
 .uch-key-upgrade-status     { padding: 4px 8px; font-size: 0.9em; white-space: nowrap; }
 .uch-cell-toggle            { padding: 4px 8px; text-align: right; }
 /* Scoped override, not the shared .uch-cell-name rule — the Emacs QSA table's own row height was trimmed separately and must stay untouched. */
