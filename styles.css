@@ -162,7 +162,10 @@ tbody.uch-override-active .uch-override-word { font-weight: 700; }
    table that follows happens to be nested inside this div or a sibling. */
 .uch-key-upgrades-section  { margin-top: 1em; margin-bottom: 0.75em; }
 .uch-key-upgrades-title    { font-weight: 600; padding: 6px 8px; }
-.uch-key-upgrades-desc     { padding: 2px 8px 6px; font-size: 0.9em; opacity: 0.5; }
+/* flex: 1 only matters when this happens to sit inside a .uch-title-flex
+   row (For everyone's own desc+Apply all row) — elsewhere (Vim/Emacs's
+   own plain, non-flex description divs) it has no effect. */
+.uch-key-upgrades-desc     { padding: 2px 8px 6px; font-size: 0.9em; opacity: 0.5; flex: 1; }
 .uch-key-upgrade-group-desc { font-size: 0.8em; opacity: 0.5; font-weight: normal; margin-top: 2px; }
 /* white-space needs an explicit override, not just omission — this label
    is sometimes nested inside a nowrap .uch-cell-name (Vim's Table

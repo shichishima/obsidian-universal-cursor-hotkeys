@@ -1523,6 +1523,10 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 
 		const keyUpgradesEl = containerEl.createDiv({ cls: 'uch-key-upgrades-section' });
 		const keyUpgradesTitleFlex = keyUpgradesEl.createDiv('uch-title-flex');
+		keyUpgradesTitleFlex.createDiv({
+			text: "Give your everyday keys table-aware behavior and CJK-aware word splitting.",
+			cls: 'uch-key-upgrades-desc',
+		});
 		const eligible = KEY_UPGRADE_DEFS.filter(def => {
 			const row = computeKeyUpgradeRow(def, keyUpgradeCtx.effectiveHotkeys, keyUpgradeCtx.reverseMap, keyUpgradeCtx.cmds);
 			return !row.assigned && row.conflictIds.length === 0;
@@ -1539,11 +1543,6 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			hm.bake();
 			void this.plugin.saveSettings();
 			this.display();
-		});
-
-		keyUpgradesEl.createDiv({
-			text: "Give your everyday keys table-aware behavior and CJK-aware word splitting.",
-			cls: 'uch-key-upgrades-desc',
 		});
 
 		const keyUpgradesTable = containerEl.createEl('table');
