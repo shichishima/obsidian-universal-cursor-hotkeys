@@ -41,15 +41,19 @@ interface UniversalCursorHotkeysSettings {
 	// unaffected either way.
 	cjkDoubleClickWordSelect: boolean;
 	qsaDisplacedCommands: DisplacedCommand[];
-	qsaSectionVisible: boolean;
 	qsaIndividualVisible: boolean;
-	// Collapsed by default — both are secondary, supplementary sections
-	// (table-structure wraps Obsidian's own native commands, not owned by
-	// this plugin; table-navigation's own recommended: null is a deliberate
-	// no-default choice, not a "not owned" one), unlike the 3 core QSA
-	// groups above them, which stay always-visible.
+	// Every block under Hotkey settings is collapsible now (uniform ▶/▼
+	// affordance signaling "this is a child of Hotkey settings"), but the
+	// default open/closed state per block is unchanged from before that:
+	// the 3 core command blocks and Displaced commands stay open by
+	// default; Table structure/Table navigation stay closed (secondary,
+	// supplementary sections not owned by this plugin).
+	qsaCursorMovementVisible: boolean;
+	qsaEditingVisible: boolean;
+	qsaOtherHotkeysVisible: boolean;
 	qsaTableStructureVisible: boolean;
 	qsaTableNavVisible: boolean;
+	qsaDisplacedVisible: boolean;
 	vimHlSupport: boolean;
 	vimJkSupport: boolean;
 	vimJoinSupport: boolean;
@@ -70,17 +74,15 @@ interface UniversalCursorHotkeysSettings {
 	// (default) = Space; true = backslash. Only has an effect once one of
 	// those is on — a preference, not an on/off feature of its own.
 	vimLeaderUseBackslash: boolean;
-	// The QSA frame (Behavior Options' own sibling, see settings.ts) holds
-	// three tabs sharing one open/close state (qsaSectionVisible below) —
-	// this selects which one is currently showing. 'general' = Key Upgrades
-	// (for every user, no Vim/Emacs knowledge needed), 'vim' = Vim support,
-	// 'emacs' = the original Emacs-style QSA table + Displaced commands.
+	// Always-visible 3-tab bar (settings.ts's renderQsaFrame) — this selects
+	// which one is currently showing. 'general' = For everyone (no Vim/Emacs
+	// knowledge needed), 'vim' = Vim mode, 'emacs' = macOS (Emacs) style.
 	activeSettingsTab: 'general' | 'vim' | 'emacs';
-	// Whether the settings tab has already auto-switched to the Vim tab (and
-	// expanded the QSA frame if it was closed), on the theory that a
-	// Vim-mode user wants to land there first, in response to Obsidian's own
-	// "Vim key bindings" core setting being on. Fires at most once ever, so
-	// it never fights a user's own subsequent manual tab/Show-Hide choice.
+	// Whether the settings tab has already auto-switched to the Vim tab, on
+	// the theory that a Vim-mode user wants to land there first, in response
+	// to Obsidian's own "Vim key bindings" core setting being on. Fires at
+	// most once ever, so it never fights a user's own subsequent manual tab
+	// choice.
 	vimAutoExpandDone: boolean;
 }
 
@@ -92,10 +94,13 @@ const DEFAULT_SETTINGS: UniversalCursorHotkeysSettings = {
 	crossRowNavigation: true,
 	cjkDoubleClickWordSelect: true,
 	qsaDisplacedCommands: [],
-	qsaSectionVisible: true,
 	qsaIndividualVisible: false,
+	qsaCursorMovementVisible: true,
+	qsaEditingVisible: true,
+	qsaOtherHotkeysVisible: true,
 	qsaTableStructureVisible: false,
 	qsaTableNavVisible: false,
+	qsaDisplacedVisible: true,
 	vimHlSupport: true,
 	vimJkSupport: true,
 	vimJoinSupport: true,

@@ -1,14 +1,13 @@
 /* ── Tables ─────────────────────────────────────────────── */
 .uch-table {
   width: 100%;
+  margin: 0;
   border-collapse: collapse;
 }
-.uch-qsa-frame-gap { height: 1.5em; }
 .uch-disp-table {
   width: 100%;
+  margin: 0 0 2em;
   border-collapse: collapse;
-  margin-top: 1em;
-  margin-bottom: 2em;
 }
 
 /* ── Row separators ──────────────────────────────────────── */
@@ -59,6 +58,23 @@
 
 /* ── Title row ───────────────────────────────────────────── */
 .uch-title-cell { padding: 6px 8px; }
+/* Button-less collapsible title cells (Table structure/Table navigation/
+   Displaced commands) — collapsed state uses top 11/bottom 12 (23px +
+   19px content = 42px, matching a title-with-button row's own height, and
+   splitting the padding close to evenly so the text reads at roughly the
+   same vertical band as a centered button+text row instead of looking
+   pinned to one edge). Expanded state keeps padding-top fixed at 11px
+   (so the heading text's own position never moves when toggled — an
+   earlier min-height/align-items:center attempt re-centered the text
+   within a changing box height and made it visibly jump) and drops
+   padding-bottom to 6px, tightening the gap before that block's own
+   content. */
+.uch-title-cell-tall { padding: 11px 8px 12px; }
+.uch-title-cell-tall.uch-title-cell-expanded { padding-bottom: 5px; }
+/* Matches the same top padding as .uch-title-cell-tall above — with that
+   scheme in place, Behavior options no longer needs its own extra top
+   padding to read as a new sibling group. */
+.uch-behavior-title-cell { padding-top: 11px; }
 .uch-title-flex { display: flex; align-items: center; gap: 10px; }
 .uch-title-text { font-weight: 600; }
 .uch-block-toggle { display: inline-block; cursor: pointer; user-select: none; }
@@ -87,7 +103,7 @@
 /* ── Data cells ──────────────────────────────────────────── */
 .uch-cell-name   { padding: 2px 8px 2px 40px; white-space: nowrap; }
 .uch-cell-key    { padding: 2px 8px; white-space: nowrap; }
-.uch-key-stack   { display: flex; flex-direction: row; align-items: center; gap: 4px; }
+.uch-key-stack   { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px; }
 .uch-cell-status { padding: 2px 8px; font-size: 0.9em; width: 100%; }
 .uch-cell-action { padding: 2px 8px; white-space: nowrap; }
 
@@ -127,7 +143,10 @@ tbody.uch-override-active .uch-override-word { font-weight: 700; }
 .uch-key-upgrades-title    { font-weight: 600; padding: 6px 8px; }
 .uch-key-upgrades-desc     { padding: 2px 8px 6px; font-size: 0.9em; opacity: 0.5; }
 .uch-key-upgrade-group-desc { font-size: 0.8em; opacity: 0.5; font-weight: normal; margin-top: 2px; }
-.uch-key-upgrade-label      { padding: 4px 8px; opacity: 0.6; white-space: nowrap; width: 100%; }
+/* white-space needs an explicit override, not just omission — this label
+   is sometimes nested inside a nowrap .uch-cell-name (Vim's Table
+   commands row), and white-space is an inherited property. */
+.uch-key-upgrade-label      { padding: 4px 8px; opacity: 0.6; width: 100%; white-space: normal; }
 .uch-key-upgrade-status     { padding: 4px 8px; font-size: 0.9em; white-space: nowrap; }
 .uch-cell-toggle            { padding: 4px 8px; text-align: right; }
 /* Scoped override, not the shared .uch-cell-name rule — the Emacs QSA table's own row height was trimmed separately and must stay untouched. */
@@ -140,10 +159,20 @@ tbody.uch-override-active .uch-override-word { font-weight: 700; }
    be relied on to make it win. */
 .uch-vim-restart-banner.uch-hidden { display: none; }
 .uch-vim-restart-text { color: var(--text-warning); font-weight: 600; }
-.uch-vim-limitations       { padding: 8px 0 8px 40px; }
+.uch-vim-limitations       { padding: 8px 0; }
 .uch-vim-limitations-title { font-size: 0.8em; font-weight: 600; opacity: 0.6; margin-bottom: 4px; }
 .uch-vim-limitations ul    { margin: 0; padding-left: 1.2em; font-size: 0.9em; opacity: 0.75; }
 .uch-vim-limitations li + li { margin-top: 4px; }
+/* Behavior options toggle row's merged name+description cell — keeps
+   Obsidian's own .setting-item-name/.setting-item-description look despite
+   living in a table cell instead of an actual Setting. Left padding matches
+   .uch-cell-name exactly, so the text lines up with the key chip (Key
+   Upgrades/Vim) or command name (Emacs) column in the rows above it. */
+.uch-behavior-cell         { padding: 6px 8px 6px 40px; }
+.uch-behavior-cell .setting-item-name,
+.uch-behavior-cell .setting-item-description { padding: 0; }
+.uch-behavior-cell .setting-item-name         { font-size: var(--font-ui-medium); font-weight: 600; }
+.uch-behavior-row > td     { vertical-align: top; }
 /* Matches a Setting's own .setting-item-description sizing/color — this
    detail row lived there before moving into a table. */
 .uch-vim-cmd-detail {
