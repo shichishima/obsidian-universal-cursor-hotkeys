@@ -1392,7 +1392,14 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			const fullId = getFullId(def);
 			const recId  = hotkeyId(def.recommended!);
 			if (row.action === 'override') {
-				for (const conflictId of (reverseMap.get(recId) ?? []).filter(id => id !== fullId)) {
+				// Same liveness filter as computeRow's own conflictIds (cmds is
+				// the live app.commands.commands registry) — without it, a
+				// disabled plugin's stale hotkey entry in the baked reverseMap
+				// (e.g. from before it was disabled) gets treated as a real
+				// conflict to displace, even though it's invisible in the QSA
+				// table's own displayed conflict count and restoring it later
+				// does nothing (the command isn't actually registered).
+				for (const conflictId of (reverseMap.get(recId) ?? []).filter(id => id !== fullId && cmds?.[id] !== undefined)) {
 					hm.setHotkeys(conflictId,
 						effectiveHotkeys(conflictId).filter(hk => hotkeyId(hk) !== recId).map(toHotkey));
 					if (!this.plugin.settings.qsaDisplacedCommands.some(d => d.commandId === conflictId && hotkeyId(d.hotkey) === recId)) {
