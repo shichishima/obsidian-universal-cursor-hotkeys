@@ -609,14 +609,15 @@ describe('VimSupportHost bridge (main.ts)', () => {
 		// synchronous motion return itself is handled correctly by vim.js's
 		// own engine, not this method) must preserve an already-active
 		// selection's anchor instead of collapsing it.
-		it('preserves an active selection\'s anchor in the scrollIntoView dispatch (Vim Visual/Visual Line mode)', () => {
+		it('leaves an active selection untouched — no setCursorViaCm call, and the scrollIntoView dispatch carries no selection field (Vim Visual/Visual Line mode)', () => {
 			const editor = makeStatefulEditor(['first', '  middle', 'last'], { line: 0, ch: 0 })
 			plugin.isPositionInTable = vi.fn().mockReturnValue(false)
-			editor.cm.state.selection.main = { anchor: 5, head: 0 } // an active (non-empty) selection
+			editor.cm.state.selection.main = { anchor: 5, head: 0 } // an active (non-empty) selection, already set correctly by Vim's own synchronous engine
 			plugin.jumpToDocumentLine(editor, true, 1)
-			expect(editor.cm.dispatch).toHaveBeenCalledWith(
-				expect.objectContaining({ selection: { anchor: 5, head: 1002 } }),
-			)
+			expect(plugin.setCursorViaCm).not.toHaveBeenCalled()
+			const dispatchArg = editor.cm.dispatch.mock.calls.at(-1)?.[0]
+			expect(dispatchArg).not.toHaveProperty('selection')
+			expect(dispatchArg).toHaveProperty('effects')
 		})
 
 		it('collapses to a point in the scrollIntoView dispatch when there is no active selection (Normal mode)', () => {

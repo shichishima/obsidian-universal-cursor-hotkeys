@@ -3161,11 +3161,28 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// row's leftmost cell rather than on its raw markdown text.
 	jumpToDocumentLine(editor: unknown, forward: boolean, explicitLine: number | null): { line: number; ch: number } | null {
 		const e = editor as Editor;
+		const cm = e.cm;
 		const lastLine = e.lineCount() - 1;
 		const targetLine = explicitLine !== null
 			? Math.max(0, Math.min(explicitLine, lastLine))
 			: (forward ? lastLine : 0);
-		console.log('[UCH debug] jumpToDocumentLine start', { forward, explicitLine, lastLine, targetLine, liveCursor: e.getCursor() });
+
+		// Vim's own synchronous motion (moveToLineOrEdgeOfDocument, run inside
+		// vim.js's own cm.operation()) already sets the CM6 selection correctly
+		// for an active Visual/Visual Line selection, using vim.js's own
+		// line/char-mode selection conventions (e.g. Visual Line's head at
+		// end-of-line, not column 0). Any *external* dispatch we make below
+		// (this method's own raw cm.dispatch calls, running outside that
+		// operation) gets reinterpreted by vim.js's handleExternalSelection as
+		// if it came from a mouse drag: it shifts the forward-direction
+		// endpoint back by one character to match its own mouse-selection
+		// convention. Since our own targetCh below targets column ~0 (not
+		// Visual Line's end-of-line convention), that shift crosses the line
+		// boundary backward — landing one line short of the true target. So
+		// once there's an active selection to preserve, we must not
+		// re-dispatch a selection at all here; only scroll (see the bottom of
+		// this method) — vim.js's own already-correct state is left standing.
+		const hadActiveSelection = cm.state.selection.main.anchor !== cm.state.selection.main.head;
 
 		// Bare G (not count-prefixed — see below) landing on a table that runs
 		// all the way to the document's own last line: mirror tx's own EOF fix
@@ -3205,43 +3222,34 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			const targetCh = this.settings.smartHomeStandard
 				? this.getBeginningOfLinePosition(lineText, lineText.length || 1)
 				: (lineText.search(/\S/) === -1 ? lineText.length : lineText.search(/\S/));
-			console.log('[UCH debug] jumpToDocumentLine plain-text branch dispatching setCursorViaCm', { targetLine, targetCh });
-			this.setCursorViaCm(e, targetLine, targetCh, true);
+			// See hadActiveSelection's own comment above: skip this dispatch
+			// entirely while Vim's own Visual/Visual Line selection is active,
+			// to avoid corrupting the state vim.js already set correctly.
+			if (!hadActiveSelection) {
+				this.setCursorViaCm(e, targetLine, targetCh, true);
+			}
 			result = { line: targetLine, ch: targetCh };
 		}
-		console.log('[UCH debug] jumpToDocumentLine result before scroll dispatch', { result });
 
 		// gg/G can jump across the whole document — unlike the short,
 		// already-on-screen hops setCursorViaCm's other callers make (row/
 		// cell crossings), this one needs an explicit scroll-into-view.
 		// setCursorViaCm itself doesn't request one (left as-is to avoid
 		// changing behavior for its other, already-working callers); done as
-		// its own follow-up dispatch to the same (already landed-on)
-		// position instead. Same anchor-preserving logic as the plain-text
-		// landing's own setCursorViaCm(..., true) call above (see that
-		// method's own doc comment) — needed here too, since a bare
-		// {anchor: pos, head: pos} would silently re-collapse the selection
-		// that call just preserved. A no-op for the table-landing branch:
-		// its own (deliberately untouched) internal dispatch already
-		// collapsed the selection by this point, so there's nothing left to
-		// preserve here either way.
+		// its own follow-up dispatch to the same (already landed-on) position
+		// instead. When there's an active selection to preserve, this dispatch
+		// carries no `selection` field at all — scrollIntoView is a pure
+		// StateEffect, so it can't itself trigger vim.js's
+		// handleExternalSelection (which only reacts to an actual selection
+		// change) the way re-asserting {anchor, head} would (see
+		// hadActiveSelection's own comment above).
 		if (result) {
-			const cm = e.cm;
 			const pos = e.posToOffset(result);
-			const current = cm.state.selection.main;
-			const anchor = current.anchor !== current.head ? current.anchor : pos;
-			console.log('[UCH debug] jumpToDocumentLine scroll dispatch', { result, pos, currentAnchor: current.anchor, currentHead: current.head, dispatchAnchor: anchor });
-			cm.dispatch({ selection: { anchor, head: pos }, scrollIntoView: true, userEvent: 'move' });
-			const afterDispatch = cm.state.selection.main;
-			console.log('[UCH debug] jumpToDocumentLine selection immediately after our own dispatch', { anchor: afterDispatch.anchor, head: afterDispatch.head, headLine: e.offsetToPos(afterDispatch.head) });
-			window.setTimeout(() => {
-				const later = cm.state.selection.main;
-				console.log('[UCH debug] jumpToDocumentLine selection ~50ms later (did something else move it?)', { anchor: later.anchor, head: later.head, headLine: e.offsetToPos(later.head) });
-			}, 50);
-			window.setTimeout(() => {
-				const later = cm.state.selection.main;
-				console.log('[UCH debug] jumpToDocumentLine selection ~300ms later', { anchor: later.anchor, head: later.head, headLine: e.offsetToPos(later.head) });
-			}, 300);
+			if (hadActiveSelection) {
+				cm.dispatch({ effects: EditorView.scrollIntoView(pos), userEvent: 'move' });
+			} else {
+				cm.dispatch({ selection: { anchor: pos, head: pos }, scrollIntoView: true, userEvent: 'move' });
+			}
 		}
 		return result;
 	}

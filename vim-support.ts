@@ -1215,7 +1215,6 @@ export class VimSupport {
 		const safePos = looksLikeTableRow
 			? head
 			: { line, ch: VimSupport.findFirstNonWhiteSpaceCharacter(targetLineText) };
-		console.log('[UCH debug] moveToLineOrEdgeOfDocument sync return', { forward, head, lastLine, line, looksLikeTableRow, safePos });
 		if (!inputState?.operator) {
 			const explicitLine = motionArgs.repeatIsExplicit ? motionArgs.repeat - 1 : null;
 			this.scheduleDocumentEdgeJump(forward, explicitLine);
