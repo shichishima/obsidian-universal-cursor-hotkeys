@@ -2049,11 +2049,27 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 
-	private setCursorViaCm(editor: Editor, line: number, ch: number) {
+	// preserveActiveSelection (default false, unchanged behavior for every
+	// existing caller): when true and the live selection is currently
+	// non-empty (anchor !== head — e.g. Vim's Visual/Visual Line mode),
+	// keeps that anchor and only moves head to the new position, instead of
+	// collapsing to a bare point. A collapsed-point dispatch reads to Vim as
+	// "the user cleared the selection externally", silently dropping back
+	// to Normal mode — this is what gg/G's own jumpToDocumentLine opts into
+	// (see its own call site) to fix that without changing this method's
+	// behavior for its many other callers (Ctrl-N/P, row/cell crossings,
+	// etc.), none of which are expected to run mid-selection today.
+	private setCursorViaCm(editor: Editor, line: number, ch: number, preserveActiveSelection = false) {
 		const targetInTable = this.isPositionInTable(editor, line, ch);
 		const cm = editor.cm;
 		const pos = editor.posToOffset({ line, ch });
-		cm.dispatch({ selection: { anchor: pos, head: pos }, userEvent: 'move' });
+		// Short-circuits before touching cm.state at all when
+		// preserveActiveSelection is false (the default) — every other
+		// caller's own test mocks only stub what setCursorViaCm actually
+		// used to read.
+		const current = preserveActiveSelection ? cm.state.selection.main : null;
+		const anchor = current && current.anchor !== current.head ? current.anchor : pos;
+		cm.dispatch({ selection: { anchor, head: pos }, userEvent: 'move' });
 		if (!targetInTable) {
 			// Exiting the table: outer CM must receive keyboard events.
 			cm.focus();
@@ -3170,16 +3186,51 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	// See vim-support.ts's own VimSupportHost.appendBlankLineAndLand doc
 	// comment — mirrors setCursorToNextRow's own identical EOF fix.
-	appendBlankLineAndLand(editor: unknown): void {
+	// preserveActiveSelection (default false, unchanged behavior for the
+	// no-selection caller): same idiom as setCursorViaCm's own param — when
+	// true, keeps the live selection's existing anchor and only extends head
+	// through the newly inserted line, instead of collapsing to a point. See
+	// jumpToDocumentLine's own call site for why this matters for gg/G.
+	appendBlankLineAndLand(editor: unknown, preserveActiveSelection = false): void {
 		const e = editor as Editor;
+		const cm = e.cm;
+		const current = preserveActiveSelection ? cm.state.selection.main : null;
+		const hadActiveSelection = current !== null && current.anchor !== current.head;
 		const lastLine = e.lastLine();
 		e.replaceRange('\n', { line: lastLine, ch: e.getLine(lastLine).length });
-		this.setCursorViaCm(e, lastLine + 1, 0);
-		// Same explicit scroll-into-view follow-up as
-		// setCursorAcrossTableBoundary — see its own doc comment.
-		const cm = e.cm;
 		const pos = e.posToOffset({ line: lastLine + 1, ch: 0 });
-		cm.dispatch({ selection: { anchor: pos, head: pos }, scrollIntoView: true, userEvent: 'move' });
+		if (hadActiveSelection) {
+			// Single dispatch, no setCursorViaCm call — its own default
+			// collapsed-point dispatch would drop Visual mode here too.
+			cm.dispatch({ selection: { anchor: current.anchor, head: pos }, scrollIntoView: true, userEvent: 'move' });
+			// This dispatch is external to vim.js's own cm.operation(), so its
+			// own cursorActivity handler (handleExternalSelection) reinterprets
+			// it as if it came from a mouse drag: it shifts vim's own internal
+			// selection model (vim.sel — a *separate* {anchor, head} vim.js
+			// keeps for Visual mode, read by every operator: y/d/c/p all derive
+			// their range from vim.sel, not this dispatch's own CM6 selection)
+			// back by one character. Left alone, that stale vim.sel would still
+			// point at the table's own last row, one line short of what's
+			// actually highlighted — so a y/d/c run immediately after this
+			// landing would silently miss the blank line just inserted (and a
+			// delete would leave it behind, unremoved). Same technique
+			// vim-support.ts's own resyncAfterDeferredMove already uses for
+			// vim.state.lastHPos/lastHSPos after its own deferred moves — vim.js
+			// assigns its per-view state directly onto cm.state.vim (not a
+			// proper StateField), so it's writable from here too. Silently
+			// skipped if vim.state.vim isn't there (defensive only — same
+			// optional-chaining posture as that other call site).
+			const vimState = (cm.state as unknown as { vim?: { visualMode?: boolean; sel?: { anchor: unknown; head: unknown } } }).vim;
+			if (vimState?.visualMode && vimState.sel) {
+				vimState.sel.anchor = e.offsetToPos(current.anchor);
+				vimState.sel.head = e.offsetToPos(pos);
+			}
+		} else {
+			this.setCursorViaCm(e, lastLine + 1, 0);
+			// Same explicit scroll-into-view follow-up as
+			// setCursorAcrossTableBoundary — see its own doc comment.
+			cm.dispatch({ selection: { anchor: pos, head: pos }, scrollIntoView: true, userEvent: 'move' });
+		}
 	}
 
 	// See vim-support.ts's own VimSupportHost.enterTableRowSmartHome doc
@@ -3341,10 +3392,28 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// row's leftmost cell rather than on its raw markdown text.
 	jumpToDocumentLine(editor: unknown, forward: boolean, explicitLine: number | null): { line: number; ch: number } | null {
 		const e = editor as Editor;
+		const cm = e.cm;
 		const lastLine = e.lineCount() - 1;
 		const targetLine = explicitLine !== null
 			? Math.max(0, Math.min(explicitLine, lastLine))
 			: (forward ? lastLine : 0);
+
+		// Vim's own synchronous motion (moveToLineOrEdgeOfDocument, run inside
+		// vim.js's own cm.operation()) already sets the CM6 selection correctly
+		// for an active Visual/Visual Line selection, using vim.js's own
+		// line/char-mode selection conventions (e.g. Visual Line's head at
+		// end-of-line, not column 0). Any *external* dispatch we make below
+		// (this method's own raw cm.dispatch calls, running outside that
+		// operation) gets reinterpreted by vim.js's handleExternalSelection as
+		// if it came from a mouse drag: it shifts the forward-direction
+		// endpoint back by one character to match its own mouse-selection
+		// convention. Since our own targetCh below targets column ~0 (not
+		// Visual Line's end-of-line convention), that shift crosses the line
+		// boundary backward — landing one line short of the true target. So
+		// once there's an active selection to preserve, we must not
+		// re-dispatch a selection at all here; only scroll (see the bottom of
+		// this method) — vim.js's own already-correct state is left standing.
+		const hadActiveSelection = cm.state.selection.main.anchor !== cm.state.selection.main.head;
 
 		// Bare G (not count-prefixed — see below) landing on a table that runs
 		// all the way to the document's own last line: mirror tx's own EOF fix
@@ -3357,13 +3426,24 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// specific line the user named explicitly, not "the very end" — those
 		// still land inside the table normally, even if that line happens to
 		// also be the document's last line.
+		//
+		// Also runs while a Vim selection is active (hadActiveSelection), by
+		// design — confirmed against Obsidian's own native Vim mode (UCH's
+		// table handling bypassed): V/v+G onto a table at true EOF selects the
+		// table and moves the cursor past it, but there's no
+		// real line there to land on, so Live Preview renders a glitchy,
+		// full-table-height caret off to the side of the widget instead of a
+		// normal one. Actually creating that trailing line (same mutation as
+		// the no-selection case) gives the caret a real place to render —
+		// appendBlankLineAndLand's own preserveActiveSelection param keeps the
+		// selection extended through it instead of collapsing it.
 		if (explicitLine === null && forward && this.isPositionInTable(e, targetLine, 1)) {
-			this.appendBlankLineAndLand(e);
+			this.appendBlankLineAndLand(e, hadActiveSelection);
 			return { line: lastLine + 1, ch: 0 };
 		}
 
 		let result: { line: number; ch: number } | null;
-		if (this.isPositionInTable(e, targetLine, 1)) {
+		if (!hadActiveSelection && this.isPositionInTable(e, targetLine, 1)) {
 			// gg/G always land at the *start* of the target line's content
 			// (first non-blank), regardless of forward/backward — so an
 			// explicit-count jump ("2gg"/"2G") landing on the same target
@@ -3371,7 +3451,14 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			// forward param controls its delimiter-row redirect direction
 			// (and which <br>-segment to land on) — hardcoding true here
 			// (not the keystroke's own forward) keeps that landing consistent
-			// regardless of which key was actually pressed.
+			// regardless of which key was actually pressed. Skipped while a
+			// Vim selection is active — see hadActiveSelection's own comment
+			// above and the identical reasoning just above this block: cell-
+			// precision landing is a Normal-mode-only concern (Visual Line
+			// selects whole lines regardless of column; Visual mode is better
+			// served by vim.js's own native selection extension across the
+			// table's raw text, matching Obsidian's own native Vim mode with no
+			// table-precision handling involved at all).
 			result = this.enterTableAtLine(e, targetLine, 0, true, 0, 0);
 			if (result) result = this.refineTableLandingForSmartHome(e, result);
 		} else {
@@ -3384,7 +3471,12 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			const targetCh = this.settings.smartHomeStandard
 				? this.getBeginningOfLinePosition(lineText, lineText.length || 1)
 				: (lineText.search(/\S/) === -1 ? lineText.length : lineText.search(/\S/));
-			this.setCursorViaCm(e, targetLine, targetCh);
+			// See hadActiveSelection's own comment above: skip this dispatch
+			// entirely while Vim's own Visual/Visual Line selection is active,
+			// to avoid corrupting the state vim.js already set correctly.
+			if (!hadActiveSelection) {
+				this.setCursorViaCm(e, targetLine, targetCh, true);
+			}
 			result = { line: targetLine, ch: targetCh };
 		}
 
@@ -3393,12 +3485,20 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// cell crossings), this one needs an explicit scroll-into-view.
 		// setCursorViaCm itself doesn't request one (left as-is to avoid
 		// changing behavior for its other, already-working callers); done as
-		// its own follow-up dispatch to the same (already landed-on)
-		// position instead.
+		// its own follow-up dispatch to the same (already landed-on) position
+		// instead. When there's an active selection to preserve, this dispatch
+		// carries no `selection` field at all — scrollIntoView is a pure
+		// StateEffect, so it can't itself trigger vim.js's
+		// handleExternalSelection (which only reacts to an actual selection
+		// change) the way re-asserting {anchor, head} would (see
+		// hadActiveSelection's own comment above).
 		if (result) {
-			const cm = e.cm;
 			const pos = e.posToOffset(result);
-			cm.dispatch({ selection: { anchor: pos, head: pos }, scrollIntoView: true, userEvent: 'move' });
+			if (hadActiveSelection) {
+				cm.dispatch({ effects: EditorView.scrollIntoView(pos), userEvent: 'move' });
+			} else {
+				cm.dispatch({ selection: { anchor: pos, head: pos }, scrollIntoView: true, userEvent: 'move' });
+			}
 		}
 		return result;
 	}

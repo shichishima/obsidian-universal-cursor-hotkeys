@@ -25,9 +25,25 @@ function makeStatefulEditor(lines: string[], initialCursor: { line: number; ch: 
 		}),
 		// Only used directly by jumpToDocumentLine's own scroll-into-view
 		// follow-up dispatch — every other landing goes through
-		// plugin.setCursorViaCm, which is itself mocked out below.
+		// plugin.setCursorViaCm, which is itself mocked out below. selection.main
+		// defaults to no active selection (anchor === head) — matching real Vim
+		// Normal mode, which is what these tests exercise; a dedicated test below
+		// covers the anchor !== head (Visual mode) case explicitly.
 		posToOffset: vi.fn((pos: { line: number; ch: number }) => pos.line * 1000 + pos.ch),
-		cm: { dispatch: vi.fn() },
+		// Inverse of posToOffset above — only used by appendBlankLineAndLand's
+		// own vim.sel reseed (see its dedicated test below); every other test
+		// here never touches cm.state.vim, so this never gets called.
+		offsetToPos: vi.fn((off: number) => ({ line: Math.floor(off / 1000), ch: off % 1000 })),
+		cm: {
+			dispatch: vi.fn(),
+			state: {
+				selection: { main: { anchor: 0, head: 0 } },
+				// Absent by default (matching the real cm.state.vim, unset until
+				// vim.js's own maybeInitVimState has run) — set explicitly by the
+				// dedicated vim.sel reseed test below.
+				vim: undefined as { visualMode?: boolean; sel?: { anchor: unknown; head: unknown } } | undefined,
+			},
+		},
 		_setCursor: (c: { line: number; ch: number }) => { cursor = c },
 		_buf: buf,
 	}
@@ -598,6 +614,34 @@ describe('VimSupportHost bridge (main.ts)', () => {
 			)
 		})
 
+		// Regression: G/gg used to always dispatch a collapsed-point selection
+		// (anchor === head), which reads to Vim as "the user cleared the
+		// selection externally" and silently drops Visual/Visual Line mode
+		// back to Normal — losing the selection even though the cursor landed
+		// at the right place. The scrollIntoView follow-up dispatch (the
+		// synchronous motion return itself is handled correctly by vim.js's
+		// own engine, not this method) must preserve an already-active
+		// selection's anchor instead of collapsing it.
+		it('leaves an active selection untouched — no setCursorViaCm call, and the scrollIntoView dispatch carries no selection field (Vim Visual/Visual Line mode)', () => {
+			const editor = makeStatefulEditor(['first', '  middle', 'last'], { line: 0, ch: 0 })
+			plugin.isPositionInTable = vi.fn().mockReturnValue(false)
+			editor.cm.state.selection.main = { anchor: 5, head: 0 } // an active (non-empty) selection, already set correctly by Vim's own synchronous engine
+			plugin.jumpToDocumentLine(editor, true, 1)
+			expect(plugin.setCursorViaCm).not.toHaveBeenCalled()
+			const dispatchArg = editor.cm.dispatch.mock.calls.at(-1)?.[0]
+			expect(dispatchArg).not.toHaveProperty('selection')
+			expect(dispatchArg).toHaveProperty('effects')
+		})
+
+		it('collapses to a point in the scrollIntoView dispatch when there is no active selection (Normal mode)', () => {
+			const editor = makeStatefulEditor(['first', '  middle', 'last'], { line: 0, ch: 0 })
+			plugin.isPositionInTable = vi.fn().mockReturnValue(false)
+			plugin.jumpToDocumentLine(editor, true, 1)
+			expect(editor.cm.dispatch).toHaveBeenCalledWith(
+				expect.objectContaining({ selection: { anchor: 1002, head: 1002 } }),
+			)
+		})
+
 		it('reuses enterTableAtLine when the target line is a table row', () => {
 			const editor = makeStatefulEditor(['plain', '| a |'], { line: 0, ch: 0 })
 			plugin.isPositionInTable = vi.fn().mockReturnValue(true)
@@ -640,6 +684,80 @@ describe('VimSupportHost bridge (main.ts)', () => {
 				const result = plugin.jumpToDocumentLine(editor, false, null) // bare gg
 				expect(editor._buf).toEqual(['| a |', 'plain']) // unchanged
 				expect(result).toEqual({ line: 0, ch: 2 }) // landed inside the table, as before
+			})
+		})
+
+		// Fixed: while a Vim Visual/Visual Line selection is active, gg/G used
+		// to always drop into cell-precision landing (enterTableAtLine) when
+		// the target line was a table row — silently collapsing the selection
+		// (it calls setCursorViaCm without preserveActiveSelection). Confirmed
+		// against Obsidian's own native Vim mode (UCH's table handling
+		// bypassed): V/v + gg/G onto a table just selects/extends across the
+		// table's own raw text — cell precision is
+		// a Normal-mode-only concern, so it's bypassed entirely once a
+		// selection is active.
+		describe('active Vim selection bypasses table-aware landing entirely', () => {
+			it('does not call enterTableAtLine when the target line is a table row', () => {
+				const editor = makeStatefulEditor(['plain', '| a |'], { line: 0, ch: 0 })
+				editor.cm.state.selection.main = { anchor: 5, head: 0 } // an active (non-empty) selection
+				plugin.isPositionInTable = vi.fn().mockReturnValue(true)
+				plugin.enterTableAtLine = vi.fn()
+				plugin.jumpToDocumentLine(editor, true, 1)
+				expect(plugin.enterTableAtLine).not.toHaveBeenCalled()
+			})
+
+			it('falls through to the plain-text landing computation on a table row', () => {
+				const editor = makeStatefulEditor(['plain', '| a |'], { line: 0, ch: 0 })
+				editor.cm.state.selection.main = { anchor: 5, head: 0 }
+				plugin.isPositionInTable = vi.fn().mockReturnValue(true)
+				const result = plugin.jumpToDocumentLine(editor, true, 1)
+				expect(plugin.setCursorViaCm).not.toHaveBeenCalled()
+				expect(result).toEqual({ line: 1, ch: 0 }) // first non-whitespace of '| a |' is the pipe itself
+			})
+
+			// Fixed: bare G onto a table at true EOF still needs the blank line
+			// (unlike the other two table-aware cases above) — Obsidian's own
+			// native Vim mode's V/v + G there does select the table and move
+			// past it, but there's
+			// no real line to land on, so Live Preview renders a glitchy,
+			// full-table-height caret beside the widget instead of a normal one.
+			// appendBlankLineAndLand still runs (still creates the line) but is
+			// told to preserve the active selection's anchor instead of
+			// collapsing it.
+			it('still appends a blank line for bare G onto a table at the document\'s last line, preserving the selection anchor', () => {
+				const editor = makeStatefulEditor(['plain', '| a |'], { line: 0, ch: 0 })
+				editor.cm.state.selection.main = { anchor: 5, head: 0 }
+				plugin.isPositionInTable = vi.fn().mockReturnValue(true)
+				plugin.jumpToDocumentLine(editor, true, null) // bare G
+				expect(editor._buf).toEqual(['plain', '| a |', ''])
+				expect(plugin.setCursorViaCm).not.toHaveBeenCalled()
+				expect(editor.cm.dispatch).toHaveBeenCalledWith(
+					expect.objectContaining({ selection: { anchor: 5, head: 2000 } }),
+				)
+			})
+
+			// Fixed: the dispatch above is external to vim.js's own operation, so
+			// its cursorActivity handler (handleExternalSelection) reinterprets it
+			// as a mouse selection and shifts vim's own internal vim.sel (what
+			// y/d/c/p actually operate on in Visual mode — not this dispatch's
+			// own CM6 selection) back by one character, leaving it one line short
+			// of what's actually highlighted. Without this reseed, a y/d/c run
+			// immediately after this landing would silently miss the blank line
+			// just inserted.
+			it('reseeds vim.sel directly so y/d/c see the same range as the highlight, when cm.state.vim is present', () => {
+				const editor = makeStatefulEditor(['plain', '| a |'], { line: 0, ch: 0 })
+				editor.cm.state.selection.main = { anchor: 5, head: 0 }
+				editor.cm.state.vim = { visualMode: true, sel: { anchor: { line: 0, ch: 5 }, head: { line: 0, ch: 0 } } }
+				plugin.isPositionInTable = vi.fn().mockReturnValue(true)
+				plugin.jumpToDocumentLine(editor, true, null) // bare G
+				expect(editor.cm.state.vim.sel).toEqual({ anchor: { line: 0, ch: 5 }, head: { line: 2, ch: 0 } })
+			})
+
+			it('does not touch cm.state.vim when it is absent (defensive only)', () => {
+				const editor = makeStatefulEditor(['plain', '| a |'], { line: 0, ch: 0 })
+				editor.cm.state.selection.main = { anchor: 5, head: 0 }
+				plugin.isPositionInTable = vi.fn().mockReturnValue(true)
+				expect(() => plugin.jumpToDocumentLine(editor, true, null)).not.toThrow()
 			})
 		})
 
