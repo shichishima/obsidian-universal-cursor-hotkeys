@@ -30,7 +30,20 @@ function makeStatefulEditor(lines: string[], initialCursor: { line: number; ch: 
 		// Normal mode, which is what these tests exercise; a dedicated test below
 		// covers the anchor !== head (Visual mode) case explicitly.
 		posToOffset: vi.fn((pos: { line: number; ch: number }) => pos.line * 1000 + pos.ch),
-		cm: { dispatch: vi.fn(), state: { selection: { main: { anchor: 0, head: 0 } } } },
+		// Inverse of posToOffset above — only used by appendBlankLineAndLand's
+		// own vim.sel reseed (see its dedicated test below); every other test
+		// here never touches cm.state.vim, so this never gets called.
+		offsetToPos: vi.fn((off: number) => ({ line: Math.floor(off / 1000), ch: off % 1000 })),
+		cm: {
+			dispatch: vi.fn(),
+			state: {
+				selection: { main: { anchor: 0, head: 0 } },
+				// Absent by default (matching the real cm.state.vim, unset until
+				// vim.js's own maybeInitVimState has run) — set explicitly by the
+				// dedicated vim.sel reseed test below.
+				vim: undefined as { visualMode?: boolean; sel?: { anchor: unknown; head: unknown } } | undefined,
+			},
+		},
 		_setCursor: (c: { line: number; ch: number }) => { cursor = c },
 		_buf: buf,
 	}
@@ -719,6 +732,30 @@ describe('VimSupportHost bridge (main.ts)', () => {
 				expect(editor.cm.dispatch).toHaveBeenCalledWith(
 					expect.objectContaining({ selection: { anchor: 5, head: 2000 } }),
 				)
+			})
+
+			// Fixed: the dispatch above is external to vim.js's own operation, so
+			// its cursorActivity handler (handleExternalSelection) reinterprets it
+			// as a mouse selection and shifts vim's own internal vim.sel (what
+			// y/d/c/p actually operate on in Visual mode — not this dispatch's
+			// own CM6 selection) back by one character, leaving it one line short
+			// of what's actually highlighted. Without this reseed, a y/d/c run
+			// immediately after this landing would silently miss the blank line
+			// just inserted.
+			it('reseeds vim.sel directly so y/d/c see the same range as the highlight, when cm.state.vim is present', () => {
+				const editor = makeStatefulEditor(['plain', '| a |'], { line: 0, ch: 0 })
+				editor.cm.state.selection.main = { anchor: 5, head: 0 }
+				editor.cm.state.vim = { visualMode: true, sel: { anchor: { line: 0, ch: 5 }, head: { line: 0, ch: 0 } } }
+				plugin.isPositionInTable = vi.fn().mockReturnValue(true)
+				plugin.jumpToDocumentLine(editor, true, null) // bare G
+				expect(editor.cm.state.vim.sel).toEqual({ anchor: { line: 0, ch: 5 }, head: { line: 2, ch: 0 } })
+			})
+
+			it('does not touch cm.state.vim when it is absent (defensive only)', () => {
+				const editor = makeStatefulEditor(['plain', '| a |'], { line: 0, ch: 0 })
+				editor.cm.state.selection.main = { anchor: 5, head: 0 }
+				plugin.isPositionInTable = vi.fn().mockReturnValue(true)
+				expect(() => plugin.jumpToDocumentLine(editor, true, null)).not.toThrow()
 			})
 		})
 

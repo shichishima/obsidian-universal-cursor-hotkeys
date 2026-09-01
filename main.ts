@@ -3012,6 +3012,28 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			// Single dispatch, no setCursorViaCm call — its own default
 			// collapsed-point dispatch would drop Visual mode here too.
 			cm.dispatch({ selection: { anchor: current.anchor, head: pos }, scrollIntoView: true, userEvent: 'move' });
+			// This dispatch is external to vim.js's own cm.operation(), so its
+			// own cursorActivity handler (handleExternalSelection) reinterprets
+			// it as if it came from a mouse drag: it shifts vim's own internal
+			// selection model (vim.sel — a *separate* {anchor, head} vim.js
+			// keeps for Visual mode, read by every operator: y/d/c/p all derive
+			// their range from vim.sel, not this dispatch's own CM6 selection)
+			// back by one character. Left alone, that stale vim.sel would still
+			// point at the table's own last row, one line short of what's
+			// actually highlighted — so a y/d/c run immediately after this
+			// landing would silently miss the blank line just inserted (and a
+			// delete would leave it behind, unremoved). Same technique
+			// vim-support.ts's own resyncAfterDeferredMove already uses for
+			// vim.state.lastHPos/lastHSPos after its own deferred moves — vim.js
+			// assigns its per-view state directly onto cm.state.vim (not a
+			// proper StateField), so it's writable from here too. Silently
+			// skipped if vim.state.vim isn't there (defensive only — same
+			// optional-chaining posture as that other call site).
+			const vimState = (cm.state as unknown as { vim?: { visualMode?: boolean; sel?: { anchor: unknown; head: unknown } } }).vim;
+			if (vimState?.visualMode && vimState.sel) {
+				vimState.sel.anchor = e.offsetToPos(current.anchor);
+				vimState.sel.head = e.offsetToPos(pos);
+			}
 		} else {
 			this.setCursorViaCm(e, lastLine + 1, 0);
 			// Same explicit scroll-into-view follow-up as
