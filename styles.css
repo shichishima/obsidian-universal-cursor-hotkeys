@@ -123,9 +123,22 @@
 
 /* ── Data cells ──────────────────────────────────────────── */
 .uch-cell-name   { padding: 2px 8px 2px 40px; white-space: nowrap; }
+/* Emacs QSA table's own Command column — wrap is now allowed, but each
+   name's own non-breaking spaces (see renderWrappableCommandName in
+   settings.ts) control exactly where a break is actually allowed to
+   happen. width: 100% claims any leftover table width for this column
+   (moved here from .uch-cell-status below, which used to be the one
+   soaking up all the extra space — leaving Command pinned to its own
+   minimum width and wrapping names like "Duplicate column" even when the
+   window was wide enough not to need it). */
+.uch-cell-name-wrap { white-space: normal; width: 100%; }
 .uch-cell-key    { padding: 2px 8px; white-space: nowrap; }
 .uch-key-stack   { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px; }
-.uch-cell-status { padding: 2px 8px; font-size: 0.9em; width: 100%; }
+.uch-cell-status { padding: 2px 8px; font-size: 0.9em; white-space: nowrap; }
+/* Conflict/Used rows append other commands' names, which have no length
+   limit — those need to wrap; every other status ("Set"/"Custom"/
+   "Available") is a short fixed word that should never wrap. */
+.uch-cell-status-wrap { white-space: normal; }
 .uch-cell-action { padding: 2px 8px; white-space: nowrap; }
 
 /* ── Clickable KBD chip ──────────────────────────────────── */

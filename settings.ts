@@ -100,6 +100,56 @@ const KEY_DISP: Record<string, string> = {
 	PageDown: 'Page Down', PageUp: 'Page Up',
 	ArrowLeft: '←', ArrowRight: '→', ArrowUp: '↑', ArrowDown: '↓',
 };
+// Emacs QSA table's Command column: names wrap now (see .uch-cell-name-wrap),
+// but wrapping at every word boundary looked bad — most command names read
+// as one semantic unit ("Kill line", "Select all") and should stay on one
+// line regardless of column width, so every space in them is a
+// non-breaking space ( ) by default. The names below are the exception:
+// each one's own last word is a genuinely separate concept from the phrase
+// before it (a direction like left/right/above/below/up/down/center, an
+// object for the Duplicate row/column pair, or just whichever word
+// happened to be the column's current width bottleneck), so only the
+// space right before it stays a real, breakable space — every earlier
+// space in the same name still becomes non-breaking.
+const CMD_NAME_LAST_WORD_BREAKS = new Set([
+	'Kill word left', 'Kill word right',
+	'Insert row above', 'Insert row below',
+	'Move row up', 'Move row down', 'Duplicate row',
+	'Insert column left', 'Insert column right',
+	'Move column left', 'Move column right',
+	'Align column left', 'Align column center', 'Align column right',
+	'Duplicate column', 'Delete row', 'Delete column',
+	'Move to cell left', 'Move to cell right', 'Move to cell below', 'Move to cell above',
+	'Exit table below', 'Exit table above',
+	// These four don't fit the "object + trailing word" framing at all
+	// (word/chars isn't a direction or a duplicate-object pattern) — added
+	// anyway since they were the column's next width bottleneck.
+	'Uppercase word', 'Lowercase word', 'Capitalize word', 'Transpose chars',
+]);
+
+// Pure decision logic (see CMD_NAME_LAST_WORD_BREAKS's own doc comment
+// above) — returns the text segments to join with <wbr> elements. A single-
+// element array means no <wbr> is needed at all (the string's own
+// space/nbsp mix already controls where it can break).
+export const wrappableCommandNameParts = (name: string): string[] => {
+	if (name === 'Recenter-top-bottom') return ['Recenter-', 'top-', 'bottom'];
+	if (CMD_NAME_LAST_WORD_BREAKS.has(name)) {
+		const words = name.split(' ');
+		const last = words.pop()!;
+		return [words.join(' ') + ' ' + last];
+	}
+	return [name.replace(/ /g, ' ')];
+};
+
+// Renders a command name into `el` with controlled wrap points.
+const renderWrappableCommandName = (el: HTMLElement, name: string): void => {
+	const parts = wrappableCommandNameParts(name);
+	parts.forEach((part, i) => {
+		el.appendText(part);
+		if (i < parts.length - 1) el.createEl('wbr');
+	});
+};
+
 // Mac keyboard cap glyphs — Backspace/Delete have no equivalent glyph
 // convention on Windows, which spells them out as plain words instead.
 const MAC_KEY_DISP: Record<string, string> = {
@@ -927,10 +977,11 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		const tr = tbody.createEl('tr');
 		tr.addClass('uch-row-thin');
 
-		const tdName = tr.createEl('td', { cls: 'uch-cell-name' });
+		const tdName = tr.createEl('td', { cls: 'uch-cell-name uch-cell-name-wrap' });
 		const fullId = getFullId(def);
 		const openHotkeysPanel = () => this.openHotkeysPanelFor(ctx.cmds?.[fullId]?.name ?? def.name);
-		const nameLink = tdName.createEl('a', { text: row.name, cls: 'uch-cmd-link' });
+		const nameLink = tdName.createEl('a', { cls: 'uch-cmd-link' });
+		renderWrappableCommandName(nameLink, row.name);
 		nameLink.addEventListener('click', (e) => { e.preventDefault(); openHotkeysPanel(); });
 
 		const tdKey = tr.createEl('td', { cls: 'uch-cell-key' });
@@ -957,6 +1008,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 
 		const tdStatus = tr.createEl('td', { cls: 'uch-cell-status' });
 		if (row.conflictIds.length > 0) {
+			tdStatus.addClass('uch-cell-status-wrap');
 			tdStatus.createSpan({ text: row.status });
 			for (const [i, conflictId] of row.conflictIds.entries()) {
 				if (i > 0) tdStatus.createSpan({ text: ', ' });
@@ -1467,7 +1519,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		for (const d of this.plugin.settings.qsaDisplacedCommands) {
 			const tr = dispTbody.createEl('tr');
 			tr.addClass('uch-row-thin');
-			const dispName = tr.createEl('td', { cls: 'uch-cell-name' })
+			const dispName = tr.createEl('td', { cls: 'uch-cell-name uch-cell-name-wrap' })
 				.createEl('a', { text: d.commandName, cls: 'uch-cmd-link uch-disp-name' });
 			dispName.addEventListener('click', (e) => { e.preventDefault(); this.openHotkeysPanelFor(d.commandName); });
 			const assignBtn = tr.createEl('td', { cls: 'uch-cell-action' })
@@ -1497,6 +1549,14 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			const noDisp = dispTbody.createEl('tr', { cls: 'uch-row-thin' }).createEl('td', { text: 'No displaced commands.', cls: 'uch-no-displaced' });
 			noDisp.colSpan = 5;
 		}
+
+		// Same trailing spacer row every other collapsible block's own content
+		// tbody has (Motion upgrades, Cursor movement/Editing/..., Table
+		// structure/navigation) — missing here until now. Lives inside
+		// dispTbody itself, so it's hidden along with the rest while
+		// collapsed and only adds space once actually expanded.
+		const dispSpacerTd = dispTbody.createEl('tr').createEl('td', { cls: 'uch-block-spacer' });
+		dispSpacerTd.colSpan = 5;
 
 		const emacsBehaviorTbody = this.renderBehaviorOptionsTitle(dispTable, 5);
 		this.renderSmartHomeToggles(emacsBehaviorTbody, 4, true);
