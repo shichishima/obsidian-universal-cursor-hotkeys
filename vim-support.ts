@@ -1200,11 +1200,22 @@ export class VimSupport {
 	// which corrupted vim's own internal state (crashed in exitInsertMode).
 	// Staying at the unchanged head instead avoids ever landing there
 	// synchronously; the deferred call still performs the real jump either way.
+	//
+	// Exception: while a Vim Visual/Visual Line selection is active
+	// (vim.visualMode), the deferred call's own table-detection is bypassed
+	// entirely (see jumpToDocumentLine in main.ts — cell-precision landing is
+	// a Normal-mode-only concern there) and does nothing at all, so there is
+	// no second transition left to race — this synchronous return is the
+	// *only* thing that will ever move the selection in that case. Computing
+	// the real safePos here (instead of the head-unchanged placeholder) lets
+	// vim.js's own already-correct native selection handling apply, exactly
+	// like it already does for non-table lines.
+	//
 	// Suppressed when an operator is pending (e.g. "dgg"/"dG"), for the same
 	// reason as moveByWords/moveByLines' own guards: this call would then
 	// only be computing the operator's linewise range, not actually moving
 	// the cursor.
-	private readonly moveToLineOrEdgeOfDocument: VimMotionFn = (cm, head, motionArgs, _vim, inputState) => {
+	private readonly moveToLineOrEdgeOfDocument: VimMotionFn = (cm, head, motionArgs, vim, inputState) => {
 		const vcm = cm as VimCm;
 		const forward = motionArgs.forward;
 		const lastLine = vcm.lastLine();
@@ -1212,7 +1223,8 @@ export class VimSupport {
 		const line = Math.max(0, Math.min(rawLine, lastLine));
 		const targetLineText = vcm.getLine(line);
 		const looksLikeTableRow = targetLineText.trimStart().startsWith('|');
-		const safePos = looksLikeTableRow
+		const isVisualMode = (vim as { visualMode?: boolean } | undefined)?.visualMode ?? false;
+		const safePos = (looksLikeTableRow && !isVisualMode)
 			? head
 			: { line, ch: VimSupport.findFirstNonWhiteSpaceCharacter(targetLineText) };
 		if (!inputState?.operator) {

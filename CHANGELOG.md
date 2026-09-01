@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.2] - 2026-09-01
+
+### Fixed
+
+- **`gg`/`G` (document start/end) now preserve Vim's Visual/Visual Line selection:** previously, jumping to the document's start or end while in Visual or Visual Line mode collapsed the selection back to a single point, silently dropping out of Visual mode. `G` (forward) had a second bug on top of that: it also visually landed one line short of the true last line, because our own follow-up selection dispatch got reinterpreted by Vim's own external-selection handling (the same logic that syncs a mouse-drag selection) and shifted back by one character.
+- **`gg`/`G` in Visual/Visual Line mode now match Obsidian's own native Vim behavior around tables:** landing on a table row used to still collapse the selection (cell-precision landing, a Normal-mode-only feature, was running unconditionally). Now skipped entirely while a selection is active — Vim's own native selection extends across the table's raw text instead, the same way it does with no table-precision handling involved at all. `G` onto a table with nothing after it still adds a blank line first (fixing a Live Preview rendering glitch — an unstyled, full-table-height caret with nowhere real to sit), but now keeps the selection through it instead of dropping it, and yank/delete/case-conversion (`y`/`d`/`c`/`gu`/`gU`/`g~`) run on the exact same range that's highlighted.
+
 ## [0.10.1] - 2026-08-27
 
 ### Fixed

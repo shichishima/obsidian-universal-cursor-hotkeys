@@ -56,6 +56,22 @@ describe('Vim gg/G (moveToLineOrEdgeOfDocument)', () => {
 		expect(result).toEqual(head)
 	})
 
+	it('lands on the real target position (not the head-unchanged placeholder) for a table row when a Vim Visual selection is active', () => {
+		// jumpToDocumentLine's own deferred correction bypasses table-precision
+		// landing entirely while hadActiveSelection is true (see main.ts) — it
+		// does nothing at all in that case, so this synchronous return becomes
+		// the *only* thing that moves the selection. Regression: previously
+		// this always punted to the head-unchanged placeholder for any table
+		// row regardless of vim.visualMode, so the selection never moved.
+		installVimWindow({ inTableCell: false, getCursor: () => ({ line: 0, ch: 0 }), getLine: () => '' })
+		const vim = new VimSupport(makeHost()) as any
+		const head = { line: 0, ch: 3 }
+		const result = vim.moveToLineOrEdgeOfDocument(
+			cm(['first', '| a | b |', 'last']), head, { forward: true, repeat: 2, repeatIsExplicit: true }, { visualMode: true },
+		)
+		expect(result).toEqual({ line: 1, ch: 0 }) // first non-whitespace of '| a | b |' is the pipe itself
+	})
+
 	it('G (forward=true) lands on the last line, first non-blank', () => {
 		installVimWindow({ inTableCell: false, getCursor: () => ({ line: 0, ch: 0 }), getLine: () => '' })
 		const vim = new VimSupport(makeHost()) as any
