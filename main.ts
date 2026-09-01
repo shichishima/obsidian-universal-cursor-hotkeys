@@ -2995,16 +2995,29 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	// See vim-support.ts's own VimSupportHost.appendBlankLineAndLand doc
 	// comment — mirrors setCursorToNextRow's own identical EOF fix.
-	appendBlankLineAndLand(editor: unknown): void {
+	// preserveActiveSelection (default false, unchanged behavior for the
+	// no-selection caller): same idiom as setCursorViaCm's own param — when
+	// true, keeps the live selection's existing anchor and only extends head
+	// through the newly inserted line, instead of collapsing to a point. See
+	// jumpToDocumentLine's own call site for why this matters for gg/G.
+	appendBlankLineAndLand(editor: unknown, preserveActiveSelection = false): void {
 		const e = editor as Editor;
+		const cm = e.cm;
+		const current = preserveActiveSelection ? cm.state.selection.main : null;
+		const hadActiveSelection = current !== null && current.anchor !== current.head;
 		const lastLine = e.lastLine();
 		e.replaceRange('\n', { line: lastLine, ch: e.getLine(lastLine).length });
-		this.setCursorViaCm(e, lastLine + 1, 0);
-		// Same explicit scroll-into-view follow-up as
-		// setCursorAcrossTableBoundary — see its own doc comment.
-		const cm = e.cm;
 		const pos = e.posToOffset({ line: lastLine + 1, ch: 0 });
-		cm.dispatch({ selection: { anchor: pos, head: pos }, scrollIntoView: true, userEvent: 'move' });
+		if (hadActiveSelection) {
+			// Single dispatch, no setCursorViaCm call — its own default
+			// collapsed-point dispatch would drop Visual mode here too.
+			cm.dispatch({ selection: { anchor: current.anchor, head: pos }, scrollIntoView: true, userEvent: 'move' });
+		} else {
+			this.setCursorViaCm(e, lastLine + 1, 0);
+			// Same explicit scroll-into-view follow-up as
+			// setCursorAcrossTableBoundary — see its own doc comment.
+			cm.dispatch({ selection: { anchor: pos, head: pos }, scrollIntoView: true, userEvent: 'move' });
+		}
 	}
 
 	// See vim-support.ts's own VimSupportHost.enterTableRowSmartHome doc
@@ -3195,13 +3208,23 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// specific line the user named explicitly, not "the very end" — those
 		// still land inside the table normally, even if that line happens to
 		// also be the document's last line.
+		//
+		// Also runs while a Vim selection is active (hadActiveSelection), by
+		// design — confirmed against vanilla vim, V/v+G onto a table at true
+		// EOF selects the table and moves the cursor past it, but there's no
+		// real line there to land on, so Live Preview renders a glitchy,
+		// full-table-height caret off to the side of the widget instead of a
+		// normal one. Actually creating that trailing line (same mutation as
+		// the no-selection case) gives the caret a real place to render —
+		// appendBlankLineAndLand's own preserveActiveSelection param keeps the
+		// selection extended through it instead of collapsing it.
 		if (explicitLine === null && forward && this.isPositionInTable(e, targetLine, 1)) {
-			this.appendBlankLineAndLand(e);
+			this.appendBlankLineAndLand(e, hadActiveSelection);
 			return { line: lastLine + 1, ch: 0 };
 		}
 
 		let result: { line: number; ch: number } | null;
-		if (this.isPositionInTable(e, targetLine, 1)) {
+		if (!hadActiveSelection && this.isPositionInTable(e, targetLine, 1)) {
 			// gg/G always land at the *start* of the target line's content
 			// (first non-blank), regardless of forward/backward — so an
 			// explicit-count jump ("2gg"/"2G") landing on the same target
@@ -3209,7 +3232,13 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			// forward param controls its delimiter-row redirect direction
 			// (and which <br>-segment to land on) — hardcoding true here
 			// (not the keystroke's own forward) keeps that landing consistent
-			// regardless of which key was actually pressed.
+			// regardless of which key was actually pressed. Skipped while a
+			// Vim selection is active — see hadActiveSelection's own comment
+			// above and the identical reasoning just above this block: cell-
+			// precision landing is a Normal-mode-only concern (Visual Line
+			// selects whole lines regardless of column; Visual mode is better
+			// served by vim.js's own native selection extension across the
+			// table's raw text, matching vanilla vim).
 			result = this.enterTableAtLine(e, targetLine, 0, true, 0, 0);
 			if (result) result = this.refineTableLandingForSmartHome(e, result);
 		} else {

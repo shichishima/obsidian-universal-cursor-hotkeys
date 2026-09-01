@@ -674,6 +674,54 @@ describe('VimSupportHost bridge (main.ts)', () => {
 			})
 		})
 
+		// Fixed: while a Vim Visual/Visual Line selection is active, gg/G used
+		// to always drop into cell-precision landing (enterTableAtLine) when
+		// the target line was a table row — silently collapsing the selection
+		// (it calls setCursorViaCm without preserveActiveSelection). Confirmed
+		// against vanilla vim (no UCH): V/v + gg/G onto a table just
+		// selects/extends across the table's own raw text — cell precision is
+		// a Normal-mode-only concern, so it's bypassed entirely once a
+		// selection is active.
+		describe('active Vim selection bypasses table-aware landing entirely', () => {
+			it('does not call enterTableAtLine when the target line is a table row', () => {
+				const editor = makeStatefulEditor(['plain', '| a |'], { line: 0, ch: 0 })
+				editor.cm.state.selection.main = { anchor: 5, head: 0 } // an active (non-empty) selection
+				plugin.isPositionInTable = vi.fn().mockReturnValue(true)
+				plugin.enterTableAtLine = vi.fn()
+				plugin.jumpToDocumentLine(editor, true, 1)
+				expect(plugin.enterTableAtLine).not.toHaveBeenCalled()
+			})
+
+			it('falls through to the plain-text landing computation on a table row', () => {
+				const editor = makeStatefulEditor(['plain', '| a |'], { line: 0, ch: 0 })
+				editor.cm.state.selection.main = { anchor: 5, head: 0 }
+				plugin.isPositionInTable = vi.fn().mockReturnValue(true)
+				const result = plugin.jumpToDocumentLine(editor, true, 1)
+				expect(plugin.setCursorViaCm).not.toHaveBeenCalled()
+				expect(result).toEqual({ line: 1, ch: 0 }) // first non-whitespace of '| a |' is the pipe itself
+			})
+
+			// Fixed: bare G onto a table at true EOF still needs the blank line
+			// (unlike the other two table-aware cases above) — vanilla vim's own
+			// V/v + G there does select the table and move past it, but there's
+			// no real line to land on, so Live Preview renders a glitchy,
+			// full-table-height caret beside the widget instead of a normal one.
+			// appendBlankLineAndLand still runs (still creates the line) but is
+			// told to preserve the active selection's anchor instead of
+			// collapsing it.
+			it('still appends a blank line for bare G onto a table at the document\'s last line, preserving the selection anchor', () => {
+				const editor = makeStatefulEditor(['plain', '| a |'], { line: 0, ch: 0 })
+				editor.cm.state.selection.main = { anchor: 5, head: 0 }
+				plugin.isPositionInTable = vi.fn().mockReturnValue(true)
+				plugin.jumpToDocumentLine(editor, true, null) // bare G
+				expect(editor._buf).toEqual(['plain', '| a |', ''])
+				expect(plugin.setCursorViaCm).not.toHaveBeenCalled()
+				expect(editor.cm.dispatch).toHaveBeenCalledWith(
+					expect.objectContaining({ selection: { anchor: 5, head: 2000 } }),
+				)
+			})
+		})
+
 		it('"2G" and "2gg" land identically when the target is a delimiter row', () => {
 			// Regression: enterTableAtLine's own forward param controls which
 			// way a delimiter-row landing redirects (next row vs previous) —
