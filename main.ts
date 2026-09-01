@@ -1858,11 +1858,27 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 
-	private setCursorViaCm(editor: Editor, line: number, ch: number) {
+	// preserveActiveSelection (default false, unchanged behavior for every
+	// existing caller): when true and the live selection is currently
+	// non-empty (anchor !== head — e.g. Vim's Visual/Visual Line mode),
+	// keeps that anchor and only moves head to the new position, instead of
+	// collapsing to a bare point. A collapsed-point dispatch reads to Vim as
+	// "the user cleared the selection externally", silently dropping back
+	// to Normal mode — this is what gg/G's own jumpToDocumentLine opts into
+	// (see its own call site) to fix that without changing this method's
+	// behavior for its many other callers (Ctrl-N/P, row/cell crossings,
+	// etc.), none of which are expected to run mid-selection today.
+	private setCursorViaCm(editor: Editor, line: number, ch: number, preserveActiveSelection = false) {
 		const targetInTable = this.isPositionInTable(editor, line, ch);
 		const cm = editor.cm;
 		const pos = editor.posToOffset({ line, ch });
-		cm.dispatch({ selection: { anchor: pos, head: pos }, userEvent: 'move' });
+		// Short-circuits before touching cm.state at all when
+		// preserveActiveSelection is false (the default) — every other
+		// caller's own test mocks only stub what setCursorViaCm actually
+		// used to read.
+		const current = preserveActiveSelection ? cm.state.selection.main : null;
+		const anchor = current && current.anchor !== current.head ? current.anchor : pos;
+		cm.dispatch({ selection: { anchor, head: pos }, userEvent: 'move' });
 		if (!targetInTable) {
 			// Exiting the table: outer CM must receive keyboard events.
 			cm.focus();
@@ -3149,6 +3165,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const targetLine = explicitLine !== null
 			? Math.max(0, Math.min(explicitLine, lastLine))
 			: (forward ? lastLine : 0);
+		console.log('[UCH debug] jumpToDocumentLine start', { forward, explicitLine, lastLine, targetLine, liveCursor: e.getCursor() });
 
 		// Bare G (not count-prefixed — see below) landing on a table that runs
 		// all the way to the document's own last line: mirror tx's own EOF fix
@@ -3188,9 +3205,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			const targetCh = this.settings.smartHomeStandard
 				? this.getBeginningOfLinePosition(lineText, lineText.length || 1)
 				: (lineText.search(/\S/) === -1 ? lineText.length : lineText.search(/\S/));
-			this.setCursorViaCm(e, targetLine, targetCh);
+			console.log('[UCH debug] jumpToDocumentLine plain-text branch dispatching setCursorViaCm', { targetLine, targetCh });
+			this.setCursorViaCm(e, targetLine, targetCh, true);
 			result = { line: targetLine, ch: targetCh };
 		}
+		console.log('[UCH debug] jumpToDocumentLine result before scroll dispatch', { result });
 
 		// gg/G can jump across the whole document — unlike the short,
 		// already-on-screen hops setCursorViaCm's other callers make (row/
@@ -3198,11 +3217,31 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// setCursorViaCm itself doesn't request one (left as-is to avoid
 		// changing behavior for its other, already-working callers); done as
 		// its own follow-up dispatch to the same (already landed-on)
-		// position instead.
+		// position instead. Same anchor-preserving logic as the plain-text
+		// landing's own setCursorViaCm(..., true) call above (see that
+		// method's own doc comment) — needed here too, since a bare
+		// {anchor: pos, head: pos} would silently re-collapse the selection
+		// that call just preserved. A no-op for the table-landing branch:
+		// its own (deliberately untouched) internal dispatch already
+		// collapsed the selection by this point, so there's nothing left to
+		// preserve here either way.
 		if (result) {
 			const cm = e.cm;
 			const pos = e.posToOffset(result);
-			cm.dispatch({ selection: { anchor: pos, head: pos }, scrollIntoView: true, userEvent: 'move' });
+			const current = cm.state.selection.main;
+			const anchor = current.anchor !== current.head ? current.anchor : pos;
+			console.log('[UCH debug] jumpToDocumentLine scroll dispatch', { result, pos, currentAnchor: current.anchor, currentHead: current.head, dispatchAnchor: anchor });
+			cm.dispatch({ selection: { anchor, head: pos }, scrollIntoView: true, userEvent: 'move' });
+			const afterDispatch = cm.state.selection.main;
+			console.log('[UCH debug] jumpToDocumentLine selection immediately after our own dispatch', { anchor: afterDispatch.anchor, head: afterDispatch.head, headLine: e.offsetToPos(afterDispatch.head) });
+			window.setTimeout(() => {
+				const later = cm.state.selection.main;
+				console.log('[UCH debug] jumpToDocumentLine selection ~50ms later (did something else move it?)', { anchor: later.anchor, head: later.head, headLine: e.offsetToPos(later.head) });
+			}, 50);
+			window.setTimeout(() => {
+				const later = cm.state.selection.main;
+				console.log('[UCH debug] jumpToDocumentLine selection ~300ms later', { anchor: later.anchor, head: later.head, headLine: e.offsetToPos(later.head) });
+			}, 300);
 		}
 		return result;
 	}

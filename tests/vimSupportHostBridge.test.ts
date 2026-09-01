@@ -25,9 +25,12 @@ function makeStatefulEditor(lines: string[], initialCursor: { line: number; ch: 
 		}),
 		// Only used directly by jumpToDocumentLine's own scroll-into-view
 		// follow-up dispatch — every other landing goes through
-		// plugin.setCursorViaCm, which is itself mocked out below.
+		// plugin.setCursorViaCm, which is itself mocked out below. selection.main
+		// defaults to no active selection (anchor === head) — matching real Vim
+		// Normal mode, which is what these tests exercise; a dedicated test below
+		// covers the anchor !== head (Visual mode) case explicitly.
 		posToOffset: vi.fn((pos: { line: number; ch: number }) => pos.line * 1000 + pos.ch),
-		cm: { dispatch: vi.fn() },
+		cm: { dispatch: vi.fn(), state: { selection: { main: { anchor: 0, head: 0 } } } },
 		_setCursor: (c: { line: number; ch: number }) => { cursor = c },
 		_buf: buf,
 	}
@@ -595,6 +598,33 @@ describe('VimSupportHost bridge (main.ts)', () => {
 			plugin.jumpToDocumentLine(editor, true, 1)
 			expect(editor.cm.dispatch).toHaveBeenCalledWith(
 				expect.objectContaining({ scrollIntoView: true }),
+			)
+		})
+
+		// Regression: G/gg used to always dispatch a collapsed-point selection
+		// (anchor === head), which reads to Vim as "the user cleared the
+		// selection externally" and silently drops Visual/Visual Line mode
+		// back to Normal — losing the selection even though the cursor landed
+		// at the right place. The scrollIntoView follow-up dispatch (the
+		// synchronous motion return itself is handled correctly by vim.js's
+		// own engine, not this method) must preserve an already-active
+		// selection's anchor instead of collapsing it.
+		it('preserves an active selection\'s anchor in the scrollIntoView dispatch (Vim Visual/Visual Line mode)', () => {
+			const editor = makeStatefulEditor(['first', '  middle', 'last'], { line: 0, ch: 0 })
+			plugin.isPositionInTable = vi.fn().mockReturnValue(false)
+			editor.cm.state.selection.main = { anchor: 5, head: 0 } // an active (non-empty) selection
+			plugin.jumpToDocumentLine(editor, true, 1)
+			expect(editor.cm.dispatch).toHaveBeenCalledWith(
+				expect.objectContaining({ selection: { anchor: 5, head: 1002 } }),
+			)
+		})
+
+		it('collapses to a point in the scrollIntoView dispatch when there is no active selection (Normal mode)', () => {
+			const editor = makeStatefulEditor(['first', '  middle', 'last'], { line: 0, ch: 0 })
+			plugin.isPositionInTable = vi.fn().mockReturnValue(false)
+			plugin.jumpToDocumentLine(editor, true, 1)
+			expect(editor.cm.dispatch).toHaveBeenCalledWith(
+				expect.objectContaining({ selection: { anchor: 1002, head: 1002 } }),
 			)
 		})
 
