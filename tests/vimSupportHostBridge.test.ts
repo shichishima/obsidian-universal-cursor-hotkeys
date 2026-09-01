@@ -691,8 +691,9 @@ describe('VimSupportHost bridge (main.ts)', () => {
 		// to always drop into cell-precision landing (enterTableAtLine) when
 		// the target line was a table row — silently collapsing the selection
 		// (it calls setCursorViaCm without preserveActiveSelection). Confirmed
-		// against vanilla vim (no UCH): V/v + gg/G onto a table just
-		// selects/extends across the table's own raw text — cell precision is
+		// against Obsidian's own native Vim mode (UCH's table handling
+		// bypassed): V/v + gg/G onto a table just selects/extends across the
+		// table's own raw text — cell precision is
 		// a Normal-mode-only concern, so it's bypassed entirely once a
 		// selection is active.
 		describe('active Vim selection bypasses table-aware landing entirely', () => {
@@ -715,8 +716,9 @@ describe('VimSupportHost bridge (main.ts)', () => {
 			})
 
 			// Fixed: bare G onto a table at true EOF still needs the blank line
-			// (unlike the other two table-aware cases above) — vanilla vim's own
-			// V/v + G there does select the table and move past it, but there's
+			// (unlike the other two table-aware cases above) — Obsidian's own
+			// native Vim mode's V/v + G there does select the table and move
+			// past it, but there's
 			// no real line to land on, so Live Preview renders a glitchy,
 			// full-table-height caret beside the widget instead of a normal one.
 			// appendBlankLineAndLand still runs (still creates the line) but is

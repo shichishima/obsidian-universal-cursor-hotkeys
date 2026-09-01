@@ -3232,8 +3232,9 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// also be the document's last line.
 		//
 		// Also runs while a Vim selection is active (hadActiveSelection), by
-		// design — confirmed against vanilla vim, V/v+G onto a table at true
-		// EOF selects the table and moves the cursor past it, but there's no
+		// design — confirmed against Obsidian's own native Vim mode (UCH's
+		// table handling bypassed): V/v+G onto a table at true EOF selects the
+		// table and moves the cursor past it, but there's no
 		// real line there to land on, so Live Preview renders a glitchy,
 		// full-table-height caret off to the side of the widget instead of a
 		// normal one. Actually creating that trailing line (same mutation as
@@ -3260,7 +3261,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			// precision landing is a Normal-mode-only concern (Visual Line
 			// selects whole lines regardless of column; Visual mode is better
 			// served by vim.js's own native selection extension across the
-			// table's raw text, matching vanilla vim).
+			// table's raw text, matching Obsidian's own native Vim mode with no
+			// table-precision handling involved at all).
 			result = this.enterTableAtLine(e, targetLine, 0, true, 0, 0);
 			if (result) result = this.refineTableLandingForSmartHome(e, result);
 		} else {
