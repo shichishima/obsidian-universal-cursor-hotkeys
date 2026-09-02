@@ -39,8 +39,8 @@ For what each row switches on/off, see [Settings](#settings) below. This section
 | ↓ | ↓ | Column-aware — same as ↑ above. |
 | Home | Home | 3-step Smart home: visual line edge → content start (skipping Markdown markers) → line start, table-aware throughout. |
 | End | End | Table-aware: moves to the visual line edge or line end, entering/exiting a table cell correctly at its boundary. |
-| Page Up | Page Up | Table-aware: scrolls a page while keeping the cursor at the same screen position, including inside wrapped table cells. |
-| Page Down | Page Down | Same as Page Up above. |
+| Page&nbsp;Up | Page&nbsp;Up | Table-aware: scrolls a page while keeping the cursor at the same screen position, including inside wrapped table cells. |
+| Page&nbsp;Down | Page&nbsp;Down | Same as Page Up above. |
 | Cmd+↑ | Ctrl+Home | Document start — table-aware. |
 | Cmd+↓ | Ctrl+End | Document end — table-aware. |
 
@@ -65,7 +65,7 @@ Open **Settings → Universal Cursor Hotkeys → For everyone**. Each key is a p
 
 | Status | Meaning |
 |--------|---------|
-| *(no badge)* | Toggle ON = key is assigned and gains the upgraded behavior described above. Toggle OFF = key keeps its standard, unmodified behavior and is free to assign. |
+| *(no&nbsp;badge)* | Toggle ON = key is assigned and gains the upgraded behavior described above. Toggle OFF = key keeps its standard, unmodified behavior and is free to assign. |
 | 🔴Used | Key is already used by a different command; the toggle is disabled until you free it up (click the key chip to jump to Obsidian's own Hotkeys panel). |
 | 🔴Conflict | Key is assigned here too, but is *also* still held by another command. |
 
