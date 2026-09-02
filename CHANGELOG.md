@@ -5,6 +5,7 @@
 ### Fixed
 
 - **Ctrl-N/Ctrl-P now preserve the cursor's column when crossing table row boundaries, matching Vim's own `gj`/`gk` convention:** previously, crossing into the row above/below, exiting the table entirely into plain text, or entering a table fresh from plain text, always landed at the cell's or line's own content start, discarding whichever column the cursor was actually at. This also fixes the column being silently forgotten when a crossing happens to pass through a blank or short line. Entering a table fresh from plain text still always enters the leftmost cell (matching Vim's own `gj`/`gk`, which has the same restriction for the same reason — Obsidian's Live Preview table widget gives the outer editor no per-character position information for an unfocused table row), but the column within that cell is now preserved too.
+- **Quick setup assistant's "Override" no longer displaces a disabled plugin's stale hotkey entry:** a disabled plugin's leftover hotkey mapping was being treated as a real conflict to take over, even though it isn't shown as one and restoring it later does nothing (the command isn't actually registered).
 
 ## [0.10.2] - 2026-09-01
 
