@@ -8,13 +8,76 @@ Obsidian's Vim mode (`h`/`j`/`k`/`l`/`w`/`b`/`e`/`gg`/`G`) and macOS-style Emacs
 Obsidian's Live Preview breaks cursor behavior inside Markdown tables. This plugin fixes cursor navigation around tables — whether you use Obsidian's built-in Vim mode or macOS-style keyboard shortcuts (aka Emacs keybindings). On that side, it also adds a full set of Emacs-style editing commands — Kill & Yank, word movement, case conversion, and more — that don't exist natively in Obsidian.
 
 **⌨️ [I use Obsidian's built-in Vim mode →](#vim-support-experimental)**<br>
-**🅴 [I use macOS-style keyboard shortcuts (Emacs keybindings) →](#emacs-keybindings)**
+**🅴 [I use macOS-style keyboard shortcuts (Emacs keybindings) →](#emacs-keybindings)**<br>
+**🔑 [I just want better everyday cursor navigation →](#for-everyone)**
+
+---
+
+## For everyone
+
+[Getting Started](#getting-started) | [Command Reference](#command-reference) | [Settings](#settings) | [Behavior Options](#behavior-options)
+
+You don't need Vim mode or Emacs-style keybindings to benefit from this plugin. The keys you already use every day — arrow keys, Home, End, Page Up/Down, and word navigation — can get table-aware behavior and CJK-aware (Chinese/Japanese) word splitting too, without changing what any key does.
+
+### Getting Started
+
+[Command Reference](#command-reference) | [Settings](#settings) | [Behavior Options](#behavior-options)
+
+Open **Settings → Universal Cursor Hotkeys → For everyone** and click **Apply all**.
+
+### Command Reference
+
+[Getting Started](#getting-started) | [Settings](#settings) | [Behavior Options](#behavior-options)
+
+For what each row switches on/off, see [Settings](#settings) below. This section covers what each key actually does.
+
+#### Navigation basics
+
+| Key (macOS) | Key (Windows) | Function Summary |
+| :--: | :--: | ----------------- |
+| ↑ | ↑ | Column-aware: preserves column position across table row crossings and wrapped cells, instead of getting stuck at a cell boundary. |
+| ↓ | ↓ | Column-aware — same as ↑ above. |
+| Home | Home | 3-step Smart home: visual line edge → content start (skipping Markdown markers) → line start, table-aware throughout. |
+| End | End | Table-aware: moves to the visual line edge or line end, entering/exiting a table cell correctly at its boundary. |
+| Page Up | Page Up | Table-aware: scrolls a page while keeping the cursor at the same screen position, including inside wrapped table cells. |
+| Page Down | Page Down | Same as Page Up above. |
+| Cmd+↑ | Ctrl+Home | Document start — table-aware. |
+| Cmd+↓ | Ctrl+End | Document end — table-aware. |
+
+#### Word commands
+
+| Key (macOS) | Key (Windows) | Function Summary |
+| :--: | :--: | ----------------- |
+| Option+→ | Ctrl+→ | Word right — table-aware, CJK-aware (dictionary-based word segmentation). |
+| Option+← | Ctrl+← | Word left — table-aware, CJK-aware. |
+| Option+⌫ | Ctrl+Backspace | Kill word left — table-aware, CJK-aware; stays within the current cell. |
+| Option+⌦ | Ctrl+Delete | Kill word right — table-aware, CJK-aware; stays within the current cell. |
+
+On macOS, the physical Delete key sends Backspace (⌫) — Kill word left uses Option plus that same key. The forward-delete key (⌦) used by Kill word right needs Fn+Delete on keyboards without a dedicated one.
+
+### Settings
+
+[Getting Started](#getting-started) | [Command Reference](#command-reference) | [Behavior Options](#behavior-options)
+
+Open **Settings → Universal Cursor Hotkeys → For everyone**. Each key is a plain on/off toggle: turning it on adds that key to the target command's hotkeys (without touching any hotkey it already has); turning it off removes just that key.
+
+**Status:** the toggle's own position already shows Set/Available — a status badge only appears for the two conflict cases:
+
+| Status | Meaning |
+|--------|---------|
+| *(no badge)* | Toggle ON = key is assigned and gains the upgraded behavior described above. Toggle OFF = key keeps its standard, unmodified behavior and is free to assign. |
+| 🔴Used | Key is already used by a different command; the toggle is disabled until you free it up (click the key chip to jump to Obsidian's own Hotkeys panel). |
+| 🔴Conflict | Key is assigned here too, but is *also* still held by another command. |
+
+**Apply all:** turns on every key above in one click, skipping any that's already on or in conflict.
+
+Also shared here: [**Behavior Options**](#behavior-options) below — Smart home and Double-click word select apply to these keys too.
 
 ---
 
 ## Vim support (experimental)
 
-[Getting Started](#getting-started) | [Command Reference](#command-reference) | [Settings](#settings) | [Limitations](#limitations) | [Behavior Options](#behavior-options)
+[Getting Started](#getting-started-1) | [Command Reference](#command-reference-1) | [Settings](#settings-1) | [Limitations](#limitations) | [Behavior Options](#behavior-options)
 
 If you use Obsidian's built-in Vim mode, this plugin fixes a set of well-known Live Preview table gaps: `h`/`l`/`j`/`k`/`w`/`b`/`e`/`gg`/`G`/`gj`/`gk` now work correctly inside table cells, instead of miscounting characters, refusing to cross rows, or landing in the wrong place.
 
@@ -22,15 +85,15 @@ If you use Obsidian's built-in Vim mode, this plugin fixes a set of well-known L
 
 ### Getting Started
 
-[Command Reference](#command-reference) | [Settings](#settings) | [Limitations](#limitations) | [Behavior Options](#behavior-options)
+[Command Reference](#command-reference-1) | [Settings](#settings-1) | [Limitations](#limitations) | [Behavior Options](#behavior-options)
 
 Turn on Obsidian's built-in **Vim key bindings** (Settings → Editor). Then open **Settings → Universal Cursor Hotkeys → Vim support** and click **Apply all**.
 
 ### Command Reference
 
-[Getting Started](#getting-started) | [Settings](#settings) | [Limitations](#limitations) | [Behavior Options](#behavior-options)
+[Getting Started](#getting-started-1) | [Settings](#settings-1) | [Limitations](#limitations) | [Behavior Options](#behavior-options)
 
-For what each toggle switches on/off, see [Settings](#settings) below. This section covers what each key actually does.
+For what each toggle switches on/off, see [Settings](#settings-1) below. This section covers what each key actually does.
 
 #### Core motions
 
@@ -73,7 +136,7 @@ New leader-key commands — pure cursor movement, original logic (not a wrapper 
 
 ### Settings
 
-[Getting Started](#getting-started) | [Command Reference](#command-reference) | [Limitations](#limitations) | [Behavior Options](#behavior-options)
+[Getting Started](#getting-started-1) | [Command Reference](#command-reference-1) | [Limitations](#limitations) | [Behavior Options](#behavior-options)
 
 This plugin's settings screen has three parts:
 
@@ -81,7 +144,7 @@ This plugin's settings screen has three parts:
 - [**Behavior Options**](#behavior-options) — a few settings shared between Vim support and the Emacs-side commands.
 - **Vim support** — the toggles described below.
 
-See [Command Reference](#command-reference) above for what each toggle actually does — this table covers the ON/OFF decision itself: default state and any prerequisite. Turning a toggle off restores vim's own native behavior for that key; Table structure/Table navigation instead simply stop binding any leader-key commands.
+See [Command Reference](#command-reference-1) above for what each toggle actually does — this table covers the ON/OFF decision itself: default state and any prerequisite. Turning a toggle off restores vim's own native behavior for that key; Table structure/Table navigation instead simply stop binding any leader-key commands.
 
 **Apply all:** Turns on every toggle marked ✓ in the `Apply all` column below, in one click.
 
@@ -103,7 +166,7 @@ Turning an item off restarts Obsidian to fully restore vim's native behavior (a 
 
 ### Limitations
 
-[Getting Started](#getting-started) | [Command Reference](#command-reference) | [Settings](#settings) | [Behavior Options](#behavior-options)
+[Getting Started](#getting-started-1) | [Command Reference](#command-reference-1) | [Settings](#settings-1) | [Behavior Options](#behavior-options)
 
 - **A CJK input source can corrupt Vim's own key handling — not caused by this plugin:** With a CJK (e.g. romaji-based Japanese) input source active, a single press of a Vim motion key (commonly `g`, `j`, or `k`) can occasionally be misread — e.g. a single `g` behaving like `gg`, or `j`/`k` moving two lines instead of one. This is a known, upstream issue in Obsidian's underlying `codemirror-vim` engine ([issue #178](https://github.com/replit/codemirror-vim/issues/178)) and reproduces identically in vanilla Obsidian Vim mode with this plugin fully disabled. **Workaround:** switch to an ASCII/alphanumeric input source before using Vim motions.
 - **`w`/`b`/`e` cross only one cell/row boundary per count:** A count like `5w` isn't fully precise once it needs to cross more than one cell or row boundary.
@@ -117,7 +180,7 @@ Turning an item off restarts Obsidian to fully restore vim's native behavior (a 
 
 ## Emacs keybindings
 
-[Getting Started](#getting-started-1) | [Command Reference](#command-reference-1) | [Settings](#settings-1) | [Limitations](#limitations-1) | [Command Details](#command-details) | [Behavior Options](#behavior-options)
+[Getting Started](#getting-started-2) | [Command Reference](#command-reference-2) | [Settings](#settings-2) | [Limitations](#limitations-1) | [Command Details](#command-details) | [Behavior Options](#behavior-options)
 
 On macOS, cursor shortcuts — Ctrl+P (up), Ctrl+N (down), Ctrl+B/F (left/right), Ctrl+A/E (home/end), and Page Down/Up — work natively in Obsidian. This plugin restores them inside tables too, giving you seamless navigation just as physical cursor keys would — and Shift+Ctrl+P/N/B/F/A/E extend the selection the same way.
 
@@ -138,7 +201,7 @@ Kill & Yank (Ctrl+K / Ctrl+Y) and Kill Region (Ctrl+W) bring the full Emacs edit
 
 ### Getting Started
 
-[Command Reference](#command-reference-1) | [Settings](#settings-1) | [Limitations](#limitations-1) | [Command Details](#command-details) | [Behavior Options](#behavior-options)
+[Command Reference](#command-reference-2) | [Settings](#settings-2) | [Limitations](#limitations-1) | [Command Details](#command-details) | [Behavior Options](#behavior-options)
 
 No hotkeys are assigned by default.
 
@@ -148,7 +211,7 @@ No hotkeys are assigned by default.
 
 ### Command Reference
 
-[Getting Started](#getting-started-1) | [Settings](#settings-1) | [Limitations](#limitations-1) | [Command Details](#command-details) | [Behavior Options](#behavior-options)
+[Getting Started](#getting-started-2) | [Settings](#settings-2) | [Limitations](#limitations-1) | [Command Details](#command-details) | [Behavior Options](#behavior-options)
 
 For detailed behavior of each command, see [Command Details](#command-details) below. Grouped the same way as the Quick setup assistant in Settings.
 
@@ -233,7 +296,7 @@ Six ordinary commands, assignable via **Settings → Hotkeys** or the Quick setu
 
 ### Settings
 
-[Getting Started](#getting-started-1) | [Command Reference](#command-reference-1) | [Limitations](#limitations-1) | [Command Details](#command-details) | [Behavior Options](#behavior-options)
+[Getting Started](#getting-started-2) | [Command Reference](#command-reference-2) | [Limitations](#limitations-1) | [Command Details](#command-details) | [Behavior Options](#behavior-options)
 
 Open **Settings → Universal Cursor Hotkeys** to assign hotkeys without leaving the settings screen.
 
@@ -268,7 +331,7 @@ This plugin's settings screen has three parts:
 
 ### Limitations
 
-[Getting Started](#getting-started-1) | [Command Reference](#command-reference-1) | [Settings](#settings-1) | [Command Details](#command-details) | [Behavior Options](#behavior-options)
+[Getting Started](#getting-started-2) | [Command Reference](#command-reference-2) | [Settings](#settings-2) | [Command Details](#command-details) | [Behavior Options](#behavior-options)
 
 - **Range selection stops at table cell boundaries:** Shift+Ctrl+P/N/B/F/A/E extend the selection normally within plain text and within a single table cell. At a cell boundary, they neither cross into the adjacent cell (unlike plain Ctrl+B/F) nor extend the selection across cells (unlike Shift+Arrow keys). Use Shift+Arrow keys for cross-cell selection.
 
@@ -286,7 +349,7 @@ This plugin's settings screen has three parts:
 
 ### Command Details
 
-[Getting Started](#getting-started-1) | [Command Reference](#command-reference-1) | [Settings](#settings-1) | [Limitations](#limitations-1) | [Behavior Options](#behavior-options)
+[Getting Started](#getting-started-2) | [Command Reference](#command-reference-2) | [Settings](#settings-2) | [Limitations](#limitations-1) | [Behavior Options](#behavior-options)
 
 Note: (*) indicates behaviors specific to Live Preview mode.
 
@@ -550,7 +613,7 @@ Note: (*) indicates behaviors specific to Live Preview mode.
 
 ## Behavior Options
 
-[Vim support](#vim-support-experimental) | [Emacs keybindings](#emacs-keybindings)
+[For everyone](#for-everyone) | [Vim support](#vim-support-experimental) | [Emacs keybindings](#emacs-keybindings)
 
 **Smart home (standard/advanced)** and **Smart join** are shared with the Vim support toggles (`^`/`I`, `J`) above. **Visual line movement** and **Cross-row navigation** apply to the Emacs-side commands only.
 
