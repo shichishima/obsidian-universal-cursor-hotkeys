@@ -7,7 +7,7 @@ Obsidian's Vim mode (`h`/`j`/`k`/`l`/`w`/`b`/`e`/`gg`/`G`) and macOS-style Emacs
 
 Obsidian's Live Preview breaks cursor behavior inside Markdown tables. This plugin fixes cursor navigation around tables — whether you use Obsidian's built-in Vim mode or macOS-style keyboard shortcuts (aka Emacs keybindings). On that side, it also adds a full set of Emacs-style editing commands — Kill & Yank, word movement, case conversion, and more — that don't exist natively in Obsidian.
 
-**⌨️ [I use Obsidian's built-in Vim mode →](#vim-support-experimental)**<br>
+**⌨️ [I use Obsidian's built-in Vim mode →](#vim-mode)**<br>
 **🅴 [I use macOS-style keyboard shortcuts (Emacs keybindings) →](#emacs-keybindings)**<br>
 **🔑 [I just want better everyday cursor navigation →](#for-everyone)**
 
@@ -48,7 +48,7 @@ For what each row switches on/off, see [Settings](#settings) below. This section
 
 | Key (macOS) | Key (Windows) | Function Summary |
 | :--: | :--: | ----------------- |
-| Option+→ | Ctrl+→ | Word right — table-aware, CJK-aware (dictionary-based word segmentation). |
+| Option+→ | Ctrl+→ | Word right — table-aware, CJK-aware (dictionary-based Chinese/Japanese word segmentation). |
 | Option+← | Ctrl+← | Word left — table-aware, CJK-aware. |
 | Option+⌫ | Ctrl+Backspace | Kill word left — table-aware, CJK-aware; stays within the current cell. |
 | Option+⌦ | Ctrl+Delete | Kill word right — table-aware, CJK-aware; stays within the current cell. |
@@ -75,7 +75,7 @@ Also shared here: [**Behavior Options**](#behavior-options) below — Smart home
 
 ---
 
-## Vim support (experimental)
+## Vim mode
 
 [Getting Started](#getting-started-1) | [Command Reference](#command-reference-1) | [Settings](#settings-1) | [Limitations](#limitations) | [Behavior Options](#behavior-options)
 
@@ -95,7 +95,7 @@ Turn on Obsidian's built-in **Vim key bindings** (Settings → Editor). Then ope
 
 For what each toggle switches on/off, see [Settings](#settings-1) below. This section covers what each key actually does.
 
-#### Core motions
+#### Motion upgrades
 
 Fixes to Vim's own native keys, scoped to Live Preview table cells — outside a table, these are all unchanged from vanilla Vim.
 
@@ -103,7 +103,7 @@ Fixes to Vim's own native keys, scoped to Live Preview table cells — outside a
 | :--: | ----------------- |
 | `h` `l` `x` | Moves/deletes by character correctly inside table cells — no multi-byte miscounting, no wrong jumps at line boundaries. |
 | `j` `k` | Crosses into the next/previous table row, preserving column position (vim's own goal column) throughout, instead of getting stuck at the cell boundary; also stops correctly at the right line within a multi-line (wrapped) cell. |
-| `w` `b` `e` (and `W`/`B`/`E`/`ge`/`gE`) | Crosses cell/row boundaries — reaching the end of the table exits into the surrounding text, matching vim's own document-wide word-motion behavior instead of getting stuck at the table's edge. CJK-aware (dictionary-based word segmentation), not just script-boundary-based like vanilla vim. |
+| `w` `b` `e` (and `W`/`B`/`E`/`ge`/`gE`) | Crosses cell/row boundaries — reaching the end of the table exits into the surrounding text, matching vim's own document-wide word-motion behavior instead of getting stuck at the table's edge. CJK-aware (dictionary-based Chinese/Japanese word segmentation), not just script-boundary-based like vanilla vim. |
 | `gg` `G` | Always reaches the note's actual first/last line, including exiting a table cell entirely; lands at the Smart-Home-aware content position if that line happens to be a table row. If the note ends with a table, `G` appends a blank line and lands there instead of landing inside the table (matching `tx`'s own EOF behavior below) — `gg` has no symmetric "prepend a line" case. |
 | `gj` `gk` | The visual-line (display-line) equivalent of `j`/`k` above — moves by visual line inside table cells instead of getting stuck, tracking the visual column across wrapped lines. |
 | `$` | Sticky end-of-line goal column when followed by `j`/`k` or `gj`/`gk`, matching real vim's own behavior, including across table row crossings. `D`/`C` share the same underlying motion. |
@@ -138,29 +138,30 @@ New leader-key commands — pure cursor movement, original logic (not a wrapper 
 
 [Getting Started](#getting-started-1) | [Command Reference](#command-reference-1) | [Limitations](#limitations) | [Behavior Options](#behavior-options)
 
-This plugin's settings screen has three parts:
+Open **Settings → Universal Cursor Hotkeys → Vim mode**. For the recommended Ctrl+P/N/B/F cursor keys — which already move the cursor in both Vim's Insert and Normal mode natively on macOS, but don't know about tables — see the [macOS-style keybindings' own Hotkey settings](#emacs-keybindings); assigning them fixes table entry and crossing in both modes.
 
-- [Quick setup assistant](#emacs-keybindings) — mainly for Emacs-style Ctrl+P/N/B/F/A/E hotkeys, but relevant here too: on macOS, native Ctrl+P/N/B/F already move the cursor in both Vim's Insert and Normal mode, but don't know about tables — assigning these hotkeys fixes table entry and crossing in both modes.
-- [**Behavior Options**](#behavior-options) — a few settings shared between Vim support and the Emacs-side commands.
-- **Vim support** — the toggles described below.
+**Motion upgrades:** each row is a plain on/off toggle — no bulk button here, since each motion is independent. See [Command Reference](#command-reference-1) above for what each toggle actually does; the table below covers the ON/OFF decision itself. Turning a toggle off restores vim's own native, unmodified behavior for that key.
 
-See [Command Reference](#command-reference-1) above for what each toggle actually does — this table covers the ON/OFF decision itself: default state and any prerequisite. Turning a toggle off restores vim's own native behavior for that key; Table structure/Table navigation instead simply stop binding any leader-key commands.
+| Toggle | Default | Description |
+| ------ | :-----: | ------------ |
+| `h` `l` `x` Character movement | ON | — |
+| `j` `k` Line movement | ON | — |
+| `w` `b` `e` Word motion | ON | — |
+| `gg` `G` Document start/end | ON | — |
+| `gj` `gk` Display-line movement | ON | — |
+| `$` End of line (sticky column) | ON | Requires `j` `k` Line movement or `gj` `gk` Display-line movement to be ON. |
+| `^` `I` First non-blank | ON | Requires Smart home (standard) to be ON. |
+| `J` Join lines | ON | Requires Smart join to be ON. |
 
-**Apply all:** Turns on every toggle marked ✓ in the `Apply all` column below, in one click.
+**Table commands:** Table structure and Table navigation each have their own toggle, plus a combined **Apply both** button that turns both on at once (disabled once both already are). Turning either off simply stops binding its leader-key commands.
 
-| Toggle | Default | Apply all | Description |
-| ------ | :-----: | :-------: | ------------ |
-| Leader key | OFF<br>(`Space`) | — | **OFF:** `Space` (default).<br>**ON:** `\`. Only matters once Table structure or Table navigation below is on. |
-| `h` `l` `x` Character movement | ON | ✓ | — |
-| `j` `k` Line movement | ON | ✓ | — |
-| `w` `b` `e` Word motion | ON | ✓ | — |
-| `gg` `G` Document start/end | ON | ✓ | — |
-| `gj` `gk` Display-line movement | ON | ✓ | — |
-| `$` End of line (sticky column) | ON | ✓ | Requires `j` `k` Line movement or `gj` `gk` Display-line movement to be ON. |
-| `^` `I` First non-blank | ON | ✓ | Requires Smart home (standard) to be ON. |
-| `J` Join lines | ON | ✓ | Requires Smart join to be ON. |
-| `Space` `t` Table structure (16 commands) | OFF | ✓ | [Command reference →](#table-structure) |
-| `Space` `t` Table navigation (6 commands) | OFF | ✓ | [Command reference →](#table-navigation) |
+| Toggle | Default | Description |
+| ------ | :-----: | ------------ |
+| `Space` `t` Table structure (16 commands) | OFF | [Command reference →](#table-structure) |
+| `Space` `t` Table navigation (6 commands) | OFF | [Command reference →](#table-navigation) |
+| Leader key | OFF<br>(`Space`) | **OFF:** `Space` (default).<br>**ON:** `\`. Only matters once Table structure or Table navigation above is on. |
+
+Also shared here: [**Behavior Options**](#behavior-options) below — Smart home and Smart join extend some of the toggles above to be more Markdown-aware.
 
 Turning an item off restarts Obsidian to fully restore vim's native behavior (a banner prompts this when needed).
 
@@ -304,7 +305,7 @@ This plugin's settings screen has three parts:
 
 - **Quick setup assistant** — check each command's current hotkey status and assign hotkeys, described below.
 - [**Behavior Options**](#behavior-options) — a few settings shared with Vim support's own toggles.
-- [Vim support](#vim-support-experimental) — a separate section for Obsidian's built-in Vim mode.
+- [Vim mode](#vim-mode) — a separate section for Obsidian's built-in Vim mode.
 
 **Apply recommended:** Each command group has an **Apply recommended** button that assigns all recommended hotkeys at once. (Table structure and Table navigation below have no recommended hotkeys to apply, so they skip this button — Table structure instead links to Obsidian's own Hotkeys panel.)
 
@@ -613,7 +614,7 @@ Note: (*) indicates behaviors specific to Live Preview mode.
 
 ## Behavior Options
 
-[For everyone](#for-everyone) | [Vim support](#vim-support-experimental) | [Emacs keybindings](#emacs-keybindings)
+[For everyone](#for-everyone) | [Vim mode](#vim-mode) | [Emacs keybindings](#emacs-keybindings)
 
 **Smart home (standard/advanced)** and **Smart join** are shared with the Vim support toggles (`^`/`I`, `J`) above. **Visual line movement** and **Cross-row navigation** apply to the Emacs-side commands only.
 
