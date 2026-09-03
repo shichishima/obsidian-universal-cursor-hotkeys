@@ -185,7 +185,7 @@ Turning an item off restarts Obsidian to fully restore vim's native behavior (a 
 
 On macOS, cursor shortcuts — Ctrl+P (up), Ctrl+N (down), Ctrl+B/F (left/right), Ctrl+A/E (home/end), and Page Down/Up — work natively in Obsidian. This plugin restores them inside tables too, giving you seamless navigation just as physical cursor keys would — and Shift+Ctrl+P/N/B/F/A/E extend the selection the same way.
 
-Windows users can enable the full set of macOS-style cursor shortcuts throughout Obsidian. The Quick setup assistant assigns all recommended hotkeys in three clicks.
+Windows users can enable the full set of macOS-style cursor shortcuts throughout Obsidian. Hotkey settings assigns all recommended hotkeys in three clicks.
 
 Kill & Yank (Ctrl+K / Ctrl+Y) and Kill Region (Ctrl+W) bring the full Emacs editing workflow to Obsidian — and all three work seamlessly inside table cells, automatically handling newlines and pipe characters. Recenter-top-bottom (Ctrl+L) rounds out the workflow.
 
@@ -206,7 +206,7 @@ Kill & Yank (Ctrl+K / Ctrl+Y) and Kill Region (Ctrl+W) bring the full Emacs edit
 
 No hotkeys are assigned by default.
 
-**Quick setup (recommended):** Open **Settings → Universal Cursor Hotkeys** and click **Apply recommended** for each of the three command groups — Cursor movement, Editing, and Other hotkeys. Three clicks and you're done.
+**Quick setup (recommended):** Open **Settings → Universal Cursor Hotkeys → macOS (Emacs) style** and click **Apply recommended** for each of the three command groups — Cursor movement, Editing, and Other hotkeys. Three clicks and you're done.
 
 **Manual setup:** Go to **Settings → Hotkeys**, search for "Universal Cursor Hotkeys", and assign keys individually.
 
@@ -214,7 +214,7 @@ No hotkeys are assigned by default.
 
 [Getting Started](#getting-started-2) | [Settings](#settings-2) | [Limitations](#limitations-1) | [Command Details](#command-details) | [Behavior Options](#behavior-options)
 
-For detailed behavior of each command, see [Command Details](#command-details) below. Grouped the same way as the Quick setup assistant in Settings.
+For detailed behavior of each command, see [Command Details](#command-details) below. Grouped the same way as Hotkey settings below.
 
 #### Cursor movement
 
@@ -261,7 +261,7 @@ For detailed behavior of each command, see [Command Details](#command-details) b
 
 #### Table structure
 
-Not commands this plugin owns — Obsidian's own built-in table-editing commands, listed here (mirroring the Quick setup assistant below) so they're easy to find and assign a hotkey to.
+Not commands this plugin owns — Obsidian's own built-in table-editing commands, listed here (mirroring Hotkey settings below) so they're easy to find and assign a hotkey to.
 
 | Command Name | Recommended<br>Hotkey | Function Summary |
 | :--------: | :----------------: | ---------------- |
@@ -284,7 +284,7 @@ Not commands this plugin owns — Obsidian's own built-in table-editing commands
 
 #### Table navigation
 
-Six ordinary commands, assignable via **Settings → Hotkeys** or the Quick setup assistant below. No-op outside a table cell.
+Six ordinary commands, assignable via **Settings → Hotkeys** or Hotkey settings below. No-op outside a table cell.
 
 | Command Name | Recommended<br>Hotkey | Function Summary | Key<br>Repeat |
 | :--------: | :----------------: | ---------------- | :---: |
@@ -299,15 +299,11 @@ Six ordinary commands, assignable via **Settings → Hotkeys** or the Quick setu
 
 [Getting Started](#getting-started-2) | [Command Reference](#command-reference-2) | [Limitations](#limitations-1) | [Command Details](#command-details) | [Behavior Options](#behavior-options)
 
-Open **Settings → Universal Cursor Hotkeys** to assign hotkeys without leaving the settings screen.
+Open **Settings → Universal Cursor Hotkeys → macOS (Emacs) style** to assign hotkeys without leaving the settings screen.
 
-This plugin's settings screen has three parts:
+Each command group (Cursor movement, Editing, Other hotkeys, Table structure, Table navigation) is its own collapsible block: a **Command / Recommended Hotkey / Current Hotkey / Status** table, plus an **Individual** column header (▶) that reveals a per-row action button — hidden by default, since the block-level Apply button already covers the common case.
 
-- **Quick setup assistant** — check each command's current hotkey status and assign hotkeys, described below.
-- [**Behavior Options**](#behavior-options) — a few settings shared with Vim support's own toggles.
-- [Vim mode](#vim-mode) — a separate section for Obsidian's built-in Vim mode.
-
-**Apply recommended:** Each command group has an **Apply recommended** button that assigns all recommended hotkeys at once. (Table structure and Table navigation below have no recommended hotkeys to apply, so they skip this button — Table structure instead links to Obsidian's own Hotkeys panel.)
+**Apply recommended:** each block has its own **Apply recommended** button that assigns every not-yet-set, non-conflicting hotkey in that group at once. (Table structure and Table navigation have no recommended hotkeys to apply, so they skip this button — Table structure instead links to Obsidian's own Hotkeys panel, filtered to table commands.)
 
 **Live status:** Each row shows the current state of its hotkey:
 
@@ -320,15 +316,12 @@ This plugin's settings screen has three parts:
 | 🟡Used | Recommended hotkey is taken; applying it will displace one command. |
 | 🔴Conflict | A conflict exists: a hotkey is currently assigned to more than one command. |
 
-- **Command name:** Click a command's name to open the hotkeys panel — the same action as **Open →** below, filtered to this plugin's commands.
-- **Hotkey chips:** Click any hotkey chip to open the hotkeys panel filtered to that key.
-- **Set:** When the recommended hotkey is free, assigns it in one click.
-- **Override:** When the recommended hotkey is in use, the command(s) currently using it appear inline. **Override** assigns the hotkey, removing it from any command currently using it.
-- **Open →:** Opens the hotkeys panel filtered to this plugin's commands.
+- **Command name / hotkey chips:** click either to open the hotkeys panel, filtered to that command or key.
+- **Individual (▶):** reveals each row's own action button — **Set** (recommended hotkey is free), **Override** (takes the hotkey from whoever's currently using it — that command appears inline), or **Open →** (already set / no action needed here — just inspect it in Obsidian's own Hotkeys panel).
 
 **Displaced commands:** Lists commands that would lose their only hotkey when recommended keys are applied. Each entry has an **Assign** button to reassign it via the hotkeys panel, and a **Restore** button to undo the displacement and return the key to its original command.
 
-**Special key assignments:** Set bare Home, End, Page Down, and Page Up keys — Obsidian's hotkeys panel does not support modifier-free keys.
+Also shared here: [**Behavior Options**](#behavior-options) below. Bare-key upgrades (arrow keys, Home/End/Page Up/Page Down, word navigation — no modifier needed) now live under [For everyone](#for-everyone) instead of this tab.
 
 ### Limitations
 
@@ -345,7 +338,7 @@ This plugin's settings screen has three parts:
 - **Entering a table from plain text always enters the leftmost cell:** Cursor UP/DOWN moving from a plain-text line into an adjacent table row always enters that row's leftmost cell, matching Vim's own `gj`/`gk` — Obsidian's Live Preview table widget gives the outer editor no per-character position information for an unfocused table row, so there's no way to tell which cell a given column falls under before landing in one. The column *within* that cell is still preserved, matching row-to-row crossing within a table.
 
 - **Shortcut Conflicts**
-  - **On Windows — OS-level shortcuts not detected by Quick setup:** Ctrl+A (HOME) and Ctrl+Y (Yank) override the system Select all and Redo shortcuts respectively. Because these are OS-level defaults rather than Obsidian hotkeys, the Quick setup assistant cannot detect the conflict and will show them as available. The bundled **Select all** and **Redo** commands can be used as replacements — run them from the Command Palette or assign each a custom hotkey.
+  - **On Windows — OS-level shortcuts not detected:** Ctrl+A (HOME) and Ctrl+Y (Yank) override the system Select all and Redo shortcuts respectively. Because these are OS-level defaults rather than Obsidian hotkeys, Hotkey settings cannot detect the conflict and will show them as available. The bundled **Select all** and **Redo** commands can be used as replacements — run them from the Command Palette or assign each a custom hotkey.
   - **Page down / Page up — paste conflict:** Assigning Ctrl+V (Windows) or Cmd+V (macOS) to Page down or Page up will break keyboard paste in non-editor plugin views (e.g., Excalidraw). Yank (Ctrl+Y) restores paste within the markdown editor, but cannot substitute for Cmd+V in those views. Right-click → Paste remains available as a workaround. It is recommended to assign these commands to keys that do not conflict with paste.
 
 ### Command Details
@@ -568,7 +561,7 @@ Note: (*) indicates behaviors specific to Live Preview mode.
 
 - **Outside a table:** Selects the entire document, same as Obsidian's native Select all.
 - **Within a table cell:** Selects only the content of the current cell, not the whole document — matching what native Obsidian's own Select all already does in Live Preview.
-- **Why this command exists:** On Windows, the Quick setup assistant's recommended Ctrl+A → HOME assignment overrides the OS-level Select all shortcut with no built-in fallback (see Limitations → Shortcut Conflicts). This command restores one — run it from the Command Palette or assign it a custom hotkey.
+- **Why this command exists:** On Windows, Hotkey settings' recommended Ctrl+A → HOME assignment overrides the OS-level Select all shortcut with no built-in fallback (see Limitations → Shortcut Conflicts). This command restores one — run it from the Command Palette or assign it a custom hotkey.
 
 </details>
 
