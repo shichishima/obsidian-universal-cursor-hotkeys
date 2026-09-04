@@ -533,13 +533,18 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		this.containerEl.empty();
 	}
 
-	display(): void {
+	// resetScroll: true only when switching tabs — the three tabs show
+	// unrelated content, so keeping the previous tab's scroll offset would
+	// land the user somewhere arbitrary in the new one. Same-tab re-renders
+	// (any other toggle's onChange) still default to false and preserve
+	// position, per this method's own scrollTop save/restore below.
+	display(resetScroll = false): void {
 		const { containerEl } = this;
 		// containerEl is itself Obsidian's own scrollable .vertical-tab-content
 		// element — a full re-render (containerEl.empty() + rebuild, triggered
 		// by many toggles' own onChange) otherwise resets scroll position to 0
 		// with no restoration, causing a visible jump on every such toggle.
-		const scrollTop = containerEl.scrollTop;
+		const scrollTop = resetScroll ? 0 : containerEl.scrollTop;
 		containerEl.empty();
 
 		// Must run before renderQsaFrame: it may flip activeTab (switching to
@@ -1295,7 +1300,11 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 	// containerEl.empty()+rebuild" idiom already used everywhere else), so
 	// there's no separate hidden-tab visibility bookkeeping to maintain.
 	private renderQsaFrame(containerEl: HTMLElement): void {
-		const tabBar = containerEl.createDiv({ cls: 'uch-tab-bar' });
+		// Sticky wrapper, not the rounded tab bar itself: the wrapper is a
+		// plain opaque rectangle (covering the bar's own rounded corners and
+		// the gap below it), so scrolled content never peeks through either.
+		const tabBarSticky = containerEl.createDiv({ cls: 'uch-tab-bar-sticky' });
+		const tabBar = tabBarSticky.createDiv({ cls: 'uch-tab-bar' });
 		const TABS: ReadonlyArray<{ id: 'general' | 'vim' | 'emacs'; label: string }> = [
 			{ id: 'general', label: 'For everyone' },
 			{ id: 'vim',   label: 'Vim mode' },
@@ -1306,7 +1315,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			if (this.activeTab === tab.id) tabBtn.addClass('uch-tab-btn-active');
 			tabBtn.addEventListener('click', () => {
 				this.activeTab = tab.id;
-				this.display();
+				this.display(true);
 			});
 		}
 
