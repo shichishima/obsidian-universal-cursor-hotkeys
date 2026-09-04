@@ -942,8 +942,23 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			if (coords && currentAssoc >= 0) {
 				const vlStartPos = innerBeforeGoUp.posAtCoords({ x: 0, y: coords.top + 9 }, false);
 				if (vlStartPos !== null && vlStartPos === h) {
+					// Carry the live goalColumn through — EditorSelection.cursor's
+					// own 4th param, dropped if omitted (confirmed via
+					// @codemirror/state's own type: cursor(pos, assoc?, bidiLevel?,
+					// goalColumn?)). Without this, the very next editor.exec('goUp')
+					// below (CM6's native cursorLineUp) sees no goalColumn on this
+					// fresh selection and computes a brand-new one from wherever
+					// this dispatch's own position happens to be — silently
+					// resetting whatever wide goal the up/down chain was carrying.
+					// This fix condition (VL wrap-point left edge) is true on
+					// essentially every visit to a blank in-cell sub-line (no
+					// content to be anywhere but the edge), which is why the loss
+					// showed up specifically when crossing blank lines within a
+					// cell, not on plain-text blank lines or row crossings (which
+					// go through a different goal-tracking path entirely).
+					const goalColumn = innerBeforeGoUp.state.selection.main.goalColumn;
 					innerBeforeGoUp.dispatch({
-						selection: EditorSelection.create([EditorSelection.cursor(h, 1)]),
+						selection: EditorSelection.create([EditorSelection.cursor(h, 1, undefined, goalColumn)]),
 					});
 				}
 			}
@@ -1057,7 +1072,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			if (coords && currentAssoc >= 0) {
 				const vlStartPos = inner.posAtCoords({ x: 0, y: coords.top + 9 }, false);
 				if (vlStartPos !== null && vlStartPos === head) {
-					inner.dispatch({ selection: EditorSelection.create([EditorSelection.cursor(head, 1)]) });
+					// Carry the live goalColumn through — see moveCursorUpInTable's
+					// own identical fix and doc comment for why.
+					const goalColumn = inner.state.selection.main.goalColumn;
+					inner.dispatch({ selection: EditorSelection.create([EditorSelection.cursor(head, 1, undefined, goalColumn)]) });
 				}
 			}
 
