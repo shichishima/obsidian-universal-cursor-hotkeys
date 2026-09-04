@@ -8,7 +8,7 @@ Obsidian's Vim mode (`h`/`j`/`k`/`l`/`w`/`b`/`e`/`gg`/`G`) and macOS-style Emacs
 Obsidian's Live Preview breaks cursor behavior inside Markdown tables. This plugin fixes cursor navigation around tables — whether you use Obsidian's built-in Vim mode or macOS-style keyboard shortcuts (aka Emacs keybindings). On that side, it also adds a full set of Emacs-style editing commands — Kill & Yank, word movement, case conversion, and more — that don't exist natively in Obsidian.
 
 **⌨️ [I use Obsidian's built-in Vim mode →](#vim-mode)**<br>
-**🅴 [I use macOS-style keyboard shortcuts (Emacs keybindings) →](#emacs-keybindings)**<br>
+**🅴 [I use macOS-style keyboard shortcuts (Emacs keybindings) →](#macos-style-emacs-keybindings)**<br>
 **🔑 [I just want better everyday cursor navigation →](#for-everyone)**
 
 ---
@@ -136,7 +136,7 @@ New leader-key commands — pure cursor movement, original logic (not a wrapper 
 
 [Getting Started](#getting-started-1) | [Command Reference](#command-reference-1) | [Limitations](#limitations) | [Behavior Options](#behavior-options)
 
-Open **Settings → Universal Cursor Hotkeys → Vim mode**. For the recommended Ctrl+P/N/B/F cursor keys — which already move the cursor in both Vim's Insert and Normal mode natively on macOS, but don't know about tables — see the [macOS-style keybindings' own Hotkey settings](#emacs-keybindings); assigning them fixes table entry and crossing in both modes.
+Open **Settings → Universal Cursor Hotkeys → Vim mode**. For the recommended Ctrl+P/N/B/F cursor keys — which already move the cursor in both Vim's Insert and Normal mode natively on macOS, but don't know about tables — see [macOS-style (Emacs keybindings)](#macos-style-emacs-keybindings)'s own Hotkey settings; assigning them fixes table entry and crossing in both modes.
 
 **Motion upgrades:** each row is a plain on/off toggle — no bulk button here, since each motion is independent. See [Command Reference](#command-reference-1) above for what each toggle actually does; the table below covers the ON/OFF decision itself. Turning a toggle off restores vim's own native, unmodified behavior for that key.
 
@@ -177,7 +177,7 @@ Turning an item off restarts Obsidian to fully restore vim's native behavior (a 
 
 ---
 
-## Emacs keybindings
+## macOS-style (Emacs keybindings)
 
 [Getting Started](#getting-started-2) | [Command Reference](#command-reference-2) | [Settings](#settings-2) | [Limitations](#limitations-1) | [Command Details](#command-details) | [Behavior Options](#behavior-options)
 
@@ -602,10 +602,11 @@ Note: (*) indicates behaviors specific to Live Preview mode.
 
 </details>
 
+---
 
 ## Behavior Options
 
-[For everyone](#for-everyone) | [Vim mode](#vim-mode) | [Emacs keybindings](#emacs-keybindings)
+[For everyone](#for-everyone) | [Vim mode](#vim-mode) | [macOS-style (Emacs keybindings)](#macos-style-emacs-keybindings)
 
 Each toggle lives on whichever tab(s) it's actually relevant to — see the columns below. A setting shown on more than one tab is the exact same value everywhere (toggling it on one tab changes it on the others too).
 
@@ -618,6 +619,7 @@ Each toggle lives on whichever tab(s) it's actually relevant to — see the colu
 | Cross-row navigation | ON | ✓ | — | ✓ | *LEFT/RIGHT/HOME/END, same shared-command caveat as Visual line movement above (For everyone only has bare Home/End, not Left/Right, so only that part applies there).*<br>**ON:** LEFT / HOME at the first cell and RIGHT / END at the last cell wrap to the adjacent row.<br>**OFF:** stops at the boundary. |
 | Double-click word select | ON | ✓ | — | — | **ON:** double-clicking CJK (Chinese/Japanese) text selects just the word at that position — dictionary-based, not the entire unbroken run. Dragging afterward extends the selection a word at a time. Applies everywhere regardless of which tab you're using.<br>**OFF:** uses Obsidian's native double-click selection. |
 
+---
 
 ## Acknowledgments
 - The code and documentation for this plugin were developed with the assistance of AI.
