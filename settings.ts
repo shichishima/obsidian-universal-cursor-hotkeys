@@ -615,7 +615,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 	// join-adjacent command, so it omits it). The standard→advanced/join
 	// disable-cascade is scoped to whichever toggles this call actually
 	// renders.
-	private renderSmartHomeToggles(tbody: HTMLElement, colspan: number, includeSmartJoin: boolean): void {
+	private renderSmartHomeToggles(tbody: HTMLElement, colspan: number, includeSmartJoin: boolean, onAnyChange?: () => void): void {
 		let advancedRow: HTMLTableRowElement;
 		let advancedToggle: ToggleComponent;
 		let joinRow: HTMLTableRowElement | undefined;
@@ -647,6 +647,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				this.plugin.settings.smartHomeStandard = value;
 				setStandardDisabled(!value);
 				void this.plugin.saveSettings();
+				onAnyChange?.();
 			});
 
 		const advancedResult = this.renderBehaviorToggleRow(tbody, colspan, 'Smart home (advanced)', '' +
@@ -656,6 +657,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			(value) => {
 				this.plugin.settings.smartHomeAdvanced = value;
 				void this.plugin.saveSettings();
+				onAnyChange?.();
 			});
 		advancedRow = advancedResult.tr;
 		advancedToggle = advancedResult.toggle;
@@ -669,6 +671,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				(value) => {
 					this.plugin.settings.smartJoin = value;
 					void this.plugin.saveSettings();
+					onAnyChange?.();
 				});
 			joinRow = joinResult.tr;
 			joinToggle = joinResult.toggle;
@@ -677,8 +680,12 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		setStandardDisabled(!this.plugin.settings.smartHomeStandard);
 	}
 
-	// Emacs-only: LEFT/HOME/RIGHT/END row-wrapping behavior.
-	private renderCrossRowNavigationToggle(tbody: HTMLElement, colspan: number): void {
+	// LEFT/HOME/RIGHT/END row-wrapping behavior. Rendered on the Emacs tab
+	// (LEFT/RIGHT are Emacs-only, no bare-key equivalent) and the For
+	// everyone tab (cursor-home/cursor-end are the same shared command as
+	// Emacs's Ctrl+A/E, so this setting reaches For everyone's own bare
+	// Home/End too, even without a Left/Right toggle to go with it there).
+	private renderCrossRowNavigationToggle(tbody: HTMLElement, colspan: number, onAnyChange?: () => void): void {
 		this.renderBehaviorToggleRow(tbody, colspan, 'Cross-row navigation', '' +
 			'<b>ON:</b> LEFT/HOME at the leftmost cell and RIGHT/END at the rightmost cell wrap to the adjacent row.<br>' +
 			'<b>OFF:</b> Stops at the boundary.',
@@ -686,11 +693,15 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			(value) => {
 				this.plugin.settings.crossRowNavigation = value;
 				void this.plugin.saveSettings();
+				onAnyChange?.();
 			});
 	}
 
-	// Emacs-only: HOME/END's visual-line-first step.
-	private renderVisualLineMovementToggle(tbody: HTMLElement, colspan: number): void {
+	// HOME/END's visual-line-first step. Rendered on both the Emacs tab and
+	// the For everyone tab — cursor-home/cursor-end are the same shared
+	// command as Emacs's Ctrl+A/E, so this setting affects For everyone's
+	// own bare Home/End too, not just Emacs's.
+	private renderVisualLineMovementToggle(tbody: HTMLElement, colspan: number, onAnyChange?: () => void): void {
 		this.renderBehaviorToggleRow(tbody, colspan, 'Visual line movement', '' +
 			'<b>ON:</b> HOME/END first moves to the visual line edge, then to the logical line start/end.<br>' +
 			'<b>OFF:</b> Moves directly to the logical line start/end.',
@@ -698,12 +709,13 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			(value) => {
 				this.plugin.settings.visualLineMovement = value;
 				void this.plugin.saveSettings();
+				onAnyChange?.();
 			});
 	}
 
 	// Tab-agnostic: works the same regardless of Vim/Emacs/Key Upgrades usage
 	// — lives in the "For everyone" tab as the one option genuinely for everyone.
-	private renderDoubleClickWordSelectToggle(tbody: HTMLElement, colspan: number): void {
+	private renderDoubleClickWordSelectToggle(tbody: HTMLElement, colspan: number, onAnyChange?: () => void): void {
 		this.renderBehaviorToggleRow(tbody, colspan, 'Double-click word select', '' +
 			'<b>ON:</b> Selects just the CJK word at the click position, not the whole unbroken run — dragging extends a word at a time.<br>' +
 			'<b>OFF:</b> Uses Obsidian\'s native double-click selection.',
@@ -711,6 +723,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			(value) => {
 				this.plugin.settings.cjkDoubleClickWordSelect = value;
 				void this.plugin.saveSettings();
+				onAnyChange?.();
 			});
 	}
 
@@ -1594,18 +1607,43 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			text: "Give your everyday keys table-aware behavior and CJK-aware word splitting.",
 			cls: 'uch-key-upgrades-desc',
 		});
-		const eligible = KEY_UPGRADE_DEFS.filter(def => {
+		const computeEligible = () => KEY_UPGRADE_DEFS.filter(def => {
 			const row = computeKeyUpgradeRow(def, keyUpgradeCtx.effectiveHotkeys, keyUpgradeCtx.reverseMap, keyUpgradeCtx.cmds);
 			return !row.assigned && row.conflictIds.length === 0;
 		});
+		const behaviorSettingsAllOn = () => this.plugin.settings.smartHomeStandard
+			&& this.plugin.settings.smartHomeAdvanced
+			&& this.plugin.settings.visualLineMovement
+			&& this.plugin.settings.crossRowNavigation
+			&& this.plugin.settings.cjkDoubleClickWordSelect;
+		// "Apply all" is the only button on this whole tab (unlike Vim's own
+		// per-block "Apply both" or Emacs's own per-block "Apply recommended"
+		// — both scoped to just their own section) — sitting at the top of
+		// the entire page, it reads as "turn everything on this page on", so
+		// it also turns on every Behavior Option shown below, not just the
+		// key upgrades above. All 5 default true anyway; this only matters
+		// once the user has deliberately turned one off.
 		const applyAllBtn = keyUpgradesTitleFlex.createEl('button', { text: 'Apply all' });
 		applyAllBtn.addClass('mod-cta', 'uch-apply-btn');
-		if (eligible.length === 0) applyAllBtn.disabled = true;
+		// Behavior Option toggles below deliberately don't trigger a full
+		// this.display() re-render on their own (matching Vim's own Motion
+		// upgrades toggles) — so this button's own disabled state needs its
+		// own direct update hook (passed to those toggles as onAnyChange)
+		// instead of being computed once here and left stale.
+		const updateApplyAllDisabled = () => {
+			applyAllBtn.disabled = computeEligible().length === 0 && behaviorSettingsAllOn();
+		};
+		updateApplyAllDisabled();
 		applyAllBtn.addEventListener('click', () => {
-			for (const def of eligible) {
+			for (const def of computeEligible()) {
 				const row = computeKeyUpgradeRow(def, keyUpgradeCtx.effectiveHotkeys, keyUpgradeCtx.reverseMap, keyUpgradeCtx.cmds);
 				hm.setHotkeys(row.fullId, [...keyUpgradeCtx.effectiveHotkeys(row.fullId).map(toHotkey), row.targetHotkey]);
 			}
+			this.plugin.settings.smartHomeStandard = true;
+			this.plugin.settings.smartHomeAdvanced = true;
+			this.plugin.settings.visualLineMovement = true;
+			this.plugin.settings.crossRowNavigation = true;
+			this.plugin.settings.cjkDoubleClickWordSelect = true;
 			hm.save();
 			hm.bake();
 			void this.plugin.saveSettings();
@@ -1626,7 +1664,13 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		);
 
 		const everyoneBehaviorTbody = this.renderBehaviorOptionsTitle(keyUpgradesTable, 4);
-		this.renderSmartHomeToggles(everyoneBehaviorTbody, 3, false);
-		this.renderDoubleClickWordSelectToggle(everyoneBehaviorTbody, 3);
+		this.renderSmartHomeToggles(everyoneBehaviorTbody, 3, false, updateApplyAllDisabled);
+		// cursor-home/cursor-end are the same shared command Emacs's Ctrl+A/E
+		// uses — these two settings affect this tab's own bare Home/End too,
+		// so they need a toggle here, not just on the Emacs tab (see each
+		// function's own doc comment).
+		this.renderVisualLineMovementToggle(everyoneBehaviorTbody, 3, updateApplyAllDisabled);
+		this.renderCrossRowNavigationToggle(everyoneBehaviorTbody, 3, updateApplyAllDisabled);
+		this.renderDoubleClickWordSelectToggle(everyoneBehaviorTbody, 3, updateApplyAllDisabled);
 	}
 }
