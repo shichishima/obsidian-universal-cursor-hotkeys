@@ -114,4 +114,38 @@ describe('moveCursorUpInTable', () => {
 		expect(plugin.placeAtBottomVL).not.toHaveBeenCalled()
 		expect(plugin.handleCellStartSnap).not.toHaveBeenCalled()
 	})
+
+	// Regression: the VL-wrap-point assoc-fix dispatch used to build a fresh
+	// selection via EditorSelection.cursor(head, 1) with no 4th (goalColumn)
+	// argument, silently dropping whatever wide goal the up/down chain was
+	// carrying — the very next editor.exec('goUp') (CM6's native
+	// cursorLineUp) would then compute a brand-new goalColumn from this
+	// dispatch's own position instead of continuing the carried-over one.
+	// The fix's own condition (VL wrap-point left edge) is true on
+	// essentially every visit to a blank in-cell sub-line (no content to be
+	// anywhere but the edge), which is why the loss showed up specifically
+	// when crossing blank lines within a cell. Mirrors the identical test in
+	// moveCursorDownInTable.test.ts.
+	it('assoc-fix dispatch (VL wrap-point) carries the live goalColumn through, not just assoc', () => {
+		const midCh = START_SINGLE + 2
+		const head = midCh
+		const dispatch = vi.fn()
+		const inner = {
+			state: {
+				selection: { main: { head, assoc: 0, goalColumn: 42 } },
+			},
+			coordsAtPos: vi.fn((pos: number) => (pos === head ? { top: 100, bottom: 118, left: 10, right: 20 } : null)),
+			// VL-start check succeeds (returns the same head) -> fix dispatch fires.
+			posAtCoords: vi.fn(() => head),
+			dispatch,
+		}
+		const editor = Object.assign(makeEditor(LINE_SINGLE, [
+			{ line: 1, ch: midCh },
+			{ line: 1, ch: midCh - 1 },
+		]), { activeCM: inner, cm: {} })
+		plugin.moveCursorUpInTable(editor)
+		expect(dispatch).toHaveBeenCalledTimes(1)
+		const dispatchedSelection = dispatch.mock.calls[0][0].selection
+		expect(dispatchedSelection.main.goalColumn).toBe(42)
+	})
 })
