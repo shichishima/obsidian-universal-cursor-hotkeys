@@ -1,5 +1,5 @@
-# Universal Cursor Hotkeys — Emacs & Vim navigation for Markdown tables
-Obsidian's Vim mode (`h`/`j`/`k`/`l`/`w`/`b`/`e`/`gg`/`G`) and macOS-style Emacs keybindings (Ctrl+P/N/B/F/A/E, Kill & Yank) — both finally working inside Live Preview tables, for macOS and Windows.
+# Universal Cursor Hotkeys — CJK-aware word navigation inside Obsidian's Markdown tables, with full Vim mode support
+Your everyday arrow keys, Home/End, Page Up/Down, and word movement work smarter around Live Preview's Markdown tables, and handle CJK (Chinese/Japanese) text just as well. Vim mode and macOS-style (Emacs) keybindings get the same upgrade.
 
 <img width="700" height="385" alt="Image" src="https://github.com/user-attachments/assets/04e77243-e632-4898-8a3d-d2d669a43165" />
 
