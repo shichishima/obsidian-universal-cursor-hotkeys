@@ -3959,6 +3959,29 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const maxOffset = Math.max(0, segLen - 1);
 		const targetCh = segInfo.startOfInCellLine + Math.min(goalCh, maxOffset);
 		this.setCursorViaCm(editor, targetLine, targetCh);
+		// Confirmed live in a popout window (see
+		// project_popout_window_cursor_investigation memory): the cursor could
+		// render invisible after a j/k or w/b/e cell/row crossing there, even
+		// though the position above is already correct. A bare second
+		// setCursorViaCm call alone didn't fix it (tried and reverted); what
+		// does is a real layout measurement (coordsAtPos/posAtCoords) on the
+		// freshly-created inner view immediately before that second call —
+		// exactly the combination gj/gk's own correction step
+		// (refineDisplayLineColumn → resolveSameLineOffset) already does by
+		// necessity, which is why gj/gk never showed this symptom. Two frames
+		// of deferral, matching every other "wait for Obsidian's async
+		// cell-focus reconciliation to settle" spot in this codebase.
+		activeWindow.requestAnimationFrame(() => {
+			activeWindow.requestAnimationFrame(() => {
+				const inner = editor.activeCM;
+				if (inner && inner !== editor.cm) {
+					const head = inner.state.selection.main.head;
+					const coords = inner.coordsAtPos(head);
+					if (coords) inner.posAtCoords({ x: coords.left, y: coords.top + 9 }, false);
+				}
+				this.setCursorViaCm(editor, targetLine, targetCh);
+			});
+		});
 		return { line: targetLine, ch: targetCh };
 	}
 
