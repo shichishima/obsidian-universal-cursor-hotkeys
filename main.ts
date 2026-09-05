@@ -824,11 +824,34 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Entry points: Ctrl-P / Ctrl-N
 	//===========================================================================
 
+	// Bare native goUp/goDown can silently drop the live SelectionRange.goalColumn
+	// when clamped at a document boundary (cursor already on the first/last
+	// line, so the command can't actually move it) — @codemirror/commands still
+	// returns a fresh selection for the identical position, but without the
+	// goalColumn field, discarding the column a later table re-entry depends on
+	// (computeRowCrossPixelGoal reads it straight off this same field). Confirmed
+	// via direct logging: pressing goDown at EOF measured goalColumn going from
+	// a real pixel value to undefined despite the cursor not moving at all.
+	// Restores the pre-call goalColumn onto the post-call selection whenever the
+	// position provably didn't change and the command itself didn't set its own.
+	private execPreservingGoalColumn(editor: Editor, command: 'goUp' | 'goDown'): void {
+		const cm = editor.cm;
+		const beforeCursor = editor.getCursor();
+		const beforeGoal = cm?.state?.selection?.main?.goalColumn;
+		editor.exec(command);
+		if (beforeGoal === undefined || !cm?.state) return;
+		const afterCursor = editor.getCursor();
+		if (afterCursor.line !== beforeCursor.line || afterCursor.ch !== beforeCursor.ch) return;
+		const main = cm.state.selection.main;
+		if (main.goalColumn !== undefined) return;
+		cm.dispatch({ selection: EditorSelection.create([EditorSelection.cursor(main.head, main.assoc, undefined, beforeGoal)]) });
+	}
+
 	private moveCursorUp(editor: Editor) {
 		const cursor = editor.getCursor();
 
 		if (cursor.line === 0 || !this.isLivePreviewMode()) {
-			editor.exec('goUp');
+			this.execPreservingGoalColumn(editor, 'goUp');
 			return;
 		}
 
@@ -858,7 +881,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 
-		editor.exec('goUp');
+		this.execPreservingGoalColumn(editor, 'goUp');
 	}
 
 
@@ -866,7 +889,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const cursor = editor.getCursor();
 
 		if (!this.isLivePreviewMode()) {
-			editor.exec('goDown');
+			this.execPreservingGoalColumn(editor, 'goDown');
 			return;
 		}
 
@@ -896,7 +919,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 
-		editor.exec('goDown');
+		this.execPreservingGoalColumn(editor, 'goDown');
 	}
 
 
