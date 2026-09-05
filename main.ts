@@ -3979,7 +3979,14 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 					const coords = inner.coordsAtPos(head);
 					if (coords) inner.posAtCoords({ x: coords.left, y: coords.top + 9 }, false);
 				}
-				this.setCursorViaCm(editor, targetLine, targetCh);
+				// Re-read the logical cursor instead of re-closing over targetCh:
+				// callers like crossTableRowForWord synchronously refine this rough
+				// segment-edge landing to the real word boundary (refineWordLanding)
+				// immediately after this function returns, well before these two
+				// frames elapse. Re-dispatching the stale targetCh here would
+				// silently stomp that refinement back to the raw segment edge.
+				const current = editor.getCursor();
+				this.setCursorViaCm(editor, current.line, current.ch);
 			});
 		});
 		return { line: targetLine, ch: targetCh };
