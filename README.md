@@ -448,7 +448,7 @@ Note: (*) indicates behaviors specific to Live Preview mode.
 <summary>Word right / Word left</summary>
 
 - **Within text:** Word right moves to the end of the next word; Word left moves to the start of the previous word — like Emacs's own `forward-word`/`backward-word`. Crosses line boundaries once no further word remains on the current line; does not stop on blank lines while crossing (only paragraph motion would; this plugin doesn't implement that).
-- **CJK-aware:** Uses real morphological word boundaries, not just whitespace/punctuation splitting — a run of Chinese/Japanese/Korean text is segmented into its actual words rather than treated as one long word.
+- **CJK-aware:** Uses real morphological word boundaries, not just whitespace/punctuation splitting — a run of Chinese/Japanese text is segmented into its actual words rather than treated as one long word.
 - **Within a table cell (*):** Searches the current cell first, including across `<br>`-separated in-cell lines, before crossing out of the cell.
 - **At the edge of a cell's own content (*):** Jumps to the nearest word in the adjacent cell (same row), or, from a row's own edge cell, the adjacent row's opposite edge cell. Single cell/row crossing only.
 - **Enters a table reached from plain text (*):** Word right landing on an adjacent table row enters its leftmost cell, at the first word's own end; Word left enters the rightmost cell, at the last word's own start — the same landing a cell-to-cell/row-to-row crossing already uses.
@@ -617,7 +617,7 @@ Each toggle lives on whichever tab(s) it's actually relevant to — see the colu
 | Smart join | OFF | — | ✓ | ✓ | **ON:** Kill Line join lands at the next line's content start, removing blockquote markers, list markers, and indentation. Pairs with Smart home (advanced) for headings and footnotes. Requires Smart home (standard) to be ON.<br>**OFF:** joins the next line as-is. |
 | Visual line movement | ON | ✓ | — | ✓ | *HOME/END only — including the bare Home/End keys under For everyone, which run the exact same command as Emacs's Ctrl+A/E. Toggle lives on the Emacs tab only; there's no separate copy on For everyone.*<br>**ON:** the first HOME / END moves to the visual line edge.<br>**OFF:** moves directly to the logical line start / end. |
 | Cross-row navigation | ON | ✓ | — | ✓ | *LEFT/RIGHT/HOME/END, same shared-command caveat as Visual line movement above (For everyone only has bare Home/End, not Left/Right, so only that part applies there).*<br>**ON:** LEFT / HOME at the first cell and RIGHT / END at the last cell wrap to the adjacent row.<br>**OFF:** stops at the boundary. |
-| Double-click word select | ON | ✓ | — | — | **ON:** double-clicking CJK (Chinese/Japanese) text selects just the word at that position — dictionary-based, not the entire unbroken run. Dragging afterward extends the selection a word at a time. Applies everywhere regardless of which tab you're using.<br>**OFF:** uses Obsidian's native double-click selection. |
+| Double-click word select | ON | ✓ | — | — | **ON:** double-clicking (mouse) CJK (Chinese/Japanese) text selects just the word at that position — dictionary-based, not the entire unbroken run. Dragging afterward extends the selection a word at a time. Applies everywhere regardless of which tab you're using.<br>**OFF:** uses Obsidian's native double-click selection. |
 
 ---
 
