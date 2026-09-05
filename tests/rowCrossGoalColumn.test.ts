@@ -79,7 +79,9 @@ describe('applyRowCrossGoalColumnSync', () => {
 
 	beforeEach(() => {
 		rafQueue = []
-		vi.stubGlobal('window', { requestAnimationFrame: (cb: () => void) => { rafQueue.push(cb); return rafQueue.length } })
+		const win = { requestAnimationFrame: (cb: () => void) => { rafQueue.push(cb); return rafQueue.length } }
+		vi.stubGlobal('window', win)
+		vi.stubGlobal('activeWindow', win)
 		plugin = Object.create(UniversalCursorHotkeysPlugin.prototype)
 		plugin.refineDisplayLineColumn = vi.fn()
 	})
@@ -162,6 +164,7 @@ describe('applyRowCrossGoalColumn', () => {
 
 	beforeEach(() => {
 		vi.stubGlobal('window', globalThis)
+		vi.stubGlobal('activeWindow', globalThis)
 		vi.useFakeTimers()
 		plugin = Object.create(UniversalCursorHotkeysPlugin.prototype)
 		plugin._inScrollPage = false

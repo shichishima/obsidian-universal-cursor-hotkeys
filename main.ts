@@ -824,11 +824,34 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Entry points: Ctrl-P / Ctrl-N
 	//===========================================================================
 
+	// Bare native goUp/goDown can silently drop the live SelectionRange.goalColumn
+	// when clamped at a document boundary (cursor already on the first/last
+	// line, so the command can't actually move it) — @codemirror/commands still
+	// returns a fresh selection for the identical position, but without the
+	// goalColumn field, discarding the column a later table re-entry depends on
+	// (computeRowCrossPixelGoal reads it straight off this same field). Confirmed
+	// via direct logging: pressing goDown at EOF measured goalColumn going from
+	// a real pixel value to undefined despite the cursor not moving at all.
+	// Restores the pre-call goalColumn onto the post-call selection whenever the
+	// position provably didn't change and the command itself didn't set its own.
+	private execPreservingGoalColumn(editor: Editor, command: 'goUp' | 'goDown'): void {
+		const cm = editor.cm;
+		const beforeCursor = editor.getCursor();
+		const beforeGoal = cm?.state?.selection?.main?.goalColumn;
+		editor.exec(command);
+		if (beforeGoal === undefined || !cm?.state) return;
+		const afterCursor = editor.getCursor();
+		if (afterCursor.line !== beforeCursor.line || afterCursor.ch !== beforeCursor.ch) return;
+		const main = cm.state.selection.main;
+		if (main.goalColumn !== undefined) return;
+		cm.dispatch({ selection: EditorSelection.create([EditorSelection.cursor(main.head, main.assoc, undefined, beforeGoal)]) });
+	}
+
 	private moveCursorUp(editor: Editor) {
 		const cursor = editor.getCursor();
 
 		if (cursor.line === 0 || !this.isLivePreviewMode()) {
-			editor.exec('goUp');
+			this.execPreservingGoalColumn(editor, 'goUp');
 			return;
 		}
 
@@ -858,7 +881,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 
-		editor.exec('goUp');
+		this.execPreservingGoalColumn(editor, 'goUp');
 	}
 
 
@@ -866,7 +889,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const cursor = editor.getCursor();
 
 		if (!this.isLivePreviewMode()) {
-			editor.exec('goDown');
+			this.execPreservingGoalColumn(editor, 'goDown');
 			return;
 		}
 
@@ -896,7 +919,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 
-		editor.exec('goDown');
+		this.execPreservingGoalColumn(editor, 'goDown');
 	}
 
 
@@ -1624,7 +1647,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Used after synchronous cursor placement to let the DOM settle first.
 	private scheduleBottomVisualLine(editor: Editor, pixelGoal: number | null = null) {
 		if (this._inScrollPage) return;
-		window.setTimeout(() => {
+		activeWindow.setTimeout(() => {
 			if (editor.inTableCell) {
 				this.moveToBottomVisualLineOfCell(editor);
 				this.applyRowCrossGoalColumnSync(editor, pixelGoal);
@@ -1771,8 +1794,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// there is no public Obsidian API to await that reconciliation directly.
 	private applyRowCrossGoalColumnSync(editor: Editor, pixelGoal: number | null) {
 		if (pixelGoal === null) return;
-		window.requestAnimationFrame(() => {
-			window.requestAnimationFrame(() => {
+		activeWindow.requestAnimationFrame(() => {
+			activeWindow.requestAnimationFrame(() => {
 				this.refineDisplayLineColumn(editor, pixelGoal, true);
 				const view = editor.activeCM;
 				const head = view.state.selection.main.head;
@@ -1814,7 +1837,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 		if (this._inScrollPage) return;
-		window.setTimeout(() => {
+		activeWindow.setTimeout(() => {
 			if (editor.inTableCell) {
 				this.applyRowCrossGoalColumnSync(editor, pixelGoal);
 			}
@@ -1919,7 +1942,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// view: when provided, used as a precise fallback via coordsAtPos when the selection
 	// rect has zero height (e.g. cursor at ch=0 of the first line).
 	private getCursorScreenY(view?: EditorView): number | null {
-		const sel = window.getSelection();
+		const sel = activeWindow.getSelection();
 		if (!sel || sel.rangeCount === 0) return null;
 		const range = sel.getRangeAt(0);
 		const rect  = range.getBoundingClientRect();
@@ -2054,16 +2077,16 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const watchNormalization = () => {
 			if (this._scrollPageGenId !== genId) return;
 			if (cm.state.selection.main.head !== savedHead) {
-				window.setTimeout(() => {
+				activeWindow.setTimeout(() => {
 					if (this._scrollPageGenId !== genId) return;
 					cm.dispatch({ selection: { anchor: savedHead, head: savedHead } });
 					this.scrollToCursorAtY(editor, prevScreenY);
 				}, 100);
 				return;
 			}
-			if (++frames < 5) window.requestAnimationFrame(watchNormalization);
+			if (++frames < 5) activeWindow.requestAnimationFrame(watchNormalization);
 		};
-		window.requestAnimationFrame(watchNormalization);
+		activeWindow.requestAnimationFrame(watchNormalization);
 	}
 
 
@@ -2099,7 +2122,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			// in Kill Line), Obsidian skips auto-focus.  Transfer focus explicitly in
 			// the next frame to cover that case without risking destroying the inner view.
 			if (!this._inScrollPage) {
-				window.requestAnimationFrame(() => {
+				activeWindow.requestAnimationFrame(() => {
 					const inner = editor.activeCM;
 					if (inner && inner !== cm && !inner.hasFocus) {
 						inner.focus();
@@ -2481,7 +2504,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			this.isDispatchingKill = true;
 			editor.setLine(targetLine, lineText.slice(0, targetCh) + lineText.slice(toCh));
 			this.isDispatchingKill = false;
-			window.setTimeout(() => {
+			activeWindow.setTimeout(() => {
 				this.isDispatchingKill = true;
 				this.setCursorViaCm(editor, targetLine, targetCh);
 				this.isDispatchingKill = false;
@@ -2501,7 +2524,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			this.isDispatchingKill = true;
 			editor.setLine(targetLine, lineText.slice(0, brStart) + lineText.slice(cursor.ch));
 			this.isDispatchingKill = false;
-			window.setTimeout(() => {
+			activeWindow.setTimeout(() => {
 				this.isDispatchingKill = true;
 				this.setCursorViaCm(editor, targetLine, brStart);
 				this.isDispatchingKill = false;
@@ -3126,7 +3149,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			const scrollEl      = editor.cm?.scrollDOM;
 			const savedScroll   = scrollEl?.scrollTop;
 			editor.setLine(targetLine, prefix + text + suffix);
-			window.setTimeout(() => {
+			activeWindow.setTimeout(() => {
 				if (scrollEl && savedScroll !== undefined) scrollEl.scrollTop = savedScroll;
 				this.setCursorViaCm(editor, targetLine, targetCh);
 			}, 0);
@@ -3936,6 +3959,36 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const maxOffset = Math.max(0, segLen - 1);
 		const targetCh = segInfo.startOfInCellLine + Math.min(goalCh, maxOffset);
 		this.setCursorViaCm(editor, targetLine, targetCh);
+		// Confirmed live in a popout window (see
+		// project_popout_window_cursor_investigation memory): the cursor could
+		// render invisible after a j/k or w/b/e cell/row crossing there, even
+		// though the position above is already correct. A bare second
+		// setCursorViaCm call alone didn't fix it (tried and reverted); what
+		// does is a real layout measurement (coordsAtPos/posAtCoords) on the
+		// freshly-created inner view immediately before that second call —
+		// exactly the combination gj/gk's own correction step
+		// (refineDisplayLineColumn → resolveSameLineOffset) already does by
+		// necessity, which is why gj/gk never showed this symptom. Two frames
+		// of deferral, matching every other "wait for Obsidian's async
+		// cell-focus reconciliation to settle" spot in this codebase.
+		activeWindow.requestAnimationFrame(() => {
+			activeWindow.requestAnimationFrame(() => {
+				const inner = editor.activeCM;
+				if (inner && inner !== editor.cm) {
+					const head = inner.state.selection.main.head;
+					const coords = inner.coordsAtPos(head);
+					if (coords) inner.posAtCoords({ x: coords.left, y: coords.top + 9 }, false);
+				}
+				// Re-read the logical cursor instead of re-closing over targetCh:
+				// callers like crossTableRowForWord synchronously refine this rough
+				// segment-edge landing to the real word boundary (refineWordLanding)
+				// immediately after this function returns, well before these two
+				// frames elapse. Re-dispatching the stale targetCh here would
+				// silently stomp that refinement back to the raw segment edge.
+				const current = editor.getCursor();
+				this.setCursorViaCm(editor, current.line, current.ch);
+			});
+		});
 		return { line: targetLine, ch: targetCh };
 	}
 

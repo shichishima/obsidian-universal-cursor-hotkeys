@@ -136,6 +136,7 @@ describe('yank', () => {
 		beforeEach(() => {
 			vi.useFakeTimers()
 			vi.stubGlobal('window', globalThis)
+			vi.stubGlobal('activeWindow', globalThis)
 		})
 
 		it('calls setLine then defers setCursorViaCm after insert', async () => {

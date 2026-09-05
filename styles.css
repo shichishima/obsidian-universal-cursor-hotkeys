@@ -33,6 +33,38 @@
    look (skeuomorphic, dated) and an even earlier underline-tab attempt
    (read as plain text, not obviously clickable) — a raised active state
    is a much stronger "this is a button" signal than either. */
+/* Pins the tab bar to the top of containerEl (Obsidian's own
+   .vertical-tab-content, which is itself the scrolling element — see
+   display()'s scrollTop save/restore) so the rest of a tab's content
+   scrolls underneath while the tabs stay reachable. A plain rectangular
+   wrapper (not the rounded .uch-tab-bar itself) carries the sticky
+   positioning and an opaque background spanning the full width and the
+   gap below the bar — the bar's own rounded corners and margin would
+   otherwise leave slivers where scrolled content peeks through. */
+.uch-tab-bar-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background-color: var(--background-primary);
+  padding-bottom: 12px;
+}
+/* Extends the opaque covering upward without affecting layout: an
+   absolutely-positioned box adds no height to the flow (unlike a negative
+   margin, which was tried first and badly distorted the sticky element's
+   own trigger position and overlapped earlier content instead of covering
+   a gap). Anchored via bottom:100% so its own bottom edge always meets the
+   sticky wrapper's top edge, then extends further up by `height`, painting
+   over whatever scrolls through that band before disappearing under the
+   wrapper itself. */
+.uch-tab-bar-sticky::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  height: 300px;
+  background-color: var(--background-primary);
+}
 .uch-tab-bar {
   display: flex;
   gap: 2px;
@@ -44,7 +76,6 @@
   min-width: 350px;
   background-color: var(--background-secondary);
   border-radius: var(--radius-m, 8px);
-  margin-bottom: 12px;
 }
 .uch-tab-bar .uch-tab-btn {
   flex: 1;

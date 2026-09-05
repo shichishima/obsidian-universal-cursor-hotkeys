@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 vi.mock('@codemirror/language', () => ({
 	syntaxTree: vi.fn(),
@@ -56,6 +56,15 @@ describe('VimSupportHost bridge (main.ts)', () => {
 		plugin = Object.create(UniversalCursorHotkeysPlugin.prototype)
 		plugin.TABLE_DELIMITER_REGEX = /^\s*\|?[:\s]*?-+[:\s-]*\|[:\s-|]*$/
 		plugin.setCursorViaCm = vi.fn((editor: any, line: number, ch: number) => editor._setCursor({ line, ch }))
+		// landInCellSegment schedules a follow-up requestAnimationFrame (see its
+		// own popout-window comment) — never manually flushed here since these
+		// tests only assert the synchronous return/first setCursorViaCm call,
+		// but the global still needs to exist so scheduling it doesn't throw.
+		vi.stubGlobal('activeWindow', { requestAnimationFrame: () => 0 })
+	})
+
+	afterEach(() => {
+		vi.unstubAllGlobals()
 	})
 
 	// ===========================================================================

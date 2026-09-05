@@ -253,13 +253,15 @@ describe('scheduleBottomVisualLine', () => {
 	let plugin: any
 
 	beforeEach(() => {
-		// This test environment is plain 'node' (no jsdom) — window.setTimeout
-		// (what scheduleBottomVisualLine actually calls) needs a polyfill here.
-		// Every other test in this repo avoids this by stubbing
-		// scheduleBottomVisualLine away entirely rather than exercising it
-		// directly; this describe block is the exception, since it's the one
-		// testing scheduleBottomVisualLine's own deferred behavior.
+		// This test environment is plain 'node' (no jsdom) — activeWindow.setTimeout
+		// (what scheduleBottomVisualLine actually calls, via Obsidian's own
+		// popout-window-safe global) needs a polyfill here. Every other test in
+		// this repo avoids this by stubbing scheduleBottomVisualLine away
+		// entirely rather than exercising it directly; this describe block is
+		// the exception, since it's the one testing scheduleBottomVisualLine's
+		// own deferred behavior.
 		vi.stubGlobal('window', globalThis)
+		vi.stubGlobal('activeWindow', globalThis)
 		vi.useFakeTimers()
 		plugin = Object.create(UniversalCursorHotkeysPlugin.prototype)
 		plugin._inScrollPage = false
