@@ -1647,7 +1647,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Used after synchronous cursor placement to let the DOM settle first.
 	private scheduleBottomVisualLine(editor: Editor, pixelGoal: number | null = null) {
 		if (this._inScrollPage) return;
-		window.setTimeout(() => {
+		activeWindow.setTimeout(() => {
 			if (editor.inTableCell) {
 				this.moveToBottomVisualLineOfCell(editor);
 				this.applyRowCrossGoalColumnSync(editor, pixelGoal);
@@ -1794,8 +1794,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// there is no public Obsidian API to await that reconciliation directly.
 	private applyRowCrossGoalColumnSync(editor: Editor, pixelGoal: number | null) {
 		if (pixelGoal === null) return;
-		window.requestAnimationFrame(() => {
-			window.requestAnimationFrame(() => {
+		activeWindow.requestAnimationFrame(() => {
+			activeWindow.requestAnimationFrame(() => {
 				this.refineDisplayLineColumn(editor, pixelGoal, true);
 				const view = editor.activeCM;
 				const head = view.state.selection.main.head;
@@ -1837,7 +1837,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 		if (this._inScrollPage) return;
-		window.setTimeout(() => {
+		activeWindow.setTimeout(() => {
 			if (editor.inTableCell) {
 				this.applyRowCrossGoalColumnSync(editor, pixelGoal);
 			}
@@ -1942,7 +1942,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// view: when provided, used as a precise fallback via coordsAtPos when the selection
 	// rect has zero height (e.g. cursor at ch=0 of the first line).
 	private getCursorScreenY(view?: EditorView): number | null {
-		const sel = window.getSelection();
+		const sel = activeWindow.getSelection();
 		if (!sel || sel.rangeCount === 0) return null;
 		const range = sel.getRangeAt(0);
 		const rect  = range.getBoundingClientRect();
@@ -2077,16 +2077,16 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const watchNormalization = () => {
 			if (this._scrollPageGenId !== genId) return;
 			if (cm.state.selection.main.head !== savedHead) {
-				window.setTimeout(() => {
+				activeWindow.setTimeout(() => {
 					if (this._scrollPageGenId !== genId) return;
 					cm.dispatch({ selection: { anchor: savedHead, head: savedHead } });
 					this.scrollToCursorAtY(editor, prevScreenY);
 				}, 100);
 				return;
 			}
-			if (++frames < 5) window.requestAnimationFrame(watchNormalization);
+			if (++frames < 5) activeWindow.requestAnimationFrame(watchNormalization);
 		};
-		window.requestAnimationFrame(watchNormalization);
+		activeWindow.requestAnimationFrame(watchNormalization);
 	}
 
 
@@ -2122,7 +2122,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			// in Kill Line), Obsidian skips auto-focus.  Transfer focus explicitly in
 			// the next frame to cover that case without risking destroying the inner view.
 			if (!this._inScrollPage) {
-				window.requestAnimationFrame(() => {
+				activeWindow.requestAnimationFrame(() => {
 					const inner = editor.activeCM;
 					if (inner && inner !== cm && !inner.hasFocus) {
 						inner.focus();
@@ -2504,7 +2504,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			this.isDispatchingKill = true;
 			editor.setLine(targetLine, lineText.slice(0, targetCh) + lineText.slice(toCh));
 			this.isDispatchingKill = false;
-			window.setTimeout(() => {
+			activeWindow.setTimeout(() => {
 				this.isDispatchingKill = true;
 				this.setCursorViaCm(editor, targetLine, targetCh);
 				this.isDispatchingKill = false;
@@ -2524,7 +2524,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			this.isDispatchingKill = true;
 			editor.setLine(targetLine, lineText.slice(0, brStart) + lineText.slice(cursor.ch));
 			this.isDispatchingKill = false;
-			window.setTimeout(() => {
+			activeWindow.setTimeout(() => {
 				this.isDispatchingKill = true;
 				this.setCursorViaCm(editor, targetLine, brStart);
 				this.isDispatchingKill = false;
@@ -3149,7 +3149,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			const scrollEl      = editor.cm?.scrollDOM;
 			const savedScroll   = scrollEl?.scrollTop;
 			editor.setLine(targetLine, prefix + text + suffix);
-			window.setTimeout(() => {
+			activeWindow.setTimeout(() => {
 				if (scrollEl && savedScroll !== undefined) scrollEl.scrollTop = savedScroll;
 				this.setCursorViaCm(editor, targetLine, targetCh);
 			}, 0);

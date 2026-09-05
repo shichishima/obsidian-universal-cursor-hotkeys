@@ -56,6 +56,7 @@ describe('killLine', () => {
 			clipboard: { writeText: vi.fn().mockResolvedValue(undefined) },
 		})
 		vi.stubGlobal('window', globalThis)
+		vi.stubGlobal('activeWindow', globalThis)
 	})
 
 	afterEach(() => {
