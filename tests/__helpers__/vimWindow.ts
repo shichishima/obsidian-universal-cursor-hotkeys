@@ -1,6 +1,9 @@
 // Shared window stub for vim-support.ts tests. vitest's 'node' environment has
-// no `window` global, but getActiveEditor()/getVim() and vim-support.ts's own
-// window.setTimeout/window.requestAnimationFrame calls all need one.
+// no `window`/`activeWindow` global, but getActiveEditor()/getVim() (window.app)
+// and vim-support.ts's own activeWindow.setTimeout/activeWindow.requestAnimationFrame
+// calls all need one. Both globals point at the same stub object — real Obsidian
+// guarantees activeWindow.app === window.app (see main.ts's own popout-window
+// fix), so a single shared fake keeps that invariant here too.
 //
 // setTimeout/requestAnimationFrame here are queued, not run immediately —
 // calling them synchronously would let a deferred callback's effects run
@@ -26,6 +29,7 @@ export function installVimWindow(editor?: FakeEditor) {
 		requestAnimationFrame: (fn: (...args: any[]) => void) => { queue.push(fn); return 0 },
 	}
 	;(globalThis as any).window = win
+	;(globalThis as any).activeWindow = win
 	return {
 		setEditor(e: FakeEditor | undefined) {
 			win.app.workspace.activeEditor.editor = e
@@ -44,4 +48,5 @@ export function installVimWindow(editor?: FakeEditor) {
 
 export function uninstallVimWindow() {
 	delete (globalThis as any).window
+	delete (globalThis as any).activeWindow
 }
