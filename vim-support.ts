@@ -2328,7 +2328,28 @@ export class VimSupport {
 		activeWindow.requestAnimationFrame(() => {
 			activeWindow.requestAnimationFrame(() => {
 				const refined = this.host.refineDisplayLineColumn(editor, goalHSPos);
-				this.resyncAfterDeferredMove(editor, refined, refined?.ch ?? 0, goalHSPos, cellIndex);
+				// refined.ch is in *outer* (raw markdown) coordinates — e.g. it
+				// includes the cell's own "| " row-prefix — but goalHPos must be
+				// inner-relative (segment-local) whenever still inside a cell:
+				// moveByLines/moveByDisplayLines both feed it straight into
+				// vcm.getLine(head.line)'s own *inner*-view line text. Passing the
+				// outer ch through unconverted (confirmed via a dedicated
+				// diagnostic log, not guessed) silently added the cell's own
+				// prefix width to the goal on every gk crossing that round-tripped
+				// back into the same column, drifting it right by that many
+				// characters each cycle. Unlike scheduleRowCrossing/scheduleTableEntry
+				// (which pass an already inner-relative goalHPos through
+				// unchanged), this call site has no such pre-existing ch value —
+				// gk's own goal is pixel-only until this refinement resolves it —
+				// so it must derive one itself, from the inner view's own
+				// just-dispatched selection, not from refined's outer ch.
+				const inner = editor.activeCM;
+				let goalHPos = refined?.ch ?? 0;
+				if (refined && inner && inner !== editor.cm) {
+					const innerLine = inner.state.doc.lineAt(inner.state.selection.main.head);
+					goalHPos = inner.state.selection.main.head - innerLine.from;
+				}
+				this.resyncAfterDeferredMove(editor, refined, goalHPos, goalHSPos, cellIndex);
 			});
 		});
 	}
