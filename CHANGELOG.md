@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Key Upgrades (new "For everyone" tab):** table-aware and CJK-aware behavior for the keys everyone already uses, with no Vim mode or Emacs-style keybindings required. Arrow Up/Down, Home, End, Page Up/Down, and Word right/left all become table-aware (crossing rows/cells without losing column position or getting stuck) and CJK-aware (dictionary-based Chinese/Japanese word segmentation for word navigation). Nothing is silently intercepted — each toggle just assigns a real, visible hotkey to the target command through Obsidian's own Hotkeys system, so it always shows up in Settings → Hotkeys and can be reassigned or removed there just as easily as any other Obsidian hotkey. Turn keys on individually, or all at once with **Apply all**, which also switches on the shared Behavior Options (Smart home, Visual line movement, Cross-row navigation, Double-click word select). Recommended keys are picked automatically per OS. Supersedes the earlier, narrower "Special key assignments" (Home/End/Page Up/Page Down only).
+
+### Changed
+
+- **Settings reorganized into three tabs — For everyone / Vim mode / macOS (Emacs) style:** replacing the previous flatter, Show/Hide-based layout. An iOS-style segmented control switches between tabs and stays pinned to the top while scrolling; a shared Behavior Options section at the bottom holds settings relevant to more than one tab.
+
 ### Fixed
 
 - **Ctrl-N/Ctrl-P now preserve the cursor's column when crossing table row boundaries, matching Vim's own `gj`/`gk` convention:** previously, crossing into the row above/below, exiting the table entirely into plain text, or entering a table fresh from plain text, always landed at the cell's or line's own content start, discarding whichever column the cursor was actually at. This also fixes the column being silently forgotten when a crossing happens to pass through a blank or short line, or when moving within a single cell across its own blank `<br>`-separated sub-lines. Entering a table fresh from plain text still always enters the leftmost cell (matching Vim's own `gj`/`gk`, which has the same restriction for the same reason — Obsidian's Live Preview table widget gives the outer editor no per-character position information for an unfocused table row), but the column within that cell is now preserved too.
