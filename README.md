@@ -21,13 +21,13 @@ You don't need Vim mode or Emacs-style keybindings to benefit from this plugin. 
 
 ### Getting Started
 
-[Command Reference](#command-reference) | [Settings](#settings) | [Behavior Options](#behavior-options)
+📍 | [Command Reference](#command-reference) | [Settings](#settings) | [Behavior Options](#behavior-options)
 
 Open **Settings → Universal Cursor Hotkeys → For everyone** and click **Apply all**.
 
 ### Command Reference
 
-[Getting Started](#getting-started) | [Settings](#settings) | [Behavior Options](#behavior-options)
+[Getting Started](#getting-started) | 📍 | [Settings](#settings) | [Behavior Options](#behavior-options)
 
 For what each row switches on/off, see [Settings](#settings) below. This section covers what each key actually does.
 
@@ -57,7 +57,7 @@ On macOS, the physical Delete key sends Backspace (⌫) — Kill word left uses 
 
 ### Settings
 
-[Getting Started](#getting-started) | [Command Reference](#command-reference) | [Behavior Options](#behavior-options)
+[Getting Started](#getting-started) | [Command Reference](#command-reference) | 📍 | [Behavior Options](#behavior-options)
 
 Open **Settings → Universal Cursor Hotkeys → For everyone**. Each key is a plain on/off toggle: turning it on adds that key to the target command's hotkeys (without touching any hotkey it already has); turning it off removes just that key.
 
@@ -83,13 +83,13 @@ If you use Obsidian's built-in Vim mode, this plugin fixes a set of well-known L
 
 ### Getting Started
 
-[Command Reference](#command-reference-1) | [Settings](#settings-1) | [Limitations](#limitations) | [Behavior Options](#behavior-options)
+📍 | [Command Reference](#command-reference-1) | [Settings](#settings-1) | [Limitations](#limitations) | [Behavior Options](#behavior-options)
 
 Turn on Obsidian's built-in **Vim key bindings** (Settings → Editor) — that's it. All the motion upgrades below are already on by default, no setup needed. If you also want the leader-key Table structure/Table navigation commands (off by default), open **Settings → Universal Cursor Hotkeys → Vim mode** and click **Apply both**.
 
 ### Command Reference
 
-[Getting Started](#getting-started-1) | [Settings](#settings-1) | [Limitations](#limitations) | [Behavior Options](#behavior-options)
+[Getting Started](#getting-started-1) | 📍 | [Settings](#settings-1) | [Limitations](#limitations) | [Behavior Options](#behavior-options)
 
 For what each toggle switches on/off, see [Settings](#settings-1) below. This section covers what each key actually does.
 
@@ -134,7 +134,7 @@ New leader-key commands — pure cursor movement, original logic (not a wrapper 
 
 ### Settings
 
-[Getting Started](#getting-started-1) | [Command Reference](#command-reference-1) | [Limitations](#limitations) | [Behavior Options](#behavior-options)
+[Getting Started](#getting-started-1) | [Command Reference](#command-reference-1) | 📍 | [Limitations](#limitations) | [Behavior Options](#behavior-options)
 
 Open **Settings → Universal Cursor Hotkeys → Vim mode**. For the recommended Ctrl+P/N/B/F cursor keys — which already move the cursor in both Vim's Insert and Normal mode natively on macOS, but don't know about tables — see [macOS-style (Emacs keybindings)](#macos-style-emacs-keybindings)'s own Hotkey settings; assigning them fixes table entry and crossing in both modes.
 
@@ -165,7 +165,7 @@ Turning an item off restarts Obsidian to fully restore vim's native behavior (a 
 
 ### Limitations
 
-[Getting Started](#getting-started-1) | [Command Reference](#command-reference-1) | [Settings](#settings-1) | [Behavior Options](#behavior-options)
+[Getting Started](#getting-started-1) | [Command Reference](#command-reference-1) | [Settings](#settings-1) | 📍 | [Behavior Options](#behavior-options)
 
 - **A CJK input source can corrupt Vim's own key handling — not caused by this plugin:** With a CJK (e.g. romaji-based Japanese) input source active, a single press of a Vim motion key (commonly `g`, `j`, or `k`) can occasionally be misread — e.g. a single `g` behaving like `gg`, or `j`/`k` moving two lines instead of one. This is a known, upstream issue in Obsidian's underlying `codemirror-vim` engine ([issue #178](https://github.com/replit/codemirror-vim/issues/178)) and reproduces identically in vanilla Obsidian Vim mode with this plugin fully disabled. **Workaround:** switch to an ASCII/alphanumeric input source before using Vim motions.
 - **`w`/`b`/`e` cross only one cell/row boundary per count:** A count like `5w` isn't fully precise once it needs to cross more than one cell or row boundary.
@@ -200,7 +200,7 @@ Kill & Yank (Ctrl+K / Ctrl+Y) and Kill Region (Ctrl+W) bring the full Emacs edit
 
 ### Getting Started
 
-[Command Reference](#command-reference-2) | [Settings](#settings-2) | [Limitations](#limitations-1) | [Command Details](#command-details) | [Behavior Options](#behavior-options)
+📍 | [Command Reference](#command-reference-2) | [Settings](#settings-2) | [Limitations](#limitations-1) | [Command Details](#command-details) | [Behavior Options](#behavior-options)
 
 No hotkeys are assigned by default.
 
@@ -210,7 +210,7 @@ No hotkeys are assigned by default.
 
 ### Command Reference
 
-[Getting Started](#getting-started-2) | [Settings](#settings-2) | [Limitations](#limitations-1) | [Command Details](#command-details) | [Behavior Options](#behavior-options)
+[Getting Started](#getting-started-2) | 📍 | [Settings](#settings-2) | [Limitations](#limitations-1) | [Command Details](#command-details) | [Behavior Options](#behavior-options)
 
 For detailed behavior of each command, see [Command Details](#command-details) below. Grouped the same way as Hotkey settings below.
 
@@ -295,7 +295,7 @@ Six ordinary commands, assignable via **Settings → Hotkeys** or Hotkey setting
 
 ### Settings
 
-[Getting Started](#getting-started-2) | [Command Reference](#command-reference-2) | [Limitations](#limitations-1) | [Command Details](#command-details) | [Behavior Options](#behavior-options)
+[Getting Started](#getting-started-2) | [Command Reference](#command-reference-2) | 📍 | [Limitations](#limitations-1) | [Command Details](#command-details) | [Behavior Options](#behavior-options)
 
 Open **Settings → Universal Cursor Hotkeys → macOS (Emacs) style** to assign hotkeys without leaving the settings screen.
 
@@ -323,7 +323,7 @@ Also shared here: [**Behavior Options**](#behavior-options) below. Bare-key upgr
 
 ### Limitations
 
-[Getting Started](#getting-started-2) | [Command Reference](#command-reference-2) | [Settings](#settings-2) | [Command Details](#command-details) | [Behavior Options](#behavior-options)
+[Getting Started](#getting-started-2) | [Command Reference](#command-reference-2) | [Settings](#settings-2) | 📍 | [Command Details](#command-details) | [Behavior Options](#behavior-options)
 
 - **Range selection stops at table cell boundaries:** Shift+Ctrl+P/N/B/F/A/E extend the selection normally within plain text and within a single table cell. At a cell boundary, they neither cross into the adjacent cell (unlike plain Ctrl+B/F) nor extend the selection across cells (unlike Shift+Arrow keys). Use Shift+Arrow keys for cross-cell selection.
 
@@ -341,7 +341,7 @@ Also shared here: [**Behavior Options**](#behavior-options) below. Bare-key upgr
 
 ### Command Details
 
-[Getting Started](#getting-started-2) | [Command Reference](#command-reference-2) | [Settings](#settings-2) | [Limitations](#limitations-1) | [Behavior Options](#behavior-options)
+[Getting Started](#getting-started-2) | [Command Reference](#command-reference-2) | [Settings](#settings-2) | [Limitations](#limitations-1) | 📍 | [Behavior Options](#behavior-options)
 
 Note: (*) indicates behaviors specific to Live Preview mode.
 
