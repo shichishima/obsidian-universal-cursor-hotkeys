@@ -7,9 +7,9 @@ Your everyday arrow keys, Home/End, Page Up/Down, and word movement work smarter
 
 Obsidian's Live Preview breaks cursor behavior inside Markdown tables, and treats CJK (Chinese/Japanese) text as one long word instead of stopping at real word boundaries. This plugin fixes both — for everyday arrow-key navigation, Obsidian's built-in Vim mode, and macOS-style keyboard shortcuts (aka Emacs keybindings) alike, so Vim's own `h`/`j`/`k`/`l`/`w`/`b`/`e`/`gg`/`G` finally work correctly inside tables too. On the Emacs side, it also adds a full set of editing commands — Kill & Yank, case conversion, Recenter, and more — that don't exist natively in Obsidian.
 
+**🔑 [I just want better everyday cursor navigation →](#for-everyone)**<br>
 **⌨️ [I use Obsidian's built-in Vim mode →](#vim-mode)**<br>
-**🅴 [I use macOS-style keyboard shortcuts (Emacs keybindings) →](#macos-style-emacs-keybindings)**<br>
-**🔑 [I just want better everyday cursor navigation →](#for-everyone)**
+**🅴 [I use macOS-style keyboard shortcuts (Emacs keybindings) →](#macos-style-emacs-keybindings)**
 
 ---
 
