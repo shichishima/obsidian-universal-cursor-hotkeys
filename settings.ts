@@ -765,7 +765,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			tdKey.appendText(' ');
 		}
 
-		tr.createEl('td', { text: label, cls: 'uch-key-upgrade-label' });
+		tr.createEl('td', { text: label, cls: 'uch-tab-row-label' });
 
 		const tdToggle = tr.createEl('td', { cls: 'uch-cell-toggle' });
 		if (tooltip) tdToggle.title = tooltip;
@@ -798,7 +798,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			tdKey.createSpan({ text: k, cls: 'uch-kbd' });
 			tdKey.appendText(' ');
 		}
-		tdKey.createSpan({ text: label, cls: 'uch-key-upgrade-label' });
+		tdKey.createSpan({ text: label, cls: 'uch-tab-row-label' });
 
 		const tdToggle = tr.createEl('td', { cls: 'uch-cell-toggle' });
 		const toggle = new ToggleComponent(tdToggle);
@@ -819,9 +819,9 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 	// owns visibility now, so this only renders once the Vim tab is actually
 	// selected; no own Show/Hide, no own visibility bookkeeping needed.
 	private renderVimTabContent(containerEl: HTMLElement): void {
-		const vimHeaderEl = containerEl.createDiv({ cls: 'uch-key-upgrades-section' });
+		const vimHeaderEl = containerEl.createDiv({ cls: 'uch-tab-header-section' });
 		vimHeaderEl.createDiv({
-			cls: 'uch-key-upgrades-desc',
+			cls: 'uch-tab-row-desc',
 			text: "Fixes Obsidian's built-in Vim mode's cursor behavior inside Markdown tables, and adds commands for table editing and navigation.",
 		});
 
@@ -850,11 +850,11 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		motionTitleCell.createDiv({ text: 'Motion upgrades', cls: 'uch-title-text' });
 		motionTitleCell.createDiv({
 			text: "Each toggle below replaces one native motion in Obsidian's own built-in Vim mode — turning it off restores its original, unmodified behavior.",
-			cls: 'uch-key-upgrade-group-desc',
+			cls: 'uch-tab-row-group-desc',
 		});
 		motionTitleCell.createDiv({
 			text: 'Smart home / Smart join extend cursor movement and line joining to be more Markdown-aware, once enabled further down this page.',
-			cls: 'uch-key-upgrade-group-desc',
+			cls: 'uch-tab-row-group-desc',
 		});
 		this.renderVimToggleRow(motionTbody, ['h', 'l', 'x'], 'Table-aware',
 			this.plugin.settings.vimHlSupport,
@@ -1166,9 +1166,9 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		const tdKey = tr.createEl('td', { cls: 'uch-cell-name' });
 		this.makeKeyCell(tdKey, formatHotkey(targetHotkey), () => this.openHotkeysPanelByKey(targetHotkey));
 
-		tr.createEl('td', { text: def.label, cls: 'uch-key-upgrade-label' });
+		tr.createEl('td', { text: def.label, cls: 'uch-tab-row-label' });
 
-		const tdStatus = tr.createEl('td', { cls: 'uch-key-upgrade-status' });
+		const tdStatus = tr.createEl('td', { cls: 'uch-tab-row-status' });
 		if (hasConflict) {
 			tdStatus.createEl('a', { text: assigned ? '🔴Conflict' : '🔴Used', cls: 'uch-cmd-link' })
 				.addEventListener('click', (e) => { e.preventDefault(); this.openHotkeysPanelByKey(targetHotkey); });
@@ -1207,7 +1207,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		titleCell.colSpan = 4;
 		titleCell.addClass('uch-title-cell');
 		titleCell.createDiv({ text: title, cls: 'uch-title-text' });
-		if (desc !== null) titleCell.createDiv({ text: desc, cls: 'uch-key-upgrade-group-desc' });
+		if (desc !== null) titleCell.createDiv({ text: desc, cls: 'uch-tab-row-group-desc' });
 
 		for (const def of defs) {
 			this.renderKeyUpgradeRow(tbody, def, ctx);
@@ -1391,9 +1391,9 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		);
 
 		// Pane heading + desc (desc contains the link to Obsidian's hotkeys settings)
-		const emacsHeaderEl = containerEl.createDiv({ cls: 'uch-key-upgrades-section' });
-		emacsHeaderEl.createDiv({ text: 'Hotkey settings', cls: 'uch-key-upgrades-title' });
-		const emacsDescEl = emacsHeaderEl.createDiv({ cls: 'uch-key-upgrades-desc' });
+		const emacsHeaderEl = containerEl.createDiv({ cls: 'uch-tab-header-section' });
+		emacsHeaderEl.createDiv({ text: 'Hotkey settings', cls: 'uch-tab-row-title' });
+		const emacsDescEl = emacsHeaderEl.createDiv({ cls: 'uch-tab-row-desc' });
 		emacsDescEl.createSpan({ text: "Recreates macOS-style cursor and editing shortcuts using Obsidian's own hotkey system. (No hotkeys are assigned by default.) Set only the commands you want — group by group, or " });
 		const indivLink = emacsDescEl.createEl('a', { text: 'Individually', cls: 'uch-inline-link' });
 		indivLink.addEventListener('click', (e) => {
@@ -1610,11 +1610,11 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 
 		const keyUpgradeCtx: KeyUpgradeCtx = { hm, effectiveHotkeys, reverseMap, cmds, toHotkey };
 
-		const keyUpgradesEl = containerEl.createDiv({ cls: 'uch-key-upgrades-section' });
+		const keyUpgradesEl = containerEl.createDiv({ cls: 'uch-tab-header-section' });
 		const keyUpgradesTitleFlex = keyUpgradesEl.createDiv('uch-title-flex');
 		keyUpgradesTitleFlex.createDiv({
 			text: "Give your everyday keys table-aware behavior and CJK-aware word splitting.",
-			cls: 'uch-key-upgrades-desc',
+			cls: 'uch-tab-row-desc',
 		});
 		const computeEligible = () => KEY_UPGRADE_DEFS.filter(def => {
 			const row = computeKeyUpgradeRow(def, keyUpgradeCtx.effectiveHotkeys, keyUpgradeCtx.reverseMap, keyUpgradeCtx.cmds);
