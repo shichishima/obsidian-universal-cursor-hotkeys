@@ -46,7 +46,14 @@
   top: 0;
   z-index: 1;
   background-color: var(--background-primary);
-  padding-bottom: 12px;
+  padding-bottom: 20px;
+}
+/* The +8px above widens the gap once a later row has scrolled up under the
+   stuck bar. Each tab's own first section already carries its own
+   margin-top on top of this padding, so cancel the same +8px there —
+   otherwise the initial (unscrolled) position would shift down too. */
+.uch-tab-bar-sticky + .uch-tab-header-section {
+  margin-top: calc(1em - 8px);
 }
 /* Extends the opaque covering upward without affecting layout: an
    absolutely-positioned box adds no height to the flow (unlike a negative
@@ -204,7 +211,7 @@ tbody.uch-override-active .uch-override-word { font-weight: 700; }
 /* ── Key Upgrades section ─────────────────────────────────── */
 /* Same gap after every tab's own intro header, regardless of whether the
    table that follows happens to be nested inside this div or a sibling. */
-.uch-key-upgrades-section  { margin-top: 1em; margin-bottom: 0.75em; }
+.uch-tab-header-section  { margin-top: 1em; margin-bottom: 0.75em; }
 .uch-key-upgrades-title    { font-weight: 600; padding: 6px 8px; }
 /* flex: 1 only matters when this happens to sit inside a .uch-title-flex
    row (For everyone's own desc+Apply all row) — elsewhere (Vim/Emacs's

@@ -819,7 +819,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 	// owns visibility now, so this only renders once the Vim tab is actually
 	// selected; no own Show/Hide, no own visibility bookkeeping needed.
 	private renderVimTabContent(containerEl: HTMLElement): void {
-		const vimHeaderEl = containerEl.createDiv({ cls: 'uch-key-upgrades-section' });
+		const vimHeaderEl = containerEl.createDiv({ cls: 'uch-tab-header-section' });
 		vimHeaderEl.createDiv({
 			cls: 'uch-key-upgrades-desc',
 			text: "Fixes Obsidian's built-in Vim mode's cursor behavior inside Markdown tables, and adds commands for table editing and navigation.",
@@ -1391,7 +1391,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		);
 
 		// Pane heading + desc (desc contains the link to Obsidian's hotkeys settings)
-		const emacsHeaderEl = containerEl.createDiv({ cls: 'uch-key-upgrades-section' });
+		const emacsHeaderEl = containerEl.createDiv({ cls: 'uch-tab-header-section' });
 		emacsHeaderEl.createDiv({ text: 'Hotkey settings', cls: 'uch-key-upgrades-title' });
 		const emacsDescEl = emacsHeaderEl.createDiv({ cls: 'uch-key-upgrades-desc' });
 		emacsDescEl.createSpan({ text: "Recreates macOS-style cursor and editing shortcuts using Obsidian's own hotkey system. (No hotkeys are assigned by default.) Set only the commands you want — group by group, or " });
@@ -1610,7 +1610,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 
 		const keyUpgradeCtx: KeyUpgradeCtx = { hm, effectiveHotkeys, reverseMap, cmds, toHotkey };
 
-		const keyUpgradesEl = containerEl.createDiv({ cls: 'uch-key-upgrades-section' });
+		const keyUpgradesEl = containerEl.createDiv({ cls: 'uch-tab-header-section' });
 		const keyUpgradesTitleFlex = keyUpgradesEl.createDiv('uch-title-flex');
 		keyUpgradesTitleFlex.createDiv({
 			text: "Give your everyday keys table-aware behavior and CJK-aware word splitting.",
