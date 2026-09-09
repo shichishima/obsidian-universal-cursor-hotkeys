@@ -1647,7 +1647,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Used after synchronous cursor placement to let the DOM settle first.
 	private scheduleBottomVisualLine(editor: Editor, pixelGoal: number | null = null) {
 		if (this._inScrollPage) return;
-		window.setTimeout(() => {
+		activeWindow.setTimeout(() => {
 			if (editor.inTableCell) {
 				this.moveToBottomVisualLineOfCell(editor);
 				this.applyRowCrossGoalColumnSync(editor, pixelGoal);
@@ -1837,7 +1837,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 		if (this._inScrollPage) return;
-		window.setTimeout(() => {
+		activeWindow.setTimeout(() => {
 			if (editor.inTableCell) {
 				this.applyRowCrossGoalColumnSync(editor, pixelGoal);
 			}
@@ -1942,6 +1942,20 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// view: when provided, used as a precise fallback via coordsAtPos when the selection
 	// rect has zero height (e.g. cursor at ch=0 of the first line).
 	private getCursorScreenY(view?: EditorView): number | null {
+		// In a popout window, the native DOM Selection can lag several
+		// frames behind CM6's own state while stepping across a table's
+		// inner-view boundaries (Obsidian recreates that DOM async) — its
+		// rect stays non-zero-height but frozen at a stale position for many
+		// calls in a row, then jumps once it finally catches up. coordsAtPos
+		// reads CM6's own layout directly and doesn't have this lag, so
+		// prefer it whenever we're actually in a popout (activeWindow !==
+		// window); the main window's own existing DOM-Selection-first
+		// behavior is left untouched since it isn't affected by this and is
+		// already known-working there.
+		if (view && activeWindow !== window) {
+			const coords = view.coordsAtPos(view.state.selection.main.head);
+			if (coords) return coords.top;
+		}
 		const sel = activeWindow.getSelection();
 		if (!sel || sel.rangeCount === 0) return null;
 		const range = sel.getRangeAt(0);
@@ -2023,7 +2037,15 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			// scrollIntoView each step keeps the cursor on-screen so table navigation
 			// functions (which rely on coordsAtPos) work correctly.
 			const getDocY = (): number | null => {
-				const y = this.getCursorScreenY(cm);
+				// Re-checked every call, not captured once: the active view can
+				// switch between the outer document and a table cell's own
+				// inner view as the loop steps across a table's boundary.
+				// coordsAtPos on the outer view alone would read a stale outer
+				// selection head while the real cursor has already moved into
+				// the inner view. The scroll container itself stays the outer
+				// document's own scrollDOM regardless.
+				const currentView = editor.activeCM ?? cm;
+				const y = this.getCursorScreenY(currentView);
 				return y !== null ? y + cm.scrollDOM.scrollTop : null;
 			};
 			const moveCursor = direction > 0
@@ -2031,6 +2053,20 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				: (e: Editor) => this.moveCursorUp(e);
 			let prev     = editor.getCursor();
 			let consumed = 0;
+			// Confirmed live in a popout window: coordsAtPos/DOM-Selection-based
+			// measurement of a table cell's inner view can return a frozen,
+			// stale Y for many consecutive steps in a row (each one a real,
+			// different logical position — the loop's own no-op check doesn't
+			// catch it) before suddenly "catching up" with one big jump —
+			// unlike the main window, where every step measures correctly.
+			// Cross-window layout reads apparently don't force the same
+			// synchronous reflow same-window ones do. A single zero/near-zero
+			// delta is still treated as genuine (the horizontal-move-only case
+			// this branch was originally written for), but once it repeats,
+			// treat it as an unmeasurable stale read and fall back to
+			// defaultLineHeight instead of silently accumulating nothing —
+			// this bounds both the stall and the eventual overshoot.
+			let consecutiveZeroDelta = 0;
 			this._inScrollPage = true;
 			try {
 				while (consumed < target) {
@@ -2047,9 +2083,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 					              ? (curDocY - prevDocY) * direction : null;
 					let step: number;
 					if (delta !== null && delta >= 1) {
+						consecutiveZeroDelta = 0;
 						step = delta;
-					} else if (delta !== null) {
+					} else if (delta !== null && consecutiveZeroDelta === 0) {
 						// |delta| < 1: horizontal movement on the same visual line, no vertical progress.
+						consecutiveZeroDelta++;
 						step = 0;
 					} else {
 						step = cm.defaultLineHeight;
@@ -2077,7 +2115,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const watchNormalization = () => {
 			if (this._scrollPageGenId !== genId) return;
 			if (cm.state.selection.main.head !== savedHead) {
-				window.setTimeout(() => {
+				activeWindow.setTimeout(() => {
 					if (this._scrollPageGenId !== genId) return;
 					cm.dispatch({ selection: { anchor: savedHead, head: savedHead } });
 					this.scrollToCursorAtY(editor, prevScreenY);
@@ -2130,6 +2168,30 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				});
 			}
 		}
+	}
+
+	// Confirmed live in a popout window (see
+	// project_popout_window_cursor_investigation memory): the cursor can
+	// render invisible after landing in a table cell there, even though the
+	// logical position is already correct. A bare second setCursorViaCm call
+	// alone doesn't fix it (tried and reverted); what does is a real layout
+	// measurement (coordsAtPos/posAtCoords) on the freshly-created inner view
+	// immediately before that second call. Two frames of deferral, matching
+	// every other "wait for Obsidian's async cell-focus reconciliation to
+	// settle" spot in this codebase. No-op outside a table cell.
+	private nudgeInnerViewVisible(editor: Editor) {
+		activeWindow.requestAnimationFrame(() => {
+			activeWindow.requestAnimationFrame(() => {
+				const inner = editor.activeCM;
+				if (inner && inner !== editor.cm) {
+					const head = inner.state.selection.main.head;
+					const coords = inner.coordsAtPos(head);
+					if (coords) inner.posAtCoords({ x: coords.left, y: coords.top + 9 }, false);
+				}
+				const current = editor.getCursor();
+				this.setCursorViaCm(editor, current.line, current.ch);
+			});
+		});
 	}
 
 	// Explicit scroll-into-view follow-up, same idiom jumpToDocumentLine/
@@ -2511,7 +2573,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			this.isDispatchingKill = true;
 			editor.setLine(targetLine, lineText.slice(0, targetCh) + lineText.slice(toCh));
 			this.isDispatchingKill = false;
-			window.setTimeout(() => {
+			activeWindow.setTimeout(() => {
 				this.isDispatchingKill = true;
 				this.setCursorViaCm(editor, targetLine, targetCh);
 				this.isDispatchingKill = false;
@@ -2531,7 +2593,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			this.isDispatchingKill = true;
 			editor.setLine(targetLine, lineText.slice(0, brStart) + lineText.slice(cursor.ch));
 			this.isDispatchingKill = false;
-			window.setTimeout(() => {
+			activeWindow.setTimeout(() => {
 				this.isDispatchingKill = true;
 				this.setCursorViaCm(editor, targetLine, brStart);
 				this.isDispatchingKill = false;
@@ -3156,7 +3218,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			const scrollEl      = editor.cm?.scrollDOM;
 			const savedScroll   = scrollEl?.scrollTop;
 			editor.setLine(targetLine, prefix + text + suffix);
-			window.setTimeout(() => {
+			activeWindow.setTimeout(() => {
 				if (scrollEl && savedScroll !== undefined) scrollEl.scrollTop = savedScroll;
 				this.setCursorViaCm(editor, targetLine, targetCh);
 			}, 0);
@@ -3976,36 +4038,13 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const maxOffset = allowPastLastChar ? segLen : Math.max(0, segLen - 1);
 		const targetCh = segInfo.startOfInCellLine + Math.min(goalCh, maxOffset);
 		this.setCursorViaCm(editor, targetLine, targetCh);
-		// Confirmed live in a popout window (see
-		// project_popout_window_cursor_investigation memory): the cursor could
-		// render invisible after a j/k or w/b/e cell/row crossing there, even
-		// though the position above is already correct. A bare second
-		// setCursorViaCm call alone didn't fix it (tried and reverted); what
-		// does is a real layout measurement (coordsAtPos/posAtCoords) on the
-		// freshly-created inner view immediately before that second call —
-		// exactly the combination gj/gk's own correction step
-		// (refineDisplayLineColumn → resolveSameLineOffset) already does by
-		// necessity, which is why gj/gk never showed this symptom. Two frames
-		// of deferral, matching every other "wait for Obsidian's async
-		// cell-focus reconciliation to settle" spot in this codebase.
-		activeWindow.requestAnimationFrame(() => {
-			activeWindow.requestAnimationFrame(() => {
-				const inner = editor.activeCM;
-				if (inner && inner !== editor.cm) {
-					const head = inner.state.selection.main.head;
-					const coords = inner.coordsAtPos(head);
-					if (coords) inner.posAtCoords({ x: coords.left, y: coords.top + 9 }, false);
-				}
-				// Re-read the logical cursor instead of re-closing over targetCh:
-				// callers like crossTableRowForWord synchronously refine this rough
-				// segment-edge landing to the real word boundary (refineWordLanding)
-				// immediately after this function returns, well before these two
-				// frames elapse. Re-dispatching the stale targetCh here would
-				// silently stomp that refinement back to the raw segment edge.
-				const current = editor.getCursor();
-				this.setCursorViaCm(editor, current.line, current.ch);
-			});
-		});
+		// Re-reads the logical cursor rather than closing over targetCh —
+		// callers like crossTableRowForWord synchronously refine this rough
+		// segment-edge landing to the real word boundary (refineWordLanding)
+		// immediately after this function returns, well before nudgeInnerViewVisible's
+		// two frames elapse; re-dispatching the stale targetCh here would
+		// silently stomp that refinement back to the raw segment edge.
+		this.nudgeInnerViewVisible(editor);
 		return { line: targetLine, ch: targetCh };
 	}
 
