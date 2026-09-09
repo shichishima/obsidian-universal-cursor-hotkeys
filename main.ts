@@ -3597,7 +3597,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		let result: { line: number; ch: number } | null;
 		if (this.isPositionInTable(e, targetLine, 1)) {
 			result = forward
-				? this.enterTableAtLine(e, targetLine, getRightmostCellIndex(e.getLine(targetLine)), false, Number.MAX_SAFE_INTEGER, 0)
+				? this.enterTableAtLine(e, targetLine, getRightmostCellIndex(e.getLine(targetLine)), false, Number.MAX_SAFE_INTEGER, 0, true)
 				: this.enterTableAtLine(e, targetLine, 0, true, 0, 0);
 		} else {
 			const lineText = e.getLine(targetLine);
@@ -3633,7 +3633,14 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// vim-support.ts's goalCellIndex (falls back to 0, matching Ctrl-N/P's own
 	// moveCursorUpIntoTable/DownIntoTable convention, when there's no remembered
 	// cell to return to).
-	enterTableAtLine(editor: unknown, targetLine: number, cellIndex: number, forward: boolean, goalCh: number, remaining: number): { line: number; ch: number } | null {
+	// allowPastLastChar: lets the final landing rest at the segment's true end
+	// (past its last character) instead of the Vim-Normal-mode-legal "on the
+	// last character" clamp landInCellSegment applies by default — only
+	// jumpToBufferEdge's own BOTTOM case wants this (real Emacs has no
+	// Normal-mode-style edge restriction); every other caller here is Vim's
+	// own gg/G, j/k table entry, or Ctrl-N/P, which do need the clamp since
+	// this position is read back as Vim's next head.
+	enterTableAtLine(editor: unknown, targetLine: number, cellIndex: number, forward: boolean, goalCh: number, remaining: number, allowPastLastChar = false): { line: number; ch: number } | null {
 		const e = editor as Editor;
 		let line = targetLine;
 		if (this.TABLE_DELIMITER_REGEX.test(e.getLine(line))) {
@@ -3648,7 +3655,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			line = forward ? line + 1 : line - 1;
 			if (line < 0 || line >= e.lineCount() || !this.isPositionInTable(e, line, 1, true)) return null;
 		}
-		return this.walkTableRows(e, cellIndex, forward, line, remaining, goalCh);
+		return this.walkTableRows(e, cellIndex, forward, line, remaining, goalCh, allowPastLastChar);
 	}
 
 	// Shared by crossTableRowForCell and enterTableAtLine: starting at startLine
@@ -3663,13 +3670,13 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// (fromLine) when even that exit hits a genuine dead end (the table's own
 	// edge row is also the document's own edge, e.g. a table starting at the
 	// document's very first line).
-	private walkTableRows(editor: Editor, cellIndex: number, forward: boolean, startLine: number, remaining: number, goalCh: number): { line: number; ch: number } | null {
+	private walkTableRows(editor: Editor, cellIndex: number, forward: boolean, startLine: number, remaining: number, goalCh: number, allowPastLastChar = false): { line: number; ch: number } | null {
 		let targetLine = startLine;
 		let fromLine = startLine;
 		for (;;) {
 			const segCount = this.countCellSegments(editor.getLine(targetLine), cellIndex);
 			if (remaining <= segCount) {
-				return this.landInCellSegment(editor, targetLine, cellIndex, forward, remaining - 1, goalCh);
+				return this.landInCellSegment(editor, targetLine, cellIndex, forward, remaining - 1, goalCh, allowPastLastChar);
 			}
 			remaining -= segCount;
 			fromLine = targetLine;
@@ -3938,7 +3945,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// rightmost cell — the caller may be remembering a wider goal cell index from
 	// a table with more columns, which this row doesn't have; clamping only
 	// affects this landing, not whatever goal value the caller keeps.
-	private landInCellSegment(editor: Editor, targetLine: number, cellIndex: number, forward: boolean, segmentOffset: number, goalCh: number): { line: number; ch: number } | null {
+	private landInCellSegment(editor: Editor, targetLine: number, cellIndex: number, forward: boolean, segmentOffset: number, goalCh: number, allowPastLastChar = false): { line: number; ch: number } | null {
 		const lineText = editor.getLine(targetLine);
 		const clampedCellIndex = Math.min(cellIndex, getRightmostCellIndex(lineText));
 		const cellStartCh = getChByCellIndex(lineText, clampedCellIndex);
@@ -3962,8 +3969,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// Same normal-mode "can't rest past last char" clamp as vim-support.ts's
 		// maxNormalModeCh — this position is read back as vim's next head once
 		// focus moves to the new inner view, so it must already be vim-legal.
+		// Skipped when allowPastLastChar is set (jumpToBufferEdge's own BOTTOM
+		// case): real Emacs has no such restriction, and clamping there landed
+		// one character short of the cell's actual content end.
 		const segLen = segInfo.endOfInCellLine - segInfo.startOfInCellLine;
-		const maxOffset = Math.max(0, segLen - 1);
+		const maxOffset = allowPastLastChar ? segLen : Math.max(0, segLen - 1);
 		const targetCh = segInfo.startOfInCellLine + Math.min(goalCh, maxOffset);
 		this.setCursorViaCm(editor, targetLine, targetCh);
 		// Confirmed live in a popout window (see

@@ -876,7 +876,7 @@ describe('VimSupportHost bridge (main.ts)', () => {
 			const editor = makeStatefulEditor(['plain', '| a | bb |'], { line: 0, ch: 0 })
 			plugin.isPositionInTable = vi.fn().mockReturnValue(true)
 			const result = plugin.jumpToBufferEdge(editor, true)
-			expect(result).toEqual({ line: 1, ch: 7 }) // rests on the final 'b' of the rightmost cell
+			expect(result).toEqual({ line: 1, ch: 8 }) // rests past the final 'b', at the cell's true content end
 		})
 	})
 
