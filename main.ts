@@ -2458,7 +2458,14 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}
 
 		if (!isLastSubLine) {
-			const afterNl = inner.state.doc.sliceString(subLine.to + 1);
+			// Scoped to just the immediately-next sub-line's own content (not
+			// sliced to the document end) — getBeginningOfLinePosition's regexes
+			// can match across a \n (it's in \s), so an unscoped slice let a
+			// blank next sub-line's own separator get treated as skippable
+			// leading whitespace, consuming an extra sub-line per kill whenever
+			// the sub-line after the one being joined was itself blank.
+			const nextSubLine = inner.state.doc.lineAt(subLine.to + 1);
+			const afterNl = inner.state.doc.sliceString(subLine.to + 1, nextSubLine.to);
 			const trimLen = this.settings.smartJoin
 				? this.getBeginningOfLinePosition(afterNl, afterNl.length || 1)
 				: 0;
