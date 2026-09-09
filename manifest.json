@@ -1,7 +1,7 @@
 {
 	"id": "universal-cursor-hotkeys",
 	"name": "Universal Cursor Hotkeys",
-	"version": "0.10.2",
+	"version": "0.11.0",
 	"minAppVersion": "1.5.0",
 	"description": "Markdown table-aware cursor navigation & Chinese/Japanese word splitting — for Vim mode, for Emacs keybindings, and for Everyone.",
 	"author": "shichishima",
