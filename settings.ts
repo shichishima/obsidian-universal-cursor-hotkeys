@@ -1,4 +1,4 @@
-import { App, ButtonComponent, Hotkey, Modifier, Platform, PluginSettingTab, Setting, ToggleComponent, sanitizeHTMLToDom } from 'obsidian';
+import { App, Hotkey, Modifier, Platform, PluginSettingTab, Setting, ToggleComponent, sanitizeHTMLToDom } from 'obsidian';
 import type universalCursorHotkeysPlugin from './main';
 
 const PLUGIN_ID = 'universal-cursor-hotkeys';
@@ -96,7 +96,65 @@ interface ObsidianInternals {
 
 const MAC_MOD:  Record<string, string> = { Ctrl: '⌃', Shift: '⇧', Alt: '⌥', Meta: '⌘', Mod: '⌘' };
 const WIN_MOD:  Record<string, string> = { Ctrl: 'Ctrl', Shift: 'Shift', Alt: 'Alt', Meta: 'Win', Mod: 'Ctrl' };
-const KEY_DISP: Record<string, string> = { PageDown: 'Page Down', PageUp: 'Page Up' };
+const KEY_DISP: Record<string, string> = {
+	PageDown: 'Page Down', PageUp: 'Page Up',
+	ArrowLeft: '←', ArrowRight: '→', ArrowUp: '↑', ArrowDown: '↓',
+};
+// Emacs QSA table's Command column: names wrap now (see .uch-cell-name-wrap),
+// but wrapping at every word boundary looked bad — most command names read
+// as one semantic unit ("Kill line", "Select all") and should stay on one
+// line regardless of column width, so every space in them is a
+// non-breaking space (U+00A0) by default. The names below are the exception:
+// each one's own last word is a genuinely separate concept from the phrase
+// before it (a direction like left/right/above/below/up/down/center, an
+// object for the Duplicate row/column pair, or just whichever word
+// happened to be the column's current width bottleneck), so only the
+// space right before it stays a real, breakable space — every earlier
+// space in the same name still becomes non-breaking.
+const CMD_NAME_LAST_WORD_BREAKS = new Set([
+	'Kill word left', 'Kill word right',
+	'Insert row above', 'Insert row below',
+	'Move row up', 'Move row down', 'Duplicate row',
+	'Insert column left', 'Insert column right',
+	'Move column left', 'Move column right',
+	'Align column left', 'Align column center', 'Align column right',
+	'Duplicate column', 'Delete row', 'Delete column',
+	'Move to cell left', 'Move to cell right', 'Move to cell below', 'Move to cell above',
+	'Exit table below', 'Exit table above',
+	// These four don't fit the "object + trailing word" framing at all
+	// (word/chars isn't a direction or a duplicate-object pattern) — added
+	// anyway since they were the column's next width bottleneck.
+	'Uppercase word', 'Lowercase word', 'Capitalize word', 'Transpose chars',
+]);
+
+// Pure decision logic (see CMD_NAME_LAST_WORD_BREAKS's own doc comment
+// above) — returns the text segments to join with <wbr> elements. A single-
+// element array means no <wbr> is needed at all (the string's own
+// space/nbsp mix already controls where it can break).
+export const wrappableCommandNameParts = (name: string): string[] => {
+	if (name === 'Recenter-top-bottom') return ['Recenter-', 'top-', 'bottom'];
+	if (CMD_NAME_LAST_WORD_BREAKS.has(name)) {
+		const words = name.split(' ');
+		const last = words.pop()!;
+		return [words.join(' ') + ' ' + last];
+	}
+	return [name.replace(/ /g, ' ')];
+};
+
+// Renders a command name into `el` with controlled wrap points.
+const renderWrappableCommandName = (el: HTMLElement, name: string): void => {
+	const parts = wrappableCommandNameParts(name);
+	parts.forEach((part, i) => {
+		el.appendText(part);
+		if (i < parts.length - 1) el.createEl('wbr');
+	});
+};
+
+// Mac keyboard cap glyphs — Backspace/Delete have no equivalent glyph
+// convention on Windows, which spells them out as plain words instead.
+const MAC_KEY_DISP: Record<string, string> = {
+	Backspace: '⌫', Delete: '⌦',
+};
 const MOD_ORDER: Record<string, number> = { Mod: 0, Ctrl: 1, Alt: 2, Shift: 3, Meta: 4 };
 
 export const normMods = (mods: string | string[]): string[] =>
@@ -107,18 +165,17 @@ export const hotkeyId = (hk: AnyHotkey): string =>
 
 export const formatHotkey = (hk: AnyHotkey, isMacOS = Platform.isMacOS): string => {
 	const mods = normMods(hk.modifiers).sort((a, b) => (MOD_ORDER[a] ?? 9) - (MOD_ORDER[b] ?? 9));
-	const key  = KEY_DISP[hk.key] ?? hk.key;
+	const key  = (isMacOS ? MAC_KEY_DISP[hk.key] : undefined) ?? KEY_DISP[hk.key] ?? hk.key;
 	return isMacOS
 		? mods.map(m => MAC_MOD[m] ?? m).join('') + ' ' + key
 		: [...mods.map(m => WIN_MOD[m] ?? m), key].join('+');
 };
 
-const SPECIAL_KEY_EXCEPTION: Partial<Record<string, string>> = {
-	'cursor-home': 'Home',
-	'cursor-end':  'End',
-	'page-up':     'PageUp',
-	'page-down':   'PageDown',
-};
+// SPECIAL_KEY_EXCEPTION is declared further below (derived from
+// KEY_UPGRADE_DEFS) — computeRow/selectCurrentChips below only reference it
+// inside their own function bodies, which don't run until display() calls
+// them, long after the whole module (including that later declaration) has
+// finished evaluating.
 
 export const selectCurrentChips = (
 	allHks: BakedHotkey[],
@@ -225,6 +282,131 @@ export const computeRow = (
 	return { name: def.name, key: recFmt, current: currentDisplay, extraCount, status: '🔵Available', conflictIds: [], action: 'set' };
 };
 
+// Key Upgrades — physical/native keys (bare, for now — Home/End/Page Up/Page
+// Down) reinforced with table- and CJK-aware behavior, for users who don't
+// care about Vim/Emacs conventions. Unlike COMMAND_DEFS/computeRow (command
+// is the subject, "which key should this command have"), the mapping here is
+// key-first and always 1:1, additive-only, never displacing another
+// command's binding — so the status model collapses to two independent
+// booleans (is this exact key currently on the target command; is this exact
+// key also held by some other command) rather than QSA's fuller
+// recommended-vs-custom-key vocabulary. See computeRow's own doc history for
+// why that fuller vocabulary doesn't apply here.
+// A per-OS (modifiers, key) pair. Every KeyUpgradeDef entry carries one of
+// each — mac and win — uniformly, even bare entries where the two are
+// identical, rather than special-casing "same key, different modifier" vs.
+// "different key entirely" (Document start/end needs the latter: Cmd+Up on
+// Mac, but Ctrl+*Home*, not Ctrl+Up, on Windows) at the type level.
+export interface KeyUpgradeHotkey {
+	modifiers: Modifier[];
+	key: string;
+}
+
+export interface KeyUpgradeDef {
+	group: 'navBasics' | 'wordCommands';
+	label: string;
+	commandId: string;
+	mac: KeyUpgradeHotkey;
+	win: KeyUpgradeHotkey;
+}
+
+export interface KeyUpgradeRow {
+	fullId: string;
+	targetHotkey: Hotkey;
+	assigned: boolean;
+	conflictIds: string[];
+}
+
+// isMacStyle mirrors formatHotkey's own isMacOS default-param pattern (an
+// explicit override for tests, defaulting to the real runtime check) —
+// Linux/Android follow the Windows-style (Ctrl-based) convention here, iOS
+// follows the Mac-style (Option/Cmd-based) one, matching each platform's own
+// real external-keyboard shortcut conventions rather than a literal
+// isMacOS/isWin/isLinux/isIosApp/isAndroidApp 5-way split.
+export const isMacStyle = (override = Platform.isMacOS || Platform.isIosApp): boolean => override;
+
+export const computeKeyUpgradeRow = (
+	def: KeyUpgradeDef,
+	effectiveHotkeys: (cmdId: string) => BakedHotkey[],
+	reverseMap: Map<string, string[]>,
+	cmds: Record<string, { name: string }> | undefined,
+	macStyle: boolean = isMacStyle(),
+): KeyUpgradeRow => {
+	const fullId  = `${PLUGIN_ID}:${def.commandId}`;
+	const { modifiers, key } = macStyle ? def.mac : def.win;
+	const targetHotkey: Hotkey = { modifiers, key };
+	const keyId   = hotkeyId(targetHotkey);
+	const assigned = effectiveHotkeys(fullId).some(hk => hotkeyId(hk) === keyId);
+	const conflictIds = (reverseMap.get(keyId) ?? []).filter(id => id !== fullId && cmds?.[id] !== undefined);
+	return { fullId, targetHotkey, assigned, conflictIds };
+};
+
+// Single source of truth for every Key Upgrades entry — also drives
+// SPECIAL_KEY_EXCEPTION below (derived, not hand-duplicated), so a bare-key
+// entry added here automatically gets the same "Apply recommended still
+// applies the Ctrl-combo even though the bare key is already set" treatment
+// Home/End/Page Up/Page Down already had, without a second place to
+// remember to update (missed once already, for Up/Down — see git history).
+// Navigation basics is bare-key (works identically on every OS, mac==win)
+// except Document start/end, which — like every wordCommands entry — is
+// OS-conditional (see KeyUpgradeHotkey's own doc comment).
+// Order within each group matches COMMAND_DEFS's own QSA ordering (cursor
+// block, then editing block) — QSA is treated as the canonical order.
+const bare = (key: string): { mac: KeyUpgradeHotkey; win: KeyUpgradeHotkey } => {
+	const hk = { modifiers: [] as Modifier[], key };
+	return { mac: hk, win: hk };
+};
+const KEY_UPGRADE_DEFS: readonly KeyUpgradeDef[] = [
+	{ group: 'navBasics', label: 'Column-aware',      commandId: 'cursor-up',   ...bare('ArrowUp')   },
+	{ group: 'navBasics', label: 'Column-aware',      commandId: 'cursor-down', ...bare('ArrowDown') },
+	{ group: 'navBasics', label: '3-step Smart home', commandId: 'cursor-home', ...bare('Home')      },
+	{ group: 'navBasics', label: 'Table-aware',       commandId: 'cursor-end',  ...bare('End')       },
+	// Windows' own document-start/end convention uses Home/End (Ctrl+Home /
+	// Ctrl+End), not the arrow keys Mac's Cmd+Up/Down uses — the key itself
+	// changes, not just the modifier. Still no conflict with the bare
+	// Home/End rows above: Ctrl+Home and bare Home are different hotkeys.
+	{ group: 'navBasics', label: 'Document start — table-aware',
+		commandId: 'cursor-top',
+		mac: { modifiers: ['Meta'], key: 'ArrowUp' }, win: { modifiers: ['Ctrl'], key: 'Home' } },
+	{ group: 'navBasics', label: 'Document end — table-aware',
+		commandId: 'cursor-bottom',
+		mac: { modifiers: ['Meta'], key: 'ArrowDown' }, win: { modifiers: ['Ctrl'], key: 'End' } },
+	{ group: 'navBasics', label: 'Table-aware',       commandId: 'page-up',     ...bare('PageUp')   },
+	{ group: 'navBasics', label: 'Table-aware',       commandId: 'page-down',   ...bare('PageDown') },
+	{ group: 'wordCommands', label: 'Word right — table & CJK aware',
+		commandId: 'word-right',
+		mac: { modifiers: ['Alt'], key: 'ArrowRight' }, win: { modifiers: ['Ctrl'], key: 'ArrowRight' } },
+	{ group: 'wordCommands', label: 'Word left — table & CJK aware',
+		commandId: 'word-left',
+		mac: { modifiers: ['Alt'], key: 'ArrowLeft' }, win: { modifiers: ['Ctrl'], key: 'ArrowLeft' } },
+	// Real macOS convention confirmed live (2026-08-28): Option, not Cmd. The
+	// physical "delete" key on a Mac keyboard sends Backspace; Fn+that key
+	// sends Delete (forward-delete) — no separate "Fn" modifier exists to
+	// bind, Fn just changes which key code is sent. Windows' own word-delete
+	// convention (Ctrl+Backspace/Delete) uses the same two physical keys, so
+	// only the modifier differs here, unlike Document start/end above.
+	{ group: 'wordCommands', label: 'Kill word left — table & CJK aware',
+		commandId: 'kill-word-left',
+		mac: { modifiers: ['Alt'], key: 'Backspace' }, win: { modifiers: ['Ctrl'], key: 'Backspace' } },
+	{ group: 'wordCommands', label: 'Kill word right — table & CJK aware',
+		commandId: 'kill-word-right',
+		mac: { modifiers: ['Alt'], key: 'Delete' }, win: { modifiers: ['Ctrl'], key: 'Delete' } },
+];
+
+// Derived from KEY_UPGRADE_DEFS's own bare (mac==win, no-modifier) entries
+// only — this exception mechanism exists specifically to let a bare
+// physical key (e.g. Home) coexist on the same command as a modified
+// QSA-recommended key (e.g. Ctrl-A) without either blocking the other's own
+// "already assigned" status. OS-conditional entries (Word left/right,
+// Document start/end, Kill word left/right) don't need it — those commands
+// have no QSA `recommended` hotkey to disambiguate against in the first
+// place.
+const SPECIAL_KEY_EXCEPTION: Partial<Record<string, string>> = Object.fromEntries(
+	KEY_UPGRADE_DEFS
+		.filter(d => d.mac.modifiers.length === 0 && d.win.modifiers.length === 0)
+		.map(d => [d.commandId, d.mac.key])
+);
+
 const ctrl = (...keys: string[]): Hotkey => ({ modifiers: ['Ctrl'], key: keys[0] });
 
 const COMMAND_DEFS: readonly CommandDef[] = [
@@ -314,18 +496,32 @@ interface RenderCtx {
 	syncToggle: () => void;
 }
 
+interface KeyUpgradeCtx {
+	hm: HotkeyManager;
+	effectiveHotkeys: (id: string) => BakedHotkey[];
+	reverseMap: Map<string, string[]>;
+	cmds: Record<string, { name: string }> | undefined;
+	toHotkey: (hk: BakedHotkey) => Hotkey;
+}
+
 export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 	plugin: universalCursorHotkeysPlugin;
 	private get individualVisible() { return this.plugin.settings.qsaIndividualVisible; }
 	private set individualVisible(v: boolean) { this.plugin.settings.qsaIndividualVisible = v; void this.plugin.saveSettings(); }
-	private get sectionVisible() { return this.plugin.settings.qsaSectionVisible; }
-	private set sectionVisible(v: boolean) { this.plugin.settings.qsaSectionVisible = v; void this.plugin.saveSettings(); }
+	private get cursorMovementVisible() { return this.plugin.settings.qsaCursorMovementVisible; }
+	private set cursorMovementVisible(v: boolean) { this.plugin.settings.qsaCursorMovementVisible = v; void this.plugin.saveSettings(); }
+	private get editingVisible() { return this.plugin.settings.qsaEditingVisible; }
+	private set editingVisible(v: boolean) { this.plugin.settings.qsaEditingVisible = v; void this.plugin.saveSettings(); }
+	private get otherHotkeysVisible() { return this.plugin.settings.qsaOtherHotkeysVisible; }
+	private set otherHotkeysVisible(v: boolean) { this.plugin.settings.qsaOtherHotkeysVisible = v; void this.plugin.saveSettings(); }
 	private get tableStructureVisible() { return this.plugin.settings.qsaTableStructureVisible; }
 	private set tableStructureVisible(v: boolean) { this.plugin.settings.qsaTableStructureVisible = v; void this.plugin.saveSettings(); }
 	private get tableNavVisible() { return this.plugin.settings.qsaTableNavVisible; }
 	private set tableNavVisible(v: boolean) { this.plugin.settings.qsaTableNavVisible = v; void this.plugin.saveSettings(); }
-	private get vimSectionVisible() { return this.plugin.settings.vimSectionVisible; }
-	private set vimSectionVisible(v: boolean) { this.plugin.settings.vimSectionVisible = v; void this.plugin.saveSettings(); }
+	private get displacedVisible() { return this.plugin.settings.qsaDisplacedVisible; }
+	private set displacedVisible(v: boolean) { this.plugin.settings.qsaDisplacedVisible = v; void this.plugin.saveSettings(); }
+	private get activeTab() { return this.plugin.settings.activeSettingsTab; }
+	private set activeTab(v: 'general' | 'vim' | 'emacs') { this.plugin.settings.activeSettingsTab = v; void this.plugin.saveSettings(); }
 
 	constructor(app: App, plugin: universalCursorHotkeysPlugin) {
 		super(app, plugin);
@@ -337,193 +533,297 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		this.containerEl.empty();
 	}
 
-	display(): void {
+	// resetScroll: true only when switching tabs — the three tabs show
+	// unrelated content, so keeping the previous tab's scroll offset would
+	// land the user somewhere arbitrary in the new one. Same-tab re-renders
+	// (any other toggle's onChange) still default to false and preserve
+	// position, per this method's own scrollTop save/restore below.
+	display(resetScroll = false): void {
 		const { containerEl } = this;
 		// containerEl is itself Obsidian's own scrollable .vertical-tab-content
 		// element — a full re-render (containerEl.empty() + rebuild, triggered
 		// by many toggles' own onChange) otherwise resets scroll position to 0
 		// with no restoration, causing a visible jump on every such toggle.
-		const scrollTop = containerEl.scrollTop;
+		const scrollTop = resetScroll ? 0 : containerEl.scrollTop;
 		containerEl.empty();
 
-		// Must run before renderHotkeyManager: it may flip sectionVisible
-		// (collapsing QSA), and renderHotkeyManager reads that value to decide
-		// how it renders — a later call (its other call site, inside
-		// renderVimSection, kept as a no-op safety net via its own one-time
-		// guard) would be too late to affect this same render pass.
+		// Must run before renderQsaFrame: it may flip activeTab (switching to
+		// the Vim tab), which renderQsaFrame reads to decide which tab to render.
 		this.maybeAutoExpandVimSection();
 
-		this.renderHotkeyManager(containerEl);
+		this.renderQsaFrame(containerEl);
 
-		new Setting(containerEl)
-			.setName('Visual line movement')
-			.then(setting => this.setHtmlDesc(setting, '' +
-				'<b>ON:</b> HOME/END first moves to the visual line edge, then to the logical line start/end.<br>' +
-				'<b>OFF:</b> Moves directly to the logical line start/end.'))
-			.addToggle(toggle => toggle
-				.setValue(this.plugin.settings.visualLineMovement)
-				.onChange(async (value) => {
-					this.plugin.settings.visualLineMovement = value;
-					await this.plugin.saveSettings();
-				}));
+		containerEl.scrollTop = scrollTop;
+	}
 
-		let advancedEl: HTMLElement;
+	// Behavior Options used to be one fixed block shown below all three tabs
+	// regardless of which was active — but each option only actually affects
+	// a subset of tabs (Smart home affects all three; Smart join affects
+	// Vim's `J` and Emacs's Kill Line join-at-EOL step; Visual line movement
+	// and Cross-row navigation are Emacs-only; Double-click word select is
+	// the only genuinely tab-agnostic one). Moved into each relevant tab's
+	// own content instead, so a tab never shows an option it has no bearing
+	// on. Smart home (standard/advanced) is the one option shared by all
+	// three tabs — rendered independently in each (same underlying setting,
+	// same onChange), since only one tab's content exists in the DOM at a
+	// time anyway.
+	//
+	// Each toggle renders as a row in that tab's own shared table (same "one
+	// <table>, many <tbody> groups" idiom as renderKeyUpgradeGroup), not a
+	// standalone Setting block — colspan merges every column but the last
+	// into one cell so the toggle itself lands in the same column as every
+	// other row's own toggle/action cell in that table (Key Upgrades: 4
+	// columns → colspan 3; Vim: 3 → colspan 2; Emacs: 5 → colspan 4). The
+	// merged cell still uses Obsidian's own .setting-item-name/
+	// .setting-item-description classes, so the name/description keep
+	// their normal Setting-block typography despite no longer living
+	// inside an actual Setting.
+
+	// Group title row — a new tbody appended to the tab's own table.
+	// colspan = that table's full column count.
+	private renderBehaviorOptionsTitle(table: HTMLElement, colspan: number): HTMLElement {
+		const tbody = table.createEl('tbody');
+		const titleCell = tbody.createEl('tr').createEl('td');
+		titleCell.colSpan = colspan;
+		titleCell.addClass('uch-title-cell', 'uch-behavior-title-cell');
+		titleCell.createDiv({ text: 'Behavior options', cls: 'uch-title-text' });
+		return tbody;
+	}
+
+	// One toggle row. No this.display() on change (unlike Key Upgrade rows)
+	// — nothing else on screen depends on a Behavior option's own value, so
+	// the toggle's own setValue() is enough, matching this block's original
+	// (pre-table) Setting-based behavior.
+	private renderBehaviorToggleRow(
+		tbody: HTMLElement,
+		colspan: number,
+		name: string,
+		descHtml: string,
+		value: boolean,
+		onChange: (value: boolean) => void,
+	): { tr: HTMLTableRowElement; toggle: ToggleComponent } {
+		const tr = tbody.createEl('tr');
+		tr.addClass('uch-row-thin', 'uch-behavior-row');
+		const td = tr.createEl('td', { cls: 'uch-behavior-cell' });
+		td.colSpan = colspan;
+		td.createDiv({ text: name, cls: 'setting-item-name' });
+		td.createDiv({ cls: 'setting-item-description' }).appendChild(sanitizeHTMLToDom(descHtml));
+		const tdToggle = tr.createEl('td', { cls: 'uch-cell-toggle' });
+		const toggle = new ToggleComponent(tdToggle);
+		toggle.setValue(value);
+		toggle.onChange((v) => onChange(v));
+		return { tr, toggle };
+	}
+
+	// Smart home (standard/advanced), optionally with Smart join alongside
+	// it (Vim and Emacs both need Smart join; Key Upgrades' bare HOME has no
+	// join-adjacent command, so it omits it). The standard→advanced/join
+	// disable-cascade is scoped to whichever toggles this call actually
+	// renders.
+	private renderSmartHomeToggles(tbody: HTMLElement, colspan: number, includeSmartJoin: boolean, onAnyChange?: () => void): void {
+		let advancedRow: HTMLTableRowElement;
 		let advancedToggle: ToggleComponent;
-		let smartJoinEl: HTMLElement;
-		let smartJoinToggle: ToggleComponent;
+		let joinRow: HTMLTableRowElement | undefined;
+		let joinToggle: ToggleComponent | undefined;
 		const setStandardDisabled = (disabled: boolean) => {
-			advancedEl.style.opacity       = disabled ? '0.4' : '';
-			advancedEl.style.pointerEvents = disabled ? 'none' : '';
-			smartJoinEl.style.opacity       = disabled ? '0.4' : '';
-			smartJoinEl.style.pointerEvents = disabled ? 'none' : '';
+			advancedRow.style.opacity       = disabled ? '0.4' : '';
+			advancedRow.style.pointerEvents = disabled ? 'none' : '';
 			if (disabled && this.plugin.settings.smartHomeAdvanced) {
 				this.plugin.settings.smartHomeAdvanced = false;
 				advancedToggle.setValue(false);
 				void this.plugin.saveSettings();
 			}
-			if (disabled && this.plugin.settings.smartJoin) {
-				this.plugin.settings.smartJoin = false;
-				smartJoinToggle.setValue(false);
-				void this.plugin.saveSettings();
+			if (joinRow) {
+				joinRow.style.opacity       = disabled ? '0.4' : '';
+				joinRow.style.pointerEvents = disabled ? 'none' : '';
+				if (disabled && this.plugin.settings.smartJoin) {
+					this.plugin.settings.smartJoin = false;
+					joinToggle!.setValue(false);
+					void this.plugin.saveSettings();
+				}
 			}
 		};
 
-		new Setting(containerEl)
-			.setName('Smart home (standard)')
-			.then(setting => this.setHtmlDesc(setting, '' +
-				'<b>ON:</b> HOME skips leading Markdown syntax (lists, checkboxes, indents, etc.) to reach content start — Windows Home / macOS Cmd+← style.<br>' +
-				'<b>OFF:</b> HOME moves directly to the start of the line — macOS / Emacs Ctrl+A style.'))
-			.addToggle(toggle => toggle
-				.setValue(this.plugin.settings.smartHomeStandard)
-				.onChange(async (value) => {
-					this.plugin.settings.smartHomeStandard = value;
-					setStandardDisabled(!value);
-					await this.plugin.saveSettings();
-				}));
+		this.renderBehaviorToggleRow(tbody, colspan, 'Smart home (standard)', '' +
+			'<b>ON:</b> HOME skips leading Markdown syntax (lists, checkboxes, indents, etc.) to reach content start — Windows Home / macOS Cmd+← style.<br>' +
+			'<b>OFF:</b> HOME moves directly to the start of the line — macOS / Emacs Ctrl+A style.',
+			this.plugin.settings.smartHomeStandard,
+			(value) => {
+				this.plugin.settings.smartHomeStandard = value;
+				setStandardDisabled(!value);
+				void this.plugin.saveSettings();
+				onAnyChange?.();
+			});
 
-		advancedEl = new Setting(containerEl)
-			.setName('Smart home (advanced)')
-			.then(setting => this.setHtmlDesc(setting, '' +
-				'<b>ON:</b> Also skips past headings (<code>#</code>), footnotes (<code>[^1]:</code>), and callout type markers (<code>[!type]</code>).<br>' +
-				'<i>Requires <b>Smart home (standard)</b> to be enabled.</i>'))
-			.addToggle(toggle => {
-				advancedToggle = toggle;
-				toggle.setValue(this.plugin.settings.smartHomeAdvanced)
-					.onChange(async (value) => {
-						this.plugin.settings.smartHomeAdvanced = value;
-						await this.plugin.saveSettings();
-					});
-			})
-			.settingEl;
+		const advancedResult = this.renderBehaviorToggleRow(tbody, colspan, 'Smart home (advanced)', '' +
+			'<b>ON:</b> Also skips past headings (<code>#</code>), footnotes (<code>[^1]:</code>), and callout type markers (<code>[!type]</code>).<br>' +
+			'<i>Requires <b>Smart home (standard)</b> to be enabled.</i>',
+			this.plugin.settings.smartHomeAdvanced,
+			(value) => {
+				this.plugin.settings.smartHomeAdvanced = value;
+				void this.plugin.saveSettings();
+				onAnyChange?.();
+			});
+		advancedRow = advancedResult.tr;
+		advancedToggle = advancedResult.toggle;
 
-		smartJoinEl = new Setting(containerEl)
-			.setName('Smart join')
-			.then(setting => this.setHtmlDesc(setting, '' +
-				'<b>ON:</b> Kill Line join lands at the next line\'s content start, removing blockquote markers, list markers, and indentation. Pairs with Smart home (advanced) for headings and footnotes.<br>' +
+		if (includeSmartJoin) {
+			const joinResult = this.renderBehaviorToggleRow(tbody, colspan, 'Smart join', '' +
+				'<b>ON:</b> Kill Line join (Emacs) and <code>J</code> (Vim) land at the next line\'s content start, removing blockquote markers, list markers, and indentation. Pairs with Smart home (advanced) for headings and footnotes.<br>' +
 				'<b>OFF:</b> Joins the next line as-is.<br>' +
-				'<i>Requires <b>Smart home (standard)</b> to be enabled.</i>'))
-			.addToggle(toggle => {
-				smartJoinToggle = toggle;
-				toggle.setValue(this.plugin.settings.smartJoin)
-					.onChange(async (value) => {
-						this.plugin.settings.smartJoin = value;
-						await this.plugin.saveSettings();
-					});
-			})
-			.settingEl;
-
-		new Setting(containerEl)
-			.setName('Cross-row navigation')
-			.then(setting => this.setHtmlDesc(setting, '' +
-				'<b>ON:</b> LEFT/HOME at the leftmost cell and RIGHT/END at the rightmost cell wrap to the adjacent row.<br>' +
-				'<b>OFF:</b> Stops at the boundary.'))
-			.addToggle(toggle => toggle
-				.setValue(this.plugin.settings.crossRowNavigation)
-				.onChange(async (value) => {
-					this.plugin.settings.crossRowNavigation = value;
-					await this.plugin.saveSettings();
-				}));
-
-		new Setting(containerEl)
-			.setName('Double-click word select')
-			.then(setting => this.setHtmlDesc(setting, '' +
-				'<b>ON:</b> Selects just the CJK word at the click position, not the whole unbroken run — dragging extends a word at a time.<br>' +
-				'<b>OFF:</b> Uses Obsidian\'s native double-click selection.'))
-			.addToggle(toggle => toggle
-				.setValue(this.plugin.settings.cjkDoubleClickWordSelect)
-				.onChange(async (value) => {
-					this.plugin.settings.cjkDoubleClickWordSelect = value;
-					await this.plugin.saveSettings();
-				}));
-
-		this.renderVimSection(containerEl);
+				'<i>Requires <b>Smart home (standard)</b> to be enabled.</i>',
+				this.plugin.settings.smartJoin,
+				(value) => {
+					this.plugin.settings.smartJoin = value;
+					void this.plugin.saveSettings();
+					onAnyChange?.();
+				});
+			joinRow = joinResult.tr;
+			joinToggle = joinResult.toggle;
+		}
 
 		setStandardDisabled(!this.plugin.settings.smartHomeStandard);
-		containerEl.scrollTop = scrollTop;
+	}
+
+	// LEFT/HOME/RIGHT/END row-wrapping behavior. Rendered on the Emacs tab
+	// (LEFT/RIGHT are Emacs-only, no bare-key equivalent) and the For
+	// everyone tab (cursor-home/cursor-end are the same shared command as
+	// Emacs's Ctrl+A/E, so this setting reaches For everyone's own bare
+	// Home/End too, even without a Left/Right toggle to go with it there).
+	private renderCrossRowNavigationToggle(tbody: HTMLElement, colspan: number, onAnyChange?: () => void): void {
+		this.renderBehaviorToggleRow(tbody, colspan, 'Cross-row navigation', '' +
+			'<b>ON:</b> LEFT/HOME at the leftmost cell and RIGHT/END at the rightmost cell wrap to the adjacent row.<br>' +
+			'<b>OFF:</b> Stops at the boundary.',
+			this.plugin.settings.crossRowNavigation,
+			(value) => {
+				this.plugin.settings.crossRowNavigation = value;
+				void this.plugin.saveSettings();
+				onAnyChange?.();
+			});
+	}
+
+	// HOME/END's visual-line-first step. Rendered on both the Emacs tab and
+	// the For everyone tab — cursor-home/cursor-end are the same shared
+	// command as Emacs's Ctrl+A/E, so this setting affects For everyone's
+	// own bare Home/End too, not just Emacs's.
+	private renderVisualLineMovementToggle(tbody: HTMLElement, colspan: number, onAnyChange?: () => void): void {
+		this.renderBehaviorToggleRow(tbody, colspan, 'Visual line movement', '' +
+			'<b>ON:</b> HOME/END first moves to the visual line edge, then to the logical line start/end.<br>' +
+			'<b>OFF:</b> Moves directly to the logical line start/end.',
+			this.plugin.settings.visualLineMovement,
+			(value) => {
+				this.plugin.settings.visualLineMovement = value;
+				void this.plugin.saveSettings();
+				onAnyChange?.();
+			});
+	}
+
+	// Tab-agnostic: works the same regardless of Vim/Emacs/Key Upgrades usage
+	// — lives in the "For everyone" tab as the one option genuinely for everyone.
+	private renderDoubleClickWordSelectToggle(tbody: HTMLElement, colspan: number, onAnyChange?: () => void): void {
+		this.renderBehaviorToggleRow(tbody, colspan, 'Double-click word select', '' +
+			'<b>ON:</b> Selects just the CJK word at the click position, not the whole unbroken run — dragging extends a word at a time.<br>' +
+			'<b>OFF:</b> Uses Obsidian\'s native double-click selection.',
+			this.plugin.settings.cjkDoubleClickWordSelect,
+			(value) => {
+				this.plugin.settings.cjkDoubleClickWordSelect = value;
+				void this.plugin.saveSettings();
+				onAnyChange?.();
+			});
 	}
 
 	// One-time nudge: if the user opens settings with Obsidian's own "Vim key
-	// bindings" core setting on and has never seen this auto-expand fire
-	// before, expand the Vim support section for visibility — and collapse
-	// QSA at the same time, since a Vim-mode user has little use for the
-	// Emacs-style Ctrl+P/N/B/F/A/E cursor hotkeys it manages. Never fires
-	// again afterward, so it never fights a user's own later Show/Hide choice
-	// on either section (see the vimAutoExpandDone doc comment in main.ts).
+	// bindings" core setting on and has never seen this auto-switch fire
+	// before, switch to the Vim tab, since a Vim-mode user likely wants that
+	// tab first. Never fires again afterward, so it never fights a user's
+	// own later tab choice (see the vimAutoExpandDone doc comment in main.ts).
 	private maybeAutoExpandVimSection(): void {
 		if (this.plugin.settings.vimAutoExpandDone) return;
 		const vault = (this.app as unknown as ObsidianInternals).vault;
 		const vimModeOn = vault.getConfig?.('vimMode') === true;
 		if (!vimModeOn) return;
-		this.vimSectionVisible = true;
-		this.sectionVisible = false;
+		this.activeTab = 'vim';
 		this.plugin.settings.vimAutoExpandDone = true;
 		void this.plugin.saveSettings();
 	}
 
-	// keys: e.g. ['h','l','x']. label: e.g. 'Character movement'.
-	private setKeyChipName(setting: Setting, keys: string[], label: string): void {
-		const nameEl = setting.nameEl;
-		nameEl.empty();
-		for (const key of keys) {
-			nameEl.createSpan({ text: key, cls: 'uch-kbd' });
-			nameEl.appendText(' ');
+	// Vim tab's compact toggle rows (key chip | short label | toggle) — no
+	// status column like Key Upgrades' own table, since these aren't
+	// key/command bindings with a conflict concept; just existing native vim
+	// keys getting a behavior upgrade. tooltip surfaces a live prerequisite
+	// (e.g. Smart home (standard) must be on) without repeating it as prose —
+	// note the toggle itself isn't disabled by an unmet prerequisite, since
+	// every one of these already self-gates at call time (falls back to
+	// vim's own native behavior until the prerequisite is turned on).
+	private renderVimToggleRow(tbody: HTMLElement, keys: string[], label: string, value: boolean, onChange: (value: boolean) => void, tooltip?: string): void {
+		const tr = tbody.createEl('tr');
+		tr.addClass('uch-row-thin');
+
+		const tdKey = tr.createEl('td', { cls: 'uch-cell-name' });
+		for (const k of keys) {
+			tdKey.createSpan({ text: k, cls: 'uch-kbd' });
+			tdKey.appendText(' ');
 		}
-		nameEl.appendText(label);
+
+		tr.createEl('td', { text: label, cls: 'uch-tab-row-label' });
+
+		const tdToggle = tr.createEl('td', { cls: 'uch-cell-toggle' });
+		if (tooltip) tdToggle.title = tooltip;
+		const toggle = new ToggleComponent(tdToggle);
+		toggle.setValue(value);
+		toggle.onChange((v) => {
+			onChange(v);
+			this.display();
+		});
 	}
 
-	// Every Vim toggle "Apply all" sets — used to compute its own disabled
-	// state (already fully applied?). Every setting here triggers a full
-	// this.display() re-render on its own change, which recomputes this
-	// fresh, so no separate update path is needed beyond that.
-	private eligibleVimSettings(): boolean[] {
-		const s = this.plugin.settings;
-		return [s.vimHlSupport, s.vimJkSupport, s.vimWordSupport, s.vimGgSupport, s.vimDisplayLineSupport, s.vimEolSupport, s.vimTableStructureSupport, s.vimTableNavigationSupport, s.vimCaretSupport, s.vimJoinSupport];
+	// Vim tab's richer "Table commands" rows (Table structure/navigation) —
+	// row 1 is the same 3-column shape as renderVimToggleRow (key chip |
+	// label | toggle), so key chips and toggles still align with the Motion
+	// Upgrades rows above in the same shared table; row 2 is a full-width,
+	// indented detail row (ON/command-table/OFF), styled to match this
+	// content's original look from before it lived in a table (a Setting's
+	// own .setting-item-description sizing/color).
+	private renderVimCommandRow(tbody: HTMLElement, keys: string[], label: string, detailHtml: string, value: boolean, onChange: (value: boolean) => void): void {
+		const tr = tbody.createEl('tr');
+		tr.addClass('uch-row-thin');
+
+		// Key chip(s) + label share one cell — keeping them as separate
+		// columns left an inconsistent gap depending on the leader key's own
+		// width (e.g. "\" vs "Space"), and they read as one continuous label
+		// anyway ("[Space] [t] Table structure...").
+		const tdKey = tr.createEl('td', { cls: 'uch-cell-name' });
+		tdKey.colSpan = 2;
+		for (const k of keys) {
+			tdKey.createSpan({ text: k, cls: 'uch-kbd' });
+			tdKey.appendText(' ');
+		}
+		tdKey.createSpan({ text: label, cls: 'uch-tab-row-label' });
+
+		const tdToggle = tr.createEl('td', { cls: 'uch-cell-toggle' });
+		const toggle = new ToggleComponent(tdToggle);
+		toggle.setValue(value);
+		toggle.onChange((v) => {
+			onChange(v);
+			this.display();
+		});
+
+		const detailTr = tbody.createEl('tr');
+		detailTr.addClass('uch-row-thin');
+		const detailTd = detailTr.createEl('td', { cls: 'uch-vim-cmd-detail' });
+		detailTd.colSpan = 3;
+		detailTd.appendChild(sanitizeHTMLToDom(detailHtml));
 	}
 
-	private renderVimSection(containerEl: HTMLElement): void {
-		this.maybeAutoExpandVimSection();
-
-		const vimSectionEls: HTMLElement[] = [];
-
-		new Setting(containerEl)
-			.setName('Vim support')
-			.then(setting => {
-				setting.nameEl.createSpan({ text: 'experimental', cls: 'uch-vim-badge' });
-				this.setHtmlDesc(setting,
-					'Fixes native gaps in Obsidian\'s built-in Vim mode inside Live Preview table cells, ' +
-					'extends a few motions with this plugin\'s Smart home / Smart join, ' +
-					'and adds leader-key commands for table structure editing and cell navigation. ' +
-					'If you\'re using Vim mode, you likely won\'t need the Quick setup assistant above — ' +
-					'that manages this plugin\'s Emacs-style Ctrl+P/N/B/F/A/E hotkeys instead.');
-			})
-			.addButton(btn => {
-				btn.setButtonText(this.vimSectionVisible ? 'Hide' : 'Show');
-				btn.onClick(() => {
-					this.vimSectionVisible = !this.vimSectionVisible;
-					btn.setButtonText(this.vimSectionVisible ? 'Hide' : 'Show');
-					for (const el of vimSectionEls) el.toggleClass('uch-hidden', !this.vimSectionVisible);
-				});
-			});
+	// Vim mode tab content — the frame's own header/tab-bar (renderQsaFrame)
+	// owns visibility now, so this only renders once the Vim tab is actually
+	// selected; no own Show/Hide, no own visibility bookkeeping needed.
+	private renderVimTabContent(containerEl: HTMLElement): void {
+		const vimHeaderEl = containerEl.createDiv({ cls: 'uch-tab-header-section' });
+		vimHeaderEl.createDiv({
+			cls: 'uch-tab-row-desc',
+			text: "Fixes Obsidian's built-in Vim mode's cursor behavior inside Markdown tables, and adds commands for table editing and navigation.",
+		});
 
 		const restartBanner = new Setting(containerEl)
 			.setClass('uch-vim-item')
@@ -540,241 +840,113 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 				}));
 		restartBanner.settingEl.toggleClass('uch-hidden', !this.plugin.vimSupport.needsRestart);
 
-		const leaderChoice = new Setting(containerEl)
-			.setClass('uch-vim-item')
-			.setName('Leader key')
-			.then(setting => this.setHtmlDesc(setting, '' +
-				'<b>ON:</b> Table structure/navigation commands below use <span class="uch-kbd">\\</span> as the leader key.<br>' +
-				'<b>OFF:</b> Uses <span class="uch-kbd">Space</span> as the leader key (default).<br>' +
-				'<i>Only affects table structure/navigation below — has no effect on its own.</i>'))
-			.addToggle(toggle => toggle
-				.setValue(this.plugin.settings.vimLeaderUseBackslash)
-				.onChange((value) => {
-					this.plugin.vimSupport.setLeaderUseBackslash(value);
-					this.display();
-				}));
-		vimSectionEls.push(leaderChoice.settingEl);
+		const vimTable = containerEl.createEl('table');
+		vimTable.addClass('uch-table');
 
-		// "Apply all" — turns on every item below unconditionally. `^`/`I` and
-		// `J` are included regardless of their own prerequisite (Smart home
-		// (standard) / Smart join, both outside this section) — both self-gate
-		// live at call time (falling back to vim's own native behavior when
-		// their prerequisite is off), so there's no correctness reason to skip
-		// them, only a cosmetic one this button doesn't need to care about.
-		const applyAll = new Setting(containerEl)
-			.setClass('uch-vim-item')
-			.setName('Apply all')
-			.then(setting => this.setHtmlDesc(setting, 'Turns on everything below.'))
-			.addButton(btn => {
-				btn.setButtonText('Apply all');
-				btn.setCta();
-				btn.setDisabled(this.eligibleVimSettings().every(v => v));
-				btn.onClick(() => {
-					this.plugin.vimSupport.setHlEnabled(true);
-					this.plugin.vimSupport.setJkEnabled(true);
-					this.plugin.vimSupport.setWordsEnabled(true);
-					this.plugin.vimSupport.setGgEnabled(true);
-					this.plugin.vimSupport.setDisplayLinesEnabled(true);
-					this.plugin.vimSupport.setEolEnabled(true);
-					this.plugin.vimSupport.setTableStructureEnabled(true);
-					this.plugin.vimSupport.setTableNavigationEnabled(true);
-					this.plugin.vimSupport.setCaretEnabled(true);
-					this.plugin.vimSupport.setJoinEnabled(true);
-					this.display();
-				});
-			});
-		vimSectionEls.push(applyAll.settingEl);
+		const motionTbody = vimTable.createEl('tbody');
+		const motionTitleCell = motionTbody.createEl('tr').createEl('td');
+		motionTitleCell.colSpan = 3;
+		motionTitleCell.addClass('uch-title-cell');
+		motionTitleCell.createDiv({ text: 'Motion upgrades', cls: 'uch-title-text' });
+		motionTitleCell.createDiv({
+			text: "Each toggle below replaces one native motion in Obsidian's own built-in Vim mode — turning it off restores its original, unmodified behavior.",
+			cls: 'uch-tab-row-group-desc',
+		});
+		motionTitleCell.createDiv({
+			text: 'Smart home / Smart join extend cursor movement and line joining to be more Markdown-aware, once enabled further down this page.',
+			cls: 'uch-tab-row-group-desc',
+		});
+		this.renderVimToggleRow(motionTbody, ['h', 'l', 'x'], 'Table-aware',
+			this.plugin.settings.vimHlSupport,
+			(v) => this.plugin.vimSupport.setHlEnabled(v));
+		this.renderVimToggleRow(motionTbody, ['j', 'k'], 'Column-aware',
+			this.plugin.settings.vimJkSupport,
+			(v) => this.plugin.vimSupport.setJkEnabled(v));
+		this.renderVimToggleRow(motionTbody, ['w', 'b', 'e'], 'Table & CJK aware',
+			this.plugin.settings.vimWordSupport,
+			(v) => this.plugin.vimSupport.setWordsEnabled(v));
+		this.renderVimToggleRow(motionTbody, ['gg', 'G'], 'Table-aware',
+			this.plugin.settings.vimGgSupport,
+			(v) => this.plugin.vimSupport.setGgEnabled(v));
+		this.renderVimToggleRow(motionTbody, ['gj', 'gk'], 'Column-aware',
+			this.plugin.settings.vimDisplayLineSupport,
+			(v) => this.plugin.vimSupport.setDisplayLinesEnabled(v));
+		this.renderVimToggleRow(motionTbody, ['$'], 'Sticky column',
+			this.plugin.settings.vimEolSupport,
+			(v) => this.plugin.vimSupport.setEolEnabled(v));
+		this.renderVimToggleRow(motionTbody, ['^', 'I'], 'Smart home',
+			this.plugin.settings.vimCaretSupport,
+			(v) => this.plugin.vimSupport.setCaretEnabled(v),
+			'Requires Smart home (standard) to be enabled — also follows whatever Smart home (advanced) is set to.');
+		this.renderVimToggleRow(motionTbody, ['J'], 'Smart join',
+			this.plugin.settings.vimJoinSupport,
+			(v) => this.plugin.vimSupport.setJoinEnabled(v),
+			'Requires Smart join to be enabled.');
+		const motionSpacerTd = motionTbody.createEl('tr').createEl('td', { cls: 'uch-block-spacer' });
+		motionSpacerTd.colSpan = 3;
 
-		const hl = new Setting(containerEl)
-			.setClass('uch-vim-item')
-			.then(setting => {
-				this.setKeyChipName(setting, ['h', 'l', 'x'], 'Character movement');
-				this.setHtmlDesc(setting, '' +
-					'<b>ON:</b> Moves by character correctly inside table cells — no multi-byte miscounting, no wrong jumps at line boundaries. ' +
-					'<span class="uch-kbd">x</span> behaves the same way at cell boundaries.<br>' +
-					'<b>OFF:</b> Vim\'s own native <span class="uch-kbd">h</span> <span class="uch-kbd">l</span> <span class="uch-kbd">x</span>, unchanged.');
-			})
-			.addToggle(toggle => toggle
-				.setValue(this.plugin.settings.vimHlSupport)
-				.onChange((value) => {
-					this.plugin.vimSupport.setHlEnabled(value);
-					this.display();
-				}));
-		vimSectionEls.push(hl.settingEl);
+		const tableCmdTbody = vimTable.createEl('tbody');
+		const tableCmdTitleCell = tableCmdTbody.createEl('tr').createEl('td');
+		tableCmdTitleCell.colSpan = 3;
+		tableCmdTitleCell.addClass('uch-title-cell');
+		const tableCmdTitleFlex = tableCmdTitleCell.createDiv('uch-title-flex');
+		tableCmdTitleFlex.createSpan({ text: 'Table commands', cls: 'uch-title-text' });
+		const applyBothBtn = tableCmdTitleFlex.createEl('button', { text: 'Apply both' });
+		applyBothBtn.addClass('mod-cta', 'uch-apply-btn');
+		if (this.plugin.settings.vimTableStructureSupport && this.plugin.settings.vimTableNavigationSupport) {
+			applyBothBtn.disabled = true;
+		}
+		applyBothBtn.addEventListener('click', () => {
+			this.plugin.vimSupport.setTableStructureEnabled(true);
+			this.plugin.vimSupport.setTableNavigationEnabled(true);
+			this.display();
+		});
 
-		const jk = new Setting(containerEl)
-			.setClass('uch-vim-item')
-			.then(setting => {
-				this.setKeyChipName(setting, ['j', 'k'], 'Line movement');
-				this.setHtmlDesc(setting, '' +
-					'<b>ON:</b> Crosses row boundaries the same way Ctrl+N/P already do, and stops correctly inside multi-line cells — preserving column position throughout.<br>' +
-					'<b>OFF:</b> Vim\'s own native <span class="uch-kbd">j</span> <span class="uch-kbd">k</span>, unchanged.');
-			})
-			.addToggle(toggle => toggle
-				.setValue(this.plugin.settings.vimJkSupport)
-				.onChange((value) => {
-					this.plugin.vimSupport.setJkEnabled(value);
-					this.display();
-				}));
-		vimSectionEls.push(jk.settingEl);
+		const leader = this.plugin.settings.vimLeaderUseBackslash ? '\\' : 'Space';
+		const kbd = (s: string) => '<span class="uch-kbd">' + leader + '</span> <span class="uch-kbd">' + s + '</span>';
+		const kbdMulti = (...keys: string[]) => '<span class="uch-kbd">' + leader + '</span> ' + keys.map(k => '<span class="uch-kbd">' + k + '</span>').join(' / ');
 
-		const words = new Setting(containerEl)
-			.setClass('uch-vim-item')
-			.then(setting => {
-				this.setKeyChipName(setting, ['w', 'b', 'e'], 'Word motion');
-				this.setHtmlDesc(setting, '' +
-					'<b>ON:</b> Crosses cell/row boundaries the same way vim\'s own word motions cross lines — reaching the end of the table exits into the surrounding text, matching vim\'s own document-wide behavior.<br>' +
-					'<b>OFF:</b> Vim\'s own native <span class="uch-kbd">w</span> <span class="uch-kbd">b</span> <span class="uch-kbd">e</span> (and <span class="uch-kbd">W</span>/<span class="uch-kbd">B</span>/<span class="uch-kbd">E</span>/<span class="uch-kbd">ge</span>/<span class="uch-kbd">gE</span>), unchanged.');
-			})
-			.addToggle(toggle => toggle
-				.setValue(this.plugin.settings.vimWordSupport)
-				.onChange((value) => {
-					this.plugin.vimSupport.setWordsEnabled(value);
-					this.display();
-				}));
-		vimSectionEls.push(words.settingEl);
+		this.renderVimCommandRow(tableCmdTbody, [leader, 't'], 'Table structure (16 commands)', '' +
+			'<b>ON:</b> Wraps the commands below. While this is on, a bare press of the leader key no longer behaves as vim\'s own native binding (Space normally moves right).' +
+			'<table class="uch-vim-cmd-table">' +
+			'<tr><th></th><th>Row</th><th>Column</th></tr>' +
+			'<tr><td>Insert</td><td>' + kbdMulti('t o', 't O') + '<br>' + kbdMulti('t i J', 't i K') + '<br>(below/above)</td><td>' + kbdMulti('t i H', 't i L') + '<br>(left/right)</td></tr>' +
+			'<tr><td>Move</td><td>' + kbdMulti('t K', 't J') + '<br>(up/down)</td><td>' + kbdMulti('t H', 't L') + '<br>(left/right)</td></tr>' +
+			'<tr><td>Delete</td><td>' + kbd('t d d') + '</td><td>' + kbd('t d c') + '</td></tr>' +
+			'<tr><td>Duplicate</td><td>' + kbd('t y y p') + '</td><td>' + kbd('t y c') + '</td></tr>' +
+			'<tr><td>Align</td><td></td><td>' + kbdMulti('t a l', 't a c', 't a r') + '<br>(left/center/right)</td></tr>' +
+			'<tr><td>Insert table</td><td colspan="2">' + kbd('t m') + '</td></tr>' +
+			'</table>' +
+			'<b>OFF:</b> No leader-key table structure commands are bound.',
+			this.plugin.settings.vimTableStructureSupport,
+			(v) => this.plugin.vimSupport.setTableStructureEnabled(v));
 
-		const gg = new Setting(containerEl)
-			.setClass('uch-vim-item')
-			.then(setting => {
-				this.setKeyChipName(setting, ['gg', 'G'], 'Document start/end')
-				this.setHtmlDesc(setting, '' +
-					'<b>ON:</b> Always reaches the note\'s actual first/last line — including exiting a table cell entirely, and landing correctly inside a table row if the note happens to start or end with one.<br>' +
-					'<b>OFF:</b> Vim\'s own native <span class="uch-kbd">gg</span> <span class="uch-kbd">G</span>, unchanged.');
-			})
-			.addToggle(toggle => toggle
-				.setValue(this.plugin.settings.vimGgSupport)
-				.onChange((value) => {
-					this.plugin.vimSupport.setGgEnabled(value);
-					this.display();
-				}));
-		vimSectionEls.push(gg.settingEl);
+		this.renderVimCommandRow(tableCmdTbody, [leader, 't'], 'Table navigation (6 commands)', '' +
+			'<b>ON:</b> Adds the commands below. While this is on, a bare press of the leader key no longer behaves as vim\'s own native binding (Space normally moves right).' +
+			'<table class="uch-vim-cmd-table">' +
+			'<tr><th></th><th>Row</th><th>Column</th></tr>' +
+			'<tr><td>Move to cell</td><td>' + kbdMulti('t j', 't k') + '<br>(below/above)</td><td>' + kbdMulti('t h', 't l') + '<br>(left/right)</td></tr>' +
+			'<tr><td>Exit table</td><td colspan="2">' + kbdMulti('t x', 't X') + '<br>(below/above)</td></tr>' +
+			'</table>' +
+			'<b>OFF:</b> No leader-key table navigation commands are bound.',
+			this.plugin.settings.vimTableNavigationSupport,
+			(v) => this.plugin.vimSupport.setTableNavigationEnabled(v));
 
-		const displayLine = new Setting(containerEl)
-			.setClass('uch-vim-item')
-			.then(setting => {
-				this.setKeyChipName(setting, ['gj', 'gk'], 'Display-line movement');
-				this.setHtmlDesc(setting, '' +
-					'<b>ON:</b> Moves by visual line inside table cells the same way Ctrl+N/P already do, tracking the visual column across wrapped lines.<br>' +
-					'<b>OFF:</b> Vim\'s own native <span class="uch-kbd">gj</span> <span class="uch-kbd">gk</span>, unchanged.');
-			})
-			.addToggle(toggle => toggle
-				.setValue(this.plugin.settings.vimDisplayLineSupport)
-				.onChange((value) => {
-					this.plugin.vimSupport.setDisplayLinesEnabled(value);
-					this.display();
-				}));
-		vimSectionEls.push(displayLine.settingEl);
+		this.renderVimCommandRow(tableCmdTbody, [], 'Leader key', '' +
+			'<b>ON:</b> Uses <span class="uch-kbd">\\</span> as leader key for the table structure/navigation commands above.<br>' +
+			'<b>OFF:</b> Uses <span class="uch-kbd">Space</span> as leader key (default).<br>' +
+			'<i>Only affects table structure/navigation above — has no effect on its own.</i>',
+			this.plugin.settings.vimLeaderUseBackslash,
+			(v) => this.plugin.vimSupport.setLeaderUseBackslash(v));
 
-		const eol = new Setting(containerEl)
-			.setClass('uch-vim-item')
-			.then(setting => {
-				this.setKeyChipName(setting, ['$'], 'End of line (sticky column)');
-				this.setHtmlDesc(setting, '' +
-					'<b>ON:</b> Sticks to each line\'s own end when followed by j/k or gj/gk, matching real vim\'s own "always this line\'s end" goal column — including across table row crossings. Requires j/k or gj/gk to be enabled. (<span class="uch-kbd">D</span>/<span class="uch-kbd">C</span> share this motion but behave the same either way.)<br>' +
-					'<b>OFF:</b> Vim\'s own native <span class="uch-kbd">$</span>, unchanged.');
-			})
-			.addToggle(toggle => toggle
-				.setValue(this.plugin.settings.vimEolSupport)
-				.onChange((value) => {
-					this.plugin.vimSupport.setEolEnabled(value);
-					this.display();
-				}));
-		vimSectionEls.push(eol.settingEl);
-
-		const caret = new Setting(containerEl)
-			.setClass('uch-vim-item')
-			.then(setting => {
-				this.setKeyChipName(setting, ['^', 'I'], 'First non-blank (Smart home)');
-				this.setHtmlDesc(setting, '' +
-					'<b>ON:</b> Reuses Smart home above — skips leading Markdown syntax instead of just whitespace, to reach the real content start.<br>' +
-					'<b>OFF:</b> Vim\'s own native <span class="uch-kbd">^</span> <span class="uch-kbd">I</span>, unchanged.<br>' +
-					'<i>Requires <b>Smart home (standard)</b> to be enabled — also follows whatever <b>Smart home (advanced)</b> is set to.</i>');
-			})
-			.addToggle(toggle => toggle
-				.setValue(this.plugin.settings.vimCaretSupport)
-				.onChange((value) => {
-					this.plugin.vimSupport.setCaretEnabled(value);
-					this.display();
-				}));
-		vimSectionEls.push(caret.settingEl);
-
-		const join = new Setting(containerEl)
-			.setClass('uch-vim-item')
-			.then(setting => {
-				this.setKeyChipName(setting, ['J'], 'Join lines (Smart join)');
-				this.setHtmlDesc(setting, '' +
-					'<b>ON:</b> Reuses Smart join above — strips the next line\'s Markdown syntax instead of just whitespace, still inserting vim\'s usual single space.<br>' +
-					'<b>OFF:</b> Vim\'s own native join, unchanged.<br>' +
-					'<i>Requires <b>Smart join</b> to be enabled.</i>');
-			})
-			.addToggle(toggle => toggle
-				.setValue(this.plugin.settings.vimJoinSupport)
-				.onChange((value) => {
-					this.plugin.vimSupport.setJoinEnabled(value);
-					this.display();
-				}));
-		vimSectionEls.push(join.settingEl);
-
-		const tableStructure = new Setting(containerEl)
-			.setClass('uch-vim-item')
-			.then(setting => {
-				const leader = this.plugin.settings.vimLeaderUseBackslash ? '\\' : 'Space';
-				this.setKeyChipName(setting, [leader, 't'], 'Table structure (16 commands)');
-				const kbd = (s: string) => '<span class="uch-kbd">' + leader + '</span> <span class="uch-kbd">' + s + '</span>';
-				const kbdMulti = (...keys: string[]) => '<span class="uch-kbd">' + leader + '</span> ' + keys.map(k => '<span class="uch-kbd">' + k + '</span>').join(' / ');
-				this.setHtmlDesc(setting, '' +
-					'<b>ON:</b> Wraps the commands below. While this is on, a bare press of the leader key no longer behaves as vim\'s own native binding (Space normally moves right).' +
-					'<table class="uch-vim-cmd-table">' +
-					'<tr><th></th><th>Row</th><th>Column</th></tr>' +
-					'<tr><td>Insert</td><td>' + kbdMulti('t o', 't O') + '<br>' + kbdMulti('t i J', 't i K') + '<br>(below/above)</td><td>' + kbdMulti('t i H', 't i L') + '<br>(left/right)</td></tr>' +
-					'<tr><td>Move</td><td>' + kbdMulti('t K', 't J') + '<br>(up/down)</td><td>' + kbdMulti('t H', 't L') + '<br>(left/right)</td></tr>' +
-					'<tr><td>Delete</td><td>' + kbd('t d d') + '</td><td>' + kbd('t d c') + '</td></tr>' +
-					'<tr><td>Duplicate</td><td>' + kbd('t y y p') + '</td><td>' + kbd('t y c') + '</td></tr>' +
-					'<tr><td>Align</td><td></td><td>' + kbdMulti('t a l', 't a c', 't a r') + '<br>(left/center/right)</td></tr>' +
-					'<tr><td>Insert table</td><td colspan="2">' + kbd('t m') + '</td></tr>' +
-					'</table>' +
-					'<b>OFF:</b> No leader-key table structure commands are bound.');
-			})
-			.addToggle(toggle => toggle
-				.setValue(this.plugin.settings.vimTableStructureSupport)
-				.onChange((value) => {
-					this.plugin.vimSupport.setTableStructureEnabled(value);
-					this.display();
-				}));
-		vimSectionEls.push(tableStructure.settingEl);
-
-		const tableNavigation = new Setting(containerEl)
-			.setClass('uch-vim-item')
-			.then(setting => {
-				const leader = this.plugin.settings.vimLeaderUseBackslash ? '\\' : 'Space';
-				this.setKeyChipName(setting, [leader, 't'], 'Table navigation (6 commands)');
-				const kbdMulti = (...keys: string[]) => '<span class="uch-kbd">' + leader + '</span> ' + keys.map(k => '<span class="uch-kbd">' + k + '</span>').join(' / ');
-				this.setHtmlDesc(setting, '' +
-					'<b>ON:</b> Adds the commands below. While this is on, a bare press of the leader key no longer behaves as vim\'s own native binding (Space normally moves right).' +
-					'<table class="uch-vim-cmd-table">' +
-					'<tr><th></th><th>Row</th><th>Column</th></tr>' +
-					'<tr><td>Move to cell</td><td>' + kbdMulti('t j', 't k') + '<br>(below/above)</td><td>' + kbdMulti('t h', 't l') + '<br>(left/right)</td></tr>' +
-					'<tr><td>Exit table</td><td colspan="2">' + kbdMulti('t x', 't X') + '<br>(below/above)</td></tr>' +
-					'</table>' +
-					'<b>OFF:</b> No leader-key table navigation commands are bound.');
-			})
-			.addToggle(toggle => toggle
-				.setValue(this.plugin.settings.vimTableNavigationSupport)
-				.onChange((value) => {
-					this.plugin.vimSupport.setTableNavigationEnabled(value);
-					this.display();
-				}));
-		vimSectionEls.push(tableNavigation.settingEl);
+		const vimBehaviorTbody = this.renderBehaviorOptionsTitle(vimTable, 3);
+		this.renderSmartHomeToggles(vimBehaviorTbody, 2, true);
 
 		const limitationsEl = containerEl.createDiv({ cls: 'uch-vim-limitations' });
 		limitationsEl.createDiv({ text: 'Limitations', cls: 'uch-vim-limitations-title' });
 		const list = limitationsEl.createEl('ul');
 		list.appendChild(sanitizeHTMLToDom('<li>For Obsidian\'s built-in Vim mode specifically — not intended for use alongside a plugin that replaces or manages Vim\'s table-cell behavior on its own.</li>'));
 		list.createEl('li', { text: 'If you\'ve already customized one of these keys yourself, having its toggle on will override your binding.' });
-		vimSectionEls.push(limitationsEl);
-
-		for (const el of vimSectionEls) el.toggleClass('uch-hidden', !this.vimSectionVisible);
 	}
 
 	private openHotkeysPanelFor(query: string): void {
@@ -823,10 +995,11 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		const tr = tbody.createEl('tr');
 		tr.addClass('uch-row-thin');
 
-		const tdName = tr.createEl('td', { cls: 'uch-cell-name' });
+		const tdName = tr.createEl('td', { cls: 'uch-cell-name uch-cell-name-wrap' });
 		const fullId = getFullId(def);
 		const openHotkeysPanel = () => this.openHotkeysPanelFor(ctx.cmds?.[fullId]?.name ?? def.name);
-		const nameLink = tdName.createEl('a', { text: row.name, cls: 'uch-cmd-link' });
+		const nameLink = tdName.createEl('a', { cls: 'uch-cmd-link' });
+		renderWrappableCommandName(nameLink, row.name);
 		nameLink.addEventListener('click', (e) => { e.preventDefault(); openHotkeysPanel(); });
 
 		const tdKey = tr.createEl('td', { cls: 'uch-cell-key' });
@@ -853,6 +1026,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 
 		const tdStatus = tr.createEl('td', { cls: 'uch-cell-status' });
 		if (row.conflictIds.length > 0) {
+			tdStatus.addClass('uch-cell-status-wrap');
 			tdStatus.createSpan({ text: row.status });
 			for (const [i, conflictId] of row.conflictIds.entries()) {
 				if (i > 0) tdStatus.createSpan({ text: ', ' });
@@ -895,24 +1069,49 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		return tr;
 	}
 
-	private renderBlock(table: HTMLElement, title: string, entries: Array<{def: CommandDef; row: HotkeyRow}>, ctx: RenderCtx): HTMLTableSectionElement {
-		const tbody = table.createEl('tbody');
+	// Collapsible — every block under Hotkey settings shares the same ▶/▼
+	// affordance (see renderCollapsibleBlock's own doc comment on why a
+	// toggleable title, not a Show/Hide button, is used here), signaling
+	// "this is a child of Hotkey settings" uniformly regardless of each
+	// block's own default open/closed state. Split across header/content
+	// tbody for the same reason renderCollapsibleBlock is: the title (and
+	// its Apply recommended button) must stay visible even while the
+	// content underneath is collapsed.
+	private renderBlock(
+		table: HTMLElement,
+		title: string,
+		entries: Array<{def: CommandDef; row: HotkeyRow}>,
+		ctx: RenderCtx,
+		visible: { get(): boolean; set(v: boolean): void },
+	): HTMLTableSectionElement {
+		const headerTbody = table.createEl('tbody');
 
 		// Title row
-		const titleRow = tbody.createEl('tr');
+		const titleRow = headerTbody.createEl('tr');
 		const titleCell = titleRow.createEl('td');
 		titleCell.colSpan = 5;
 		titleCell.addClass('uch-title-cell');
 		const titleFlex = titleCell.createDiv('uch-title-flex');
-		titleFlex.createSpan({ text: title, cls: 'uch-title-text' });
+		const toggleLabel = titleFlex.createSpan({
+			text: `${visible.get() ? '▼' : '▶'} ${title}`,
+			cls: 'uch-title-text uch-block-toggle',
+		});
 		const setAllBtn = titleFlex.createEl('button', { text: 'Apply recommended' });
 		setAllBtn.addClass('mod-cta', 'uch-apply-btn');
 		if (!entries.some(e => e.row.action === 'set' || e.row.action === 'override'))
 			setAllBtn.disabled = true;
 		setAllBtn.addEventListener('click', () => { ctx.applyBlock(entries); });
 
+		const contentTbody = table.createEl('tbody');
+		contentTbody.toggleClass('uch-hidden', !visible.get());
+		toggleLabel.addEventListener('click', () => {
+			visible.set(!visible.get());
+			toggleLabel.setText(`${visible.get() ? '▼' : '▶'} ${title}`);
+			contentTbody.toggleClass('uch-hidden', !visible.get());
+		});
+
 		// Column header row
-		const headerRow = tbody.createEl('tr');
+		const headerRow = contentTbody.createEl('tr');
 		headerRow.addClass('uch-row-thick');
 		for (const [i, h] of (['Command', 'Recommended Hotkey', 'Current Hotkey', 'Status', '▶'] as const).entries()) {
 			const td = headerRow.createEl('td', { text: h });
@@ -930,11 +1129,11 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 
 		// Data rows
 		for (const { def, row } of entries) {
-			this.renderDataRow(tbody, def, row, ctx);
+			this.renderDataRow(contentTbody, def, row, ctx);
 		}
 
 		if (entries.some(e => e.row.action === 'override')) {
-			const noteRow = tbody.createEl('tr');
+			const noteRow = contentTbody.createEl('tr');
 			const noteTd = noteRow.createEl('td', { cls: 'uch-override-note' });
 			noteTd.colSpan = 5;
 			noteTd.appendText('"');
@@ -943,8 +1142,79 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			ctx.allOverrideNotes.push(noteRow);
 		}
 
-		const spacerTd = tbody.createEl('tr').createEl('td', { cls: 'uch-block-spacer' });
+		const spacerTd = contentTbody.createEl('tr').createEl('td', { cls: 'uch-block-spacer' });
 		spacerTd.colSpan = 5;
+		return contentTbody;
+	}
+
+	// One Key Upgrades row: key chip | status (only for Conflict/Used — Set/
+	// Available are conveyed by the toggle's own on/off state, no badge
+	// needed) | toggle. Toggling on appends the bare key to the target
+	// command's hotkeys (additive, never displaces); toggling off removes
+	// just this one key. Disabled when the key is held by another command and
+	// not yet on the target command (Used) — turning it on here would create
+	// a fresh conflict this section is designed to never produce; Conflict
+	// (already on both) stays togglable off, since that only ever resolves
+	// this command's own side.
+	private renderKeyUpgradeRow(tbody: HTMLElement, def: KeyUpgradeDef, ctx: KeyUpgradeCtx): HTMLTableRowElement {
+		const { fullId, targetHotkey, assigned, conflictIds } = computeKeyUpgradeRow(def, ctx.effectiveHotkeys, ctx.reverseMap, ctx.cmds);
+		const hasConflict = conflictIds.length > 0;
+
+		const tr = tbody.createEl('tr');
+		tr.addClass('uch-row-thin');
+
+		const tdKey = tr.createEl('td', { cls: 'uch-cell-name' });
+		this.makeKeyCell(tdKey, formatHotkey(targetHotkey), () => this.openHotkeysPanelByKey(targetHotkey));
+
+		tr.createEl('td', { text: def.label, cls: 'uch-tab-row-label' });
+
+		const tdStatus = tr.createEl('td', { cls: 'uch-tab-row-status' });
+		if (hasConflict) {
+			tdStatus.createEl('a', { text: assigned ? '🔴Conflict' : '🔴Used', cls: 'uch-cmd-link' })
+				.addEventListener('click', (e) => { e.preventDefault(); this.openHotkeysPanelByKey(targetHotkey); });
+		}
+
+		const tdToggle = tr.createEl('td', { cls: 'uch-cell-toggle' });
+		const toggle = new ToggleComponent(tdToggle);
+		toggle.setValue(assigned);
+		toggle.setDisabled(!assigned && hasConflict);
+		if (!assigned && hasConflict) {
+			tdToggle.title = 'Already used by another command — free it up in Hotkeys settings first.';
+		}
+		toggle.onChange((value) => {
+			ctx.hm.setHotkeys(fullId, value
+				? [...ctx.effectiveHotkeys(fullId).map(ctx.toHotkey), targetHotkey]
+				: ctx.effectiveHotkeys(fullId).filter(hk => hotkeyId(hk) !== hotkeyId(targetHotkey)).map(ctx.toHotkey));
+			ctx.hm.save();
+			ctx.hm.bake();
+			void this.plugin.saveSettings();
+			this.display();
+		});
+
+		return tr;
+	}
+
+	// One Key Upgrades group: a title + one-line description of what the
+	// group's keys get upgraded to do, then one row per key. Command-family
+	// pairs (e.g. a future Word left/right entry) share one description here
+	// rather than repeating it per row, since the row itself only needs to
+	// show the key and its assignment state.
+	private renderKeyUpgradeGroup(table: HTMLElement, title: string, desc: string | null, defs: readonly KeyUpgradeDef[], ctx: KeyUpgradeCtx): HTMLTableSectionElement {
+		const tbody = table.createEl('tbody');
+
+		const titleRow = tbody.createEl('tr');
+		const titleCell = titleRow.createEl('td');
+		titleCell.colSpan = 4;
+		titleCell.addClass('uch-title-cell');
+		titleCell.createDiv({ text: title, cls: 'uch-title-text' });
+		if (desc !== null) titleCell.createDiv({ text: desc, cls: 'uch-tab-row-group-desc' });
+
+		for (const def of defs) {
+			this.renderKeyUpgradeRow(tbody, def, ctx);
+		}
+
+		const spacerTd = tbody.createEl('tr').createEl('td', { cls: 'uch-block-spacer' });
+		spacerTd.colSpan = 4;
 		return tbody;
 	}
 
@@ -985,7 +1255,13 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		const titleRow = headerTbody.createEl('tr');
 		const titleCell = titleRow.createEl('td');
 		titleCell.colSpan = 5;
-		titleCell.addClass('uch-title-cell');
+		titleCell.addClass('uch-title-cell', 'uch-title-cell-tall');
+		// padding-top always stays fixed (from .uch-title-cell-tall) — only
+		// padding-bottom toggles with collapse state, so the heading text's
+		// own vertical position never moves when clicked, unlike the earlier
+		// min-height/align-items:center approach (which re-centered the text
+		// within a changing box height and made it visibly jump).
+		titleCell.toggleClass('uch-title-cell-expanded', visible.get());
 		const toggleLabel = titleCell.createSpan({
 			text: `${visible.get() ? '▼' : '▶'} ${title}`,
 			cls: 'uch-title-text uch-block-toggle',
@@ -996,6 +1272,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		toggleLabel.addEventListener('click', () => {
 			visible.set(!visible.get());
 			toggleLabel.setText(`${visible.get() ? '▼' : '▶'} ${title}`);
+			titleCell.toggleClass('uch-title-cell-expanded', visible.get());
 			contentTbody.toggleClass('uch-hidden', !visible.get());
 		});
 
@@ -1030,48 +1307,38 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		spacerTd.colSpan = 5;
 	}
 
-	private renderHotkeyManager(containerEl: HTMLElement): void {
-		const sectionEls: HTMLElement[] = [];
-		const collect = (el: HTMLElement) => sectionEls.push(el);
-		let showHideBtn: ButtonComponent;
-
-		// Section header — desc contains the link to Obsidian's hotkeys settings
-		new Setting(containerEl)
-			.setName('Quick setup assistant')
-			.then(setting => {
-				setting.descEl.createSpan({ text: 'No hotkeys are assigned by default. Set only the commands you want — group by group, or ' });
-				const indivLink = setting.descEl.createEl('a', { text: 'Individually', cls: 'uch-inline-link' });
-				indivLink.addEventListener('click', (e) => {
-					e.preventDefault();
-					if (!this.sectionVisible) {
-						this.sectionVisible = true;
-						showHideBtn.setButtonText('Hide');
-						for (const el of sectionEls) el.removeClass('uch-hidden');
-					}
-					this.individualVisible = true;
-					syncToggle();
-				});
-				setting.descEl.createSpan({ text: '.' });
-				setting.descEl.createEl('br');
-				setting.descEl.createSpan({ text: 'To assign a command to a key other than the recommended, use ' });
-				const hotkeyLink = setting.descEl.createEl('a', { text: "Obsidian's built-in hotkeys settings" });
-				hotkeyLink.addClass('uch-inline-link');
-				hotkeyLink.addEventListener('click', (e) => {
-					e.preventDefault();
-					this.openHotkeysPanelFor('universal-cursor-hotkeys');
-				});
-				setting.descEl.createSpan({ text: '.' });
-				})
-			.addButton(btn => {
-				showHideBtn = btn;
-				btn.setButtonText(this.sectionVisible ? 'Hide' : 'Show');
-				btn.onClick(() => {
-					this.sectionVisible = !this.sectionVisible;
-					btn.setButtonText(this.sectionVisible ? 'Hide' : 'Show');
-					for (const el of sectionEls) el.toggleClass('uch-hidden', !this.sectionVisible);
-				});
+	// Always-visible 3-tab bar (general/vim/emacs, sharing activeTab) and
+	// whichever one tab's own content. Only the active tab's DOM is ever
+	// built (matching this file's existing "any state change -> full
+	// containerEl.empty()+rebuild" idiom already used everywhere else), so
+	// there's no separate hidden-tab visibility bookkeeping to maintain.
+	private renderQsaFrame(containerEl: HTMLElement): void {
+		// Sticky wrapper, not the rounded tab bar itself: the wrapper is a
+		// plain opaque rectangle (covering the bar's own rounded corners and
+		// the gap below it), so scrolled content never peeks through either.
+		const tabBarSticky = containerEl.createDiv({ cls: 'uch-tab-bar-sticky' });
+		const tabBar = tabBarSticky.createDiv({ cls: 'uch-tab-bar' });
+		const TABS: ReadonlyArray<{ id: 'general' | 'vim' | 'emacs'; label: string }> = [
+			{ id: 'general', label: 'For everyone' },
+			{ id: 'vim',   label: 'Vim mode' },
+			{ id: 'emacs', label: 'macOS (Emacs) style' },
+		];
+		for (const tab of TABS) {
+			const tabBtn = tabBar.createEl('button', { text: tab.label, cls: `uch-tab-btn uch-tab-btn-${tab.id}` });
+			if (this.activeTab === tab.id) tabBtn.addClass('uch-tab-btn-active');
+			tabBtn.addEventListener('click', () => {
+				this.activeTab = tab.id;
+				this.display(true);
 			});
+		}
 
+		if (this.activeTab === 'vim') {
+			this.renderVimTabContent(containerEl);
+			return;
+		}
+
+		// Shared hotkey-manager infra — needed by both the 'all' (Key
+		// Upgrades) and 'emacs' (QSA table) tabs.
 		const app = this.app as unknown as ObsidianInternals;
 		const hm  = app.hotkeyManager;
 		// Re-bake so bakedIds/bakedHotkeys reflect the latest user changes
@@ -1102,16 +1369,59 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			key: hk.key,
 		});
 
+		if (this.activeTab === 'emacs') {
+			this.renderEmacsTabContent(containerEl, hm, effectiveHotkeys, reverseMap, cmds, toHotkey);
+		} else {
+			this.renderKeyUpgradesTabContent(containerEl, hm, effectiveHotkeys, reverseMap, cmds, toHotkey);
+		}
+	}
+
+	// macOS-style tab: the original Emacs-QSA table plus Displaced commands.
+	private renderEmacsTabContent(
+		containerEl: HTMLElement,
+		hm: HotkeyManager,
+		effectiveHotkeys: (cmdId: string) => BakedHotkey[],
+		reverseMap: Map<string, string[]>,
+		cmds: Record<string, { name: string }> | undefined,
+		toHotkey: (hk: BakedHotkey) => Hotkey,
+	): void {
 		// Remove displaced commands whose original command now has any hotkey assigned
 		this.plugin.settings.qsaDisplacedCommands = this.plugin.settings.qsaDisplacedCommands.filter(
 			d => effectiveHotkeys(d.commandId).length === 0
 		);
 
+		// Pane heading + desc (desc contains the link to Obsidian's hotkeys settings)
+		const emacsHeaderEl = containerEl.createDiv({ cls: 'uch-tab-header-section' });
+		emacsHeaderEl.createDiv({ text: 'Hotkey settings', cls: 'uch-tab-row-title' });
+		const emacsDescEl = emacsHeaderEl.createDiv({ cls: 'uch-tab-row-desc' });
+		emacsDescEl.createSpan({ text: "Recreates macOS-style cursor and editing shortcuts using Obsidian's own hotkey system. (No hotkeys are assigned by default.) Set only the commands you want — group by group, or " });
+		const indivLink = emacsDescEl.createEl('a', { text: 'Individually', cls: 'uch-inline-link' });
+		indivLink.addEventListener('click', (e) => {
+			e.preventDefault();
+			this.individualVisible = true;
+			syncToggle();
+		});
+		emacsDescEl.createSpan({ text: '. To assign a command to a key other than the recommended, use ' });
+		const hotkeyLink = emacsDescEl.createEl('a', { text: "Obsidian's built-in hotkeys settings" });
+		hotkeyLink.addClass('uch-inline-link');
+		hotkeyLink.addEventListener('click', (e) => {
+			e.preventDefault();
+			this.openHotkeysPanelFor('universal-cursor-hotkeys');
+		});
+		emacsDescEl.createSpan({ text: '.' });
+
 		const applyEntry = (def: CommandDef, row: HotkeyRow) => {
 			const fullId = getFullId(def);
 			const recId  = hotkeyId(def.recommended!);
 			if (row.action === 'override') {
-				for (const conflictId of (reverseMap.get(recId) ?? []).filter(id => id !== fullId)) {
+				// Same liveness filter as computeRow's own conflictIds (cmds is
+				// the live app.commands.commands registry) — without it, a
+				// disabled plugin's stale hotkey entry in the baked reverseMap
+				// (e.g. from before it was disabled) gets treated as a real
+				// conflict to displace, even though it's invisible in the QSA
+				// table's own displayed conflict count and restoring it later
+				// does nothing (the command isn't actually registered).
+				for (const conflictId of (reverseMap.get(recId) ?? []).filter(id => id !== fullId && cmds?.[id] !== undefined)) {
 					hm.setHotkeys(conflictId,
 						effectiveHotkeys(conflictId).filter(hk => hotkeyId(hk) !== recId).map(toHotkey));
 					if (!this.plugin.settings.qsaDisplacedCommands.some(d => d.commandId === conflictId && hotkeyId(d.hotkey) === recId)) {
@@ -1167,19 +1477,22 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		// Single shared table — all blocks share the same column widths
 		const table = containerEl.createEl('table');
 		table.addClass('uch-table');
-		collect(table);
 
 		const makeEntries = (block: CommandDef['block']) =>
 			COMMAND_DEFS.filter(d => d.block === block).map(def => ({ def, row: computeRow(def, effectiveHotkeys, reverseMap, cmds) }));
 
-		this.renderBlock(table, 'Cursor movement', makeEntries('cursor'), ctx);
-		this.renderBlock(table, 'Editing',         makeEntries('editing'), ctx);
-		this.renderBlock(table, 'Other hotkeys',   makeEntries('other'), ctx);
+		this.renderBlock(table, 'Cursor movement', makeEntries('cursor'), ctx,
+			{ get: () => this.cursorMovementVisible, set: v => { this.cursorMovementVisible = v; } });
+		this.renderBlock(table, 'Editing',         makeEntries('editing'), ctx,
+			{ get: () => this.editingVisible, set: v => { this.editingVisible = v; } });
+		this.renderBlock(table, 'Other hotkeys',   makeEntries('other'), ctx,
+			{ get: () => this.otherHotkeysVisible, set: v => { this.otherHotkeysVisible = v; } });
 		const tableSearchTerm = getTableCommandSearchTerm();
 		this.renderCollapsibleBlock(table, 'Table structure', makeEntries('tableStructure'), ctx,
 			{ get: () => this.tableStructureVisible, set: v => { this.tableStructureVisible = v; } },
 			tableSearchTerm == null ? undefined : linkRow => {
-				const searchLink = linkRow.createEl('a', { text: 'Open in hotkeys settings →', cls: 'uch-inline-link' });
+				linkRow.createSpan({ text: "These are Obsidian's own built-in table commands, not owned by this plugin — listed here for convenience. " });
+				const searchLink = linkRow.createEl('a', { text: `Open in hotkeys settings (about "${tableSearchTerm}") →`, cls: 'uch-inline-link' });
 				searchLink.addEventListener('click', (e) => {
 					e.preventDefault();
 					this.openHotkeysPanelFor(tableSearchTerm);
@@ -1190,16 +1503,27 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			{ get: () => this.tableNavVisible, set: v => { this.tableNavVisible = v; } });
 		syncToggle();
 
-		// Displaced commands table
+		// Displaced commands table — collapsible like every other block under
+		// Hotkey settings (see renderBlock's own doc comment on why).
 		const dispTable = containerEl.createEl('table', { cls: 'uch-disp-table' });
-		collect(dispTable);
+
+		const dispHeaderTbody = dispTable.createEl('tbody');
+		const dispTitleCell = dispHeaderTbody.createEl('tr').createEl('td', { cls: 'uch-title-cell uch-title-cell-tall' });
+		dispTitleCell.colSpan = 5;
+		dispTitleCell.toggleClass('uch-title-cell-expanded', this.displacedVisible);
+		const dispToggleLabel = dispTitleCell.createSpan({
+			text: `${this.displacedVisible ? '▼' : '▶'} Displaced commands`,
+			cls: 'uch-title-text uch-block-toggle',
+		});
 
 		const dispTbody = dispTable.createEl('tbody');
-
-		// Title row
-		const dispTitleCell = dispTbody.createEl('tr').createEl('td', { cls: 'uch-title-cell' });
-		dispTitleCell.colSpan = 5;
-		dispTitleCell.createSpan({ text: 'Displaced commands', cls: 'uch-title-text' });
+		dispTbody.toggleClass('uch-hidden', !this.displacedVisible);
+		dispToggleLabel.addEventListener('click', () => {
+			this.displacedVisible = !this.displacedVisible;
+			dispToggleLabel.setText(`${this.displacedVisible ? '▼' : '▶'} Displaced commands`);
+			dispTitleCell.toggleClass('uch-title-cell-expanded', this.displacedVisible);
+			dispTbody.toggleClass('uch-hidden', !this.displacedVisible);
+		});
 
 		// Description row
 		const dispDescTd = dispTbody.createEl('tr').createEl('td', { cls: 'uch-disp-desc' });
@@ -1224,7 +1548,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		for (const d of this.plugin.settings.qsaDisplacedCommands) {
 			const tr = dispTbody.createEl('tr');
 			tr.addClass('uch-row-thin');
-			const dispName = tr.createEl('td', { cls: 'uch-cell-name' })
+			const dispName = tr.createEl('td', { cls: 'uch-cell-name uch-cell-name-wrap' })
 				.createEl('a', { text: d.commandName, cls: 'uch-cmd-link uch-disp-name' });
 			dispName.addEventListener('click', (e) => { e.preventDefault(); this.openHotkeysPanelFor(d.commandName); });
 			const assignBtn = tr.createEl('td', { cls: 'uch-cell-action' })
@@ -1255,44 +1579,107 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			noDisp.colSpan = 5;
 		}
 
-		// Special Key Assignments
-		const SPECIAL_DEFS: Array<{ label: string; commandId: string; key: string }> = [
-			{ label: 'Set Home',      commandId: 'cursor-home', key: 'Home'     },
-			{ label: 'Set End',       commandId: 'cursor-end',  key: 'End'      },
-			{ label: 'Set Page Down', commandId: 'page-down',   key: 'PageDown' },
-			{ label: 'Set Page Up',   commandId: 'page-up',     key: 'PageUp'   },
-		];
+		// Same trailing spacer row every other collapsible block's own content
+		// tbody has (Motion upgrades, Cursor movement/Editing/..., Table
+		// structure/navigation) — missing here until now. Lives inside
+		// dispTbody itself, so it's hidden along with the rest while
+		// collapsed and only adds space once actually expanded.
+		const dispSpacerTd = dispTbody.createEl('tr').createEl('td', { cls: 'uch-block-spacer' });
+		dispSpacerTd.colSpan = 5;
 
-		const specialEl = containerEl.createDiv({ cls: 'uch-special-section' });
-		specialEl.createDiv({ text: 'Special key assignments', cls: 'uch-special-title' });
-		specialEl.createDiv({
-			text: "These keys cannot be set in Obsidian's hotkeys panel. Assign them here.",
-			cls: 'uch-special-desc',
-		});
-
-		const specialBtnRow = specialEl.createDiv({ cls: 'uch-special-btns' });
-		for (const def of SPECIAL_DEFS) {
-			const fullId  = `${PLUGIN_ID}:${def.commandId}`;
-			const bareKey: Hotkey = { modifiers: [], key: def.key };
-			const isSet   = effectiveHotkeys(fullId).some(hk => hotkeyId(hk) === hotkeyId(bareKey));
-			const btn     = specialBtnRow.createEl('button', { text: isSet ? `${def.label} ✅` : def.label });
-			if (!isSet) btn.addClass('mod-cta');
-			btn.disabled  = isSet;
-			if (!isSet) {
-				btn.addEventListener('click', () => {
-					hm.setHotkeys(fullId, [...effectiveHotkeys(fullId).map(toHotkey), bareKey]);
-					hm.save();
-					hm.bake();
-					void this.plugin.saveSettings();
-					this.display();
-				});
-			}
-		}
-		collect(specialEl);
-		for (const el of sectionEls) el.toggleClass('uch-hidden', !this.sectionVisible);
+		const emacsBehaviorTbody = this.renderBehaviorOptionsTitle(dispTable, 5);
+		this.renderSmartHomeToggles(emacsBehaviorTbody, 4, true);
+		this.renderVisualLineMovementToggle(emacsBehaviorTbody, 4);
+		this.renderCrossRowNavigationToggle(emacsBehaviorTbody, 4);
 	}
 
-	private setHtmlDesc(setting: Setting, html: string): Setting {
-		return setting.setDesc(sanitizeHTMLToDom(html));
+	// "for All users" tab — see computeKeyUpgradeRow's own doc comment for why
+	// this is key-first rather than command-first like the Emacs tab's QSA
+	// table. The actual defs live in the module-level KEY_UPGRADE_DEFS (also
+	// feeds SPECIAL_KEY_EXCEPTION above) — just grouped here for rendering.
+	private renderKeyUpgradesTabContent(
+		containerEl: HTMLElement,
+		hm: HotkeyManager,
+		effectiveHotkeys: (cmdId: string) => BakedHotkey[],
+		reverseMap: Map<string, string[]>,
+		cmds: Record<string, { name: string }> | undefined,
+		toHotkey: (hk: BakedHotkey) => Hotkey,
+	): void {
+		const NAV_BASICS_DEFS    = KEY_UPGRADE_DEFS.filter(d => d.group === 'navBasics');
+		const WORD_COMMAND_DEFS  = KEY_UPGRADE_DEFS.filter(d => d.group === 'wordCommands');
+
+		const keyUpgradeCtx: KeyUpgradeCtx = { hm, effectiveHotkeys, reverseMap, cmds, toHotkey };
+
+		const keyUpgradesEl = containerEl.createDiv({ cls: 'uch-tab-header-section' });
+		const keyUpgradesTitleFlex = keyUpgradesEl.createDiv('uch-title-flex');
+		keyUpgradesTitleFlex.createDiv({
+			text: "Give your everyday keys table-aware behavior and CJK-aware word splitting.",
+			cls: 'uch-tab-row-desc',
+		});
+		const computeEligible = () => KEY_UPGRADE_DEFS.filter(def => {
+			const row = computeKeyUpgradeRow(def, keyUpgradeCtx.effectiveHotkeys, keyUpgradeCtx.reverseMap, keyUpgradeCtx.cmds);
+			return !row.assigned && row.conflictIds.length === 0;
+		});
+		const behaviorSettingsAllOn = () => this.plugin.settings.smartHomeStandard
+			&& this.plugin.settings.smartHomeAdvanced
+			&& this.plugin.settings.visualLineMovement
+			&& this.plugin.settings.crossRowNavigation
+			&& this.plugin.settings.cjkDoubleClickWordSelect;
+		// "Apply all" is the only button on this whole tab (unlike Vim's own
+		// per-block "Apply both" or Emacs's own per-block "Apply recommended"
+		// — both scoped to just their own section) — sitting at the top of
+		// the entire page, it reads as "turn everything on this page on", so
+		// it also turns on every Behavior Option shown below, not just the
+		// key upgrades above. All 5 default true anyway; this only matters
+		// once the user has deliberately turned one off.
+		const applyAllBtn = keyUpgradesTitleFlex.createEl('button', { text: 'Apply all' });
+		applyAllBtn.addClass('mod-cta', 'uch-apply-btn');
+		// Behavior Option toggles below deliberately don't trigger a full
+		// this.display() re-render on their own (matching Vim's own Motion
+		// upgrades toggles) — so this button's own disabled state needs its
+		// own direct update hook (passed to those toggles as onAnyChange)
+		// instead of being computed once here and left stale.
+		const updateApplyAllDisabled = () => {
+			applyAllBtn.disabled = computeEligible().length === 0 && behaviorSettingsAllOn();
+		};
+		updateApplyAllDisabled();
+		applyAllBtn.addEventListener('click', () => {
+			for (const def of computeEligible()) {
+				const row = computeKeyUpgradeRow(def, keyUpgradeCtx.effectiveHotkeys, keyUpgradeCtx.reverseMap, keyUpgradeCtx.cmds);
+				hm.setHotkeys(row.fullId, [...keyUpgradeCtx.effectiveHotkeys(row.fullId).map(toHotkey), row.targetHotkey]);
+			}
+			this.plugin.settings.smartHomeStandard = true;
+			this.plugin.settings.smartHomeAdvanced = true;
+			this.plugin.settings.visualLineMovement = true;
+			this.plugin.settings.crossRowNavigation = true;
+			this.plugin.settings.cjkDoubleClickWordSelect = true;
+			hm.save();
+			hm.bake();
+			void this.plugin.saveSettings();
+			this.display();
+		});
+
+		const keyUpgradesTable = containerEl.createEl('table');
+		keyUpgradesTable.addClass('uch-table', 'uch-key-upgrades-table');
+		this.renderKeyUpgradeGroup(
+			keyUpgradesTable, 'Upgrade navigation basics',
+			null,
+			NAV_BASICS_DEFS, keyUpgradeCtx,
+		);
+		this.renderKeyUpgradeGroup(
+			keyUpgradesTable, 'Upgrade word commands',
+			null,
+			WORD_COMMAND_DEFS, keyUpgradeCtx,
+		);
+
+		const everyoneBehaviorTbody = this.renderBehaviorOptionsTitle(keyUpgradesTable, 4);
+		this.renderSmartHomeToggles(everyoneBehaviorTbody, 3, false, updateApplyAllDisabled);
+		// cursor-home/cursor-end are the same shared command Emacs's Ctrl+A/E
+		// uses — these two settings affect this tab's own bare Home/End too,
+		// so they need a toggle here, not just on the Emacs tab (see each
+		// function's own doc comment).
+		this.renderVisualLineMovementToggle(everyoneBehaviorTbody, 3, updateApplyAllDisabled);
+		this.renderCrossRowNavigationToggle(everyoneBehaviorTbody, 3, updateApplyAllDisabled);
+		this.renderDoubleClickWordSelectToggle(everyoneBehaviorTbody, 3, updateApplyAllDisabled);
 	}
 }

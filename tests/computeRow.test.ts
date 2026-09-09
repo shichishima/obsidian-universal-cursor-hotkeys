@@ -111,6 +111,21 @@ describe('formatHotkey', () => {
 	it('Mac: Ctrl+Shift+A → ⌃⇧ A', () => {
 		expect(formatHotkey({ modifiers: ['Ctrl', 'Shift'], key: 'A' }, true)).toBe('⌃⇧ A')
 	})
+	// Regression: Backspace/Delete are Mac keyboard cap glyphs (⌫/⌦) with no
+	// equivalent convention on Windows, which spells them out as plain words
+	// instead — these used to render unconditionally regardless of OS.
+	it('Windows: Ctrl+Backspace stays a plain word, not the Mac ⌫ glyph', () => {
+		expect(formatHotkey({ modifiers: ['Ctrl'], key: 'Backspace' }, false)).toBe('Ctrl+Backspace')
+	})
+	it('Windows: Ctrl+Delete stays a plain word, not the Mac ⌦ glyph', () => {
+		expect(formatHotkey({ modifiers: ['Ctrl'], key: 'Delete' }, false)).toBe('Ctrl+Delete')
+	})
+	it('Mac: Alt+Backspace → ⌥ ⌫', () => {
+		expect(formatHotkey({ modifiers: ['Alt'], key: 'Backspace' }, true)).toBe('⌥ ⌫')
+	})
+	it('Mac: Alt+Delete → ⌥ ⌦', () => {
+		expect(formatHotkey({ modifiers: ['Alt'], key: 'Delete' }, true)).toBe('⌥ ⌦')
+	})
 })
 
 // ── computeRow ───────────────────────────────────────────────────────────────

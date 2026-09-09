@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 vi.mock('@codemirror/language', () => ({
 	syntaxTree: vi.fn(),
@@ -56,6 +56,15 @@ describe('VimSupportHost bridge (main.ts)', () => {
 		plugin = Object.create(UniversalCursorHotkeysPlugin.prototype)
 		plugin.TABLE_DELIMITER_REGEX = /^\s*\|?[:\s]*?-+[:\s-]*\|[:\s-|]*$/
 		plugin.setCursorViaCm = vi.fn((editor: any, line: number, ch: number) => editor._setCursor({ line, ch }))
+		// landInCellSegment schedules a follow-up requestAnimationFrame (see its
+		// own popout-window comment) — never manually flushed here since these
+		// tests only assert the synchronous return/first setCursorViaCm call,
+		// but the global still needs to exist so scheduling it doesn't throw.
+		vi.stubGlobal('activeWindow', { requestAnimationFrame: () => 0 })
+	})
+
+	afterEach(() => {
+		vi.unstubAllGlobals()
 	})
 
 	// ===========================================================================
@@ -867,7 +876,7 @@ describe('VimSupportHost bridge (main.ts)', () => {
 			const editor = makeStatefulEditor(['plain', '| a | bb |'], { line: 0, ch: 0 })
 			plugin.isPositionInTable = vi.fn().mockReturnValue(true)
 			const result = plugin.jumpToBufferEdge(editor, true)
-			expect(result).toEqual({ line: 1, ch: 7 }) // rests on the final 'b' of the rightmost cell
+			expect(result).toEqual({ line: 1, ch: 8 }) // rests past the final 'b', at the cell's true content end
 		})
 	})
 
@@ -936,6 +945,22 @@ describe('VimSupportHost bridge (main.ts)', () => {
 			plugin.refineDisplayLineColumn(editor, 999)
 			// clampedInnerCh = min(2, 1) = 1 -> targetOuterCh = 2 + 1 = 3
 			expect(plugin.setCursorViaCm).toHaveBeenCalledWith(editor, 3, 3)
+		})
+
+		it('allowLineEnd=true lets the correction land past the Normal-mode-legal bound, onto the line\'s own true end', () => {
+			// Emacs Ctrl-N/P (main.ts's own applyRowCrossGoalColumnSync) is not
+			// modal — unlike vim's gj/gk, it must be able to land one past the
+			// last character (e.g. "shortcuts|", not "shortcut|s").
+			const inner = makeInner(0, 2) // 2-char inner line -> line's own true end = 2
+			inner.posAtCoords.mockReturnValue(2) // resolves to the line's own end
+			const editor = {
+				activeCM: inner, cm: {},
+				getCursor: () => ({ line: 3, ch: 2 }),
+				getLine: () => LINE_3SEG,
+			}
+			plugin.refineDisplayLineColumn(editor, 999, true)
+			// clampedInnerCh = min(2, 2) = 2 -> targetOuterCh = 2 + 2 = 4
+			expect(plugin.setCursorViaCm).toHaveBeenCalledWith(editor, 3, 4)
 		})
 
 		it('regression: never lets the correction change lines — returns the unchanged landing when posAtCoords resolves onto an adjacent line', () => {
