@@ -104,7 +104,7 @@ const KEY_DISP: Record<string, string> = {
 // but wrapping at every word boundary looked bad — most command names read
 // as one semantic unit ("Kill line", "Select all") and should stay on one
 // line regardless of column width, so every space in them is a
-// non-breaking space ( ) by default. The names below are the exception:
+// non-breaking space (U+00A0) by default. The names below are the exception:
 // each one's own last word is a genuinely separate concept from the phrase
 // before it (a direction like left/right/above/below/up/down/center, an
 // object for the Duplicate row/column pair, or just whichever word
