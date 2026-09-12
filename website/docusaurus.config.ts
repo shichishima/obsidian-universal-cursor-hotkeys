@@ -28,6 +28,15 @@ const config: Config = {
   i18n: {
     defaultLocale: 'en',
     locales: ['en', 'zh', 'ja'],
+    localeConfigs: {
+      // Matches Obsidian's own Settings → About → Language dropdown
+      // wording for this locale (confirmed via obsidian.md/zh/help/language)
+      // rather than Docusaurus's own generic Intl.DisplayNames label
+      // ("中文", which doesn't distinguish simplified from traditional).
+      zh: {
+        label: '简体中文',
+      },
+    },
   },
 
   presets: [
@@ -55,10 +64,15 @@ const config: Config = {
     navbar: {
       title: 'Universal Cursor Hotkeys',
       items: [
-        {
-          type: 'localeDropdown',
-          position: 'right',
-        },
+        // localeDropdown temporarily removed: zh/ja are configured in
+        // i18n.locales above and still build (untranslated docs fall back
+        // to English), but with no actual translated content yet, showing
+        // a switcher would let a reader pick 简体中文/日本語 and land on
+        // English anyway. Re-add this item once real translations exist.
+        // {
+        //   type: 'localeDropdown',
+        //   position: 'right',
+        // },
         {
           href: 'https://github.com/shichishima/obsidian-universal-cursor-hotkeys',
           label: 'GitHub',

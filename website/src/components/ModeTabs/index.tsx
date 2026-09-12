@@ -33,6 +33,15 @@ export default function ModeTabs({
   current?: Mode;
   sticky?: boolean;
 }): ReactNode {
+  // On the Overview page (current === undefined), none of the three is
+  // "selected", but muting all three text labels the same way an inactive
+  // tab is muted elsewhere reads as "these are lesser options" — wrong for
+  // a page whose whole point is presenting all three as equally valid.
+  // Give every label the active tab's own text color here, without also
+  // giving any of them the active pill/background (nothing really is
+  // selected on this page).
+  const noSelection = current === undefined;
+
   const bar = (
     <div className={styles.tabBar}>
       {TABS.map(({mode, label, className}) => (
@@ -41,6 +50,7 @@ export default function ModeTabs({
           to={`/${mode}`}
           className={clsx(styles.tabBtn, className, {
             [styles.tabBtnActive]: mode === current,
+            [styles.tabBtnBrightText]: noSelection,
           })}>
           {label}
         </Link>

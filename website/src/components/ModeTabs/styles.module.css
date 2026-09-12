@@ -110,6 +110,22 @@
   color: var(--ifm-color-emphasis-300);
 }
 
+/* Used when no tab is "selected" (the Overview page's own usage, current
+   is undefined) — every label gets the active tab's own text color
+   instead of the muted one above. In light mode this alone is enough:
+   .tabBtn and .tabBtnBrightText have equal specificity, and this rule
+   comes later, so it wins on source order. In dark mode it needs its own
+   `:root[data-theme='dark']` copy below to match the dark .tabBtn
+   override's specificity (0,3,0 vs. this rule's plain 0,1,0) — otherwise
+   that higher-specificity muted rule would still win regardless of order. */
+.tabBtnBrightText {
+  color: var(--ifm-font-color-base);
+}
+
+:root[data-theme='dark'] .tabBtnBrightText {
+  color: var(--ifm-font-color-base);
+}
+
 /* A translucent white overlay rather than another emphasis-N step: with
    the track now at emphasis-0 (pure black) and the active pill one step
    up at emphasis-100, there's no discrete tier left between them to use
