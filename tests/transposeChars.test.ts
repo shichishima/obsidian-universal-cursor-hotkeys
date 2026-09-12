@@ -12,7 +12,7 @@ vi.mock('@codemirror/commands', () => ({
 }))
 
 import { transposeChars as cmTransposeChars } from '@codemirror/commands'
-import UniversalCursorHotkeysPlugin from '../main.ts'
+import UniversalCursorHotkeysPlugin from '../src/main.ts'
 
 function makeLineAt(text: string) {
 	return (pos: number) => {

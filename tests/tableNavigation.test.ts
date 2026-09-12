@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
-import { exitTable, jumpAdjacentCell } from '../table-navigation'
-import type { TableNavHost } from '../table-navigation'
+import { exitTable, jumpAdjacentCell } from '../src/table-navigation'
+import type { TableNavHost } from '../src/table-navigation'
 
 // table-navigation.ts's own exitTable/jumpAdjacentCell — pure logic, shared
 // between the Vim leader-key commands (see vimTableNavigation.test.ts for

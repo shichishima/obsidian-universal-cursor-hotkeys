@@ -4,7 +4,7 @@ vi.mock('@codemirror/language', () => ({
 	syntaxTree: vi.fn(),
 }))
 
-import UniversalCursorHotkeysPlugin from '../main.ts'
+import UniversalCursorHotkeysPlugin from '../src/main.ts'
 
 // Line layout:
 //   LINE_2SEG = '| line1<br>line2 |'

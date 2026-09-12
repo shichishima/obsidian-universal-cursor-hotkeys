@@ -4,7 +4,7 @@ vi.mock('@codemirror/language', () => ({
 	syntaxTree: vi.fn(),
 }))
 
-import UniversalCursorHotkeysPlugin from '../main.ts'
+import UniversalCursorHotkeysPlugin from '../src/main.ts'
 
 // Copy Region (Alt-W) — the non-destructive sibling of Kill Region, sharing
 // its selection-validation/normalization logic (getValidatedRegionText) but

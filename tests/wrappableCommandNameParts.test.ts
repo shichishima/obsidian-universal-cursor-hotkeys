@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { wrappableCommandNameParts } from '../settings'
+import { wrappableCommandNameParts } from '../src/settings'
 
 const NBSP = ' '
 

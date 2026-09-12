@@ -17,7 +17,7 @@ Intl.Segmenter = class extends RealSegmenter {
 	}
 };
 
-const { getWordSpans } = await import('../../word-segmentation');
+const { getWordSpans } = await import('../../src/word-segmentation');
 
 function segmentToText(lineText: string): string[] {
 	return getWordSpans(lineText).map(s => lineText.slice(s.from, s.to));

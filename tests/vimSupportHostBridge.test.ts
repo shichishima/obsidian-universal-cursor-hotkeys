@@ -4,7 +4,7 @@ vi.mock('@codemirror/language', () => ({
 	syntaxTree: vi.fn(),
 }))
 
-import UniversalCursorHotkeysPlugin from '../main.ts'
+import UniversalCursorHotkeysPlugin from '../src/main.ts'
 
 // main.ts's VimSupportHost bridge implementation (crossTableRowForCell,
 // enterTableAtLine, and the walkTableRows/exitTableWithColumn/

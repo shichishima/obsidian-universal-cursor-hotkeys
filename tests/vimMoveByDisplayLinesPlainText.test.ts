@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { VimSupport } from '../vim-support'
-import type { VimSupportHost } from '../vim-support'
+import { VimSupport } from '../src/vim-support'
+import type { VimSupportHost } from '../src/vim-support'
 import { installVimWindow, uninstallVimWindow, type FakeEditor } from './__helpers__/vimWindow'
 
 // moveByDisplayLines' plain-text branch (editor.inTableCell === false): delegates
