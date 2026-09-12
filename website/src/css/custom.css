@@ -1,0 +1,47 @@
+/**
+ * Any CSS included here will be global. The classic template
+ * bundles Infima by default. Infima is a CSS framework designed to
+ * work well for content-centric websites.
+ */
+
+/* Obsidian's own brand purple (#6C31E3, see obsidian.md/brand) as the
+   primary color — this is a plugin's docs site, so it should feel like an
+   extension of the host app rather than an unrelated brand. */
+:root {
+  --ifm-color-primary: #6c31e3;
+  --ifm-color-primary-dark: #632dd1;
+  --ifm-color-primary-darker: #5f2bc8;
+  --ifm-color-primary-darkest: #4e23a3;
+  --ifm-color-primary-light: #7841e5;
+  --ifm-color-primary-lighter: #7e4ae6;
+  --ifm-color-primary-lightest: #956beb;
+  --ifm-code-font-size: 95%;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+}
+
+/* Bigger, more prominent plugin name in the top-left navbar brand. */
+.navbar__title {
+  font-size: 1.35rem;
+}
+
+/* Matches Docusaurus's own @theme/Icon/ExternalLink spacing (0.3rem left
+   margin) for the hand-written external-link icons in the footer's
+   Forum (en)/(zh) combined item (docusaurus.config.ts) — that item uses raw
+   html (footer items can't split one label into two different links
+   otherwise), so it doesn't get the icon automatically the way normal
+   {label, href} footer items do. */
+.forum-link-icon {
+  margin-left: 0.3rem;
+}
+
+/* Lighter purple in dark mode for contrast against a dark background. */
+[data-theme='dark'] {
+  --ifm-color-primary: #8c5ee9;
+  --ifm-color-primary-dark: #8157d7;
+  --ifm-color-primary-darker: #7b53cd;
+  --ifm-color-primary-darkest: #6544a8;
+  --ifm-color-primary-light: #966beb;
+  --ifm-color-primary-lighter: #9a72ec;
+  --ifm-color-primary-lightest: #ac8bef;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+}
