@@ -5,7 +5,7 @@ vi.mock('@codemirror/language', () => ({
 }))
 
 import { syntaxTree } from '@codemirror/language'
-import UniversalCursorHotkeysPlugin from '../main.ts'
+import UniversalCursorHotkeysPlugin from '../src/main.ts'
 
 describe('isPositionInTable', () => {
 	let plugin: any

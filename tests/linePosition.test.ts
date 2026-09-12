@@ -4,7 +4,7 @@ vi.mock('@codemirror/language', () => ({
 	syntaxTree: vi.fn(),
 }))
 
-import UniversalCursorHotkeysPlugin from '../main.ts'
+import UniversalCursorHotkeysPlugin from '../src/main.ts'
 
 // Tuple: [line, ch, Adv. (Std=ON&Adv=ON), Std. (Std=ON&Adv=OFF), OFF (Std=OFF)]
 // "OFF" is tested twice — Advanced=ON and Advanced=OFF — sharing the same expected value.

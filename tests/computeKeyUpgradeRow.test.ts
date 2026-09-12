@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { computeKeyUpgradeRow, hotkeyId } from '../settings'
-import type { KeyUpgradeDef, BakedHotkey } from '../settings'
+import { computeKeyUpgradeRow, hotkeyId } from '../src/settings'
+import type { KeyUpgradeDef, BakedHotkey } from '../src/settings'
 
 const PLUGIN_PREFIX = 'universal-cursor-hotkeys'
 const uchId = (id: string) => `${PLUGIN_PREFIX}:${id}`

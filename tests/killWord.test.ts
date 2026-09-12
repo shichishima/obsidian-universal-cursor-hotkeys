@@ -4,7 +4,7 @@ vi.mock('@codemirror/language', () => ({
 	syntaxTree: vi.fn(),
 }))
 
-import UniversalCursorHotkeysPlugin from '../main.ts'
+import UniversalCursorHotkeysPlugin from '../src/main.ts'
 
 // Kill word left/right (Emacs Alt-Backspace/Alt-D). Structured to mirror
 // killLine.test.ts/killLineLP.test.ts's own three-branch split (plain text,

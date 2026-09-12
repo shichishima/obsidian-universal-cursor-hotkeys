@@ -4,7 +4,7 @@ vi.mock('@codemirror/language', () => ({
 	syntaxTree: vi.fn(),
 }))
 
-import UniversalCursorHotkeysPlugin from '../main.ts'
+import UniversalCursorHotkeysPlugin from '../src/main.ts'
 
 // Uppercase word / Lowercase word / Capitalize word (Emacs Alt-U/L/C).
 // Structured to mirror killWord.test.ts's own multi-branch split (plain

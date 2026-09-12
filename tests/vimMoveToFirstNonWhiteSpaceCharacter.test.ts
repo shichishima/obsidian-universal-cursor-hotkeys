@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
-import { VimSupport } from '../vim-support'
-import type { VimSupportHost } from '../vim-support'
+import { VimSupport } from '../src/vim-support'
+import type { VimSupportHost } from '../src/vim-support'
 
 // Vim's `^` (moveToFirstNonWhiteSpaceCharacter). Unlike J's smartJoin, off
 // does NOT route through getBeginningOfLinePosition (that hardcodes 0 when
