@@ -1,6 +1,7 @@
 ---
 sidebar_position: 4
 title: Command Details
+mode: macos-emacs-style
 ---
 
 # macOS (Emacs) style — Command Details

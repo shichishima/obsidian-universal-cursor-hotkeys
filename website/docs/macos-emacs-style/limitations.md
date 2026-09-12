@@ -1,6 +1,7 @@
 ---
 sidebar_position: 3
 title: Limitations
+mode: macos-emacs-style
 ---
 
 # macOS (Emacs) style — Limitations

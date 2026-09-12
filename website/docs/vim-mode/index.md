@@ -1,5 +1,6 @@
 ---
 title: Vim mode
+mode: vim-mode
 ---
 
 # Vim mode

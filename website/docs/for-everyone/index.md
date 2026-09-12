@@ -1,5 +1,6 @@
 ---
 title: For everyone
+mode: for-everyone
 ---
 
 # For everyone

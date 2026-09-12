@@ -1,6 +1,7 @@
 ---
 sidebar_position: 2
 title: Settings
+mode: vim-mode
 ---
 
 # Vim mode — Settings

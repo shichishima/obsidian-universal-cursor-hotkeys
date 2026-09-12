@@ -1,6 +1,7 @@
 ---
 sidebar_position: 3
 title: Limitations
+mode: vim-mode
 ---
 
 # Vim mode — Limitations

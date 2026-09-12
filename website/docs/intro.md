@@ -19,6 +19,10 @@ Obsidian's Live Preview breaks cursor behavior inside Markdown tables, and treat
 
 **🅴 [I use macOS-style keyboard shortcuts (Emacs keybindings) →](/macos-emacs-style)**
 
+import ModeTabs from '@site/src/components/ModeTabs';
+
+<ModeTabs sticky={false} />
+
 ## Acknowledgments
 
 - The code and documentation for this plugin were developed with the assistance of AI.

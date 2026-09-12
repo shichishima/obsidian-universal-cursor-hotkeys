@@ -1,5 +1,6 @@
 ---
 title: macOS (Emacs) style
+mode: macos-emacs-style
 ---
 
 # macOS (Emacs) style

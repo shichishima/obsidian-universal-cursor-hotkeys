@@ -1,6 +1,7 @@
 ---
 sidebar_position: 2
 title: Settings
+mode: macos-emacs-style
 ---
 
 # macOS (Emacs) style — Settings

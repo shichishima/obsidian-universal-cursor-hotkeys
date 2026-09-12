@@ -1,6 +1,7 @@
 ---
 sidebar_position: 1
 title: Command Reference
+mode: for-everyone
 ---
 
 # For everyone — Command Reference

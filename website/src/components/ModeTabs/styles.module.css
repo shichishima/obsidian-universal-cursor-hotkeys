@@ -1,0 +1,157 @@
+/**
+ * Ported from the plugin's own iOS-style segmented control
+ * (styles.css:29-116 in the repo root — .uch-tab-bar-sticky/.uch-tab-bar/
+ * .uch-tab-btn), the same tab bar shown at the top of Settings →
+ * Universal Cursor Hotkeys, including its sticky-while-scrolling behavior.
+ * A filled "track" holding three equal-width segments, with the active one
+ * rendered as a raised, lighter pill (matches Apple's own HIG spec) rather
+ * than a colored fill.
+ *
+ * Color mapping note: --ifm-background-color (the naive pick for "active
+ * pill = page background") is *transparent* in Infima's light theme (only
+ * dark theme gives it a real color — confirmed via `html { background-color:
+ * var(--ifm-background-color); }` in Infima's own default.css, the actual
+ * light-mode page canvas is just the browser default, not a color this
+ * variable ever holds) and the emphasis-N scale's own "0" step means
+ * opposite things per theme (white in light, pure black in dark) — neither
+ * is safe to reference directly for a background that must always read as
+ * "the lighter, background-adjacent tier". Values below are picked
+ * per-theme instead, each one actually close to that theme's real page
+ * background:
+ *   light: track = emphasis-200 (#ebedf0), active pill/sticky cover = emphasis-0 (white)
+ *   dark:  track = emphasis-0 (pure black), active pill/sticky cover = emphasis-100 (≈#1c1e21, Infima's own dark "page background" tier)
+ *
+ * Direction warning: Infima's emphasis-N scale runs opposite ways per
+ * theme — in light mode, a HIGHER number is darker (0 = white ... 900 =
+ * near-black); in dark mode a HIGHER number is LIGHTER (0 = pure black ...
+ * 900 = near-white). A first pass here used emphasis-300 for the dark
+ * track, which is *lighter* than the emphasis-100 active pill — backwards
+ * from the intended "active pill is the lighter, raised one" look,
+ * confirmed visually and fixed to emphasis-0 (properly darker than 100).
+ */
+
+/* Pins the tab bar to the top of the viewport, directly below Docusaurus's
+   own sticky navbar (--ifm-navbar-height), so it stays reachable while
+   scrolling through a mode's own long pages (e.g. Command Details). The
+   padding-bottom (rather than a margin on .tabBar) keeps the gap below the
+   bar inside this sticky, opaque box — a margin there would let scrolled
+   content peek through the gap as it passes underneath.  */
+.tabBarSticky {
+  position: sticky;
+  top: var(--ifm-navbar-height);
+  z-index: 1;
+  /* The real 1rem gap above this bar came from an ANCESTOR's own padding
+     (DocRoot/Layout/Main's `.container.padding-top--md`), not from this
+     element's own margin — see src/theme/DocItem/Layout's own
+     .articlePullUp, which cancels that ancestor padding on the <article>
+     itself. This element's own margin-top stays a plain 0 on purpose:
+     margins on a position:sticky element itself interact with its sticky
+     offset calculation inconsistently across browsers, so the
+     cancellation is deliberately done one level up instead. */
+  margin-top: 0;
+  padding-bottom: 1.5rem;
+  background-color: var(--ifm-color-emphasis-0);
+}
+
+/* Non-sticky variant (Overview page's own inline placement, sticky={false})
+   — just the bottom spacing, no position/z-index/opaque-cover machinery,
+   since it scrolls away normally with the rest of the page. */
+.tabBarStatic {
+  margin-top: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+:root[data-theme='dark'] .tabBarSticky {
+  background-color: var(--ifm-color-emphasis-100);
+}
+
+.tabBar {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  width: 100%;
+  background-color: var(--ifm-color-emphasis-200);
+  border-radius: 8px;
+}
+
+:root[data-theme='dark'] .tabBar {
+  background-color: var(--ifm-color-emphasis-0);
+}
+
+.tabBtn {
+  flex: 1;
+  text-align: center;
+  font-size: 1em;
+  padding: 8px 14px;
+  background-color: transparent;
+  box-shadow: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--ifm-color-emphasis-700);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.tabBtn:hover {
+  color: var(--ifm-font-color-base);
+  background-color: var(--ifm-color-emphasis-300);
+  text-decoration: none;
+}
+
+/* emphasis-700 in dark mode resolves to gray-300 (#dadde1) — a genuinely
+   light color, not a muted one (Infima's per-theme reassignment of the
+   gray-N scale, see the header comment above), so it read almost as bright
+   as the active tab's own text (--ifm-font-color-base, #e3e3e3) — barely
+   distinguishable as "inactive". emphasis-300 (gray-700, #606770) reads as
+   clearly dimmer/muted against the emphasis-0 (pure black) track, while
+   staying legible. (emphasis-400/gray-600/#8d949e, tried first, still read
+   too close to the active text's own brightness.) */
+:root[data-theme='dark'] .tabBtn {
+  color: var(--ifm-color-emphasis-300);
+}
+
+/* A translucent white overlay rather than another emphasis-N step: with
+   the track now at emphasis-0 (pure black) and the active pill one step
+   up at emphasis-100, there's no discrete tier left between them to use
+   for a hover state that reads as "between track and active" — an overlay
+   lightens whatever's underneath by a fixed amount instead, sidestepping
+   the scale's per-theme direction entirely. */
+:root[data-theme='dark'] .tabBtn:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+/* Per-tab minimum widths, sized to each label's own text — "macOS (Emacs)
+   style" is by far the longest, so giving all three the same min-width
+   wasted space on the two short ones. With the bar now filling the full
+   content width, these only kick in on narrow viewports. */
+.tabBtnGeneral {
+  min-width: 100px;
+}
+.tabBtnVim {
+  min-width: 80px;
+}
+.tabBtnEmacs {
+  min-width: 160px;
+}
+
+.tabBtnActive,
+.tabBtnActive:hover {
+  color: var(--ifm-font-color-base);
+  background-color: var(--ifm-color-emphasis-0);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+/* Must repeat color here, not just background-color: an active tab carries
+   both .tabBtn and .tabBtnActive at once, and
+   `:root[data-theme='dark'] .tabBtn` above has higher specificity
+   (0,3,0 vs. plain .tabBtnActive's 0,1,0) — without this, the dark
+   muted-label rule would win and the active tab's text would render in
+   the same dim color as the inactive ones, defeating the whole point of
+   this override. */
+:root[data-theme='dark'] .tabBtnActive,
+:root[data-theme='dark'] .tabBtnActive:hover {
+  color: var(--ifm-font-color-base);
+  background-color: var(--ifm-color-emphasis-100);
+}
