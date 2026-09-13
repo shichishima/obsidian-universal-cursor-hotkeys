@@ -1,6 +1,8 @@
 ---
 sidebar_position: 4
-title: Command Details
+title: macOS (Emacs) style — Command Details
+sidebar_label: Command Details
+description: Full behavior details for every macOS-style (Emacs) command, including Live Preview–specific table and callout handling.
 mode: macos-emacs-style
 ---
 

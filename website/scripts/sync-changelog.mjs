@@ -18,6 +18,7 @@ const source = fs.readFileSync(sourcePath, 'utf-8');
 const frontMatter = `---
 sidebar_position: 6
 title: Changelog
+description: Release notes for Universal Cursor Hotkeys, newest first.
 toc_max_heading_level: 2
 custom_edit_url: https://github.com/shichishima/obsidian-universal-cursor-hotkeys/edit/main/CHANGELOG.md
 show_mode_tabs: true

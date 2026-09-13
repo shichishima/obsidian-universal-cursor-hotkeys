@@ -2,7 +2,8 @@
 sidebar_position: 1
 sidebar_label: Top
 slug: /
-title: Overview
+title: Universal Cursor Hotkeys
+description: Markdown table-aware cursor navigation & Chinese/Japanese word splitting — for Vim mode, for Emacs keybindings, and for Everyone.
 ---
 
 import ModeTabs from '@site/src/components/ModeTabs';

@@ -1,6 +1,8 @@
 ---
 sidebar_position: 1
-title: Command Reference
+title: macOS (Emacs) style — Command Reference
+sidebar_label: Command Reference
+description: Every macOS-style (Emacs) command, its recommended hotkey, and what it does — cursor movement, editing, and table commands.
 mode: macos-emacs-style
 ---
 

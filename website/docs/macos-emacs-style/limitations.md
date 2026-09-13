@@ -1,6 +1,8 @@
 ---
 sidebar_position: 3
-title: Limitations
+title: macOS (Emacs) style — Limitations
+sidebar_label: Limitations
+description: Known edge cases and shortcut conflicts for macOS-style (Emacs) keybindings — selection boundaries, Live Preview quirks, and Windows shortcut overlaps.
 mode: macos-emacs-style
 ---
 

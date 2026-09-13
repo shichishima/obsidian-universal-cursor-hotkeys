@@ -1,6 +1,8 @@
 ---
 sidebar_position: 1
-title: Command Reference
+title: For everyone — Command Reference
+sidebar_label: Command Reference
+description: What each For everyone key actually does — column-aware arrow keys, Smart Home, table-aware Page Up/Down, and CJK-aware word navigation.
 mode: for-everyone
 ---
 

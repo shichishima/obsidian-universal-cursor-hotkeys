@@ -1,6 +1,8 @@
 ---
 sidebar_position: 3
-title: Limitations
+title: Vim mode — Limitations
+sidebar_label: Limitations
+description: Known edge cases for Vim mode support — CJK input source conflicts, count-prefix limits, and table-crossing edge cases.
 mode: vim-mode
 ---
 

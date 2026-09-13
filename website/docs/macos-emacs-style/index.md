@@ -1,5 +1,6 @@
 ---
 title: macOS (Emacs) style
+description: Restores native macOS cursor shortcuts inside tables and adds a full Emacs-style editing workflow — Kill & Yank, case conversion, and Recenter.
 mode: macos-emacs-style
 ---
 

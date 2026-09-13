@@ -1,6 +1,8 @@
 ---
 sidebar_position: 2
-title: Settings
+title: macOS (Emacs) style — Settings
+sidebar_label: Settings
+description: How to assign macOS-style (Emacs) hotkeys from Settings → Universal Cursor Hotkeys, and what each status badge means.
 mode: macos-emacs-style
 ---
 

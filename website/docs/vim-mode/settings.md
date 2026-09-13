@@ -1,6 +1,8 @@
 ---
 sidebar_position: 2
-title: Settings
+title: Vim mode — Settings
+sidebar_label: Settings
+description: How to turn on each Vim motion upgrade and leader-key table command from Settings → Universal Cursor Hotkeys.
 mode: vim-mode
 ---
 

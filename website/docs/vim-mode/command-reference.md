@@ -1,6 +1,8 @@
 ---
 sidebar_position: 1
-title: Command Reference
+title: Vim mode — Command Reference
+sidebar_label: Command Reference
+description: What each Vim motion upgrade and leader-key table command actually does inside Live Preview tables.
 mode: vim-mode
 ---
 

@@ -1,6 +1,8 @@
 ---
 sidebar_position: 2
-title: Settings
+title: For everyone — Settings
+sidebar_label: Settings
+description: How to turn on each For everyone key from Settings → Universal Cursor Hotkeys, plus what the Used/Conflict status badges mean.
 mode: for-everyone
 ---
 

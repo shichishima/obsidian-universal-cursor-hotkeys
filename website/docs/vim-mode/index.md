@@ -1,5 +1,6 @@
 ---
 title: Vim mode
+description: Fixes h/l/j/k/w/b/e/gg/G/gj/gk and more so Obsidian's built-in Vim mode works correctly inside Live Preview tables.
 mode: vim-mode
 ---
 

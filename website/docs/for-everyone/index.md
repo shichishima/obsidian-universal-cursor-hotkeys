@@ -1,5 +1,6 @@
 ---
 title: For everyone
+description: Table-aware and CJK-aware upgrades for the keys you already use every day — arrow keys, Home, End, Page Up/Down, and word navigation — no Vim mode or Emacs-style keybindings required.
 mode: for-everyone
 ---
 

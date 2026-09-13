@@ -1,6 +1,7 @@
 ---
 sidebar_position: 5
 title: Behavior Options
+description: Shared settings referenced from For everyone, Vim mode, and macOS-style (Emacs keybindings) — Smart home, Smart join, Visual line movement, Cross-row navigation, and Double-click word select.
 show_mode_tabs: true
 ---
 
