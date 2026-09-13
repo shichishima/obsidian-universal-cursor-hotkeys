@@ -25,6 +25,17 @@ const config: Config = {
 
   onBrokenLinks: 'throw',
 
+  // Cloudflare Web Analytics — cookieless page view/visit counts. The
+  // token is a public client-side beacon identifier (visible in every
+  // page's source once deployed), not a secret.
+  scripts: [
+    {
+      src: 'https://static.cloudflareinsights.com/beacon.min.js',
+      type: 'module',
+      'data-cf-beacon': '{"token": "19e1e2cd027a496d9dff5d1035268298"}',
+    },
+  ],
+
   i18n: {
     defaultLocale: 'en',
     locales: ['en', 'zh', 'ja'],
