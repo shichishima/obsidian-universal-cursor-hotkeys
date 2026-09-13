@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { getWordSpans, findWordSpanOnLine } from '../word-segmentation.ts'
+import { getWordSpans, findWordSpanOnLine } from '../src/word-segmentation.ts'
 
 describe('getWordSpans', () => {
 	it('splits plain ASCII words, skipping whitespace', () => {

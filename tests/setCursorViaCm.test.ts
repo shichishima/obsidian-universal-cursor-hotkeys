@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import UniversalCursorHotkeysPlugin from '../main.ts'
+import UniversalCursorHotkeysPlugin from '../src/main.ts'
 
 // setCursorViaCm's preserveActiveSelection param (added alongside the fix for
 // gg/G dropping out of Vim's Visual/Visual Line mode — see jumpToDocumentLine's

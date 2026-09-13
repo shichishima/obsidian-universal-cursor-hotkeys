@@ -4,8 +4,8 @@ vi.mock('@codemirror/language', () => ({
 	syntaxTree: vi.fn(),
 }))
 
-import UniversalCursorHotkeysPlugin from '../main.ts'
-import { getInCellLineInfo } from '../table-cell-utils.ts'
+import UniversalCursorHotkeysPlugin from '../src/main.ts'
+import { getInCellLineInfo } from '../src/table-cell-utils.ts'
 
 // ---------------------------------------------------------------------------
 // Minimal editor mock helpers

@@ -5,7 +5,7 @@ import obsidianmd from "eslint-plugin-obsidianmd";
 export default defineConfig([
 	...obsidianmd.configs.recommended,
 	{
-		files: ["main.ts", "settings.ts", "vim-support.ts", "table-cell-utils.ts", "word-segmentation.ts", "table-navigation.ts", "cjk-word-select.ts"],
+		files: ["src/main.ts", "src/settings.ts", "src/vim-support.ts", "src/table-cell-utils.ts", "src/word-segmentation.ts", "src/table-navigation.ts", "src/cjk-word-select.ts"],
 		languageOptions: {
 			parser: tsparser,
 			parserOptions: { project: "./tsconfig.json" },

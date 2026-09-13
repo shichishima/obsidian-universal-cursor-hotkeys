@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { VimSupport } from '../vim-support'
-import type { VimSupportHost } from '../vim-support'
+import { VimSupport } from '../src/vim-support'
+import type { VimSupportHost } from '../src/vim-support'
 
 // moveByCharacters (h/l) is a private field on VimSupport; accessed via `as any`
 // like the rest of this test suite accesses private plugin methods.

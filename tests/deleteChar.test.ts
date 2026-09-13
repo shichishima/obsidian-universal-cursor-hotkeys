@@ -11,7 +11,7 @@ vi.mock('@codemirror/commands', () => ({
 }))
 
 import { deleteCharForward } from '@codemirror/commands'
-import UniversalCursorHotkeysPlugin from '../main.ts'
+import UniversalCursorHotkeysPlugin from '../src/main.ts'
 
 function makeEditor(lines: string[], cursorLine: number, cursorCh: number) {
 	const buf = [...lines]

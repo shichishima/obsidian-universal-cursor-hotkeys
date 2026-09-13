@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { VimSupport } from '../vim-support'
-import type { VimSupportHost } from '../vim-support'
+import { VimSupport } from '../src/vim-support'
+import type { VimSupportHost } from '../src/vim-support'
 import { installVimWindow, uninstallVimWindow } from './__helpers__/vimWindow'
 
 // Vim leader-key table navigation commands (tx/tX/th/tj/tk/tl) — pure cursor

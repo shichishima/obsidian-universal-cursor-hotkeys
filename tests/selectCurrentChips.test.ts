@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { selectCurrentChips, hotkeyId } from '../settings'
-import type { BakedHotkey } from '../settings'
+import { selectCurrentChips, hotkeyId } from '../src/settings'
+import type { BakedHotkey } from '../src/settings'
 import type { Modifier } from 'obsidian'
 
 // ── helpers ──────────────────────────────────────────────────────────────────

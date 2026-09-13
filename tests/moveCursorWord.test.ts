@@ -4,7 +4,7 @@ vi.mock('@codemirror/language', () => ({
 	syntaxTree: vi.fn(),
 }))
 
-import UniversalCursorHotkeysPlugin from '../main.ts'
+import UniversalCursorHotkeysPlugin from '../src/main.ts'
 
 // Alt-F/Alt-B (word-right/word-left). moveCursorWordPlainText is exercised
 // against real getWordSpans/findWordSpanOnLine (no mocking needed — it's

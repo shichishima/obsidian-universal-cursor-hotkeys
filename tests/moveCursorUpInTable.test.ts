@@ -4,8 +4,8 @@ vi.mock('@codemirror/language', () => ({
 	syntaxTree: vi.fn(),
 }))
 
-import UniversalCursorHotkeysPlugin from '../main.ts'
-import { getStartOfCellContent, getEndOfCellContent, getCellIndex } from '../table-cell-utils.ts'
+import UniversalCursorHotkeysPlugin from '../src/main.ts'
+import { getStartOfCellContent, getEndOfCellContent, getCellIndex } from '../src/table-cell-utils.ts'
 
 // LINE_SINGLE = '| content |'  (no <br>)
 // LINE_EMPTY  = '|  |'         (empty cell, startOfCellContent === eoc)

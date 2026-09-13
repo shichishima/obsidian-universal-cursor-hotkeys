@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { computeRow, hotkeyId, formatHotkey, normMods } from '../settings'
-import type { CommandDef, BakedHotkey } from '../settings'
+import { computeRow, hotkeyId, formatHotkey, normMods } from '../src/settings'
+import type { CommandDef, BakedHotkey } from '../src/settings'
 import type { Modifier } from 'obsidian'
 
 // ── helpers ──────────────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { EditorSelection } from '@codemirror/state'
-import { isCjkChar, getCjkWordSpan, cjkWordSelectionStyle } from '../cjk-word-select.ts'
+import { isCjkChar, getCjkWordSpan, cjkWordSelectionStyle } from '../src/cjk-word-select.ts'
 
 // cjk-word-select.ts's own pure logic (isCjkChar, getCjkWordSpan) plus the
 // EditorView.mouseSelectionStyle factory (cjkWordSelectionStyle) — no real

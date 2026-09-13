@@ -1,0 +1,35 @@
+/**
+ * Copyright (c) Facebook, Inc. and its affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+.docItemContainer header + *,
+.docItemContainer article > *:first-child {
+  margin-top: 0;
+}
+
+/* Cancels DocRoot/Layout/Main's own `padding-top--md` (Infima's fixed
+   `padding-top: 1rem !important` on the page's outer .container, an
+   ancestor several levels above this <article>) specifically on pages
+   using ModeTabs, so the sticky tab bar sits flush against the navbar at
+   rest instead of a real 1rem gap that then "settles" shut on the first
+   bit of scrolling. Applied here (a normal, non-sticky element) rather
+   than as a negative margin on .tabBarSticky itself — margins on a
+   position:sticky element interact with its own scroll-offset
+   calculation in ways that aren't fully consistent across browsers, so
+   keep the sticky element's own margin at a plain 0 and do the
+   cancellation one level up instead. Swizzling DocRoot/Layout/Main
+   directly to drop padding-top--md was ruled out: useDoc() (needed to
+   know whether this page even has a `mode`) isn't available there — that
+   component renders outside DocItem's own DocProvider. */
+.articlePullUp {
+  margin-top: calc(-1 * var(--ifm-spacing-vertical));
+}
+
+@media (min-width: 997px) {
+  .docItemCol {
+    max-width: 75% !important;
+  }
+}

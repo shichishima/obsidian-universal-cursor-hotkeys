@@ -35,7 +35,7 @@ Intl.Segmenter = class extends RealSegmenter {
 // Must import after the patch above, so the module's own cached segmenter
 // (constructed lazily on first use, but let's not race on caching order)
 // picks up the forced locale.
-const { getWordSpans } = await import('../../word-segmentation');
+const { getWordSpans } = await import('../../src/word-segmentation');
 
 function segmentToText(lineText: string): string[] {
 	return getWordSpans(lineText).map(s => lineText.slice(s.from, s.to));
