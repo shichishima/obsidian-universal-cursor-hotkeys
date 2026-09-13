@@ -1,12 +1,23 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import {themes as prismThemes} from 'prism-react-renderer';
 import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
 
 // This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)
 
+// Read the plugin's own version straight from its package.json (one level
+// up — this website/ folder is a separate npm project with its own
+// version, always '0.0.0'), so the footer's copyright line tracks each
+// release automatically instead of needing a manual edit here every time.
+const pluginPkg = JSON.parse(
+  fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf-8'),
+) as {version: string};
+
 const config: Config = {
   title: 'Universal Cursor Hotkeys',
-  tagline: "CJK-aware word navigation inside Obsidian's Markdown tables, with full Vim mode support",
+  tagline:
+    "Markdown table-aware cursor navigation & Chinese/Japanese word splitting — for Vim mode, for Emacs keybindings, and for Everyone.",
   favicon: 'img/favicon.ico',
 
   // Future flags, see https://docusaurus.io/docs/api/docusaurus-config#future
@@ -111,7 +122,7 @@ const config: Config = {
           ],
         },
       ],
-      copyright: `Copyright © ${new Date().getFullYear()} shichishima. <a href="/obsidian-universal-cursor-hotkeys/changelog" style="color: inherit;">0.11.0</a>. Built with Docusaurus.`,
+      copyright: `Copyright © ${new Date().getFullYear()} shichishima. <a href="/obsidian-universal-cursor-hotkeys/changelog" style="color: inherit;">${pluginPkg.version}</a>. Built with Docusaurus.`,
     },
     prism: {
       theme: prismThemes.github,
