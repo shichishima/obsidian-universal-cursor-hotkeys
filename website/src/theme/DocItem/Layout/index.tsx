@@ -1,14 +1,20 @@
 /**
  * Swizzled from @docusaurus/theme-classic's DocItem/Layout (index.tsx).
  *
- * The only change from the original: on the plugin's 12 mode-specific docs
- * (identified by a `mode` frontmatter field — see docs/for-everyone/,
- * docs/vim-mode/, docs/macos-emacs-style/), the ModeTabs segmented control
- * renders ABOVE DocBreadcrumbs instead of the markdown content's own
- * top-of-page slot. Coarse-grained (which of the 3 modes) belongs above
- * fine-grained (breadcrumb trail within that mode), not below it. Pages
- * with no `mode` frontmatter (Overview, Behavior Options, Changelog) are
- * unaffected — no tabs render there, same as before.
+ * The only change from the original: the ModeTabs segmented control renders
+ * ABOVE DocBreadcrumbs instead of the markdown content's own top-of-page
+ * slot, on two kinds of docs:
+ *   - The plugin's 12 mode-specific docs (identified by a `mode`
+ *     frontmatter field — see docs/for-everyone/, docs/vim-mode/,
+ *     docs/macos-emacs-style/): tabs render with that mode active.
+ *   - Cross-mode docs opting in via `show_mode_tabs: true` frontmatter
+ *     (Behavior Options, Changelog): tabs render with none active — same
+ *     `current={undefined}` treatment ModeTabs already uses on the Overview
+ *     page, just sticky here instead of inline in the page body.
+ * Coarse-grained (which of the 3 modes, or "none of them") belongs above
+ * fine-grained (breadcrumb trail within that page), not below it. The
+ * Overview page (no `mode`, no `show_mode_tabs`) is unaffected — it places
+ * its own non-sticky ModeTabs inline in docs/index.md instead.
  */
 
 import React, {type ReactNode} from 'react';
@@ -58,14 +64,16 @@ export default function DocItemLayout({children}: Props): ReactNode {
   const docTOC = useDocTOC();
   const {metadata, frontMatter} = useDoc();
   const mode = (frontMatter as {mode?: Mode}).mode;
+  const showModeTabs =
+    Boolean(mode) || (frontMatter as {show_mode_tabs?: boolean}).show_mode_tabs === true;
   return (
     <div className="row">
       <div className={clsx('col', !docTOC.hidden && styles.docItemCol)}>
         <ContentVisibility metadata={metadata} />
         <DocVersionBanner />
         <div className={styles.docItemContainer}>
-          <article className={clsx(mode && styles.articlePullUp)}>
-            {mode && <ModeTabs current={mode} />}
+          <article className={clsx(showModeTabs && styles.articlePullUp)}>
+            {showModeTabs && <ModeTabs current={mode} />}
             <DocBreadcrumbs />
             <DocVersionBadge />
             {docTOC.mobile}

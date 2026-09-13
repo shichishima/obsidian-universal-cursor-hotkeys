@@ -2,12 +2,11 @@
  * Swizzled from @docusaurus/theme-classic's DocBreadcrumbs (index.tsx).
  *
  * The only change from the original: when the current page IS the site's
- * own home page (the Overview doc, which lives at "/"), the trailing
- * breadcrumb items are suppressed so only the 🏠 Home crumb renders —
- * otherwise the default behavior always shows "🏠 > Overview", a second
- * crumb pointing at the exact same page the Home icon already links to.
- * Every other page's breadcrumb trail (Home icon + its own path) is
- * unaffected.
+ * own home page (the Overview doc, which lives at "/"), nothing renders at
+ * all — otherwise the default behavior shows "🏠 > Overview" (or, with an
+ * earlier version of this override, just a lone 🏠 Home crumb), which adds
+ * no navigational value on the home page itself. Every other page's
+ * breadcrumb trail (Home icon + its own path) is unaffected.
  */
 
 import React, {type ReactNode} from 'react';
@@ -78,7 +77,7 @@ export default function DocBreadcrumbs(): ReactNode {
     homePagePath && isSamePath(location.pathname, homePagePath),
   );
 
-  if (!breadcrumbs) {
+  if (!breadcrumbs || isOnHomePage) {
     return null;
   }
 
@@ -97,21 +96,20 @@ export default function DocBreadcrumbs(): ReactNode {
         })}>
         <ul className="breadcrumbs">
           {homePageRoute && <HomeBreadcrumbItem />}
-          {!isOnHomePage &&
-            breadcrumbs.map((item, idx) => {
-              const isLast = idx === breadcrumbs.length - 1;
-              const href =
-                item.type === 'category' && item.linkUnlisted
-                  ? undefined
-                  : item.href;
-              return (
-                <BreadcrumbsItem key={idx} active={isLast}>
-                  <BreadcrumbsItemLink href={href} isLast={isLast}>
-                    {item.label}
-                  </BreadcrumbsItemLink>
-                </BreadcrumbsItem>
-              );
-            })}
+          {breadcrumbs.map((item, idx) => {
+            const isLast = idx === breadcrumbs.length - 1;
+            const href =
+              item.type === 'category' && item.linkUnlisted
+                ? undefined
+                : item.href;
+            return (
+              <BreadcrumbsItem key={idx} active={isLast}>
+                <BreadcrumbsItemLink href={href} isLast={isLast}>
+                  {item.label}
+                </BreadcrumbsItemLink>
+              </BreadcrumbsItem>
+            );
+          })}
         </ul>
       </nav>
     </>

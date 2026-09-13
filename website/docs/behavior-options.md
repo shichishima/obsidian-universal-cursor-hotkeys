@@ -1,6 +1,7 @@
 ---
 sidebar_position: 5
 title: Behavior Options
+show_mode_tabs: true
 ---
 
 # Behavior Options
