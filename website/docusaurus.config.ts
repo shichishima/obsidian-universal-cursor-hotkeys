@@ -99,15 +99,10 @@ const config: Config = {
           position: 'left',
           value: `<a href="${baseUrl}changelog" class="badge badge--secondary navbar-version-badge">${pluginPkg.version}</a>`,
         },
-        // localeDropdown temporarily removed: zh/ja are configured in
-        // i18n.locales above and still build (untranslated docs fall back
-        // to English), but with no actual translated content yet, showing
-        // a switcher would let a reader pick 简体中文/日本語 and land on
-        // English anyway. Re-add this item once real translations exist.
-        // {
-        //   type: 'localeDropdown',
-        //   position: 'right',
-        // },
+        {
+          type: 'localeDropdown',
+          position: 'right',
+        },
         {
           href: 'https://github.com/shichishima/obsidian-universal-cursor-hotkeys',
           label: 'GitHub',
