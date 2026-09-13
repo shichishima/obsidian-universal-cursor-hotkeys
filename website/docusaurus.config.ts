@@ -1,0 +1,147 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import {themes as prismThemes} from 'prism-react-renderer';
+import type {Config} from '@docusaurus/types';
+import type * as Preset from '@docusaurus/preset-classic';
+
+// This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)
+
+// Read the plugin's own version straight from its package.json (one level
+// up — this website/ folder is a separate npm project with its own
+// version, always '0.0.0'), so the footer's copyright line tracks each
+// release automatically instead of needing a manual edit here every time.
+const pluginPkg = JSON.parse(
+  fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf-8'),
+) as {version: string};
+
+// Shared with the navbar version badge's link below — raw 'html' navbar
+// items aren't routed through Docusaurus's own <Link>, so baseUrl isn't
+// applied to their hrefs automatically the way it is on every normal link.
+const baseUrl = '/obsidian-universal-cursor-hotkeys/';
+
+const config: Config = {
+  title: 'Universal Cursor Hotkeys',
+  tagline:
+    "Markdown table-aware cursor navigation & Chinese/Japanese word splitting — for Vim mode, for Emacs keybindings, and for Everyone.",
+  favicon: 'img/favicon.ico',
+
+  // Future flags, see https://docusaurus.io/docs/api/docusaurus-config#future
+  future: {
+    v4: true, // Improve compatibility with the upcoming Docusaurus v4
+  },
+
+  url: 'https://shichishima.github.io',
+  baseUrl,
+
+  // GitHub pages deployment config.
+  organizationName: 'shichishima',
+  projectName: 'obsidian-universal-cursor-hotkeys',
+  deploymentBranch: 'gh-pages',
+  trailingSlash: false,
+
+  onBrokenLinks: 'throw',
+
+  // Cloudflare Web Analytics — cookieless page view/visit counts. The
+  // token is a public client-side beacon identifier (visible in every
+  // page's source once deployed), not a secret.
+  scripts: [
+    {
+      src: 'https://static.cloudflareinsights.com/beacon.min.js',
+      type: 'module',
+      'data-cf-beacon': '{"token": "19e1e2cd027a496d9dff5d1035268298"}',
+    },
+  ],
+
+  i18n: {
+    defaultLocale: 'en',
+    locales: ['en', 'zh', 'ja'],
+    localeConfigs: {
+      // Matches Obsidian's own Settings → About → Language dropdown
+      // wording for this locale (confirmed via obsidian.md/zh/help/language)
+      // rather than Docusaurus's own generic Intl.DisplayNames label
+      // ("中文", which doesn't distinguish simplified from traditional).
+      zh: {
+        label: '简体中文',
+      },
+    },
+  },
+
+  presets: [
+    [
+      'classic',
+      {
+        docs: {
+          sidebarPath: './sidebars.ts',
+          editUrl:
+            'https://github.com/shichishima/obsidian-universal-cursor-hotkeys/tree/main/website/',
+          routeBasePath: '/',
+        },
+        blog: false,
+        theme: {
+          customCss: './src/css/custom.css',
+        },
+      } satisfies Preset.Options,
+    ],
+  ],
+
+  themeConfig: {
+    colorMode: {
+      respectPrefersColorScheme: true,
+    },
+    navbar: {
+      title: 'Universal Cursor Hotkeys',
+      items: [
+        // Version badge next to the navbar title, linking to the
+        // changelog. Plain 'html' item — no swizzle needed, since it's
+        // static markup computed once at config-build time.
+        {
+          type: 'html',
+          position: 'left',
+          value: `<a href="${baseUrl}changelog" class="badge badge--secondary navbar-version-badge">${pluginPkg.version}</a>`,
+        },
+        // localeDropdown temporarily removed: zh/ja are configured in
+        // i18n.locales above and still build (untranslated docs fall back
+        // to English), but with no actual translated content yet, showing
+        // a switcher would let a reader pick 简体中文/日本語 and land on
+        // English anyway. Re-add this item once real translations exist.
+        // {
+        //   type: 'localeDropdown',
+        //   position: 'right',
+        // },
+        {
+          href: 'https://github.com/shichishima/obsidian-universal-cursor-hotkeys',
+          label: 'GitHub',
+          position: 'right',
+        },
+      ],
+    },
+    footer: {
+      style: 'dark',
+      links: [
+        {
+          title: 'More',
+          items: [
+            {
+              label: 'GitHub',
+              href: 'https://github.com/shichishima/obsidian-universal-cursor-hotkeys',
+            },
+            {
+              label: 'Obsidian Community Plugin',
+              href: 'https://obsidian.md/plugins?id=universal-cursor-hotkeys',
+            },
+            {
+              html: '<a class="footer__link-item" href="https://forum.obsidian.md/t/universal-cursor-hotkeys-emacs-vim-navigation-for-markdown-tables/114542" target="_blank" rel="noopener noreferrer">Forum (en)<svg width="13.5" height="13.5" aria-label="(opens in new tab)" class="forum-link-icon"><use href="#theme-svg-external-link" /></svg></a> / <a class="footer__link-item" href="https://forum-zh.obsidian.md/t/topic/63176" target="_blank" rel="noopener noreferrer">(zh)<svg width="13.5" height="13.5" aria-label="(opens in new tab)" class="forum-link-icon"><use href="#theme-svg-external-link" /></svg></a>',
+            },
+          ],
+        },
+      ],
+      copyright: `Copyright © ${new Date().getFullYear()} shichishima. Built with Docusaurus.`,
+    },
+    prism: {
+      theme: prismThemes.github,
+      darkTheme: prismThemes.dracula,
+    },
+  } satisfies Preset.ThemeConfig,
+};
+
+export default config;

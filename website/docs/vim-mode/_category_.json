@@ -1,0 +1,8 @@
+{
+  "label": "Vim mode",
+  "position": 3,
+  "link": {
+    "type": "doc",
+    "id": "vim-mode/index"
+  }
+}
