@@ -14,6 +14,11 @@ const pluginPkg = JSON.parse(
   fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf-8'),
 ) as {version: string};
 
+// Shared with the navbar version badge's link below — raw 'html' navbar
+// items aren't routed through Docusaurus's own <Link>, so baseUrl isn't
+// applied to their hrefs automatically the way it is on every normal link.
+const baseUrl = '/obsidian-universal-cursor-hotkeys/';
+
 const config: Config = {
   title: 'Universal Cursor Hotkeys',
   tagline:
@@ -26,7 +31,7 @@ const config: Config = {
   },
 
   url: 'https://shichishima.github.io',
-  baseUrl: '/obsidian-universal-cursor-hotkeys/',
+  baseUrl,
 
   // GitHub pages deployment config.
   organizationName: 'shichishima',
@@ -86,6 +91,14 @@ const config: Config = {
     navbar: {
       title: 'Universal Cursor Hotkeys',
       items: [
+        // Version badge next to the navbar title, linking to the
+        // changelog. Plain 'html' item — no swizzle needed, since it's
+        // static markup computed once at config-build time.
+        {
+          type: 'html',
+          position: 'left',
+          value: `<a href="${baseUrl}changelog" class="badge badge--secondary navbar-version-badge">${pluginPkg.version}</a>`,
+        },
         // localeDropdown temporarily removed: zh/ja are configured in
         // i18n.locales above and still build (untranslated docs fall back
         // to English), but with no actual translated content yet, showing
@@ -122,7 +135,7 @@ const config: Config = {
           ],
         },
       ],
-      copyright: `Copyright © ${new Date().getFullYear()} shichishima. <a href="/obsidian-universal-cursor-hotkeys/changelog" style="color: inherit;">${pluginPkg.version}</a>. Built with Docusaurus.`,
+      copyright: `Copyright © ${new Date().getFullYear()} shichishima. Built with Docusaurus.`,
     },
     prism: {
       theme: prismThemes.github,

@@ -24,6 +24,21 @@
   font-size: 1.35rem;
 }
 
+/* Version badge next to the navbar title, linking to the changelog — see
+   docusaurus.config.ts's navbar item. It's a real link (has an href), so
+   Infima's global `a`/`a:hover` rules would otherwise override
+   .badge--secondary's own black text with the ordinary link color plus an
+   underline on hover; pin both states back to the badge's own look. */
+.navbar-version-badge {
+  margin-left: 0.5rem;
+  vertical-align: 1px;
+}
+.navbar-version-badge,
+.navbar-version-badge:hover {
+  color: var(--ifm-color-black);
+  text-decoration: none;
+}
+
 /* Matches Docusaurus's own @theme/Icon/ExternalLink spacing (0.3rem left
    margin) for the hand-written external-link icons in the footer's
    Forum (en)/(zh) combined item (docusaurus.config.ts) — that item uses raw
