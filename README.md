@@ -27,7 +27,7 @@ You don't need Vim mode or Emacs-style keybindings to benefit from this plugin.
 
 **Getting started:** Open **Settings → Universal Cursor Hotkeys → For everyone** and click **Apply all**.
 
-<img width="900" height="700" alt="For everyone settings tab, with the Apply all button highlighted" src="https://github.com/user-attachments/assets/44085eab-9e76-402c-a39d-f3aaa3a17756" />
+<img width="600" height="467" alt="For everyone settings tab, with the Apply all button highlighted" src="https://github.com/user-attachments/assets/44085eab-9e76-402c-a39d-f3aaa3a17756" />
 
 **What it does:**
 - **↑ / ↓** — column-aware: keeps your column position across table rows instead of snapping to a cell's start.
