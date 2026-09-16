@@ -34,6 +34,7 @@ You don't need Vim mode or Emacs-style keybindings to benefit from this plugin.
 - **Home** — Smart home skips past Markdown syntax (lists, headings, blockquotes, and more) to land on the real content.
 - **Page Up / Page Down** — previously couldn't land inside a table at all. Turn this on and it scrolls a full screen at a time, keeping the cursor in view, table cells included.
 - **Ctrl+←/→, Ctrl+Backspace/Delete** (macOS: Option+←/→, Option+Delete) — move and delete by word, Chinese/Japanese included (dictionary-based word segmentation).
+- **Double-click (mouse)** — also Chinese/Japanese-aware: selects just the word under the cursor, not the whole unbroken run.
 
 Every key here is purely additive — turning one on adds that key to the target command's hotkeys, without removing any it already has. You can always check what's assigned — and turn it off — in **Settings → Hotkeys**.
 
