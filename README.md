@@ -35,7 +35,7 @@ You don't need Vim mode or Emacs-style keybindings to benefit from this plugin.
 - **Page Up / Page Down** — previously couldn't land inside a table at all. Turn this on and it scrolls a full screen at a time, keeping the cursor in view, table cells included.
 - **Ctrl+←/→, Ctrl+Backspace/Delete** (macOS: Option+←/→, Option+Delete) — move and delete by word, Chinese/Japanese included (dictionary-based word segmentation).
 
-Every key here is purely additive — turning one on adds that key to the target command's hotkeys, without removing any it already has. You can always check what's assigned in Obsidian's own Hotkeys settings.
+Every key here is purely additive — turning one on adds that key to the target command's hotkeys, without removing any it already has. You can always check what's assigned — and turn it off — in **Settings → Hotkeys**.
 
 📖 Full documentation → [For everyone](https://shichishima.github.io/obsidian-universal-cursor-hotkeys/for-everyone/)
 
@@ -55,6 +55,8 @@ If you use Obsidian's built-in Vim mode, you already know the quirks of Live Pre
 - **`gg`/`G`** reach the note's real first/last line, even from inside a table.
 - **Leader-key commands** (`Space t...`) insert, delete, move, duplicate, and align table rows/columns, plus jump straight cell-to-cell (`<leader>tj/tk/th/tl`) — all without leaving Vim's own keys.
 
+Everything above is scoped to table cells — outside a table, Vim mode behaves exactly as it always has. Each fix is a plain on/off toggle, so turning one off restores Obsidian's Vim mode to its native behavior immediately.
+
 📖 Full documentation → [Vim mode](https://shichishima.github.io/obsidian-universal-cursor-hotkeys/vim-mode/)
 
 ---
@@ -63,7 +65,7 @@ If you use Obsidian's built-in Vim mode, you already know the quirks of Live Pre
 
 On macOS, Ctrl+P/N/B/F move the cursor everywhere in your notes — except inside tables. Once bound to hotkeys, this plugin's commands make that movement work inside tables too.
 
-Kill & Yank, Recenter-top-bottom, and a full set of Emacs-style cursor and editing commands are included, so macOS and Windows alike get the full Emacs-style workflow.
+Kill & Yank and a full set of Emacs-style cursor and editing commands are included, so macOS and Windows alike get the complete workflow.
 
 There's also Markdown-aware smart behavior built in — give Smart home and Smart join a try.
 
@@ -83,9 +85,13 @@ Also worth a look: turn on **Smart home (advanced)** to cleanly skip past Markdo
 - **Kill & Yank (Ctrl+K/Y)** — consecutive kills accumulate; **Kill Region (Ctrl+W)** handles table cell newlines and pipe characters automatically too.
 - **Case conversion** (dwim-style upcase/downcase/capitalize), **Transpose chars**, **Recenter-top-bottom**, and more round out the full Emacs editing workflow.
 
+Like For everyone, these are ordinary Obsidian Commands bound to real hotkeys — visible and reassignable any time in **Settings → Hotkeys**.
+
 📖 Full documentation → [macOS-style (Emacs) keybindings](https://shichishima.github.io/obsidian-universal-cursor-hotkeys/macos-emacs-style/)
 
 ---
+
+Obsidian's Live Preview is genuinely great, I think, and it renders and edits Markdown tables well. It just falls a little short in this one specific way — and that one thing seems to weigh on its reputation more than it should. This plugin exists to close that gap and make Obsidian's Live Preview that much better. If it helps your everyday note-taking in Obsidian, that's exactly what it's here for.
 
 ## Acknowledgments
 - The code and documentation for this plugin were developed with the assistance of AI.
