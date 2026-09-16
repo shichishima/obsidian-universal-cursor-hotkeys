@@ -37,7 +37,7 @@ You don't need Vim mode or Emacs-style keybindings to benefit from this plugin.
 
 Every key here is purely additive — turning one on adds that key to the target command's hotkeys, without removing any it already has. You can always check what's assigned — and turn it off — in **Settings → Hotkeys**.
 
-📖 Full documentation → [For everyone](https://shichishima.github.io/obsidian-universal-cursor-hotkeys/for-everyone/)
+📖 Full documentation → [For everyone](https://shichishima.github.io/obsidian-universal-cursor-hotkeys/for-everyone)
 
 ---
 
@@ -57,7 +57,7 @@ If you use Obsidian's built-in Vim mode, you already know the quirks of Live Pre
 
 Everything above is scoped to table cells — outside a table, Vim mode behaves exactly as it always has. Each fix is a plain on/off toggle, so turning one off restores Obsidian's Vim mode to its native behavior immediately.
 
-📖 Full documentation → [Vim mode](https://shichishima.github.io/obsidian-universal-cursor-hotkeys/vim-mode/)
+📖 Full documentation → [Vim mode](https://shichishima.github.io/obsidian-universal-cursor-hotkeys/vim-mode)
 
 ---
 
@@ -87,7 +87,7 @@ Also worth a look: turn on **Smart home (advanced)** to cleanly skip past Markdo
 
 Like For everyone, these are ordinary Obsidian Commands bound to real hotkeys — visible and reassignable any time in **Settings → Hotkeys**.
 
-📖 Full documentation → [macOS-style (Emacs) keybindings](https://shichishima.github.io/obsidian-universal-cursor-hotkeys/macos-emacs-style/)
+📖 Full documentation → [macOS-style (Emacs) keybindings](https://shichishima.github.io/obsidian-universal-cursor-hotkeys/macos-emacs-style)
 
 ---
 
