@@ -66,7 +66,7 @@ Everything above is scoped to table cells — outside a table, Vim mode behaves 
 
 On macOS, Ctrl+P/N/B/F move the cursor everywhere in your notes — except inside tables. Once bound to hotkeys, this plugin's commands make that movement work inside tables too.
 
-Kill & Yank and a full set of Emacs-style cursor and editing commands are included, so macOS and Windows alike get the complete workflow.
+Kill & Yank and a full set of Emacs-style cursor and editing commands bring the complete workflow to macOS and Windows alike.
 
 There's also Markdown-aware smart behavior built in — give Smart home and Smart join a try.
 
