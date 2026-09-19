@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- **No user-visible change:** added an empty `getSettingDefinitions()` override to the settings tab. This tab's UI (3-tab layout, Key Upgrades' live hotkey-assignment side effects, per-OS recommended keys) doesn't fit the declarative settings API's simple model, so this is a placeholder only — it doesn't make any setting searchable in Obsidian's global settings search, and doesn't change anything about how the tab renders or behaves on any Obsidian version.
+
 ## [0.11.1] - 2026-09-19
 
 ### Fixed
