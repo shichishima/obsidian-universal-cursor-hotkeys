@@ -1692,62 +1692,21 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				const pos = inner.posAtCoords({ x: 0, y: endCoords.top + 9 }, false);
 				if (pos !== null) {
 					// assoc=1: pos is a VL-start position by construction (the leftmost
-					// character of the bottom visual line) — without this, a bare
-					// {anchor: pos} dispatch left CM6 to pick its own default,
-					// rendering the caret at the end of the previous visual line
-					// instead. This is model-correct and behaviorally correct:
-					// goDown from here exits to the row below, and moving right
-					// afterward lands inside the bottom VL's own text — both
-					// verified live.
-					//
-					// KNOWN COSMETIC LIMITATION (investigated at length, unresolved —
-					// see project memory / macOS-style Limitations docs for the
-					// user-facing writeup): the very first paint after landing here
-					// can still render the caret on VL_(N-1)'s side of the boundary,
-					// purely visually — every check of the actual model state
-					// confirms it is correct regardless (Cursor DOWN from the
-					// mis-painted position exits to the row below as expected; moving
-					// right lands inside the bottom VL's own text as expected). Any
-					// subsequent real keystroke (arrow key, this plugin's own
-					// Cursor RIGHT/LEFT) immediately repaints it correctly.
-					//
-					// Confirmed live NOT to fix the first paint, in order tried:
-					//   1. Setting assoc=1 alone (this dispatch, as shipped).
-					//   2. A same-tick nudge to an adjacent position and back.
-					//   3. A same-tick native goRight/goLeft round trip.
-					//   4. That round trip re-asserted after Obsidian's own
-					//      cell-focus-reconciliation window (2 animation frames —
-					//      see applyRowCrossGoalColumnSync above for that same margin
-					//      used successfully for a different symptom).
-					//   5. That round trip split across a real animation frame
-					//      instead of firing both calls in the same tick.
-					//   6. A real 50ms wall-clock delay instead of a single frame
-					//      (this one left the selection in a visibly confusing state
-					//      afterward — worse than doing nothing).
-					//   7. This project's own 2026-04-12 fix for the mirror-image
-					//      case at Cursor END — "never dispatch to the ambiguous
-					//      boundary directly; dispatch to a safe neighbor and take
-					//      exactly one native step across it" — applied both as
-					//      dispatch(pos+1) + goLeft (approaching from the right) and,
-					//      after confirming CM6's goRight always sets assoc=-1 and
-					//      goLeft always sets assoc=1 when landing on a boundary
-					//      (so only the goLeft direction can even produce the assoc
-					//      this case needs), dispatch(pos-1) + goRight anyway to
-					//      double-check — neither fixed it here, even given the same
-					//      2-frame settling margin as #4. The 2026-04-12 fix's own
-					//      context was an already-settled, never-remounted view;
-					//      this call always lands on a view setCursorToPrevRow's own
-					//      setCursorViaCm just freshly mounted/focused a moment
-					//      earlier, which looks like the real remaining variable.
-					//   8. Repeating the post-boundary native step 3x in a row —
-					//      produced zero visible change at all, still painted on
-					//      VL_(N-1)'s side, despite the model position moving
-					//      correctly by 3 each time (confirmed via logging).
-					// Not chased further: disabling the "Native Cursor" community
-					// plugin (a real candidate given its own history of patching
-					// table-cell cursor rendering) made no difference either, and
-					// per-attempt effort was well past the point of being justified
-					// by a purely cosmetic, self-correcting symptom.
+					// character of the bottom visual line) — explicit here defensively,
+					// matching the explicit side=-1 above, so this dispatch's own
+					// intent doesn't depend on CM6's default resolution at a wrap
+					// boundary. Confirmed live (2026-09-19, isolation-tested against
+					// this exact line reverted) that this particular dispatch was
+					// never actually the cause of any observed bug on its own — the
+					// real bug was entirely in applyRowCrossGoalColumnSync, called
+					// right after this function returns (from placeAtBottomVL/
+					// scheduleBottomVisualLine), which used to unconditionally force
+					// assoc=-1 two animation frames later regardless of whether any
+					// realignment was actually needed — silently overwriting this
+					// dispatch's own assoc, both flickering the caret's first paint
+					// and causing a second immediate Cursor UP to overshoot by one
+					// extra visual line. Fixed at the source in
+					// applyRowCrossGoalColumnSync itself (see its own doc comment).
 					inner.dispatch({ selection: EditorSelection.create([EditorSelection.cursor(pos, 1)]) });
 					return;
 				}
@@ -1869,22 +1828,56 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (pixelGoal === null) return;
 		activeWindow.requestAnimationFrame(() => {
 			activeWindow.requestAnimationFrame(() => {
+				const viewBeforeRefine = editor.activeCM;
+				const headBeforeRefine = viewBeforeRefine.state.selection.main.head;
+				const assocBeforeRefine = viewBeforeRefine.state.selection.main.assoc;
 				this.refineDisplayLineColumn(editor, pixelGoal, true);
 				const view = editor.activeCM;
 				const head = view.state.selection.main.head;
 				const rect = view.contentDOM.getBoundingClientRect();
-				// assoc=-1: head may sit exactly on a visual-line wrap boundary —
-				// this function's own result always represents "the rightmost
-				// point of the line being refined that still fits pixelGoal", so
-				// it must always render as that line's own right edge, never as
-				// the start of the next visual line. Confirmed live (2026-08-28):
-				// reusing whatever assoc the selection already carried defaulted
-				// to rendering a same-cell row-crossing's clamped landing as the
-				// destination's *second* visual line's left edge instead of its
-				// first (intended) visual line's right edge.
+				// assoc: head may sit exactly on a visual-line wrap boundary, so
+				// whether it should render as "this line's own right edge" or
+				// "the next line's own left edge" is genuinely ambiguous without
+				// checking. Originally hardcoded to -1 unconditionally (2026-08-28
+				// fix: reusing whatever assoc the selection already carried
+				// defaulted to rendering a same-cell row-crossing's clamped
+				// landing as the destination's *second* visual line's left edge
+				// instead of its first (intended) visual line's right edge).
+				//
+				// But a hardcoded -1 is wrong whenever refineDisplayLineColumn
+				// didn't actually need to move/clamp anything — e.g.
+				// moveToBottomVisualLineOfCell's own VL_n-start landing, called
+				// right before this in placeAtBottomVL/scheduleBottomVisualLine,
+				// where pixelGoal already matches (or falls short of) that
+				// landing's own position: forcing -1 there relabels a genuine
+				// VL_n-start as the line ABOVE's own right edge instead, silently
+				// undoing that landing's own assoc=1 two frames later (confirmed
+				// live 2026-09-19: caused a second immediate Cursor UP to
+				// overshoot by one extra visual line). A pure geometric check
+				// ("is head a line-start") can't tell these two cases apart
+				// either — at a wrap boundary, "this line's own start" and "the
+				// line above's own end" describe the identical offset, so that
+				// check is true for both regardless of which one is intended.
+				//
+				// The signal that actually distinguishes them: did this call's
+				// own refinement move the position at all, AND are we still
+				// inside a genuine table-cell inner view (moveToBottomVisualLineOfCell
+				// never runs against the outer, plain-text view, so an
+				// unchanged head there can't be one of its deliberate
+				// landings — e.g. a blank/short exit line where there's
+				// nothing to clamp to; that case must still force -1, same as
+				// before). If head is unchanged from before refineDisplayLineColumn
+				// ran AND we're still in a distinct inner view, no clamping
+				// happened — whatever assoc was already there (e.g.
+				// moveToBottomVisualLineOfCell's own 1) was already correct for
+				// it and must be preserved, not re-decided. Otherwise the
+				// original -1 rule applies (confirmed live 2026-09-19: still
+				// correct for the clamped-to-a-wrap-boundary case).
+				const stillInDistinctInnerView = view !== editor.cm;
+				const assoc = (stillInDistinctInnerView && head === headBeforeRefine) ? assocBeforeRefine : -1;
 				view.dispatch({
 					selection: EditorSelection.create([
-						EditorSelection.cursor(head, -1, undefined, pixelGoal - rect.left),
+						EditorSelection.cursor(head, assoc, undefined, pixelGoal - rect.left),
 					]),
 				});
 			});
