@@ -99,7 +99,7 @@ describe('moveCursorUpInTable', () => {
 			{ line: 1, ch: START_SINGLE },
 		])
 		plugin.moveCursorUpInTable(editor)
-		expect(plugin.handleCellStartSnap).toHaveBeenCalledWith(editor, 1, midCh, CELL_INDEX, 999, undefined)
+		expect(plugin.handleCellStartSnap).toHaveBeenCalledWith(editor, 1, midCh, CELL_INDEX, 999, undefined, undefined)
 		expect(plugin.setCursorToPrevRow).not.toHaveBeenCalled()
 	})
 
