@@ -1695,19 +1695,59 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 					// character of the bottom visual line) — without this, a bare
 					// {anchor: pos} dispatch left CM6 to pick its own default,
 					// rendering the caret at the end of the previous visual line
-					// instead. This is model-correct and behaviorally correct (goDown
-					// from here exits to the row below; moving right afterward lands
-					// inside the bottom VL's own text — both verified live), but a
-					// separate, unresolved cosmetic issue remains: the very first
-					// paint at this exact wrap-boundary position can still render on
-					// VL_(N-1)'s side regardless of assoc. Confirmed live that neither
-					// a same-tick nudge, a same-tick goRight/goLeft round trip, an
-					// animation-frame-deferred re-dispatch, nor a goRight/goLeft round
-					// trip split across a real frame fixes that first paint — only
-					// two genuinely separate keystrokes (Ctrl-F then Ctrl-B) did, which
-					// none of the above actually reproduce. Left as-is (model-correct,
-					// cosmetically self-corrects on the next real keystroke) rather
-					// than adding more speculative workarounds — see project notes.
+					// instead. This is model-correct and behaviorally correct:
+					// goDown from here exits to the row below, and moving right
+					// afterward lands inside the bottom VL's own text — both
+					// verified live.
+					//
+					// KNOWN COSMETIC LIMITATION (investigated at length, unresolved —
+					// see project memory / macOS-style Limitations docs for the
+					// user-facing writeup): the very first paint after landing here
+					// can still render the caret on VL_(N-1)'s side of the boundary,
+					// purely visually — every check of the actual model state
+					// confirms it is correct regardless (Cursor DOWN from the
+					// mis-painted position exits to the row below as expected; moving
+					// right lands inside the bottom VL's own text as expected). Any
+					// subsequent real keystroke (arrow key, this plugin's own
+					// Cursor RIGHT/LEFT) immediately repaints it correctly.
+					//
+					// Confirmed live NOT to fix the first paint, in order tried:
+					//   1. Setting assoc=1 alone (this dispatch, as shipped).
+					//   2. A same-tick nudge to an adjacent position and back.
+					//   3. A same-tick native goRight/goLeft round trip.
+					//   4. That round trip re-asserted after Obsidian's own
+					//      cell-focus-reconciliation window (2 animation frames —
+					//      see applyRowCrossGoalColumnSync above for that same margin
+					//      used successfully for a different symptom).
+					//   5. That round trip split across a real animation frame
+					//      instead of firing both calls in the same tick.
+					//   6. A real 50ms wall-clock delay instead of a single frame
+					//      (this one left the selection in a visibly confusing state
+					//      afterward — worse than doing nothing).
+					//   7. This project's own 2026-04-12 fix for the mirror-image
+					//      case at Cursor END — "never dispatch to the ambiguous
+					//      boundary directly; dispatch to a safe neighbor and take
+					//      exactly one native step across it" — applied both as
+					//      dispatch(pos+1) + goLeft (approaching from the right) and,
+					//      after confirming CM6's goRight always sets assoc=-1 and
+					//      goLeft always sets assoc=1 when landing on a boundary
+					//      (so only the goLeft direction can even produce the assoc
+					//      this case needs), dispatch(pos-1) + goRight anyway to
+					//      double-check — neither fixed it here, even given the same
+					//      2-frame settling margin as #4. The 2026-04-12 fix's own
+					//      context was an already-settled, never-remounted view;
+					//      this call always lands on a view setCursorToPrevRow's own
+					//      setCursorViaCm just freshly mounted/focused a moment
+					//      earlier, which looks like the real remaining variable.
+					//   8. Repeating the post-boundary native step 3x in a row —
+					//      produced zero visible change at all, still painted on
+					//      VL_(N-1)'s side, despite the model position moving
+					//      correctly by 3 each time (confirmed via logging).
+					// Not chased further: disabling the "Native Cursor" community
+					// plugin (a real candidate given its own history of patching
+					// table-cell cursor rendering) made no difference either, and
+					// per-attempt effort was well past the point of being justified
+					// by a purely cosmetic, self-correcting symptom.
 					inner.dispatch({ selection: EditorSelection.create([EditorSelection.cursor(pos, 1)]) });
 					return;
 				}
