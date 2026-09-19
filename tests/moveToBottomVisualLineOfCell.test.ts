@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { EditorSelection } from '@codemirror/state'
 
 vi.mock('@codemirror/language', () => ({
 	syntaxTree: vi.fn(),
@@ -50,6 +51,7 @@ describe('moveToBottomVisualLineOfCell', () => {
 				doc: {
 					lines: parts.length,
 					line: lineByNumber,
+					length: docText.length,
 				},
 			},
 			coordsAtPos,
@@ -97,7 +99,7 @@ describe('moveToBottomVisualLineOfCell', () => {
 		const inner  = makeInner(' content', { 8: 100 }, 3)
 		const editor = makeEditor(LINE_SINGLE, 2, inner)
 		plugin.moveToBottomVisualLineOfCell(editor)
-		expect(inner.dispatch).toHaveBeenCalledWith({ selection: { anchor: 3 } })
+		expect(inner.dispatch).toHaveBeenCalledWith({ selection: EditorSelection.create([EditorSelection.cursor(3, 1)]) })
 		expect(editor.exec).not.toHaveBeenCalledWith('goDown')
 	})
 
@@ -107,7 +109,7 @@ describe('moveToBottomVisualLineOfCell', () => {
 		const inner  = makeInner(' line1\nline2', { 12: 120 }, 5)
 		const editor = makeEditor(LINE_2SEG, 2, inner)
 		plugin.moveToBottomVisualLineOfCell(editor)
-		expect(inner.dispatch).toHaveBeenCalledWith({ selection: { anchor: 5 } })
+		expect(inner.dispatch).toHaveBeenCalledWith({ selection: EditorSelection.create([EditorSelection.cursor(5, 1)]) })
 		expect(editor.exec).not.toHaveBeenCalledWith('goDown')
 	})
 

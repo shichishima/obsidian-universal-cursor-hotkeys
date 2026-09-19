@@ -954,9 +954,17 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// causing goUp to skip an extra visual line. Fix assoc before goUp:
 		//   left edge  → assoc=1  (start of this VL, not end of the line above)
 		//   right edge → assoc=-1 (end of this VL, not start of the line below)
+		//
+		// resolvedAssocForOriginalHead records which of the two interpretations
+		// actually won for innerHeadBeforeGoUp, so handleCellStartSnap can reuse
+		// it below instead of independently re-guessing (and possibly
+		// contradicting) the same ambiguous position — see that function's own
+		// doc comment for why a second, disagreeing guess there was itself a bug.
+		let resolvedAssocForOriginalHead: number | undefined;
 		if (innerBeforeGoUp && innerBeforeGoUp !== editor.cm && innerHeadBeforeGoUp !== undefined) {
 			const h = innerHeadBeforeGoUp;
 			const currentAssoc = innerBeforeGoUp.state.selection.main.assoc;
+			resolvedAssocForOriginalHead = currentAssoc;
 			const coords = innerBeforeGoUp.coordsAtPos(h);
 			// Fix only when assoc >= 0: assoc=-1 means the cursor is already correctly
 			// placed at the right edge of VL_N (end-of-VL), so goUp works as expected.
@@ -983,6 +991,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 					innerBeforeGoUp.dispatch({
 						selection: EditorSelection.create([EditorSelection.cursor(h, 1, undefined, goalColumn)]),
 					});
+					resolvedAssocForOriginalHead = 1;
 				}
 			}
 		}
@@ -1021,7 +1030,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				this.setCursorToPrevRow(editor, cellIndex);
 				this.placeAtBottomVL(editor, pixelGoal);
 			} else {
-				this.handleCellStartSnap(editor, cursor.line, cursor.ch, cellIndex, pixelGoal, innerHeadBeforeGoUp);
+				this.handleCellStartSnap(editor, cursor.line, cursor.ch, cellIndex, pixelGoal, innerHeadBeforeGoUp, resolvedAssocForOriginalHead);
 			}
 		}
 		// else: goUp moved within the cell to the visual line above - done.
@@ -1565,26 +1574,29 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		cellIndex: number,
 		pixelGoal: number | null,
 		innerHeadBeforeGoUp?: number,
+		resolvedAssocForOriginalHead?: number,
 	) {
 		const inner = editor.activeCM;
 		if (innerHeadBeforeGoUp !== undefined && inner && inner !== editor.cm) {
 			const vl1Coords = inner.coordsAtPos(inner.state.selection.main.head);
-			// side=-1: innerHeadBeforeGoUp may sit exactly on a VL wrap boundary
-			// (the right edge of VL1 is the same raw offset as the left edge of
-			// VL2). Without forcing a side, coordsAtPos falls back to its own
-			// default (the start of the line *after* the boundary, i.e. VL2),
-			// silently misreporting a genuine VL1-right-edge position as VL2 —
-			// confirmed live (2026-08-28, via direct coordsAtPos logging): a
-			// same-offset query returned VL2's own y instead of VL1's, causing
-			// this to wrongly conclude "already VL2+, stay" for a cursor that
-			// was actually on VL1 and should cross to the row above. -1
-			// matches "the end of the line this position terminates" — the
-			// correct interpretation for the right-edge case this originalCh
-			// capture is meant to represent (mirrors the same assoc<0 "already
-			// correctly placed at VL_N's own right edge" reasoning the
-			// assoc-correction block right above this function's own call site
-			// already relies on).
-			const originalCoords = inner.coordsAtPos(innerHeadBeforeGoUp, -1);
+			// innerHeadBeforeGoUp may sit exactly on a VL wrap boundary (the right
+			// edge of VL1 is the same raw offset as the left edge of VL2), so which
+			// visual line coordsAtPos reports for it is genuinely ambiguous without
+			// a side. This used to hardcode side=-1 ("treat it as VL1's own right
+			// edge") to fix a real bug (2026-08-28: an unforced query silently
+			// misreported a genuine VL1-right-edge position as VL2, wrongly
+			// concluding "already VL2+, stay" for a cursor that should have
+			// crossed to the row above). But hardcoding -1 unconditionally
+			// re-decides the same ambiguity moveCursorUpInTable's own assoc-fix
+			// block already resolved moments earlier for this exact position —
+			// and can resolve it the *opposite* way, wrongly concluding "VL1
+			// middle, cross rows" for a cursor that was actually a genuine VL2+
+			// left edge (confirmed live: a cursor forced to assoc=1/"VL2 start"
+			// there, re-queried here with side=-1, read back as VL1's own right
+			// edge). Reusing whatever side that block already settled on keeps
+			// both cases correct instead of trading one bug for the other.
+			const side = resolvedAssocForOriginalHead !== undefined && resolvedAssocForOriginalHead >= 0 ? 1 : -1;
+			const originalCoords = inner.coordsAtPos(innerHeadBeforeGoUp, side);
 			if (vl1Coords && originalCoords) {
 				if (originalCoords.top > vl1Coords.top + 2) {
 					// VL2+ left edge: cursor already at VL1 start — nothing to do.
@@ -1669,13 +1681,34 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (inner && inner !== editor.cm) {
 			const lastSubLine = inner.state.doc.line(inner.state.doc.lines);
 			const contentEnd  = lastSubLine.from + lastSubLine.text.trimEnd().length;
-			const endCoords   = inner.coordsAtPos(contentEnd);
+			// side=-1: contentEnd may sit exactly on a VL wrap boundary — always
+			// resolve it to "the end of the line this position terminates" (the
+			// actual bottom visual line), not the line after (which, for the true
+			// end of the cell's content, doesn't visually exist).
+			const endCoords = inner.coordsAtPos(contentEnd, -1);
 			if (endCoords) {
 				// x=0 is left of all inner-view content; posAtCoords snaps to the leftmost
 				// character on the bottom visual line. y = midpoint of that line (height ≈ 18 px).
 				const pos = inner.posAtCoords({ x: 0, y: endCoords.top + 9 }, false);
 				if (pos !== null) {
-					inner.dispatch({ selection: { anchor: pos } });
+					// assoc=1: pos is a VL-start position by construction (the leftmost
+					// character of the bottom visual line) — without this, a bare
+					// {anchor: pos} dispatch left CM6 to pick its own default,
+					// rendering the caret at the end of the previous visual line
+					// instead. This is model-correct and behaviorally correct (goDown
+					// from here exits to the row below; moving right afterward lands
+					// inside the bottom VL's own text — both verified live), but a
+					// separate, unresolved cosmetic issue remains: the very first
+					// paint at this exact wrap-boundary position can still render on
+					// VL_(N-1)'s side regardless of assoc. Confirmed live that neither
+					// a same-tick nudge, a same-tick goRight/goLeft round trip, an
+					// animation-frame-deferred re-dispatch, nor a goRight/goLeft round
+					// trip split across a real frame fixes that first paint — only
+					// two genuinely separate keystrokes (Ctrl-F then Ctrl-B) did, which
+					// none of the above actually reproduce. Left as-is (model-correct,
+					// cosmetically self-corrects on the next real keystroke) rather
+					// than adding more speculative workarounds — see project notes.
+					inner.dispatch({ selection: EditorSelection.create([EditorSelection.cursor(pos, 1)]) });
 					return;
 				}
 			}
