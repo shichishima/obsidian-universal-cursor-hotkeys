@@ -954,9 +954,17 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// causing goUp to skip an extra visual line. Fix assoc before goUp:
 		//   left edge  → assoc=1  (start of this VL, not end of the line above)
 		//   right edge → assoc=-1 (end of this VL, not start of the line below)
+		//
+		// resolvedAssocForOriginalHead records which of the two interpretations
+		// actually won for innerHeadBeforeGoUp, so handleCellStartSnap can reuse
+		// it below instead of independently re-guessing (and possibly
+		// contradicting) the same ambiguous position — see that function's own
+		// doc comment for why a second, disagreeing guess there was itself a bug.
+		let resolvedAssocForOriginalHead: number | undefined;
 		if (innerBeforeGoUp && innerBeforeGoUp !== editor.cm && innerHeadBeforeGoUp !== undefined) {
 			const h = innerHeadBeforeGoUp;
 			const currentAssoc = innerBeforeGoUp.state.selection.main.assoc;
+			resolvedAssocForOriginalHead = currentAssoc;
 			const coords = innerBeforeGoUp.coordsAtPos(h);
 			// Fix only when assoc >= 0: assoc=-1 means the cursor is already correctly
 			// placed at the right edge of VL_N (end-of-VL), so goUp works as expected.
@@ -983,6 +991,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 					innerBeforeGoUp.dispatch({
 						selection: EditorSelection.create([EditorSelection.cursor(h, 1, undefined, goalColumn)]),
 					});
+					resolvedAssocForOriginalHead = 1;
 				}
 			}
 		}
@@ -1021,7 +1030,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				this.setCursorToPrevRow(editor, cellIndex);
 				this.placeAtBottomVL(editor, pixelGoal);
 			} else {
-				this.handleCellStartSnap(editor, cursor.line, cursor.ch, cellIndex, pixelGoal, innerHeadBeforeGoUp);
+				this.handleCellStartSnap(editor, cursor.line, cursor.ch, cellIndex, pixelGoal, innerHeadBeforeGoUp, resolvedAssocForOriginalHead);
 			}
 		}
 		// else: goUp moved within the cell to the visual line above - done.
@@ -1565,26 +1574,29 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		cellIndex: number,
 		pixelGoal: number | null,
 		innerHeadBeforeGoUp?: number,
+		resolvedAssocForOriginalHead?: number,
 	) {
 		const inner = editor.activeCM;
 		if (innerHeadBeforeGoUp !== undefined && inner && inner !== editor.cm) {
 			const vl1Coords = inner.coordsAtPos(inner.state.selection.main.head);
-			// side=-1: innerHeadBeforeGoUp may sit exactly on a VL wrap boundary
-			// (the right edge of VL1 is the same raw offset as the left edge of
-			// VL2). Without forcing a side, coordsAtPos falls back to its own
-			// default (the start of the line *after* the boundary, i.e. VL2),
-			// silently misreporting a genuine VL1-right-edge position as VL2 —
-			// confirmed live (2026-08-28, via direct coordsAtPos logging): a
-			// same-offset query returned VL2's own y instead of VL1's, causing
-			// this to wrongly conclude "already VL2+, stay" for a cursor that
-			// was actually on VL1 and should cross to the row above. -1
-			// matches "the end of the line this position terminates" — the
-			// correct interpretation for the right-edge case this originalCh
-			// capture is meant to represent (mirrors the same assoc<0 "already
-			// correctly placed at VL_N's own right edge" reasoning the
-			// assoc-correction block right above this function's own call site
-			// already relies on).
-			const originalCoords = inner.coordsAtPos(innerHeadBeforeGoUp, -1);
+			// innerHeadBeforeGoUp may sit exactly on a VL wrap boundary (the right
+			// edge of VL1 is the same raw offset as the left edge of VL2), so which
+			// visual line coordsAtPos reports for it is genuinely ambiguous without
+			// a side. This used to hardcode side=-1 ("treat it as VL1's own right
+			// edge") to fix a real bug (2026-08-28: an unforced query silently
+			// misreported a genuine VL1-right-edge position as VL2, wrongly
+			// concluding "already VL2+, stay" for a cursor that should have
+			// crossed to the row above). But hardcoding -1 unconditionally
+			// re-decides the same ambiguity moveCursorUpInTable's own assoc-fix
+			// block already resolved moments earlier for this exact position —
+			// and can resolve it the *opposite* way, wrongly concluding "VL1
+			// middle, cross rows" for a cursor that was actually a genuine VL2+
+			// left edge (confirmed live: a cursor forced to assoc=1/"VL2 start"
+			// there, re-queried here with side=-1, read back as VL1's own right
+			// edge). Reusing whatever side that block already settled on keeps
+			// both cases correct instead of trading one bug for the other.
+			const side = resolvedAssocForOriginalHead !== undefined && resolvedAssocForOriginalHead >= 0 ? 1 : -1;
+			const originalCoords = inner.coordsAtPos(innerHeadBeforeGoUp, side);
 			if (vl1Coords && originalCoords) {
 				if (originalCoords.top > vl1Coords.top + 2) {
 					// VL2+ left edge: cursor already at VL1 start — nothing to do.
@@ -1669,13 +1681,33 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (inner && inner !== editor.cm) {
 			const lastSubLine = inner.state.doc.line(inner.state.doc.lines);
 			const contentEnd  = lastSubLine.from + lastSubLine.text.trimEnd().length;
-			const endCoords   = inner.coordsAtPos(contentEnd);
+			// side=-1: contentEnd may sit exactly on a VL wrap boundary — always
+			// resolve it to "the end of the line this position terminates" (the
+			// actual bottom visual line), not the line after (which, for the true
+			// end of the cell's content, doesn't visually exist).
+			const endCoords = inner.coordsAtPos(contentEnd, -1);
 			if (endCoords) {
 				// x=0 is left of all inner-view content; posAtCoords snaps to the leftmost
 				// character on the bottom visual line. y = midpoint of that line (height ≈ 18 px).
 				const pos = inner.posAtCoords({ x: 0, y: endCoords.top + 9 }, false);
 				if (pos !== null) {
-					inner.dispatch({ selection: { anchor: pos } });
+					// assoc=1: pos is a VL-start position by construction (the leftmost
+					// character of the bottom visual line) — explicit here defensively,
+					// matching the explicit side=-1 above, so this dispatch's own
+					// intent doesn't depend on CM6's default resolution at a wrap
+					// boundary. Confirmed live (2026-09-19, isolation-tested against
+					// this exact line reverted) that this particular dispatch was
+					// never actually the cause of any observed bug on its own — the
+					// real bug was entirely in applyRowCrossGoalColumnSync, called
+					// right after this function returns (from placeAtBottomVL/
+					// scheduleBottomVisualLine), which used to unconditionally force
+					// assoc=-1 two animation frames later regardless of whether any
+					// realignment was actually needed — silently overwriting this
+					// dispatch's own assoc, both flickering the caret's first paint
+					// and causing a second immediate Cursor UP to overshoot by one
+					// extra visual line. Fixed at the source in
+					// applyRowCrossGoalColumnSync itself (see its own doc comment).
+					inner.dispatch({ selection: EditorSelection.create([EditorSelection.cursor(pos, 1)]) });
 					return;
 				}
 			}
@@ -1796,22 +1828,56 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (pixelGoal === null) return;
 		activeWindow.requestAnimationFrame(() => {
 			activeWindow.requestAnimationFrame(() => {
+				const viewBeforeRefine = editor.activeCM;
+				const headBeforeRefine = viewBeforeRefine.state.selection.main.head;
+				const assocBeforeRefine = viewBeforeRefine.state.selection.main.assoc;
 				this.refineDisplayLineColumn(editor, pixelGoal, true);
 				const view = editor.activeCM;
 				const head = view.state.selection.main.head;
 				const rect = view.contentDOM.getBoundingClientRect();
-				// assoc=-1: head may sit exactly on a visual-line wrap boundary —
-				// this function's own result always represents "the rightmost
-				// point of the line being refined that still fits pixelGoal", so
-				// it must always render as that line's own right edge, never as
-				// the start of the next visual line. Confirmed live (2026-08-28):
-				// reusing whatever assoc the selection already carried defaulted
-				// to rendering a same-cell row-crossing's clamped landing as the
-				// destination's *second* visual line's left edge instead of its
-				// first (intended) visual line's right edge.
+				// assoc: head may sit exactly on a visual-line wrap boundary, so
+				// whether it should render as "this line's own right edge" or
+				// "the next line's own left edge" is genuinely ambiguous without
+				// checking. Originally hardcoded to -1 unconditionally (2026-08-28
+				// fix: reusing whatever assoc the selection already carried
+				// defaulted to rendering a same-cell row-crossing's clamped
+				// landing as the destination's *second* visual line's left edge
+				// instead of its first (intended) visual line's right edge).
+				//
+				// But a hardcoded -1 is wrong whenever refineDisplayLineColumn
+				// didn't actually need to move/clamp anything — e.g.
+				// moveToBottomVisualLineOfCell's own VL_n-start landing, called
+				// right before this in placeAtBottomVL/scheduleBottomVisualLine,
+				// where pixelGoal already matches (or falls short of) that
+				// landing's own position: forcing -1 there relabels a genuine
+				// VL_n-start as the line ABOVE's own right edge instead, silently
+				// undoing that landing's own assoc=1 two frames later (confirmed
+				// live 2026-09-19: caused a second immediate Cursor UP to
+				// overshoot by one extra visual line). A pure geometric check
+				// ("is head a line-start") can't tell these two cases apart
+				// either — at a wrap boundary, "this line's own start" and "the
+				// line above's own end" describe the identical offset, so that
+				// check is true for both regardless of which one is intended.
+				//
+				// The signal that actually distinguishes them: did this call's
+				// own refinement move the position at all, AND are we still
+				// inside a genuine table-cell inner view (moveToBottomVisualLineOfCell
+				// never runs against the outer, plain-text view, so an
+				// unchanged head there can't be one of its deliberate
+				// landings — e.g. a blank/short exit line where there's
+				// nothing to clamp to; that case must still force -1, same as
+				// before). If head is unchanged from before refineDisplayLineColumn
+				// ran AND we're still in a distinct inner view, no clamping
+				// happened — whatever assoc was already there (e.g.
+				// moveToBottomVisualLineOfCell's own 1) was already correct for
+				// it and must be preserved, not re-decided. Otherwise the
+				// original -1 rule applies (confirmed live 2026-09-19: still
+				// correct for the clamped-to-a-wrap-boundary case).
+				const stillInDistinctInnerView = view !== editor.cm;
+				const assoc = (stillInDistinctInnerView && head === headBeforeRefine) ? assocBeforeRefine : -1;
 				view.dispatch({
 					selection: EditorSelection.create([
-						EditorSelection.cursor(head, -1, undefined, pixelGoal - rect.left),
+						EditorSelection.cursor(head, assoc, undefined, pixelGoal - rect.left),
 					]),
 				});
 			});

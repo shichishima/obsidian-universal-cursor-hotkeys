@@ -25,6 +25,7 @@
   ],
   "exclude": [
     "tests/**",
-    "vitest.config.ts"
+    "vitest.config.ts",
+    "website/**"
   ]
 }
