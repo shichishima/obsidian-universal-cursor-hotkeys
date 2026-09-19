@@ -1,11 +1,11 @@
 # Changelog
 
-## [Unreleased]
+## [0.11.1] - 2026-09-19
 
 ### Fixed
 
 - **UP (Cursor up — Ctrl-P in macOS-style keybindings) no longer crosses to the row above when pressed from a wrapped table cell's own second visual line, its own left edge:** previously, an unrelated fix for the opposite-direction case (landing exactly on a visual-line wrap boundary from below) reused a hardcoded `coordsAtPos` side that silently overrode the correct interpretation already resolved earlier in the same call, making the cursor look like it was still sitting on the wrap boundary when it had already moved past it — sending it to the row above instead of the visual line directly above within the same cell. The already-resolved interpretation is now threaded through instead of being recomputed with the wrong hardcoded side. Present since 0.11.0.
-- **UP crossing from a table cell's own start into a cell above that spans multiple visual lines could land, and briefly render, one visual line short of that cell's true bottom visual line, and a second UP pressed right after landing there could overshoot by one extra visual line:** all were caused by the same step that re-aligns the cursor's column after crossing a table row (shared by UP and DOWN), which unconditionally re-labeled the just-landed position as the end of the line above two animation frames later, regardless of whether any realignment was actually needed. When it wasn't — because the landing was already a deliberate, correct start of the true bottom visual line — this silently overwrote that correct state a couple of frames after it was set, and it stayed that way, on both the display and the underlying cursor state, until whatever the user did next. Now only re-labels the position that way when a real column realignment actually happened, otherwise leaving an already-correct position alone. Present since 0.11.0.
+- **A second UP pressed immediately after landing on the true last visual line of a wrapped table cell could overshoot by one extra visual line:** caused by the same step that re-aligns the cursor's column after crossing a table row (shared by UP and DOWN), which unconditionally re-labeled the just-landed position as the end of the line above two animation frames later, regardless of whether any realignment was actually needed. When it wasn't — because the landing was already a deliberate, correct start of that true last visual line — this silently overwrote that correct state, and the very next UP press read the overwritten state instead of the correct one. Now only re-labels the position that way when a real column realignment actually happened, otherwise leaving an already-correct position alone. Present since 0.11.0.
 
 ## [0.11.0] - 2026-09-09
 
