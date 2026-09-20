@@ -15,13 +15,16 @@
  * fine-grained (breadcrumb trail within that page), not below it. The
  * Overview page (no `mode`, no `show_mode_tabs`) is unaffected — it places
  * its own non-sticky ModeTabs inline in docs/index.md instead.
+ *
+ * Second change: the sidebar-order prev/next paginator is replaced by
+ * OtherPages, which links to the other pages of the same mode. These docs
+ * have no reading order, and the paginator chained the modes together.
  */
 
 import React, {type ReactNode} from 'react';
 import clsx from 'clsx';
 import {useWindowSize} from '@docusaurus/theme-common';
 import {useDoc} from '@docusaurus/plugin-content-docs/client';
-import DocItemPaginator from '@theme/DocItem/Paginator';
 import DocVersionBanner from '@theme/DocVersionBanner';
 import DocVersionBadge from '@theme/DocVersionBadge';
 import DocItemFooter from '@theme/DocItem/Footer';
@@ -33,6 +36,7 @@ import ContentVisibility from '@theme/ContentVisibility';
 import type {Props} from '@theme/DocItem/Layout';
 
 import ModeTabs, {type Mode} from '@site/src/components/ModeTabs';
+import OtherPages from '@site/src/components/OtherPages';
 
 import styles from './styles.module.css';
 
@@ -80,7 +84,7 @@ export default function DocItemLayout({children}: Props): ReactNode {
             <DocItemContent>{children}</DocItemContent>
             <DocItemFooter />
           </article>
-          <DocItemPaginator />
+          <OtherPages />
         </div>
       </div>
       {docTOC.desktop && <div className="col col--3">{docTOC.desktop}</div>}

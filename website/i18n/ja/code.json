@@ -1,0 +1,10 @@
+{
+  "uch.otherPages.title": {
+    "message": "{mode} : その他のページ",
+    "description": "Heading of the block that links to the other pages of the same mode; {mode} is the mode's name"
+  },
+  "uch.pageList.title": {
+    "message": "{mode} : ページ一覧",
+    "description": "Heading of the page list on a mode's index page; {mode} is the mode's name"
+  }
+}
