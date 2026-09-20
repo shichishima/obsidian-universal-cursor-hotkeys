@@ -10,4 +10,4 @@ You don't need Vim mode or Emacs-style keybindings to benefit from this plugin. 
 
 Open **Settings → Universal Cursor Hotkeys → For everyone** and click **Apply all**.
 
-See also: [Command Reference](/for-everyone/command-reference), [Settings](/for-everyone/settings), [Behavior Options](/behavior-options).
+See also: [Command Reference](/for-everyone/key-upgrades), [Settings](/for-everyone/settings), [Behavior Options](/behavior-options).
