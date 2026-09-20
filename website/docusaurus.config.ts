@@ -41,6 +41,11 @@ const config: Config = {
 
   onBrokenLinks: 'throw',
 
+  // Auto-expand a collapsed <details> block when navigating to an anchor
+  // inside it (see src/clientModules/detailsAnchor.js) — needed for the
+  // command-reference -> command-details deep links added 2026-09-20.
+  clientModules: [require.resolve('./src/clientModules/detailsAnchor.js')],
+
   // Cloudflare Web Analytics — cookieless page view/visit counts. The
   // token is a public client-side beacon identifier (visible in every
   // page's source once deployed), not a secret.
