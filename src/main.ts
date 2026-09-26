@@ -132,6 +132,18 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private killCache: string = '';
 	private _recenterStep = 0; // 0=center, 1=top, 2=bottom
 
+	// Guards every editorCallback below against firing mid-IME-composition.
+	// Confirmed live (2026-09-26): during active composition, CM6's own
+	// `composing` flag stays true even once the IME itself stops consuming
+	// further Ctrl+letter presses (e.g. after a few Ctrl-N/Ctrl-P candidate
+	// cycles) and lets them reach Obsidian's command dispatcher instead —
+	// so every one of this plugin's editor commands must no-op while either
+	// the outer view or the focused table cell's inner view reports
+	// composing, rather than only checking on entry.
+	private isComposing(editor: Editor): boolean {
+		return !!(editor.cm?.composing || editor.activeCM?.composing);
+	}
+
 	async onload() {
 		await this.loadSettings();
 		this.vimSupport = new VimSupport(this);
@@ -142,6 +154,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'HOME',
 			repeatable: true,
 			editorCallback: (editor: Editor, _: MarkdownView) => {
+				if (this.isComposing(editor)) return;
 				this.moveCursorHome(editor)
 			}
 		});
@@ -151,6 +164,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'END',
 			repeatable: true,
 			editorCallback: (editor: Editor, _: MarkdownView) => {
+				if (this.isComposing(editor)) return;
 				this.moveCursorEnd(editor)
 			}
 		});
@@ -160,6 +174,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'UP',
 			repeatable: true,
 			editorCallback: (editor: Editor, _: MarkdownView) => {
+				if (this.isComposing(editor)) return;
 				this.moveCursorUp(editor)
 			}
 		});
@@ -169,6 +184,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'DOWN',
 			repeatable: true,
 			editorCallback: (editor: Editor, _: MarkdownView) => {
+				if (this.isComposing(editor)) return;
 				this.moveCursorDown(editor)
 			}
 		});
@@ -178,6 +194,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'LEFT',
 			repeatable: true,
 			editorCallback: (editor: Editor, _: MarkdownView) => {
+				if (this.isComposing(editor)) return;
 				this.moveCursorLeft(editor)
 			}
 		});
@@ -187,6 +204,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'RIGHT',
 			repeatable: true,
 			editorCallback: (editor: Editor, _: MarkdownView) => {
+				if (this.isComposing(editor)) return;
 				this.moveCursorRight(editor)
 			}
 		});
@@ -195,6 +213,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: 'cursor-top',
 			name: 'TOP',
 			editorCallback: (editor: Editor, _: MarkdownView) => {
+				if (this.isComposing(editor)) return;
 				this.jumpToBufferEdge(editor, false)
 			}
 		});
@@ -203,6 +222,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: 'cursor-bottom',
 			name: 'BOTTOM',
 			editorCallback: (editor: Editor, _: MarkdownView) => {
+				if (this.isComposing(editor)) return;
 				this.jumpToBufferEdge(editor, true)
 			}
 		});
@@ -212,6 +232,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Word right',
 			repeatable: true,
 			editorCallback: (editor: Editor, _: MarkdownView) => {
+				if (this.isComposing(editor)) return;
 				this.moveCursorWord(editor, true)
 			}
 		});
@@ -221,6 +242,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Word left',
 			repeatable: true,
 			editorCallback: (editor: Editor, _: MarkdownView) => {
+				if (this.isComposing(editor)) return;
 				this.moveCursorWord(editor, false)
 			}
 		});
@@ -229,6 +251,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: "select-all",
 			name: "Select all",
 			editorCallback: (editor: Editor) => {
+				if (this.isComposing(editor)) return;
 				this.selectAll(editor);
 			},
 		});
@@ -238,6 +261,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Delete char',
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
+				if (this.isComposing(editor)) return;
 				this.deleteChar(editor);
 			}
 		});
@@ -247,6 +271,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Transpose chars',
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
+				if (this.isComposing(editor)) return;
 				this.transposeChars(editor);
 			}
 		});
@@ -256,6 +281,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Undo',
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
+				if (this.isComposing(editor)) return;
 				editor.undo();
 			}
 		});
@@ -265,6 +291,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Redo',
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
+				if (this.isComposing(editor)) return;
 				editor.redo();
 			}
 		});
@@ -282,6 +309,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Move to cell left',
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
+				if (this.isComposing(editor)) return;
 				if (editor.inTableCell) jumpAdjacentCell(editor, this, 'h');
 			}
 		});
@@ -291,6 +319,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Move to cell right',
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
+				if (this.isComposing(editor)) return;
 				if (editor.inTableCell) jumpAdjacentCell(editor, this, 'l');
 			}
 		});
@@ -300,6 +329,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Move to cell below',
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
+				if (this.isComposing(editor)) return;
 				if (editor.inTableCell) jumpAdjacentCell(editor, this, 'j');
 			}
 		});
@@ -309,6 +339,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Move to cell above',
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
+				if (this.isComposing(editor)) return;
 				if (editor.inTableCell) jumpAdjacentCell(editor, this, 'k');
 			}
 		});
@@ -318,6 +349,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Exit table below',
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
+				if (this.isComposing(editor)) return;
 				if (editor.inTableCell) exitTable(editor, this, true);
 			}
 		});
@@ -327,6 +359,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Exit table above',
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
+				if (this.isComposing(editor)) return;
 				if (editor.inTableCell) exitTable(editor, this, false);
 			}
 		});
@@ -335,6 +368,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: 'kill-region',
 			name: 'Kill region',
 			editorCallback: (editor: Editor) => {
+				if (this.isComposing(editor)) return;
 				this.killRegion(editor);
 			}
 		});
@@ -343,6 +377,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: 'copy-region',
 			name: 'Copy region',
 			editorCallback: (editor: Editor) => {
+				if (this.isComposing(editor)) return;
 				this.copyRegion(editor);
 			}
 		});
@@ -352,6 +387,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Kill line',
 			repeatable: true,
 			editorCallback: (editor: Editor, _: MarkdownView) => {
+				if (this.isComposing(editor)) return;
 				this.killLine(editor);
 			}
 		});
@@ -361,6 +397,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Kill word left',
 			repeatable: true,
 			editorCallback: (editor: Editor, _: MarkdownView) => {
+				if (this.isComposing(editor)) return;
 				this.killWord(editor, false);
 			}
 		});
@@ -370,6 +407,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Kill word right',
 			repeatable: true,
 			editorCallback: (editor: Editor, _: MarkdownView) => {
+				if (this.isComposing(editor)) return;
 				this.killWord(editor, true);
 			}
 		});
@@ -379,6 +417,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Uppercase word',
 			repeatable: true,
 			editorCallback: (editor: Editor, _: MarkdownView) => {
+				if (this.isComposing(editor)) return;
 				this.transformWord(editor, s => s.toUpperCase());
 			}
 		});
@@ -388,6 +427,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Lowercase word',
 			repeatable: true,
 			editorCallback: (editor: Editor, _: MarkdownView) => {
+				if (this.isComposing(editor)) return;
 				this.transformWord(editor, s => s.toLowerCase());
 			}
 		});
@@ -397,6 +437,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Capitalize word',
 			repeatable: true,
 			editorCallback: (editor: Editor, _: MarkdownView) => {
+				if (this.isComposing(editor)) return;
 				this.transformWord(editor, s => universalCursorHotkeysPlugin.capitalizeText(s));
 			}
 		});
@@ -406,6 +447,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Yank',
 			repeatable: true,
 			editorCallback: (editor: Editor, _: MarkdownView) => {
+				if (this.isComposing(editor)) return;
 				void this.yank(editor);
 			}
 		});
@@ -415,6 +457,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Page down',
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
+				if (this.isComposing(editor)) return;
 				this.pageDown(editor);
 			}
 		});
@@ -424,6 +467,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Page up',
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
+				if (this.isComposing(editor)) return;
 				this.pageUp(editor);
 			}
 		});
@@ -432,6 +476,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: 'recenter',
 			name: 'Recenter',
 			editorCallback: (editor: Editor) => {
+				if (this.isComposing(editor)) return;
 				this.recenter(editor);
 			}
 		});
@@ -440,6 +485,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: 'recenter-top-bottom',
 			name: 'Recenter top-bottom',
 			editorCallback: (editor: Editor) => {
+				if (this.isComposing(editor)) return;
 				this.recenterTopBottom(editor);
 			}
 		});
@@ -3008,7 +3054,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const outerCursor = editor.getCursor();
 		const outerLineText = editor.getLine(outerCursor.line);
 		const cellIndex = getCellIndex(outerLineText, outerCursor.ch);
-		this.continueWordTransformAfterLanding(editor, this.crossTableRowForWord(editor, cellIndex, true, false, false), transform);
+		this.continueWordTransformAfterLanding(editor, this.crossTableRowForWord(editor, cellIndex, true, false, false, true), transform);
 	}
 
 	// Source Mode table cell: like moveCursorWordInTable/killWordInTableSourceMode
@@ -3042,7 +3088,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}
 
 		const cellIndex = getCellIndex(lineText, cursor.ch);
-		this.continueWordTransformAfterLanding(editor, this.crossTableRowForWord(editor, cellIndex, true, false, false), transform);
+		this.continueWordTransformAfterLanding(editor, this.crossTableRowForWord(editor, cellIndex, true, false, false, true), transform);
 	}
 
 	// Shared tail for transformWordNonTable's table-entry case and
@@ -3197,29 +3243,19 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const cm          = editor.cm;
 		const lineObj     = cm.state.doc.line(targetLine + 1);
 		const savedScroll = cm.scrollDOM?.scrollTop;
-		const inner       = editor.activeCM;
+		const inner = editor.activeCM;
 		if (inner && inner !== cm) {
-			const innerSel    = inner.state.selection.main;
-			const innerDoc    = inner.state.doc.toString();
-			let delFrom       = innerSel.from;
-			let delTo         = innerSel.to;
-			const innerSuffix = innerDoc.slice(innerSel.to);
-			const innerPrefix = innerDoc.slice(0, innerSel.from);
-			// Inner view uses \n (not <br>) for in-cell line breaks
-			if (innerSuffix.startsWith('\n')) {
-				if (!innerPrefix.trim()) {
-					const wsLen = innerSuffix.match(/^\n([ \t]*)/)?.[1].length ?? 0;
-					delTo += 1 + wsLen;
-				}
-			} else {
-				const trimmedPrefix = innerPrefix.trimEnd();
-				if (trimmedPrefix.endsWith('\n') && !innerSuffix.trim()) {
-					delFrom -= innerPrefix.length - trimmedPrefix.length + 1;
-				}
-			}
+			// Plain selection delete — matches real Emacs's own kill-region,
+			// which only ever removes exactly what's selected. Previously this
+			// branch also auto-consumed the following newline when the
+			// selection started at the cell's own start (removing the
+			// resulting blank sub-line); that "smart" behavior was removed
+			// since it silently overrode the user's own selection choice. See
+			// project_kill_region_lp_cell_edge_newline_bug for the full trace.
+			const innerSel = inner.state.selection.main;
 			inner.dispatch({
-				changes:   { from: delFrom, to: delTo, insert: '' },
-				selection: { anchor: delFrom },
+				changes:   { from: innerSel.from, to: innerSel.to, insert: '' },
+				selection: { anchor: innerSel.from },
 			});
 		} else {
 			cm.dispatch({
@@ -3515,7 +3551,15 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// row's rightmost, mirroring how the raw text would read one row into the
 	// next). Single cell/row crossing only (no multi-cell count precision),
 	// mirroring crossTableRowForCell's own "known gap" scope cut.
-	crossTableRowForWord(editor: unknown, cellIndex: number, forward: boolean, bigWord: boolean, wordEnd: boolean): { line: number; ch: number } | null {
+	// respectCrossRowNav: true for every Emacs-side caller (Word right/left,
+	// Uppercase/Lowercase/Capitalize word) — Cross-row navigation is their
+	// own documented setting, and it already gates LEFT/RIGHT/HOME/END the
+	// same way. False for Vim's own w/b/e (see scheduleWordCrossing): real
+	// Vim's word motions have no concept of stopping at a row/line boundary
+	// at all (they run to the buffer's own edge), Cross-row navigation isn't
+	// exposed on the Vim tab, and there is no native behavior to preserve by
+	// adding one — so Vim's own crossing here stays unconditional.
+	crossTableRowForWord(editor: unknown, cellIndex: number, forward: boolean, bigWord: boolean, wordEnd: boolean, respectCrossRowNav: boolean): { line: number; ch: number } | null {
 		const e = editor as Editor;
 		const currentLine = e.getCursor().line;
 		const lineText = e.getLine(currentLine);
@@ -3534,6 +3578,13 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 		// Already at this row's own edge cell — cross to the next/prev row's
 		// opposite edge cell (or exit the table if there is no next/prev row).
+		// Both sub-paths respect Cross-row navigation the same way LEFT/RIGHT
+		// do at their own edge: OFF means staying put, whether the boundary
+		// would have crossed to an adjacent row or exited the table entirely.
+		// exitTableWithWord's own setCursorToNextRow/PrevRow calls have no
+		// such check themselves (they're shared with unrelated callers like
+		// Ctrl-N/P's row crossing), so this must gate the call here instead.
+		if (respectCrossRowNav && !this.settings.crossRowNavigation) return null;
 		const startLine = forward ? this.getNextRowLine(e) : this.getPrevRowLine(e);
 		if (startLine === -1) {
 			return this.exitTableWithWord(e, cellIndex, forward, bigWord, wordEnd, currentLine);
@@ -4038,7 +4089,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}
 
 		const cellIndex = getCellIndex(lineText, cursor.ch);
-		const landed = this.crossTableRowForWord(editor, cellIndex, forward, false, forward);
+		const landed = this.crossTableRowForWord(editor, cellIndex, forward, false, forward, true);
 		if (landed && forward) {
 			const landedLineText = editor.getLine(landed.line);
 			const targetCh = Math.min(landed.ch + 1, landedLineText.length);
