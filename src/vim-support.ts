@@ -356,6 +356,20 @@ export class VimSupport {
 	private originalMultiSelectHandleKey: VimApi['multiSelectHandleKey'] | undefined;
 	private spaceLeakGuardWrapper: VimApi['multiSelectHandleKey'] | undefined;
 
+	// Session-only latch, set the moment unmapLeaderNativeBinding actually
+	// removes vim.js's own <Space> binding (never on the early-return path).
+	// Space's native binding has no read-back/restore API, so once this is
+	// true it stays true for the rest of the session — restoreSpaceLeakGuard
+	// must keep the guard installed even after both table-structure and
+	// table-navigation are later turned back off, otherwise an unmatched
+	// "<Space>..." leader attempt leaks a literal space into the document
+	// again despite both features reporting "off". Deliberately separate
+	// from the generic needsRestart flag above: that one is only set by
+	// setFeature *after* this class's own restore() callback already ran, so
+	// checking it here would miss the very toggle-off that first exposes the
+	// leak (see this bug's own writeup, confirmed live 2026-09-21/26).
+	private spaceNativeBindingRemoved = false;
+
 	constructor(host: VimSupportHost) {
 		this.host = host;
 	}
@@ -783,6 +797,7 @@ export class VimSupport {
 	private unmapLeaderNativeBinding(): void {
 		if (this.host.settings.vimLeaderUseBackslash) return;
 		getVim()?.unmap(VimSupport.LEADER_SPACE_NOTATION, undefined);
+		this.spaceNativeBindingRemoved = true;
 	}
 
 	// vim.js's own findKey lets an unmatched key fall through to CM6's default
@@ -859,9 +874,13 @@ export class VimSupport {
 	// restore to the hardcoded vim.js-equivalent defaults instead, same as
 	// every other defineMotion/defineAction override in this file.
 	// restoreSpaceLeakGuard is only torn down once table-navigation is *also*
-	// off — the two features share one guard (both register `<Space>t...`
-	// sequences), and tearing it down while the sibling feature is still
-	// active would break its own leader presses too.
+	// off, AND Space's own native binding was never actually removed this
+	// session — the two features share one guard (both register
+	// `<Space>t...` sequences), and tearing it down while the sibling
+	// feature is still active would break its own leader presses too; tearing
+	// it down after Space's real binding is already gone for good would
+	// reopen the literal-space leak this guard exists to prevent (see
+	// spaceNativeBindingRemoved's own comment).
 	private restoreTableStructure(): void {
 		const vim = getVim();
 		for (const cmd of this.tableCommands) {
@@ -869,7 +888,7 @@ export class VimSupport {
 		}
 		vim?.defineAction('undo', VimSupport.VIM_DEFAULT_UNDO);
 		vim?.defineAction('redo', VimSupport.VIM_DEFAULT_REDO);
-		if (!this.host.settings.vimTableNavigationSupport) this.restoreSpaceLeakGuard();
+		if (!this.host.settings.vimTableNavigationSupport && !this.spaceNativeBindingRemoved) this.restoreSpaceLeakGuard();
 	}
 
 	setTableStructureEnabled(on: boolean): void {
@@ -893,13 +912,14 @@ export class VimSupport {
 	}
 
 	// See restoreTableStructure's own comment on why restoreSpaceLeakGuard is
-	// gated on the sibling feature also being off.
+	// gated on the sibling feature also being off, and on Space's native
+	// binding never having been removed this session.
 	private restoreTableNavigation(): void {
 		const vim = getVim();
 		for (const cmd of this.tableNavigationCommands) {
 			vim?.unmap(this.tableCommandLhs(cmd.leaderSuffix), undefined);
 		}
-		if (!this.host.settings.vimTableStructureSupport) this.restoreSpaceLeakGuard();
+		if (!this.host.settings.vimTableStructureSupport && !this.spaceNativeBindingRemoved) this.restoreSpaceLeakGuard();
 	}
 
 	setTableNavigationEnabled(on: boolean): void {
