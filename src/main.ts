@@ -132,6 +132,18 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private killCache: string = '';
 	private _recenterStep = 0; // 0=center, 1=top, 2=bottom
 
+	// Guards every editorCallback below against firing mid-IME-composition.
+	// Confirmed live (2026-09-26): during active composition, CM6's own
+	// `composing` flag stays true even once the IME itself stops consuming
+	// further Ctrl+letter presses (e.g. after a few Ctrl-N/Ctrl-P candidate
+	// cycles) and lets them reach Obsidian's command dispatcher instead —
+	// so every one of this plugin's editor commands must no-op while either
+	// the outer view or the focused table cell's inner view reports
+	// composing, rather than only checking on entry.
+	private isComposing(editor: Editor): boolean {
+		return !!(editor.cm?.composing || editor.activeCM?.composing);
+	}
+
 	async onload() {
 		await this.loadSettings();
 		this.vimSupport = new VimSupport(this);
@@ -142,6 +154,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'HOME',
 			repeatable: true,
 			editorCallback: (editor: Editor, _: MarkdownView) => {
+				if (this.isComposing(editor)) return;
 				this.moveCursorHome(editor)
 			}
 		});
@@ -151,6 +164,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'END',
 			repeatable: true,
 			editorCallback: (editor: Editor, _: MarkdownView) => {
+				if (this.isComposing(editor)) return;
 				this.moveCursorEnd(editor)
 			}
 		});
@@ -160,6 +174,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'UP',
 			repeatable: true,
 			editorCallback: (editor: Editor, _: MarkdownView) => {
+				if (this.isComposing(editor)) return;
 				this.moveCursorUp(editor)
 			}
 		});
@@ -169,6 +184,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'DOWN',
 			repeatable: true,
 			editorCallback: (editor: Editor, _: MarkdownView) => {
+				if (this.isComposing(editor)) return;
 				this.moveCursorDown(editor)
 			}
 		});
@@ -178,6 +194,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'LEFT',
 			repeatable: true,
 			editorCallback: (editor: Editor, _: MarkdownView) => {
+				if (this.isComposing(editor)) return;
 				this.moveCursorLeft(editor)
 			}
 		});
@@ -187,6 +204,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'RIGHT',
 			repeatable: true,
 			editorCallback: (editor: Editor, _: MarkdownView) => {
+				if (this.isComposing(editor)) return;
 				this.moveCursorRight(editor)
 			}
 		});
@@ -195,6 +213,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: 'cursor-top',
 			name: 'TOP',
 			editorCallback: (editor: Editor, _: MarkdownView) => {
+				if (this.isComposing(editor)) return;
 				this.jumpToBufferEdge(editor, false)
 			}
 		});
@@ -203,6 +222,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: 'cursor-bottom',
 			name: 'BOTTOM',
 			editorCallback: (editor: Editor, _: MarkdownView) => {
+				if (this.isComposing(editor)) return;
 				this.jumpToBufferEdge(editor, true)
 			}
 		});
@@ -212,6 +232,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Word right',
 			repeatable: true,
 			editorCallback: (editor: Editor, _: MarkdownView) => {
+				if (this.isComposing(editor)) return;
 				this.moveCursorWord(editor, true)
 			}
 		});
@@ -221,6 +242,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Word left',
 			repeatable: true,
 			editorCallback: (editor: Editor, _: MarkdownView) => {
+				if (this.isComposing(editor)) return;
 				this.moveCursorWord(editor, false)
 			}
 		});
@@ -229,6 +251,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: "select-all",
 			name: "Select all",
 			editorCallback: (editor: Editor) => {
+				if (this.isComposing(editor)) return;
 				this.selectAll(editor);
 			},
 		});
@@ -238,6 +261,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Delete char',
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
+				if (this.isComposing(editor)) return;
 				this.deleteChar(editor);
 			}
 		});
@@ -247,6 +271,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Transpose chars',
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
+				if (this.isComposing(editor)) return;
 				this.transposeChars(editor);
 			}
 		});
@@ -256,6 +281,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Undo',
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
+				if (this.isComposing(editor)) return;
 				editor.undo();
 			}
 		});
@@ -265,6 +291,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Redo',
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
+				if (this.isComposing(editor)) return;
 				editor.redo();
 			}
 		});
@@ -282,6 +309,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Move to cell left',
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
+				if (this.isComposing(editor)) return;
 				if (editor.inTableCell) jumpAdjacentCell(editor, this, 'h');
 			}
 		});
@@ -291,6 +319,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Move to cell right',
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
+				if (this.isComposing(editor)) return;
 				if (editor.inTableCell) jumpAdjacentCell(editor, this, 'l');
 			}
 		});
@@ -300,6 +329,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Move to cell below',
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
+				if (this.isComposing(editor)) return;
 				if (editor.inTableCell) jumpAdjacentCell(editor, this, 'j');
 			}
 		});
@@ -309,6 +339,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Move to cell above',
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
+				if (this.isComposing(editor)) return;
 				if (editor.inTableCell) jumpAdjacentCell(editor, this, 'k');
 			}
 		});
@@ -318,6 +349,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Exit table below',
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
+				if (this.isComposing(editor)) return;
 				if (editor.inTableCell) exitTable(editor, this, true);
 			}
 		});
@@ -327,6 +359,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Exit table above',
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
+				if (this.isComposing(editor)) return;
 				if (editor.inTableCell) exitTable(editor, this, false);
 			}
 		});
@@ -335,6 +368,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: 'kill-region',
 			name: 'Kill region',
 			editorCallback: (editor: Editor) => {
+				if (this.isComposing(editor)) return;
 				this.killRegion(editor);
 			}
 		});
@@ -343,6 +377,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: 'copy-region',
 			name: 'Copy region',
 			editorCallback: (editor: Editor) => {
+				if (this.isComposing(editor)) return;
 				this.copyRegion(editor);
 			}
 		});
@@ -352,6 +387,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Kill line',
 			repeatable: true,
 			editorCallback: (editor: Editor, _: MarkdownView) => {
+				if (this.isComposing(editor)) return;
 				this.killLine(editor);
 			}
 		});
@@ -361,6 +397,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Kill word left',
 			repeatable: true,
 			editorCallback: (editor: Editor, _: MarkdownView) => {
+				if (this.isComposing(editor)) return;
 				this.killWord(editor, false);
 			}
 		});
@@ -370,6 +407,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Kill word right',
 			repeatable: true,
 			editorCallback: (editor: Editor, _: MarkdownView) => {
+				if (this.isComposing(editor)) return;
 				this.killWord(editor, true);
 			}
 		});
@@ -379,6 +417,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Uppercase word',
 			repeatable: true,
 			editorCallback: (editor: Editor, _: MarkdownView) => {
+				if (this.isComposing(editor)) return;
 				this.transformWord(editor, s => s.toUpperCase());
 			}
 		});
@@ -388,6 +427,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Lowercase word',
 			repeatable: true,
 			editorCallback: (editor: Editor, _: MarkdownView) => {
+				if (this.isComposing(editor)) return;
 				this.transformWord(editor, s => s.toLowerCase());
 			}
 		});
@@ -397,6 +437,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Capitalize word',
 			repeatable: true,
 			editorCallback: (editor: Editor, _: MarkdownView) => {
+				if (this.isComposing(editor)) return;
 				this.transformWord(editor, s => universalCursorHotkeysPlugin.capitalizeText(s));
 			}
 		});
@@ -406,6 +447,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Yank',
 			repeatable: true,
 			editorCallback: (editor: Editor, _: MarkdownView) => {
+				if (this.isComposing(editor)) return;
 				void this.yank(editor);
 			}
 		});
@@ -415,6 +457,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Page down',
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
+				if (this.isComposing(editor)) return;
 				this.pageDown(editor);
 			}
 		});
@@ -424,6 +467,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Page up',
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
+				if (this.isComposing(editor)) return;
 				this.pageUp(editor);
 			}
 		});
@@ -432,6 +476,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: 'recenter',
 			name: 'Recenter',
 			editorCallback: (editor: Editor) => {
+				if (this.isComposing(editor)) return;
 				this.recenter(editor);
 			}
 		});
@@ -440,6 +485,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: 'recenter-top-bottom',
 			name: 'Recenter top-bottom',
 			editorCallback: (editor: Editor) => {
+				if (this.isComposing(editor)) return;
 				this.recenterTopBottom(editor);
 			}
 		});
