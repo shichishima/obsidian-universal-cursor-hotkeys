@@ -284,7 +284,7 @@ export interface VimSupportHost {
 	// lands at the target cell's first/last <br>-segment content-start/end,
 	// then refines to the nearest actual word boundary on that landed line
 	// before dispatching. Returns the outer {line, ch} landed on (or null).
-	crossTableRowForWord(editor: unknown, cellIndex: number, forward: boolean, bigWord: boolean, wordEnd: boolean): { line: number; ch: number } | null;
+	crossTableRowForWord(editor: unknown, cellIndex: number, forward: boolean, bigWord: boolean, wordEnd: boolean, respectCrossRowNav: boolean): { line: number; ch: number } | null;
 	// Vim's gg/G (and count-prefixed "5gg"/"5G"). explicitLine is the
 	// 0-indexed absolute target line for a count-prefixed jump (null for
 	// plain gg/G, which targets the document's own first/last line). Checks
@@ -1178,7 +1178,7 @@ export class VimSupport {
 			const editor = getActiveEditor();
 			if (!editor || !editor.inTableCell) return;
 			const cellIndex = VimSupport.currentCellIndex() ?? getCellIndex(editor.getLine(editor.getCursor().line), editor.getCursor().ch);
-			const landedOuter = this.host.crossTableRowForWord(editor, cellIndex, forward, bigWord, wordEnd);
+			const landedOuter = this.host.crossTableRowForWord(editor, cellIndex, forward, bigWord, wordEnd, false);
 			// Word-motion has no goal-column concept to resync (unlike j/k) —
 			// nothing further needed once the crossing itself has landed.
 			void landedOuter;
