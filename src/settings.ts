@@ -373,12 +373,12 @@ const KEY_UPGRADE_DEFS: readonly KeyUpgradeDef[] = [
 		mac: { modifiers: ['Meta'], key: 'ArrowDown' }, win: { modifiers: ['Ctrl'], key: 'End' } },
 	{ group: 'navBasics', label: 'Table-aware',       commandId: 'page-up',     ...bare('PageUp')   },
 	{ group: 'navBasics', label: 'Table-aware',       commandId: 'page-down',   ...bare('PageDown') },
-	{ group: 'wordCommands', label: 'Word right — table & CJK aware',
-		commandId: 'word-right',
-		mac: { modifiers: ['Alt'], key: 'ArrowRight' }, win: { modifiers: ['Ctrl'], key: 'ArrowRight' } },
 	{ group: 'wordCommands', label: 'Word left — table & CJK aware',
 		commandId: 'word-left',
 		mac: { modifiers: ['Alt'], key: 'ArrowLeft' }, win: { modifiers: ['Ctrl'], key: 'ArrowLeft' } },
+	{ group: 'wordCommands', label: 'Word right — table & CJK aware',
+		commandId: 'word-right',
+		mac: { modifiers: ['Alt'], key: 'ArrowRight' }, win: { modifiers: ['Ctrl'], key: 'ArrowRight' } },
 	// Real macOS convention confirmed live (2026-08-28): Option, not Cmd. The
 	// physical "delete" key on a Mac keyboard sends Backspace; Fn+that key
 	// sends Delete (forward-delete) — no separate "Fn" modifier exists to
@@ -420,8 +420,8 @@ const COMMAND_DEFS: readonly CommandDef[] = [
 	{ block: 'cursor',  id: 'cursor-bottom',        name: 'BOTTOM',              recommended: null },
 	{ block: 'cursor',  id: 'page-up',              name: 'Page up',             recommended: null },
 	{ block: 'cursor',  id: 'page-down',            name: 'Page down',           recommended: null },
-	{ block: 'cursor',  id: 'word-right',           name: 'Word right',          recommended: null },
 	{ block: 'cursor',  id: 'word-left',            name: 'Word left',           recommended: null },
+	{ block: 'cursor',  id: 'word-right',           name: 'Word right',          recommended: null },
 	{ block: 'editing', id: 'kill-line',            name: 'Kill line',           recommended: ctrl('K') },
 	{ block: 'editing', id: 'kill-region',          name: 'Kill region',         recommended: ctrl('W') },
 	{ block: 'editing', id: 'copy-region',          name: 'Copy region',         recommended: null },
