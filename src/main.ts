@@ -3243,29 +3243,19 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const cm          = editor.cm;
 		const lineObj     = cm.state.doc.line(targetLine + 1);
 		const savedScroll = cm.scrollDOM?.scrollTop;
-		const inner       = editor.activeCM;
+		const inner = editor.activeCM;
 		if (inner && inner !== cm) {
-			const innerSel    = inner.state.selection.main;
-			const innerDoc    = inner.state.doc.toString();
-			let delFrom       = innerSel.from;
-			let delTo         = innerSel.to;
-			const innerSuffix = innerDoc.slice(innerSel.to);
-			const innerPrefix = innerDoc.slice(0, innerSel.from);
-			// Inner view uses \n (not <br>) for in-cell line breaks
-			if (innerSuffix.startsWith('\n')) {
-				if (!innerPrefix.trim()) {
-					const wsLen = innerSuffix.match(/^\n([ \t]*)/)?.[1].length ?? 0;
-					delTo += 1 + wsLen;
-				}
-			} else {
-				const trimmedPrefix = innerPrefix.trimEnd();
-				if (trimmedPrefix.endsWith('\n') && !innerSuffix.trim()) {
-					delFrom -= innerPrefix.length - trimmedPrefix.length + 1;
-				}
-			}
+			// Plain selection delete — matches real Emacs's own kill-region,
+			// which only ever removes exactly what's selected. Previously this
+			// branch also auto-consumed the following newline when the
+			// selection started at the cell's own start (removing the
+			// resulting blank sub-line); that "smart" behavior was removed
+			// since it silently overrode the user's own selection choice. See
+			// project_kill_region_lp_cell_edge_newline_bug for the full trace.
+			const innerSel = inner.state.selection.main;
 			inner.dispatch({
-				changes:   { from: delFrom, to: delTo, insert: '' },
-				selection: { anchor: delFrom },
+				changes:   { from: innerSel.from, to: innerSel.to, insert: '' },
+				selection: { anchor: innerSel.from },
 			});
 		} else {
 			cm.dispatch({
