@@ -11,6 +11,10 @@
 
 - **No user-visible change:** added an empty `getSettingDefinitions()` override to the settings tab. This tab's UI (3-tab layout, Key Upgrades' live hotkey-assignment side effects, per-OS recommended keys) doesn't fit the declarative settings API's simple model, so this is a placeholder only — it doesn't make any setting searchable in Obsidian's global settings search, and doesn't change anything about how the tab renders or behaves on any Obsidian version.
 
+### Compatibility
+
+- **Verified compatible with Obsidian 1.14.** One known behavioral gap found: since Obsidian 1.14, native paste (`Cmd`/`Ctrl`+`V`) avoids duplicating a list marker when pasting a list item onto a line that already has one — Yank (`Ctrl`+`Y`) doesn't yet replicate this and can still produce a duplicate marker. Planned for a future release.
+
 ## [0.11.1] - 2026-09-19
 
 ### Fixed
