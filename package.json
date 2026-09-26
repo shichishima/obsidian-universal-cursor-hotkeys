@@ -1,0 +1,34 @@
+{
+	"name": "universal-cursor-hotkeys",
+	"version": "0.11.2",
+	"description": "Full cursor navigation for Markdown — whether in tables or out, either on macOS or Windows, be it Emacs keybindings or Vim mode.",
+	"main": "main.js",
+	"scripts": {
+		"dev": "node esbuild.config.mjs",
+		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+		"lint": "eslint src/main.ts",
+		"test": "vitest run",
+		"version": "node version-bump.mjs && git add manifest.json versions.json"
+	},
+	"keywords": [],
+	"author": "",
+	"license": "MIT",
+	"devDependencies": {
+		"@types/node": "^16.11.6",
+		"@typescript-eslint/eslint-plugin": "^8.59.2",
+		"@typescript-eslint/parser": "^8.59.2",
+		"esbuild": "0.17.3",
+		"eslint": "^9.39.4",
+		"eslint-plugin-obsidianmd": "^0.2.9",
+		"obsidian": "latest",
+		"tslib": "2.4.0",
+		"typescript": "5.9.3",
+		"vitest": "^4.1.5"
+	},
+	"dependencies": {
+		"@codemirror/commands": "6.10.3",
+		"@codemirror/language": "6.12.3",
+		"@codemirror/state": "6.6.0",
+		"@codemirror/view": "6.38.6"
+	}
+}

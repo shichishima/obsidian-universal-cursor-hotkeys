@@ -1,0 +1,16 @@
+import { defineConfig } from 'vitest/config'
+import { resolve } from 'path'
+
+export default defineConfig({
+	test: {
+		environment: 'node',
+		typecheck: {
+			tsconfig: './tsconfig.test.json',
+		},
+	},
+	resolve: {
+		alias: {
+			obsidian: resolve(__dirname, 'tests/__mocks__/obsidian.ts'),
+		},
+	},
+})
