@@ -35,7 +35,7 @@ Table structure と Table navigation を同時にONにするための **Apply bo
 | `Space` `t` Table navigation (6コマンド) |       OFF        | セル間のカーソル移動のためのコマンドを利用できるようにします。<br/>詳細は [コマンドリファレンス](/vim-mode/command-reference#table-navigation) を参照してください。                                                                    |
 | リーダーキー                               | OFF<br/>(`Space`) | Table structure と Table navigation で使うリーダーキーを選びます。どちらかがONのときだけ意味を持ちます。<br/><br/>**OFF:** `Space`(デフォルト)。元々のスペースキーの動作(右に移動)が使えなくなります。<br/>**ON:** バックスラッシュ(`\`)。スペースキーの動作はそのまま使えます。 |
 
-## Behavior options (挙動オプション) \{#behavior-options}
+## Behavior options (挙動オプション)  \{#behavior-options}
 上記の一部のトグルをよりMarkdownに配慮した挙動に拡張します。
 
 同じ名称の設定項目は「For everyone」「Vim mode」「macOS (Emacs) style」で連動していて、一方でON(またはOFF)にすると他方でも連動してON(またはOFF)になります。
