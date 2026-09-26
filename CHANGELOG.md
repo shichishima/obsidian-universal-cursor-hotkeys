@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Editor commands (Ctrl-N/Ctrl-P and every other command in this plugin) no longer fire mid-IME-composition:** previously, cycling Chinese/Japanese/Korean IME conversion candidates with e.g. Ctrl-N/Ctrl-P worked for the first couple of presses, but partway through the IME stopped consuming further presses and let them reach Obsidian's command dispatcher instead — from that point on, this plugin's own cursor movement ran and moved the real editor cursor instead of the candidate selection, even though the composition itself was still in progress. Every command now checks CM6's own composition state (including a focused Live Preview table cell's own inner editor) before running, and no-ops while it's active.
+
 ### Changed
 
 - **No user-visible change:** added an empty `getSettingDefinitions()` override to the settings tab. This tab's UI (3-tab layout, Key Upgrades' live hotkey-assignment side effects, per-OS recommended keys) doesn't fit the declarative settings API's simple model, so this is a placeholder only — it doesn't make any setting searchable in Obsidian's global settings search, and doesn't change anything about how the tab renders or behaves on any Obsidian version.
