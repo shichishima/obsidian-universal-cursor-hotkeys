@@ -3054,7 +3054,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const outerCursor = editor.getCursor();
 		const outerLineText = editor.getLine(outerCursor.line);
 		const cellIndex = getCellIndex(outerLineText, outerCursor.ch);
-		this.continueWordTransformAfterLanding(editor, this.crossTableRowForWord(editor, cellIndex, true, false, false), transform);
+		this.continueWordTransformAfterLanding(editor, this.crossTableRowForWord(editor, cellIndex, true, false, false, true), transform);
 	}
 
 	// Source Mode table cell: like moveCursorWordInTable/killWordInTableSourceMode
@@ -3088,7 +3088,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}
 
 		const cellIndex = getCellIndex(lineText, cursor.ch);
-		this.continueWordTransformAfterLanding(editor, this.crossTableRowForWord(editor, cellIndex, true, false, false), transform);
+		this.continueWordTransformAfterLanding(editor, this.crossTableRowForWord(editor, cellIndex, true, false, false, true), transform);
 	}
 
 	// Shared tail for transformWordNonTable's table-entry case and
@@ -3551,7 +3551,15 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// row's rightmost, mirroring how the raw text would read one row into the
 	// next). Single cell/row crossing only (no multi-cell count precision),
 	// mirroring crossTableRowForCell's own "known gap" scope cut.
-	crossTableRowForWord(editor: unknown, cellIndex: number, forward: boolean, bigWord: boolean, wordEnd: boolean): { line: number; ch: number } | null {
+	// respectCrossRowNav: true for every Emacs-side caller (Word right/left,
+	// Uppercase/Lowercase/Capitalize word) — Cross-row navigation is their
+	// own documented setting, and it already gates LEFT/RIGHT/HOME/END the
+	// same way. False for Vim's own w/b/e (see scheduleWordCrossing): real
+	// Vim's word motions have no concept of stopping at a row/line boundary
+	// at all (they run to the buffer's own edge), Cross-row navigation isn't
+	// exposed on the Vim tab, and there is no native behavior to preserve by
+	// adding one — so Vim's own crossing here stays unconditional.
+	crossTableRowForWord(editor: unknown, cellIndex: number, forward: boolean, bigWord: boolean, wordEnd: boolean, respectCrossRowNav: boolean): { line: number; ch: number } | null {
 		const e = editor as Editor;
 		const currentLine = e.getCursor().line;
 		const lineText = e.getLine(currentLine);
@@ -3570,6 +3578,13 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 		// Already at this row's own edge cell — cross to the next/prev row's
 		// opposite edge cell (or exit the table if there is no next/prev row).
+		// Both sub-paths respect Cross-row navigation the same way LEFT/RIGHT
+		// do at their own edge: OFF means staying put, whether the boundary
+		// would have crossed to an adjacent row or exited the table entirely.
+		// exitTableWithWord's own setCursorToNextRow/PrevRow calls have no
+		// such check themselves (they're shared with unrelated callers like
+		// Ctrl-N/P's row crossing), so this must gate the call here instead.
+		if (respectCrossRowNav && !this.settings.crossRowNavigation) return null;
 		const startLine = forward ? this.getNextRowLine(e) : this.getPrevRowLine(e);
 		if (startLine === -1) {
 			return this.exitTableWithWord(e, cellIndex, forward, bigWord, wordEnd, currentLine);
@@ -4074,7 +4089,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}
 
 		const cellIndex = getCellIndex(lineText, cursor.ch);
-		const landed = this.crossTableRowForWord(editor, cellIndex, forward, false, forward);
+		const landed = this.crossTableRowForWord(editor, cellIndex, forward, false, forward, true);
 		if (landed && forward) {
 			const landedLineText = editor.getLine(landed.line);
 			const targetCh = Math.min(landed.ch + 1, landedLineText.length);
