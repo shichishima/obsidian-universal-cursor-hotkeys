@@ -16,6 +16,6 @@ mode: for-everyone
 
 Obsidianの **設定** → コミュニティプラグイン **Universal Cursor Hotkeys** を選択 → 上部タブ **For everyone** を開いて、**Apply all** ボタンをクリックしてください。
 
-**つづいては：** [キーのアップグレード](/for-everyone/key-upgrades) | [設定](/for-everyone/settings)
+**つづいては：** [キーのアップグレード](/for-everyone/key-upgrades) | [設定](/for-everyone/settings) | [制限事項](/for-everyone/limitations)
 
 (ここにスクショ、For everyoneのApply allボタン)
