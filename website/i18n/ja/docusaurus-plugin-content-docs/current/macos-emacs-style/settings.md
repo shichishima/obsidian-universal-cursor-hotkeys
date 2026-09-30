@@ -1,5 +1,5 @@
 ---
-sidebar_position: 2
+sidebar_position: 4
 title: macOS (Emacs) style — 設定
 sidebar_label: 設定
 description: 設定 → Universal Cursor Hotkeys から macOS風(Emacs)のホットキーを割り当てる方法と、各ステータスバッジの意味。
