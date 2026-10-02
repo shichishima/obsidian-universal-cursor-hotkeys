@@ -5,29 +5,38 @@ slug: /
 title: Universal Cursor Hotkeys
 description: Markdownテーブルに対応したカーソルナビゲーションと中国語・日本語の単語分割 — Vimモードでも、Emacsキーバインドでも、そしてすべてのユーザーに。
 ---
-
 import ModeTabs from '@site/src/components/ModeTabs';
 
 # Universal Cursor Hotkeys
 
-**Markdownテーブルに対応したカーソルナビゲーションと中国語・日本語の単語分割 — Vimモードでも、Emacsキーバインドでも、そしてすべてのユーザーに。**
+**Markdown テーブルと日本語に対応したカーソル操作強化プラグイン。キー自体の機能強化、Vim モード対応、そして Emacs キーバインドと編集コマンド群。**
 
 <ModeTabs sticky={false} />
 
-普段使っている矢印キー・Home/End・Page Up/Down・単語移動が、Live PreviewのMarkdownテーブル周りでもっと賢く動作するようになり、CJK（中国語・日本語）テキストも同じように正しく扱えます。Vimモードとmacs風（Emacs）キーバインドにも同じアップグレードが適用されます。
+普段使っている矢印キー・ `Home` / `End` キー・ `Page Up` / `Page Down` キーを、より Markdown に最適化し、ライブプレビューでの Markdown テーブルに対応させます。標準では正しく動作しなかった日本語テキストの単語分割もサポートします。Vimモードにも対応。加えてmacOS 風ショートカット(Emacs キーバインド)のホットキー一式を提供します。
 
 <img width="688" height="387" alt="標準のObsidianとUniversal Cursor Hotkeysを比較したデモ: Markdownテーブルおよび CJK テキストでのカーソル移動" src="https://github.com/user-attachments/assets/b85426e8-e8be-451a-9766-fff410cb634e" />
 
 ## 概要
 
-Obsidianの Live Preview は Markdown テーブル内でのカーソル動作を崩してしまい、CJK（中国語・日本語）テキストを実際の単語境界で区切らず、ひと続きの長い単語として扱ってしまいます。このプラグインはその両方を修正します — 普段の矢印キー操作でも、Obsidian組み込みのVimモードでも、macOS風のキーボードショートカット（Emacsキーバインド）でも同様に。Vim自身の `h`/`j`/`k`/`l`/`w`/`b`/`e`/`gg`/`G` も、ついにテーブル内で正しく動作するようになります。Emacs側では、Obsidianにネイティブには存在しないKill & Yank、大文字・小文字変換、Recenterなど、編集コマンド一式も追加されます。
+Obsidian のライブプレビューはとても良くできていて、Markdown テーブルの表示も編集も素晴らしいのですが、カーソル操作には不完全な点が多く残っています。また単語操作はスペース区切りでしか認識せず、日本語の文章ではひと続きの長い単語として扱ってしまいます。このプラグインはその両方を修正し、より快適なカーソル移動を実現します。通常は変更できないカーソルキー自体の挙動を修正するほか、Obsidian 組込みの Vim モードのカーソル移動をテーブルに対応させ、また Emacs 風のカーソル移動と編集コマンドを多数用意して macOS 風のキーボードショートカットを Windows 環境でも使えるようにします。
 
-**🔑 [とにかく普段のカーソル操作を良くしたい →](/for-everyone)**
+## 🔑 [とにかく普段のカーソル操作を良くしたい →](/for-everyone)
+- `Home` キーの挙動を Markdown に最適化する
+- `Page Up` / `Page Down` を Markdown テーブルでも正しく動作させる
+- `Ctrl` + ← / →、`Ctrl` + `Backspace` / `Delete` で日本語でも単語単位でのカーソル移動と削除をできるようにする
 
-**⌨️ [Obsidian組み込みのVimモードを使っている →](/vim-mode)**
+## ⌨️ [Obsidian 組み込みの Vim モードを使っている →](/vim-mode)
+- `j` / `k` でテーブルの行を上下移動する。`w` / `b` / `e` でテーブルのカラムを前後移動する
+- `w` / `b` / `e` で日本語の単語単位で移動できるようにする
+- テーブルの中にいても `gg` / `G` でノートの先頭/末尾に移動できるようにする
+- テーブル操作関連のコマンドを追加する
 
-**🅴 [macOS風のキーボードショートカット（Emacsキーバインド）を使っている →](/macos-emacs-style)**
+## 🅴 [macOS 風のキーボードショートカット(Emacs キーバインド)を使いたい →](/macos-emacs-style)
+- `Ctrl` + `P` / `N` / `B` / `F` で Markdown テーブル内でもカーソル移動できるようにする
+- クリップボードと連動した蓄積機能付きの Kill & Yank
+- Recenter-top-bottom での画面センタリング
 
-## 謝辞
+## 付記
 
-- このプラグインのコードおよびドキュメントは、AIの支援を受けて作成されました。
+- このプラグインのコードおよびドキュメントは AI の支援を受けて作成しています。
