@@ -29,4 +29,4 @@ No hotkeys are assigned by default.
 
 **Manual setup:** Go to **Settings → Hotkeys**, search for "Universal Cursor Hotkeys", and assign keys individually.
 
-See also: [Command Reference](/macos-emacs-style/command-reference), [Settings](/macos-emacs-style/settings), [Limitations](/macos-emacs-style/limitations), [Command Details](/macos-emacs-style/command-details), [Behavior Options](/behavior-options).
+See also: [Command Reference](/macos-emacs-style/command-reference), [Settings](/macos-emacs-style/settings), [Limitations](/macos-emacs-style/limitations), [Command Details](/macos-emacs-style/command-details).

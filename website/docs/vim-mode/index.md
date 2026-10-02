@@ -12,4 +12,4 @@ If you use Obsidian's built-in Vim mode, this plugin fixes a set of well-known L
 
 Turn on Obsidian's built-in **Vim key bindings** (Settings → Editor) — that's it. All the motion upgrades below are already on by default, no setup needed. If you also want the leader-key Table structure/Table navigation commands (off by default), open **Settings → Universal Cursor Hotkeys → Vim mode** and click **Apply both**.
 
-See also: [Command Reference](/vim-mode/command-reference), [Settings](/vim-mode/settings), [Limitations](/vim-mode/limitations), [Behavior Options](/behavior-options).
+See also: [Command Reference](/vim-mode/command-reference), [Settings](/vim-mode/settings), [Limitations](/vim-mode/limitations).
