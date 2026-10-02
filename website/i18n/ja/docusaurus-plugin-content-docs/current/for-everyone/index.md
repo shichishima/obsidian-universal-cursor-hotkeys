@@ -18,4 +18,4 @@ Obsidianの **設定** → コミュニティプラグイン **Universal Cursor 
 
 **つづいては：** [キーのアップグレード](/for-everyone/key-upgrades) | [設定](/for-everyone/settings) | [制限事項](/for-everyone/limitations)
 
-(ここにスクショ、For everyoneのApply allボタン)
+![For everyoneタブでのApply allボタン](/img/for-everyone-apply-all.png)
