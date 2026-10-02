@@ -2,7 +2,7 @@
 sidebar_position: 2
 title: macOS (Emacs) style — コマンド詳細
 sidebar_label: コマンド詳細
-description: ライブプレビュー固有のテーブル・コールアウト対応を含む、macOS風（Emacs）の全コマンドの詳細な挙動。
+description: このプラグインが提供する全コマンドの詳細挙動 (標準動作との違い)
 mode: macos-emacs-style
 ---
 # macOS (Emacs) style — コマンド詳細

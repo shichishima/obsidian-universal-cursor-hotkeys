@@ -2,7 +2,7 @@
 sidebar_position: 2
 title: For everyone — 設定
 sidebar_label: 設定
-description: 設定 → Universal Cursor Hotkeys から各For everyoneキーを有効にする方法と、Used/Conflictステータスバッジの意味。
+description: キー挙動強化の適用方法、設定画面の見方、各挙動オプションの説明
 mode: for-everyone
 ---
 # For everyone — 設定
@@ -36,7 +36,7 @@ OFFにするとそのキーの割り当てだけが削除されます。他の�
 ### 各設定行の見方
 [(同上)](/for-everyone/settings#setting-status)
 
-## Behavior options (挙動オプション)  \{#behavior-options}
+## Behavior options (挙動オプション) \{#behavior-options}
 各種挙動を調整するトグルボタンです。
 
 同じ名称の設定項目は「For everyone」「Vim mode」「macOS (Emacs) style」で連動していて、一方でON(またはOFF)にすると他方でも連動してON(またはOFF)になります。

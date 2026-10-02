@@ -2,7 +2,7 @@
 sidebar_position: 2
 title: Vim mode — 設定
 sidebar_label: 設定
-description: 設定 → Universal Cursor Hotkeys から、各Vimモーションのアップグレードとリーダーキーのテーブルコマンドを有効にする方法。
+description: 各設定項目の意味と各挙動オプションの説明
 mode: vim-mode
 ---
 # Vim mode — 設定

@@ -2,7 +2,7 @@
 sidebar_position: 1
 title: Vim mode — コマンドリファレンス
 sidebar_label: コマンドリファレンス
-description: 各Vimモーションのアップグレードとリーダーキーのテーブルコマンドが、ライブプレビューのテーブル内で実際に何をするか。
+description: テーブル対応・日本語対応する基本Vimコマンドの一覧、テーブル操作コマンド一覧
 mode: vim-mode
 ---
 # Vim mode — コマンドリファレンス

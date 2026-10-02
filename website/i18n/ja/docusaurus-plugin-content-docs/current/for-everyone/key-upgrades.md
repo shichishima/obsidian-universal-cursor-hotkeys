@@ -2,7 +2,7 @@
 sidebar_position: 1
 title: For everyone — キーのアップグレード
 sidebar_label: キーのアップグレード
-description: For everyoneの各キーが実際に何をするか — 列位置を保つ矢印キー、Smart Home、テーブル対応のPage Up/Down、CJK対応の単語移動。
+description: カーソルキーやHome / End・単語単位でのカーソル移動キーの挙動をMarkdown対応・日本語単語対応に強化
 mode: for-everyone
 ---
 # For everyone — キーのアップグレード

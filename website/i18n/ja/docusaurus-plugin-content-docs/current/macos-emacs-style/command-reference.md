@@ -2,7 +2,7 @@
 sidebar_position: 1
 title: macOS (Emacs) style — コマンドリファレンス
 sidebar_label: コマンドリファレンス
-description: macOS風(Emacs)の全コマンド、推奨ホットキー、そしてその機能 — カーソル移動、編集、テーブルコマンド。
+description: macOS風(Emacs)の全コマンドの一覧、機能紹介、推奨ホットキー
 mode: macos-emacs-style
 ---
 # macOS (Emacs) style — コマンドリファレンス

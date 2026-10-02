@@ -1,6 +1,6 @@
 ---
 title: Vim mode
-description: h/l/j/k/w/b/e/gg/G/gj/gk などを修正し、Obsidian組み込みのVimモードがライブプレビューのテーブル内でも正しく動作するようにします。
+description: 基本的なカーソル移動コマンドをテーブル内でも正しく動作させ、単語移動を日本語の単語分割に対応させます
 mode: vim-mode
 ---
 # Vim mode
@@ -15,6 +15,6 @@ Obsidian組み込みのVimモードを使っているなら、ライブプレビ
 
 <img width="610" height="610" alt="ライブプレビューのテーブル内を正しく移動するVimモード" src="https://github.com/user-attachments/assets/0533a2f4-e497-4d3d-af73-7b68f5edfa86" />
 
-Obsidian組み込みの **Vimのキー設定**（設定 → エディタ）をONにするだけです。基本的な挙動のアップグレードはデフォルトでONになっており、追加の設定は不要です。
+Obsidian組み込みの **Vimのキー設定** （設定 → エディタ）をONにするだけです。基本的な挙動のアップグレードはデフォルトでONになっており、追加の設定は不要です。
 
 テーブルの構造操作やセル間のカーソル移動も使いたい場合は、**設定 → Universal Cursor Hotkeys → Vim mode** を開いて **Apply both** をクリックしてください。
