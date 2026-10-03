@@ -13,8 +13,8 @@ Obsidian 組み込みの Vim モードを使っているなら、ライブプレ
 
 **つづいては：** [コマンドリファレンス](/vim-mode/command-reference) | [設定](/vim-mode/settings) | [制限事項](/vim-mode/limitations)
 
-<img width="610" height="610" alt="ライブプレビューのテーブル内を正しく移動するVimモード" src="https://github.com/user-attachments/assets/0533a2f4-e497-4d3d-af73-7b68f5edfa86" />
+<img width="610" height="610" alt="ライブプレビューのテーブル内を正しく移動する Vim モード" src="https://github.com/user-attachments/assets/0533a2f4-e497-4d3d-af73-7b68f5edfa86" />
 
-Obsidian 組み込みの **Vim のキー設定** （設定 → エディタ）を ON にするだけです。基本的な挙動のアップグレードはデフォルトで ON になっており、追加の設定は不要です。
+Obsidian 組み込みの **Vim のキー設定** (設定 → エディタ) を ON にするだけです。基本的な挙動のアップグレードはデフォルトで ON になっており、追加の設定は不要です。
 
 テーブルの構造操作やセル間のカーソル移動も使いたい場合は、**設定 → Universal Cursor Hotkeys → Vim mode** を開いて **Apply both** をクリックしてください。

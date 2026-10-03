@@ -2,7 +2,7 @@
 sidebar_position: 1
 title: macOS (Emacs) style — コマンドリファレンス
 sidebar_label: コマンドリファレンス
-description: macOS風(Emacs)の全コマンドの一覧、機能紹介、推奨ホットキー
+description: macOS 風 (Emacs) の全コマンドの一覧、機能紹介、推奨ホットキー
 mode: macos-emacs-style
 ---
 # macOS (Emacs) style — コマンドリファレンス
@@ -21,16 +21,16 @@ mode: macos-emacs-style
 
 |                              コマンド名                               | 推奨<br/>ホットキー | 機能概要                                                                     | キー<br/>リピート |
 | :--------------------------------------------------------------: | :----------: | ------------------------------------------------------------------------ | :---------: |
-|        [UP](/macos-emacs-style/command-details#cursor-up)        | `Ctrl` + `P` | テキスト/セル間の移動や、テーブル・コールアウトへの進入(下から)・退出(上へ)を行います。テーブルの行をまたぐ際もカーソル横位置を維持します。 |      ✓      |
-|      [DOWN](/macos-emacs-style/command-details#cursor-down)      | `Ctrl` + `N` | テキスト/セル間の移動や、テーブル・コールアウトへの進入(上から)・退出(下へ)を行います。テーブルの行をまたぐ際もカーソル横位置を維持します。 |      ✓      |
+|        [UP](/macos-emacs-style/command-details#cursor-up)        | `Ctrl` + `P` | テキスト / セル間の移動や、テーブル・コールアウトへの進入 (下から)・退出 (上へ) を行います。テーブルの行をまたぐ際もカーソル横位置を維持します。 |      ✓      |
+|      [DOWN](/macos-emacs-style/command-details#cursor-down)      | `Ctrl` + `N` | テキスト / セル間の移動や、テーブル・コールアウトへの進入 (上から)・退出 (下へ) を行います。テーブルの行をまたぐ際もカーソル横位置を維持します。 |      ✓      |
 |      [LEFT](/macos-emacs-style/command-details#cursor-left)      | `Ctrl` + `B` | 文字単位で移動します。セルの先頭にいる場合は前のセルに移動します。                                        |      ✓      |
 |     [RIGHT](/macos-emacs-style/command-details#cursor-right)     | `Ctrl` + `F` | 文字単位で移動します。セルの末尾にいる場合は次のセルに移動します。                                        |      ✓      |
-|      [HOME](/macos-emacs-style/command-details#cursor-home)      | `Ctrl` + `A` | 表示行の端、本文の先頭、行の先頭の順に3段階で移動します。テーブル内ではセルの先頭から前のセルに移動します。                   |      ✓      |
-|       [END](/macos-emacs-style/command-details#cursor-end)       | `Ctrl` + `E` | 表示行の端、行末の順に2段階で移動します。テーブル内ではセルの末尾から次のセルに移動します。                           |      ✓      |
+|      [HOME](/macos-emacs-style/command-details#cursor-home)      | `Ctrl` + `A` | 表示行の端、本文の先頭、行の先頭の順に 3 段階で移動します。テーブル内ではセルの先頭から前のセルに移動します。                   |      ✓      |
+|       [END](/macos-emacs-style/command-details#cursor-end)       | `Ctrl` + `E` | 表示行の端、行末の順に 2 段階で移動します。テーブル内ではセルの末尾から次のセルに移動します。                           |      ✓      |
 |   [TOP](/macos-emacs-style/command-details#cursor-top-bottom)    |      —       | ノートの先頭へジャンプします。                                                          |             |
 |  [BOTTOM](/macos-emacs-style/command-details#cursor-top-bottom)  |      —       | ノートの末尾へジャンプします。                                                          |             |
-|    [Page up](/macos-emacs-style/command-details#page-up-down)    |      —       | 1ページ分上にスクロールします。カーソルは画面上の同じ位置にとどまります。テーブル内にも着地できます。                      |      ✓      |
-|   [Page down](/macos-emacs-style/command-details#page-up-down)   |      —       | 1ページ分下にスクロールします。カーソルは画面上の同じ位置にとどまります。テーブル内にも着地できます。                      |      ✓      |
+|    [Page up](/macos-emacs-style/command-details#page-up-down)    |      —       | 1 ページ分上にスクロールします。カーソルは画面上の同じ位置にとどまります。テーブル内にも着地できます。                      |      ✓      |
+|   [Page down](/macos-emacs-style/command-details#page-up-down)   |      —       | 1 ページ分下にスクロールします。カーソルは画面上の同じ位置にとどまります。テーブル内にも着地できます。                      |      ✓      |
 | [Word left](/macos-emacs-style/command-details#word-left-right)  |      —       | 単語単位で左に移動します。日本語でも単語単位に移動します。                                            |      ✓      |
 | [Word right](/macos-emacs-style/command-details#word-left-right) |      —       | 単語単位で右に移動します。日本語でも単語単位に移動します。                                            |      ✓      |
 
@@ -40,19 +40,19 @@ mode: macos-emacs-style
 
 |                                   コマンド名                                    | 推奨<br/>ホットキー | 機能概要                                                      | キー<br/>リピート |
 | :------------------------------------------------------------------------: | :----------: | --------------------------------------------------------- | :---------: |
-|         [Kill line](/macos-emacs-style/command-details#kill-line)          | `Ctrl` + `K` | カーソルから行末までをKillします。連続した Kill は内容がクリップボードに蓄積されていきます。       |      ✓      |
-|       [Kill region](/macos-emacs-style/command-details#kill-region)        | `Ctrl` + `W` | 選択範囲をKillします。                                             |             |
+|         [Kill line](/macos-emacs-style/command-details#kill-line)          | `Ctrl` + `K` | カーソルから行末までを Kill します。連続した Kill は内容がクリップボードに蓄積されていきます。       |      ✓      |
+|       [Kill region](/macos-emacs-style/command-details#kill-region)        | `Ctrl` + `W` | 選択範囲を Kill します。                                             |             |
 |       [Copy region](/macos-emacs-style/command-details#copy-region)        |      —       | 選択範囲を削除せずにコピーします。                                         |             |
 |              [Yank](/macos-emacs-style/command-details#yank)               | `Ctrl` + `Y` | OS のクリップボード内容を貼り付けます。                                     |      ✓      |
-|       [Delete char](/macos-emacs-style/command-details#delete-char)        | `Ctrl` + `D` | カーソルの右の1文字を削除します。                                         |      ✓      |
+|       [Delete char](/macos-emacs-style/command-details#delete-char)        | `Ctrl` + `D` | カーソルの右の 1 文字を削除します。                                         |      ✓      |
 |            [Undo](/macos-emacs-style/command-details#undo-redo)            | `Ctrl` + `/` | 直前の変更を元に戻します。                                             |      ✓      |
 |            [Redo](/macos-emacs-style/command-details#undo-redo)            |      —       | 直前に元に戻した変更をやり直します。                                        |      ✓      |
-| [Kill word left](/macos-emacs-style/command-details#kill-word-left-right)  |      —       | カーソルから前の単語の先頭までをKillします。連続した Kill は内容がクリップボードに蓄積されていきます。  |      ✓      |
-| [Kill word right](/macos-emacs-style/command-details#kill-word-left-right) |      —       | カーソルから次の単語の末尾までをKillします。連続した Kill は内容がクリップボードに蓄積されていきます。  |      ✓      |
+| [Kill word left](/macos-emacs-style/command-details#kill-word-left-right)  |      —       | カーソルから前の単語の先頭までを Kill します。連続した Kill は内容がクリップボードに蓄積されていきます。  |      ✓      |
+| [Kill word right](/macos-emacs-style/command-details#kill-word-left-right) |      —       | カーソルから次の単語の末尾までを Kill します。連続した Kill は内容がクリップボードに蓄積されていきます。  |      ✓      |
 |       [Uppercase word](/macos-emacs-style/command-details#word-case)       |      —       | 選択範囲を、あるいは選択範囲がなければカーソル位置の単語全体を大文字にします。単語分割は日本語に対応しています。  |      ✓      |
 |       [Lowercase word](/macos-emacs-style/command-details#word-case)       |      —       | 選択範囲を、あるいは選択範囲がなければカーソル位置の単語全体を小文字にします。単語分割は日本語に対応しています。  |      ✓      |
 |      [Capitalize word](/macos-emacs-style/command-details#word-case)       |      —       | 選択範囲の、あるいは選択範囲がなければカーソル位置の単語の先頭を大文字にします。単語分割は日本語に対応しています。 |      ✓      |
-|   [Transpose chars](/macos-emacs-style/command-details#transpose-chars)    |      —       | カーソル前後の2文字を入れ替えます。行末やセル末尾では、代わりに直前の2文字を入れ替えます。絵文字・拡張漢字対応。 |      ✓      |
+|   [Transpose chars](/macos-emacs-style/command-details#transpose-chars)    |      —       | カーソル前後の 2 文字を入れ替えます。行末やセル末尾では、代わりに直前の 2 文字を入れ替えます。絵文字・拡張漢字対応。 |      ✓      |
 |        [Select all](/macos-emacs-style/command-details#select-all)         |      —       | `Ctrl` + `A` が HOME に割り当てられた場合の、Windows 向け全選択の代替コマンドです。   |             |
 
 ## Other hotkeys (その他のホットキー) \{#other-hotkeys}
@@ -64,9 +64,9 @@ mode: macos-emacs-style
 
 ## Table structure (テーブルの構造操作) \{#table-structure}
 
-ここに挙げた16個のコマンドはこのプラグイン自身が持つコマンドではなく、Obsidian 組み込みのテーブル編集コマンドです。ここには参考として掲載しています。(設定画面の Hotkey settings と同様です)
+ここに挙げた 16 個のコマンドはこのプラグイン自身が持つコマンドではなく、Obsidian 組み込みのテーブル編集コマンドです。ここには参考として掲載しています。(設定画面の Hotkey settings と同様です)
 
-ただし下表の「コマンド名」は英語版のものです。 Obsidian の言語設定により実際に表示されるコマンド名は異なります。
+ただし下表の「コマンド名」は英語版のものです。Obsidian の言語設定により実際に表示されるコマンド名は異なります。
 
 |        コマンド名        | 推奨<br/>ホットキー | 機能概要                                                |
 | :-----------------: | :----------: | --------------------------------------------------- |

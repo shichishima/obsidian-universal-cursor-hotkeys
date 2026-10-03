@@ -13,9 +13,9 @@ import ModeTabs from '@site/src/components/ModeTabs';
 
 <ModeTabs sticky={false} />
 
-普段使っている矢印キー・ `Home` / `End` キー・ `Page Up` / `Page Down` キーを、より Markdown に最適化し、ライブプレビューでの Markdown テーブルに対応させます。標準では正しく動作しなかった日本語テキストの単語分割もサポートします。Vimモードにも対応。加えてmacOS 風のキーボードショートカット(Emacs キーバインド)のホットキー一式を提供します。
+普段使っている矢印キー・ `Home` / `End` キー・ `Page Up` / `Page Down` キーを、より Markdown に最適化し、ライブプレビューでの Markdown テーブルに対応させます。標準では正しく動作しなかった日本語テキストの単語分割もサポートします。Vim モードにも対応。加えて macOS 風のキーボードショートカット (Emacs キーバインド) のホットキー一式を提供します。
 
-<img width="688" height="387" alt="標準のObsidianとUniversal Cursor Hotkeysを比較したデモ: Markdownテーブルおよび CJK テキストでのカーソル移動" src="https://github.com/user-attachments/assets/b85426e8-e8be-451a-9766-fff410cb634e" />
+<img width="688" height="387" alt="標準の Obsidian と Universal Cursor Hotkeys を比較したデモ: Markdown テーブルおよび CJK テキストでのカーソル移動" src="https://github.com/user-attachments/assets/b85426e8-e8be-451a-9766-fff410cb634e" />
 
 ## 概要
 
@@ -31,10 +31,10 @@ Obsidian のライブプレビューはとても良くできていて、Markdown
 ## ⌨️ [Obsidian 組み込みの Vim モードを使っている →](/vim-mode)
 - `j` / `k` でテーブルの行を上下移動する。`w` / `b` / `e` でテーブルのカラムを前後移動する
 - `w` / `b` / `e` で日本語の単語単位で移動できるようにする
-- テーブルの中にいても `gg` / `G` でノートの先頭/末尾に移動できるようにする
+- テーブルの中にいても `gg` / `G` でノートの先頭 / 末尾に移動できるようにする
 - テーブル操作関連のコマンドを追加する
 
-## 🅴 [macOS 風のキーボードショートカット(Emacs キーバインド)を使いたい →](/macos-emacs-style)
+## 🅴 [macOS 風のキーボードショートカット (Emacs キーバインド) を使いたい →](/macos-emacs-style)
 - `Ctrl` + `P` / `N` / `B` / `F` で Markdown テーブル内でもカーソル移動できるようにする
 - クリップボードと連動した蓄積機能付きの Kill & Yank
 - Recenter-top-bottom での画面センタリング
