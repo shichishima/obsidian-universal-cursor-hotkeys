@@ -2,22 +2,49 @@
 sidebar_position: 3
 title: macOS (Emacs) style — Limitations
 sidebar_label: Limitations
-description: Known edge cases and shortcut conflicts for macOS-style (Emacs) keybindings — selection boundaries, Live Preview quirks, and Windows shortcut overlaps.
+description: Known limitations of macOS-style (Emacs) keybindings — range-selection behavior, table-related quirks, and shortcut conflicts.
 mode: macos-emacs-style
 ---
-
 # macOS (Emacs) style — Limitations
 
-- **Range selection stops at table cell boundaries:** Shift+Ctrl+P/N/B/F/A/E extend the selection normally within plain text and within a single table cell. At a cell boundary, they neither cross into the adjacent cell (unlike plain Ctrl+B/F) nor extend the selection across cells (unlike Shift+Arrow keys). Use Shift+Arrow keys for cross-cell selection.
+## Range selection
 
-- **Brief scroll when entering a tall wrapped cell in Live Preview (UP):** When pressing UP into a cell whose wrapped content exceeds the screen height, the view momentarily scrolls to the cell start before jumping to the bottom visual line. This is an inherent side effect of the two-step navigation used to locate the bottom visual line within Obsidian's Live Preview table widget.
+- **(macOS) `Shift` + `control` + `P`/`N`/`B`/`F`/`A`/`E` stop at cell boundaries**
+  - Within plain text or inside a single cell, holding `Shift` while pressing these shortcut keys extends the selection — but this isn't range selection applied to this plugin's UP/DOWN/LEFT/RIGHT/HOME/END commands. It's cursor movement/selection via macOS's own standard shortcuts.
+  - Because of this, there's no plugin-specific behavior here (crossing from a cell boundary into the adjacent cell).
+  - For selection that spans cells (multi-cell selection), use `Shift` + the physical arrow keys instead.
+- **(macOS) `Shift` + `option` + ←/→ don't apply CJK word splitting**
+  - As above, holding `Shift` while pressing these shortcut keys extends the selection, but this is macOS's own standard shortcut behavior.
+  - Because of this, CJK word splitting isn't applied. (The selection extends as one block up to the next punctuation mark. For English text, the standard word-by-word selection behavior still applies.)
+- **(Windows) `Shift` + `Ctrl` + `P`/`N`/`B`/`F`/`A`/`E` don't move the cursor**
+  - Unless you explicitly assign them yourself, Windows has no command assigned to these hotkeys, so they don't do anything. (**Apply recommended** assigns `Ctrl` + `P`/`N`/`B`/`F`/`A`/`E` — `Shift` + `Ctrl` + `P`/`N`/`B`/`F`/`A`/`E` is a separate hotkey.)
+  - Use `Shift` + ↑/↓/←/→ instead for range selection. Even if you've assigned the physical arrow keys themselves to UP/DOWN via Key Upgrades, combining them with `Shift` makes them a distinct key, so they're unaffected by that assignment.
+- **(Windows) `Shift` + `Ctrl` + ←/→ don't support CJK word selection**
+  - This is the OS's own standard word-unit range selection, and this plugin's CJK word splitting isn't applied to it. The selection extends as one block up to the next punctuation mark. For English text, the standard word-by-word selection behavior still applies.
+- **Multi-cell cut, copy, and paste are not supported (Kill line/Kill region/Copy region/Yank)**
+  - These are text-level operation commands — in a table, they only act on the text within each individual cell.
+  - Cutting, copying, or pasting table structure via multi-cell selection is not supported.
+  - To cut, copy, or paste table structure, use the OS's own standard cut/copy/paste shortcuts (`Ctrl` + `X`/`C`/`V` on Windows, `command` + `X`/`C`/`V` on macOS) or the right-click context menu.
 
-- **Multi-cell cut, copy, and paste are not supported (Kill Line / Kill Region / Copy Region / Yank):** Kill Line, Kill Region, Copy Region, and Yank are text-level operations; inside a table, they work on the text content within individual cells. Selecting multiple cells and attempting to cut, copy, or paste with these commands is not supported. For multi-cell cut, copy, and paste operations, use the right-click context menu instead.
+## Table-related
 
-- **Source Mode table detection is heuristic:** In Source Mode, table rows are identified by a simple string check (line starts and ends with `|`). Unlike Live Preview mode, which uses the syntax tree, this approach may produce unexpected behavior on lines that coincidentally match the pattern but are not part of a Markdown table.
+- **Brief scroll when UP enters a tall wrapped cell in Live Preview:** when UP enters a cell whose wrapped content exceeds the screen height, the view momentarily scrolls to the top of the cell before jumping to the bottom visual line, its actual landing position. This is an inherent side effect of the two-step cursor placement this plugin uses to locate the bottom visual line within the cell widget.
+- **Entering a table from plain text always lands in the leftmost cell:** when UP/DOWN moves from a plain-text line directly above (or below) a table into that table, it always lands in that row's leftmost cell. Before the cursor actually lands, Live Preview's table can't return per-character position information, so there's no way to tell which cell it should enter. It tries to preserve the cursor's horizontal position as much as possible within the leftmost cell, but it never enters the second cell or beyond (the furthest right it can reach is still the end of the leftmost cell). The cursor's horizontal position from before entering the table is remembered, and continues to be preserved through any up/down movement afterward.
+- **Source Mode's table detection is simplistic:** in Source Mode, whether the cursor is inside a table is determined by a simple single-line string check (whether the line starts and ends with `|`).
+  - It doesn't check across multiple lines — things like whether a header row exists, or whether a blank line precedes the table. The check looks at only a single line of text.
+  - Because of this, unexpected behavior can occur when a line happens to match this pattern.
+  - **The `|` at both ends of a table row can't be omitted:** [Obsidian's extended syntax](https://obsidian.md/help/advanced-syntax#Tables) lets you omit the leading and trailing `|` of a table row, but this plugin's Source Mode doesn't recognize that abbreviated syntax as a table. A row with both `|` omitted doesn't match the string check above, so it's treated as ordinary text.
+  - By contrast, Live Preview, which uses the Markdown syntax tree, detects this correctly.
 
-- **Entering a table from plain text always enters the leftmost cell:** Cursor UP/DOWN moving from a plain-text line into an adjacent table row always enters that row's leftmost cell, matching Vim's own `gj`/`gk` — Obsidian's Live Preview table widget gives the outer editor no per-character position information for an unfocused table row, so there's no way to tell which cell a given column falls under before landing in one. The column *within* that cell is still preserved, matching row-to-row crossing within a table.
+## Shortcut conflicts
 
-- **Shortcut Conflicts**
-  - **On Windows — OS-level shortcuts not detected:** Ctrl+A (HOME) and Ctrl+Y (Yank) override the system Select all and Redo shortcuts respectively. Because these are OS-level defaults rather than Obsidian hotkeys, Hotkey settings cannot detect the conflict and will show them as available. The bundled **Select all** and **Redo** commands can be used as replacements — run them from the Command Palette or assign each a custom hotkey.
-  - **Page down / Page up — paste conflict:** Assigning Ctrl+V (Windows) or Cmd+V (macOS) to Page down or Page up will break keyboard paste in non-editor plugin views (e.g., Excalidraw). Yank (Ctrl+Y) restores paste within the markdown editor, but cannot substitute for Cmd+V in those views. Right-click → Paste remains available as a workaround. It is recommended to assign these commands to keys that do not conflict with paste.
+- **(Windows) OS-level shortcuts aren't detected as conflicts:** the recommended hotkey assignment (the **Apply recommended** or **Set** button) overrides the OS's standard `Ctrl` + `A` (Select all) and `Ctrl` + `Y` (Redo) shortcuts.
+  - Obsidian hotkeys can detect duplicates among themselves, but because these are OS-level defaults, they can't be listed under Displaced commands, and the **Restore** button can't bring them back either.
+  - Assign the bundled Select all and Redo commands to a different key and use those instead, or, if you use them infrequently, run them from the Command Palette.
+- **Hotkeys don't work outside the markdown editor:** a few examples below — this isn't an exhaustive list.
+  - `Ctrl` + `B`/`F`/`A`/`E` don't work in the note title field.
+  - `Ctrl` + `B`/`F`/`A`/`E`, `Ctrl` + `D`, and `Ctrl` + `K` don't work in the frontmatter property field.
+  - In Excalidraw, `Ctrl` + `P`/`N`/`B`/`F`/`A`/`E` don't work while typing inside a text object.
+- **Page down/Page up conflict with paste:** assigning `Ctrl` + `V` (Windows) or `command` + `V` (macOS) to Page down or Page up, as an Emacs-style hotkey, breaks `Ctrl` + `V`/`command` + `V` paste outside the markdown editor (e.g., in Excalidraw).
+  - Within the markdown editor, the Yank command can substitute for paste in many cases, but Yank isn't available in those other views. Use the mouse's "right-click → Paste" instead.
+  - Likewise, multi-cell cut/copy/paste can't be substituted for either, so it's recommended to keep the OS's standard cut/copy/paste shortcuts free.

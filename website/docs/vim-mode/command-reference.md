@@ -2,49 +2,56 @@
 sidebar_position: 1
 title: Vim mode — Command Reference
 sidebar_label: Command Reference
-description: What each Vim motion upgrade and leader-key table command actually does inside Live Preview tables.
+description: A reference list of Vim's basic table-aware and CJK (Chinese/Japanese)-aware motion commands, plus the table-structure commands.
 mode: vim-mode
 ---
-
 # Vim mode — Command Reference
+This page explains how each key's behavior changes once you apply this plugin.
 
-For what each toggle switches on/off, see [Settings](/vim-mode/settings). This section covers what each key actually does.
+Unlike For everyone and macOS (Emacs) style, these Vim mode behavior upgrades are **not** command-to-hotkey assignments.
 
-## Motion upgrades
+When the toggle is ON, it directly replaces Obsidian's own built-in Vim mode's internal behavior definitions; when OFF, no replacement happens and Vim mode's standard behavior is kept as-is (the behavior described by each row's "Previously" text below).
 
-Fixes to Vim's own native keys, scoped to Live Preview table cells — outside a table, these are all unchanged from vanilla Vim.
+## Motion upgrades \{#motion-upgrades}
+Fixes Vim's basic cursor-movement behavior.
 
-| Keys | Function Summary |
-| :--: | ----------------- |
-| `h` `l` `x` | Moves/deletes by character correctly inside table cells — no multi-byte miscounting, no wrong jumps at line boundaries. |
-| `j` `k` | Crosses into the next/previous table row, preserving column position (vim's own goal column) throughout, instead of getting stuck at the cell boundary; also stops correctly at the right line within a multi-line (wrapped) cell. |
-| `w` `b` `e` (and `W`/`B`/`E`/`ge`/`gE`) | Crosses cell/row boundaries — reaching the end of the table exits into the surrounding text, matching vim's own document-wide word-motion behavior instead of getting stuck at the table's edge. CJK-aware (dictionary-based Chinese/Japanese word segmentation), not just script-boundary-based like vanilla vim. |
-| `gg` `G` | Always reaches the note's actual first/last line, including exiting a table cell entirely; lands at the Smart-Home-aware content position if that line happens to be a table row. If the note ends with a table, `G` appends a blank line and lands there instead of landing inside the table (matching `tx`'s own EOF behavior below) — `gg` has no symmetric "prepend a line" case. |
-| `gj` `gk` | The visual-line (display-line) equivalent of `j`/`k` above — moves by visual line inside table cells instead of getting stuck, tracking the visual column across wrapped lines. |
-| `$` | Sticky end-of-line goal column when followed by `j`/`k` or `gj`/`gk`, matching real vim's own behavior, including across table row crossings. `D`/`C` share the same underlying motion. |
-| `^` `I` | Reuses Smart home's own content-start logic instead of vim's plain whitespace-only skip. How much it skips depends on the Behavior Options: **Smart home (standard)** skips list/checkbox markers, indentation, and blockquote markers; **Smart home (advanced)** additionally skips headings, footnotes, and callout type markers. |
-| `J` | Reuses Smart join's own line-joining logic instead of vim's plain whitespace-only join, still inserting vim's usual single space. Depends on the Behavior Options' **Smart join** setting: when it's on, strips the next line's Markdown syntax (blockquote/list markers, indentation) instead of just whitespace. |
+Table cells are treated as if they were lines: `h`/`l` stop at a cell's start/end, while `w`/`b`/`e` cross past a cell's start/end.
 
-## Table structure
+|                               Keys                               | Function Summary                                                                                                                                                                                                                                                                                                                                                                                                         |
+| :--------------------------------------------------------------: | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+|                           `h` `l` `x`                            | **Unicode-safe**<br/>Counts characters that internally span multiple code units — emoji and the like — as a single character. (Surrogate pairs such as "🟩"/"𠮷", and emoji with variation selectors such as "☺️")<br/>Previously, moving with a count like `4l` would drift one character per emoji, and deleting with a count like `3x` could corrupt an emoji into mojibake. Also, with a character like "☺️", the cursor could become invisible.<br/><br/>**Table-aware**<br/>Also stops at the line start/end for text inside a cell (`h`/`l`), and character deletion at the line end works correctly too (`x`).<br/>Previously, it would cross past the line start/end into the next cell, or fail to delete a character at the line end and move to the next cell instead.                                   |
+|                             `j` `k`                              | **Table-aware**<br/>When moving to the row below/above in a table, keeps the cursor's column position (vim's own goal column) intact. Also stops correctly at text that wraps to a new line within a cell.<br/><br/>Previously, crossing a row would lose the column position and jump to the cell's start, or — when moving through text wrapped inside a cell — skip the line right before leaving the cell (the last line for `j`, the first line for `k`).                                                                                                                     |
+| `w` `b` `e`<br/>(and `W`&nbsp;`B`&nbsp;`E`&nbsp;`ge`&nbsp;`gE`)  | **CJK-aware**<br/>Moves by Chinese/Japanese or English word units (Chinese/Japanese is based on dictionary-based word segmentation; `W`/`B`/`E`/`gE` still split on whitespace only).<br/>Previously, a run of kanji, hiragana, and the like was treated as a single unbroken word.<br/><br/>**Table-aware**<br/>Crosses cell/row boundaries, the same way vim's own `w`/`b`/`e` cross past a line's start/end into the next line. Reaching the table's edge exits the table entirely (into the surrounding text before/after it).<br/>Previously, it would get stuck at a cell's start/end and couldn't proceed further.                                                            |
+|                             `gg` `G`                              | **Table-aware**<br/>Moves to the note's first/last line even from inside a table.<br/>The landing cursor position follows the [Smart home](/vim-mode/settings#behavior-options) setting.<br/>If `G` moves to the note's end and that turns out to be a table, it appends a blank line outside the table and lands there instead (it never lands inside the table).<br/>`gg`, on the other hand, doesn't add a blank line this way — if the note starts with a table, it lands at the start of the header row's leftmost cell.<br/><br/>Previously, from inside a table, it would only move to the current cell's first/last line.                                                   |
+|                             `gj` `gk`                             | **Table-aware**<br/>The visual-line (display-line) version of `j`/`k` above.<br/>Moves by visual line even inside a wrapped cell, keeping the on-screen horizontal position (the visual cursor position) when crossing a row. Also stops correctly at a line that wraps within a cell.<br/><br/>Previously, crossing a row would lose the column position and jump to the cell's start, or — among lines wrapped inside a cell — skip the line right before leaving the cell (the last line for `gj`, the first line for `gk`). Also, inside a wrapped cell, it wouldn't stop at each visual line and would instead jump straight to the neighboring table row (or out of the table entirely, from a cell in the last row). |
+|                                `$`                                | **Table-aware**<br/>After moving to the line end with `$`, moving up/down with `j`/`k` or `gj`/`gk` keeps sticking to each line's end (sticky). This holds even when crossing a table row.<br/><br/>Previously, crossing a table row would not stick to the line end and would instead jump to the cell's start.                                                                                                                                                                                                      |
+|                             `^` `I`                               | **Smart home**<br/>Moves `^`'s destination and `I`'s insertion point to the start of the content text — skipping not just whitespace but also leading Markdown syntax (lists, blockquotes, etc.) at the line start. Applies both inside and outside tables.<br/>When Smart home (standard) is OFF, this stays as vim's original behavior; when ON, it skips list, checkbox, indentation, and blockquote markers.<br/>When Smart home (advanced) is ON, it additionally skips heading, footnote, and callout type markers too.<br/>For a visual sense of how Smart home behaves, see the video on the [macOS (Emacs) style page](/macos-emacs-style).<br/><br/>Previously, this was vim's own original behavior: "skip whitespace characters only." |
+|                                `J`                                 | **Smart join**<br/>Removes the second line's leading Markdown syntax (following Smart home's own rules) before joining the lines with a single space in between.<br/>When Smart join is OFF (the default), this stays as vim's original behavior; when ON, it removes list, checkbox, indentation, and blockquote markers.<br/>When Smart home (advanced) is ON, this additionally removes heading, footnote, and callout type markers too.<br/>For a visual sense of how Smart join behaves, see the video on the [macOS (Emacs) style page](/macos-emacs-style).<br/><br/>Previously, it only stripped the whitespace at the start of the second line, then joined with a single space in between (blockquote and list markers were left intact).  |
 
-New leader-key commands (`<leader>` is `Space` by default, `\` optional) — not fixes to existing vim keys, but a thin wrapper around Obsidian's own built-in table commands. No-op outside a table cell, except `tm`. `tiJ`/`tiK` are aliases for `to`/`tO` — matching `tiH`/`tiL`'s own "`ti` + direction" column-insert convention.
+## Table structure \{#table-structure}
 
-| | Row | Column |
-| --- | --- | --- |
-| Insert | `<leader>to` / `<leader>tO`<br/>`<leader>tiJ` / `<leader>tiK`<br/>(below/above) | `<leader>tiH` / `<leader>tiL`<br/>(left/right) |
-| Move | `<leader>tK` / `<leader>tJ`<br/>(up/down) | `<leader>tH` / `<leader>tL`<br/>(left/right) |
-| Delete | `<leader>tdd` | `<leader>tdc` |
-| Duplicate | `<leader>tyyp` | `<leader>tyc` |
-| Align | — | `<leader>tal` / `<leader>tac` / `<leader>tar`<br/>(left/center/right) |
+Lets you run Obsidian's own existing table-structure commands from Vim mode, as key sequences starting with `<leader>t`. The leader key `<leader>` is `Space` by default, but `\` can be chosen instead.
 
-`<leader>tm` — insert a table; the only one here that also works outside an existing table.
+Except for `tm`, these are no-ops outside a table.
 
-## Table navigation
+Following vim's own line-insert commands `o`/`O`, inserting a table row below is `to` and above is `tO` — but the same commands can also be run as `tiJ`/`tiK` (they're aliases). This forms a `tiH`/`tiJ`/`tiK`/`tiL` set that pairs row insertion (up/down) against column insertion (left/right).
 
-New leader-key commands — pure cursor movement, original logic (not a wrapper around anything native). No-op outside a table cell.
+|           | Row                                                                        | Column                                                             |
+| --------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Insert    | `<leader>to` / `<leader>tO`<br/>`<leader>tiJ` / `<leader>tiK`<br/>(below/above) | `<leader>tiH` / `<leader>tiL`<br/>(left/right)                      |
+| Move      | `<leader>tK` / `<leader>tJ`<br/>(up/down)                                     | `<leader>tH` / `<leader>tL`<br/>(left/right)                        |
+| Delete    | `<leader>tdd`                                                                 | `<leader>tdc`                                                       |
+| Duplicate | `<leader>tyyp`                                                                | `<leader>tyc`                                                       |
+| Align     | —                                                                             | `<leader>tal` (left)<br/>`<leader>tac` (center)<br/>`<leader>tar` (right) |
 
-| Keys | Function Summary |
-| :--: | ----------------- |
-| `<leader>tj` / `<leader>tk` | Jump to the cell below / above (same column), landing at its own content start — distinct from vim's native `j`/`k`, which preserve column position instead of jumping to content start. |
-| `<leader>th` / `<leader>tl` | Jump to the cell to the left / right, landing at its own content start — no selection is created. Distinct from Obsidian's own built-in `Tab`/`Shift-Tab` cell navigation, which wraps to the next/previous row at a row's own left/right edge (and inserts a brand new row once it runs out of table) and selects the destination cell's entire content — `th`/`tl` always stay within the current row, no-op at its own left/right edge instead. |
-| `<leader>tx` / `<leader>tX` | Exit the current table below / above — distinct from `gg`/`G`, which jump to the whole document's edge, not just past this table. |
+`<leader>tm`: Inserts a table at the cursor position. The only command listed here that works outside an existing table.
+
+## Table navigation \{#table-navigation}
+
+Commands that only move the cursor between cells. No-op outside a table cell.
+
+|             Keys              | Function                                                                                                                                                                                                             |
+| :--------------------------: | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `<leader>tj` / `<leader>tk`  | Jumps to the cell below/above in the same column, landing at its own content start.<br/>This differs from `j`/`k`, which preserve the cursor's column position instead.<br/>Also, no-op at the table's top/bottom edge.                                                                 |
+| `<leader>th` / `<leader>tl`  | Jumps to the cell to the left/right in the same row, landing at its own content start.<br/><br/>Obsidian's built-in `Tab`/`Shift` + `Tab` cell navigation selects the destination cell's entire text, and wraps around to the opposite side of the next row from a row's left/right edge. It also inserts a new row once it runs out of table.<br/>But `th`/`tl` create no selection, always stay within the current row, and are no-ops at the row's left/right edge. |
+| `<leader>tx` / `<leader>tX`  | Exits the current table downward/upward.<br/>Running `tx` on a table at the note's end appends a blank line at the note's end and lands there.<br/>`tX`, on the other hand, when run on a table at the note's start, doesn't add a blank line at the note's start — it lands at the header row's leftmost cell instead. |
