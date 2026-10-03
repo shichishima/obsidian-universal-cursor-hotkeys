@@ -1,5 +1,5 @@
 ---
-sidebar_position: 2
+sidebar_position: 4
 title: macOS (Emacs) style — Settings
 sidebar_label: Settings
 description: How to assign macOS-style (Emacs) hotkeys from Settings → Universal Cursor Hotkeys, and what each status badge means.
@@ -30,4 +30,4 @@ Each command group (Cursor movement, Editing, Other hotkeys, Table structure, Ta
 
 **Displaced commands:** Lists commands that would lose their only hotkey when recommended keys are applied. Each entry has an **Assign** button to reassign it via the hotkeys panel, and a **Restore** button to undo the displacement and return the key to its original command.
 
-Also shared here: [Behavior Options](/behavior-options). Bare-key upgrades (arrow keys, Home/End/Page Up/Page Down, word navigation — no modifier needed) now live under [For everyone](/for-everyone) instead of this tab.
+Also shared here: Behavior Options. Bare-key upgrades (arrow keys, Home/End/Page Up/Page Down, word navigation — no modifier needed) now live under [For everyone](/for-everyone) instead of this tab.

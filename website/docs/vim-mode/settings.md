@@ -31,6 +31,6 @@ Open **Settings → Universal Cursor Hotkeys → Vim mode**. For the recommended
 | `Space` `t` Table navigation (6 commands) | OFF | [Command reference →](/vim-mode/command-reference#table-navigation) |
 | Leader key | OFF<br/>(`Space`) | **OFF:** `Space` (default).<br/>**ON:** `\`. Only matters once Table structure or Table navigation above is on. |
 
-Also shared here: [Behavior Options](/behavior-options) — Smart home and Smart join extend some of the toggles above to be more Markdown-aware.
+Also shared here: Behavior Options — Smart home and Smart join extend some of the toggles above to be more Markdown-aware.
 
 Turning an item off restarts Obsidian to fully restore vim's native behavior (a banner prompts this when needed).
