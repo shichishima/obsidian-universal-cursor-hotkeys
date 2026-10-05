@@ -28,10 +28,10 @@ Moving from the following locations behaves the same as the physical ↑ key.
   - For blockquotes and callouts, the block must end with a blank (or whitespace-only) line immediately below it. If a list line or similar follows directly, UP cannot enter the block.
   - For images and embeds (`![[...]]`, `![...](...)`), this applies only when the syntax starts at the beginning of the line.
   - For thematic breaks (`---`, `***`, `___`), the cursor lands at the start of that line.
-  - macOS's standard `Ctrl` + `P` behaves differently from the physical ↑ key here — it passed straight through this block and moved above it instead.
+  - Obsidian's macOS shortcut `Ctrl` + `P` behaves differently from the physical ↑ key here — it passed straight through this block and moved above it instead.
 - **The first line of a table's header row:** Exits the table and moves to the line above.
   - Preserves the cursor's horizontal position as closely as possible.
-  - macOS's standard `Ctrl` + `P` behaves differently from the physical ↑ key here — from the second character or later within a cell, it moved to the start of the cell instead of exiting the table. From the start of the cell, it exits the table the same as the physical ↑ key.
+  - Obsidian's macOS shortcut `Ctrl` + `P` behaves differently from the physical ↑ key here — from the second character or later within a cell, it moved to the start of the cell instead of exiting the table. From the start of the cell, it exits the table the same as the physical ↑ key.
   - If the table sits at the very start of the note, the physical ↑ key adds a blank line above the note and lands there, but this plugin's UP does not add a blank line — it moves to the start of the cell instead.
 - **The second or later in-cell line of table cell text:** Moves up one line within the same cell.
   - Preserves the cursor's horizontal position as closely as possible.
@@ -42,7 +42,7 @@ UP differs from the physical ↑ key in the following ways — these are the poi
 - **The first in-cell line of table cell text:** Moves to the last line of the cell directly above.
   - Preserves the cursor's original horizontal position as closely as possible.
   - The physical ↑ key also moves to the last line of the cell directly above, but it always lands at the left edge regardless of horizontal position.
-  - macOS's standard `Ctrl` + `P` doesn't move to the cell above at all — it moves to the start of the same cell instead. What happens after that is unstable: it may stay there, or it may exit the table.
+  - Obsidian's macOS shortcut `Ctrl` + `P` doesn't move to the cell above at all — it moves to the start of the same cell instead. What happens after that is unstable: it may stay there, or it may exit the table.
 - **Below a table:** Enters the table from below and moves to the bottom visual line of the bottom-left cell.
   - Preserves the cursor's original horizontal position as closely as possible.
   - If the horizontal position is further right than the width of the bottom-left cell, it lands at the end of that cell's last line instead.
@@ -84,7 +84,7 @@ DOWN differs from the physical ↓ key in the following ways — these are the p
 - **The last in-cell line of table cell text:** Moves to the first visual line of the cell directly below.
   - Preserves the cursor's original horizontal position as closely as possible.
   - The physical ↓ key also moves to the cell below, but it always lands at the start of the cell.
-  - macOS's standard `Ctrl` + `N` doesn't move to the cell below at all — it moves to the end of the same cell instead. What happens after that is unstable: it may stay there, or it may exit the table.
+  - Obsidian's macOS shortcut `Ctrl` + `N` doesn't move to the cell below at all — it moves to the end of the same cell instead. What happens after that is unstable: it may stay there, or it may exit the table.
 
 </details>
 

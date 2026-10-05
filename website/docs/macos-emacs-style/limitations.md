@@ -10,17 +10,17 @@ mode: macos-emacs-style
 ## Range selection
 
 - **(macOS) `Shift` + `control` + `P`/`N`/`B`/`F`/`A`/`E` stop at cell boundaries**
-  - Within plain text or inside a single cell, holding `Shift` while pressing these shortcut keys extends the selection — but this isn't range selection applied to this plugin's UP/DOWN/LEFT/RIGHT/HOME/END commands. It's cursor movement/selection via macOS's own standard shortcuts.
+  - Within plain text or inside a single cell, holding `Shift` while pressing these shortcut keys extends the selection — but this isn't range selection applied to this plugin's UP/DOWN/LEFT/RIGHT/HOME/END commands. It's cursor movement/selection via Obsidian's keyboard shortcuts.
   - Because of this, there's no plugin-specific behavior here (crossing from a cell boundary into the adjacent cell).
   - For selection that spans cells (multi-cell selection), use `Shift` + the physical arrow keys instead.
 - **(macOS) `Shift` + `option` + ←/→ don't apply CJK word splitting**
-  - As above, holding `Shift` while pressing these shortcut keys extends the selection, but this is macOS's own standard shortcut behavior.
+  - As above, holding `Shift` while pressing these shortcut keys extends the selection, but this is Obsidian's keyboard shortcut behavior.
   - Because of this, CJK word splitting isn't applied. (The selection extends as one block up to the next punctuation mark. For English text, the standard word-by-word selection behavior still applies.)
 - **(Windows) `Shift` + `Ctrl` + `P`/`N`/`B`/`F`/`A`/`E` don't move the cursor**
   - Unless you explicitly assign them yourself, Windows has no command assigned to these hotkeys, so they don't do anything. (**Apply recommended** assigns `Ctrl` + `P`/`N`/`B`/`F`/`A`/`E` — `Shift` + `Ctrl` + `P`/`N`/`B`/`F`/`A`/`E` is a separate hotkey.)
   - Use `Shift` + ↑/↓/←/→ instead for range selection. Even if you've assigned the physical arrow keys themselves to UP/DOWN via Key Upgrades, combining them with `Shift` makes them a distinct key, so they're unaffected by that assignment.
 - **(Windows) `Shift` + `Ctrl` + ←/→ don't support CJK word selection**
-  - This is the OS's own standard word-unit range selection, and this plugin's CJK word splitting isn't applied to it. The selection extends as one block up to the next punctuation mark. For English text, the standard word-by-word selection behavior still applies.
+  - This is Obsidian's keyboard shortcut for word-unit range selection, and this plugin's CJK word splitting isn't applied to it. The selection extends as one block up to the next punctuation mark. For English text, the standard word-by-word selection behavior still applies.
 - **Multi-cell cut, copy, and paste are not supported (Kill line/Kill region/Copy region/Yank)**
   - These are text-level operation commands — in a table, they only act on the text within each individual cell.
   - Cutting, copying, or pasting table structure via multi-cell selection is not supported.
@@ -38,8 +38,8 @@ mode: macos-emacs-style
 
 ## Shortcut conflicts
 
-- **(Windows) OS-level shortcuts aren't detected as conflicts:** the recommended hotkey assignment (the **Apply recommended** or **Set** button) overrides the OS's standard `Ctrl` + `A` (Select all) and `Ctrl` + `Y` (Redo) shortcuts.
-  - Obsidian hotkeys can detect duplicates among themselves, but because these are OS-level defaults, they can't be listed under Displaced commands, and the **Restore** button can't bring them back either.
+- **(Windows) Obsidian's keyboard shortcuts aren't detected as conflicts:** the recommended hotkey assignment (the **Apply recommended** or **Set** button) overrides Obsidian's keyboard shortcuts `Ctrl` + `A` (Select all) and `Ctrl` + `Y` (Redo).
+  - Obsidian hotkeys can detect duplicates among themselves, but because these are Obsidian's keyboard shortcuts, not hotkey assignments, they can't be listed under Displaced commands, and the **Restore** button can't bring them back either.
   - Assign the bundled Select all and Redo commands to a different key and use those instead, or, if you use them infrequently, run them from the Command Palette.
 - **Hotkeys don't work outside the markdown editor:** a few examples below — this isn't an exhaustive list.
   - `Ctrl` + `B`/`F`/`A`/`E` don't work in the note title field.
