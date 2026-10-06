@@ -2,10 +2,15 @@
 sidebar_position: 3
 title: For everyone — Limitations
 sidebar_label: Limitations
-description: A known limitation of Key Upgrades — turning on an arrow-key toggle can block arrow-key navigation in other views like Excalidraw.
+description: Known limitations of Key Upgrades — where the upgraded keys do and don't work.
 mode: for-everyone
 ---
-
 # For everyone — Limitations
 
-- **Key Upgrades' arrow-key toggles can block arrow-key navigation in other views (e.g. Excalidraw):** once a key is bound to any command, Obsidian's hotkey manager claims that physical keystroke globally, regardless of which view is focused — so the key event never reaches a non-editor view's own key handling, such as Excalidraw's canvas navigation. Confirmed for the Up/Down toggle: turning it off restores normal arrow-key navigation in Excalidraw. The same mechanism likely affects the other Key Upgrades toggles too (Left/Right, Home, End, Page Up/Page Down), though this hasn't been individually confirmed for each one. If this affects a view you use, turn off the Key Upgrades toggle for that specific key.
+- **A key with Key Upgrades applied may stop working outside the markdown editor**
+  - A few examples below — this isn't an exhaustive list.
+    - Upgrading ↑/↓ disables ↑/↓ navigation between frontmatter properties.
+    - Upgrading `Home`/`End` disables `Home`/`End` in the note title field.
+    - In Bases, upgrading ↑/↓ disables item navigation in list view, and upgrading `Page Up`/`Page Down` disables screen scrolling in both list view and card view.
+    - In Excalidraw, upgrading ↑/↓ disables moving objects up/down and moving the cursor up/down while editing text. Upgrading `Home`/`End` disables `Home`/`End` while editing text, and upgrading `Page Up`/`Page Down` disables panning (scrolling) the canvas.
+  - If this causes a problem, turn off Key Upgrades for the affected key.

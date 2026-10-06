@@ -19,41 +19,41 @@ mode: macos-emacs-style
 
 ## Cursor movement (カーソル移動) \{#cursor-movement}
 
-|                              コマンド名                               | 推奨<br/>ホットキー | 機能概要                                                                     | キー<br/>リピート |
-| :--------------------------------------------------------------: | :----------: | ------------------------------------------------------------------------ | :---------: |
-|        [UP](/macos-emacs-style/command-details#cursor-up)        | `Ctrl` + `P` | テキスト / セル間の移動や、テーブル・コールアウトへの進入 (下から)・退出 (上へ) を行います。テーブルの行をまたぐ際もカーソル横位置を維持します。 |      ✓      |
-|      [DOWN](/macos-emacs-style/command-details#cursor-down)      | `Ctrl` + `N` | テキスト / セル間の移動や、テーブル・コールアウトへの進入 (上から)・退出 (下へ) を行います。テーブルの行をまたぐ際もカーソル横位置を維持します。 |      ✓      |
-|      [LEFT](/macos-emacs-style/command-details#cursor-left)      | `Ctrl` + `B` | 文字単位で移動します。セルの先頭にいる場合は前のセルに移動します。                                        |      ✓      |
-|     [RIGHT](/macos-emacs-style/command-details#cursor-right)     | `Ctrl` + `F` | 文字単位で移動します。セルの末尾にいる場合は次のセルに移動します。                                        |      ✓      |
-|      [HOME](/macos-emacs-style/command-details#cursor-home)      | `Ctrl` + `A` | 表示行の端、本文の先頭、行の先頭の順に 3 段階で移動します。テーブル内ではセルの先頭から前のセルに移動します。                   |      ✓      |
-|       [END](/macos-emacs-style/command-details#cursor-end)       | `Ctrl` + `E` | 表示行の端、行末の順に 2 段階で移動します。テーブル内ではセルの末尾から次のセルに移動します。                           |      ✓      |
-|   [TOP](/macos-emacs-style/command-details#cursor-top-bottom)    |      —       | ノートの先頭へジャンプします。                                                          |             |
-|  [BOTTOM](/macos-emacs-style/command-details#cursor-top-bottom)  |      —       | ノートの末尾へジャンプします。                                                          |             |
-|    [Page up](/macos-emacs-style/command-details#page-up-down)    |      —       | 1 ページ分上にスクロールします。カーソルは画面上の同じ位置にとどまります。テーブル内にも着地できます。                      |      ✓      |
-|   [Page down](/macos-emacs-style/command-details#page-up-down)   |      —       | 1 ページ分下にスクロールします。カーソルは画面上の同じ位置にとどまります。テーブル内にも着地できます。                      |      ✓      |
-| [Word left](/macos-emacs-style/command-details#word-left-right)  |      —       | 単語単位で左に移動します。日本語でも単語単位に移動します。                                            |      ✓      |
-| [Word right](/macos-emacs-style/command-details#word-left-right) |      —       | 単語単位で右に移動します。日本語でも単語単位に移動します。                                            |      ✓      |
+|                              コマンド名                               | 推奨<br/>ホットキー  | 機能概要                                                                          | キー<br/>リピート |
+| :--------------------------------------------------------------: | :----------: | ----------------------------------------------------------------------------- | :--------: |
+|        [UP](/macos-emacs-style/command-details#cursor-up)        | `Ctrl` + `P` | テキスト / セル間の移動や、テーブル・コールアウトへの進入 (下から)・退出 (上へ) を行います。テーブルの行をまたぐ際もカーソル横位置を維持します。 |     ✓      |
+|      [DOWN](/macos-emacs-style/command-details#cursor-down)      | `Ctrl` + `N` | テキスト / セル間の移動や、テーブル・コールアウトへの進入 (上から)・退出 (下へ) を行います。テーブルの行をまたぐ際もカーソル横位置を維持します。 |     ✓      |
+|      [LEFT](/macos-emacs-style/command-details#cursor-left)      | `Ctrl` + `B` | 文字単位で左に移動します。セルの先頭にいる場合は前のセルに移動します。                                           |     ✓      |
+|     [RIGHT](/macos-emacs-style/command-details#cursor-right)     | `Ctrl` + `F` | 文字単位で右に移動します。セルの末尾にいる場合は次のセルに移動します。                                           |     ✓      |
+|      [HOME](/macos-emacs-style/command-details#cursor-home)      | `Ctrl` + `A` | 表示行の端、本文の先頭、行の先頭の順に 3 段階で移動します。テーブル内ではセルの先頭から前のセルに移動します。                      |     ✓      |
+|       [END](/macos-emacs-style/command-details#cursor-end)       | `Ctrl` + `E` | 表示行の端、行末の順に 2 段階で移動します。テーブル内ではセルの末尾から次のセルに移動します。                              |     ✓      |
+|   [TOP](/macos-emacs-style/command-details#cursor-top-bottom)    |      —       | ノートの先頭へジャンプします。                                                               |            |
+|  [BOTTOM](/macos-emacs-style/command-details#cursor-top-bottom)  |      —       | ノートの末尾へジャンプします。                                                               |            |
+|    [Page up](/macos-emacs-style/command-details#page-up-down)    |      —       | 1 ページ分上にスクロールします。カーソルは画面上の同じ位置にとどまります。テーブル内にも着地できます。                          |     ✓      |
+|   [Page down](/macos-emacs-style/command-details#page-up-down)   |      —       | 1 ページ分下にスクロールします。カーソルは画面上の同じ位置にとどまります。テーブル内にも着地できます。                          |     ✓      |
+| [Word left](/macos-emacs-style/command-details#word-left-right)  |      —       | 単語単位で左に移動します。日本語でも単語単位に移動します。                                                 |     ✓      |
+| [Word right](/macos-emacs-style/command-details#word-left-right) |      —       | 単語単位で右に移動します。日本語でも単語単位に移動します。                                                 |     ✓      |
 
 ## Editing (編集) \{#editing}
 
 「Kill」は Emacs 用語でのカット操作です。このプラグインは OS のクリップボードを介して他のアプリともコピー & ペーストできます。連続して Kill した内容はクリップボードに蓄積され、まとめて貼り付けられます。
 
-|                                   コマンド名                                    | 推奨<br/>ホットキー | 機能概要                                                      | キー<br/>リピート |
-| :------------------------------------------------------------------------: | :----------: | --------------------------------------------------------- | :---------: |
-|         [Kill line](/macos-emacs-style/command-details#kill-line)          | `Ctrl` + `K` | カーソルから行末までを Kill します。連続した Kill は内容がクリップボードに蓄積されていきます。       |      ✓      |
-|       [Kill region](/macos-emacs-style/command-details#kill-region)        | `Ctrl` + `W` | 選択範囲を Kill します。                                             |             |
-|       [Copy region](/macos-emacs-style/command-details#copy-region)        |      —       | 選択範囲を削除せずにコピーします。                                         |             |
-|              [Yank](/macos-emacs-style/command-details#yank)               | `Ctrl` + `Y` | OS のクリップボード内容を貼り付けます。                                     |      ✓      |
-|       [Delete char](/macos-emacs-style/command-details#delete-char)        | `Ctrl` + `D` | カーソルの右の 1 文字を削除します。                                         |      ✓      |
-|            [Undo](/macos-emacs-style/command-details#undo-redo)            | `Ctrl` + `/` | 直前の変更を元に戻します。                                             |      ✓      |
-|            [Redo](/macos-emacs-style/command-details#undo-redo)            |      —       | 直前に元に戻した変更をやり直します。                                        |      ✓      |
-| [Kill word left](/macos-emacs-style/command-details#kill-word-left-right)  |      —       | カーソルから前の単語の先頭までを Kill します。連続した Kill は内容がクリップボードに蓄積されていきます。  |      ✓      |
-| [Kill word right](/macos-emacs-style/command-details#kill-word-left-right) |      —       | カーソルから次の単語の末尾までを Kill します。連続した Kill は内容がクリップボードに蓄積されていきます。  |      ✓      |
-|       [Uppercase word](/macos-emacs-style/command-details#word-case)       |      —       | 選択範囲を、あるいは選択範囲がなければカーソル位置の単語全体を大文字にします。単語分割は日本語に対応しています。  |      ✓      |
-|       [Lowercase word](/macos-emacs-style/command-details#word-case)       |      —       | 選択範囲を、あるいは選択範囲がなければカーソル位置の単語全体を小文字にします。単語分割は日本語に対応しています。  |      ✓      |
-|      [Capitalize word](/macos-emacs-style/command-details#word-case)       |      —       | 選択範囲の、あるいは選択範囲がなければカーソル位置の単語の先頭を大文字にします。単語分割は日本語に対応しています。 |      ✓      |
-|   [Transpose chars](/macos-emacs-style/command-details#transpose-chars)    |      —       | カーソル前後の 2 文字を入れ替えます。行末やセル末尾では、代わりに直前の 2 文字を入れ替えます。絵文字・拡張漢字対応。 |      ✓      |
-|        [Select all](/macos-emacs-style/command-details#select-all)         |      —       | `Ctrl` + `A` が HOME に割り当てられた場合の、Windows 向け全選択の代替コマンドです。   |             |
+|                                   コマンド名                                    | 推奨<br/>ホットキー  | 機能概要                                                                             | キー<br/>リピート |
+| :------------------------------------------------------------------------: | :----------: | -------------------------------------------------------------------------------- | :--------: |
+|         [Kill line](/macos-emacs-style/command-details#kill-line)          | `Ctrl` + `K` | カーソルから行末までを Kill します。行末で実行した場合には改行を削除して次の行を繋げます。連続した Kill は内容がクリップボードに蓄積されていきます。 |     ✓      |
+|       [Kill region](/macos-emacs-style/command-details#kill-region)        | `Ctrl` + `W` | 選択範囲を Kill します。                                                                  |            |
+|       [Copy region](/macos-emacs-style/command-details#copy-region)        |      —       | 選択範囲を削除せずにコピーします。                                                                |            |
+|              [Yank](/macos-emacs-style/command-details#yank)               | `Ctrl` + `Y` | OS のクリップボード内容を貼り付けます。                                                            |     ✓      |
+|       [Delete char](/macos-emacs-style/command-details#delete-char)        | `Ctrl` + `D` | カーソルの右の 1 文字を削除します。                                                              |     ✓      |
+|            [Undo](/macos-emacs-style/command-details#undo-redo)            | `Ctrl` + `/` | 直前の変更を元に戻します。                                                                    |     ✓      |
+|            [Redo](/macos-emacs-style/command-details#undo-redo)            |      —       | 直前に元に戻した変更をやり直します。                                                               |     ✓      |
+| [Kill word left](/macos-emacs-style/command-details#kill-word-left-right)  |      —       | カーソルから前の単語の先頭までを Kill します。連続した Kill は内容がクリップボードに蓄積されていきます。                       |     ✓      |
+| [Kill word right](/macos-emacs-style/command-details#kill-word-left-right) |      —       | カーソルから次の単語の末尾までを Kill します。連続した Kill は内容がクリップボードに蓄積されていきます。                       |     ✓      |
+|       [Uppercase word](/macos-emacs-style/command-details#word-case)       |      —       | 選択範囲を、あるいは選択範囲がなければカーソル位置の単語全体を大文字にします。単語分割は日本語に対応しています。                         |     ✓      |
+|       [Lowercase word](/macos-emacs-style/command-details#word-case)       |      —       | 選択範囲を、あるいは選択範囲がなければカーソル位置の単語全体を小文字にします。単語分割は日本語に対応しています。                         |     ✓      |
+|      [Capitalize word](/macos-emacs-style/command-details#word-case)       |      —       | 選択範囲の、あるいは選択範囲がなければカーソル位置の単語の先頭を大文字にします。単語分割は日本語に対応しています。                        |     ✓      |
+|   [Transpose chars](/macos-emacs-style/command-details#transpose-chars)    |      —       | カーソル前後の 2 文字を入れ替えます。行末やセル末尾では、代わりに直前の 2 文字を入れ替えます。絵文字・拡張漢字対応。                    |     ✓      |
+|        [Select all](/macos-emacs-style/command-details#select-all)         |      —       | `Ctrl` + `A` が HOME に割り当てられた場合の、Windows 向け全選択の代替コマンドです。                          |            |
 
 ## Other hotkeys (その他のホットキー) \{#other-hotkeys}
 
@@ -89,11 +89,13 @@ mode: macos-emacs-style
 
 ## Table navigation (セル間のカーソル移動) \{#table-navigation}
 
-|                                 コマンド名                                 | 推奨<br/>ホットキー | 機能概要                 | キー<br/>リピート |
-| :-------------------------------------------------------------------: | :----------: | -------------------- | :---------: |
-| [Move to cell left](/macos-emacs-style/command-details#move-to-cell)  |      —       | 左隣のセルの先頭に移動します。      |      ✓      |
-| [Move to cell right](/macos-emacs-style/command-details#move-to-cell) |      —       | 右隣のセルの先頭に移動します。      |      ✓      |
-| [Move to cell below](/macos-emacs-style/command-details#move-to-cell) |      —       | 下の行の同じ列のセルの先頭に移動します。 |      ✓      |
-| [Move to cell above](/macos-emacs-style/command-details#move-to-cell) |      —       | 上の行の同じ列のセルの先頭に移動します。 |      ✓      |
-|   [Exit table below](/macos-emacs-style/command-details#exit-table)   |      —       | 今いるテーブルを下に抜け出します。    |      ✓      |
-|   [Exit table above](/macos-emacs-style/command-details#exit-table)   |      —       | 今いるテーブルを上に抜け出します。    |      ✓      |
+セル間のカーソル移動だけを行うコマンドです。テーブルセルの外では何もしません。
+
+|                                 コマンド名                                 | 推奨<br/>ホットキー | 機能概要                                                     | キー<br/>リピート |
+| :-------------------------------------------------------------------: | :---------: | -------------------------------------------------------- | :--------: |
+| [Move to cell left](/macos-emacs-style/command-details#move-to-cell)  |      —      | 左隣のセルの先頭に移動します。`Shift` + `Tab` と違って移動先セルのテキストを選択状態にしません。 |     ✓      |
+| [Move to cell right](/macos-emacs-style/command-details#move-to-cell) |      —      | 右隣のセルの先頭に移動します。`Tab` と違って移動先セルのテキストを選択状態にしません。           |     ✓      |
+| [Move to cell below](/macos-emacs-style/command-details#move-to-cell) |      —      | 下の行の同じ列のセルの先頭に移動します。                                     |     ✓      |
+| [Move to cell above](/macos-emacs-style/command-details#move-to-cell) |      —      | 上の行の同じ列のセルの先頭に移動します。                                     |     ✓      |
+|   [Exit table below](/macos-emacs-style/command-details#exit-table)   |      —      | 今いるテーブルを下に抜け出します。                                        |     ✓      |
+|   [Exit table above](/macos-emacs-style/command-details#exit-table)   |      —      | 今いるテーブルを上に抜け出します。                                        |     ✓      |
