@@ -23,8 +23,8 @@ mode: macos-emacs-style
 | :-----------------------------------------------------------------: | :--------: | ------------------------------------------------------------ | :------: |
 |        [UP](/macos-emacs-style/command-details#cursor-up)           | `Ctrl` + `P` | 进行文本/单元格之间的移动，以及表格、标注的进入（从下方）与退出（向上）。跨越表格行时也会保持光标的横向位置。 |    ✓     |
 |      [DOWN](/macos-emacs-style/command-details#cursor-down)         | `Ctrl` + `N` | 进行文本/单元格之间的移动，以及表格、标注的进入（从上方）与退出（向下）。跨越表格行时也会保持光标的横向位置。 |    ✓     |
-|      [LEFT](/macos-emacs-style/command-details#cursor-left)         | `Ctrl` + `B` | 按字符单位移动。位于单元格开头时，会移动到前一个单元格。                                 |    ✓     |
-|     [RIGHT](/macos-emacs-style/command-details#cursor-right)        | `Ctrl` + `F` | 按字符单位移动。位于单元格末尾时，会移动到下一个单元格。                                 |    ✓     |
+|      [LEFT](/macos-emacs-style/command-details#cursor-left)         | `Ctrl` + `B` | 按字符单位向左移动。位于单元格开头时，会移动到前一个单元格。                                 |    ✓     |
+|     [RIGHT](/macos-emacs-style/command-details#cursor-right)        | `Ctrl` + `F` | 按字符单位向右移动。位于单元格末尾时，会移动到下一个单元格。                                 |    ✓     |
 |      [HOME](/macos-emacs-style/command-details#cursor-home)         | `Ctrl` + `A` | 按显示行左端、正文开头、行首的顺序，分 3 个阶段移动。表格内会从单元格开头移动到前一个单元格。             |    ✓     |
 |       [END](/macos-emacs-style/command-details#cursor-end)          | `Ctrl` + `E` | 按显示行右端、行末的顺序，分 2 个阶段移动。表格内会从单元格末尾移动到下一个单元格。                  |    ✓     |
 |   [TOP](/macos-emacs-style/command-details#cursor-top-bottom)       |     —      | 跳转到笔记的开头。                                                     |          |
@@ -40,7 +40,7 @@ Kill 是 Emacs 术语中的剪切操作。本插件可以通过系统剪贴板�
 
 |                                    命令名称                                     | 推荐<br/>快捷键 | 功能概述                                             | 按键<br/>重复 |
 | :--------------------------------------------------------------------------: | :--------: | -------------------------------------------------- | :------: |
-|          [Kill line](/macos-emacs-style/command-details#kill-line)           | `Ctrl` + `K` | Kill 从光标到行末的内容。连续执行的 Kill 会使内容不断累积到剪贴板中。             |    ✓     |
+|          [Kill line](/macos-emacs-style/command-details#kill-line)           | `Ctrl` + `K` | Kill 从光标到行末的内容。在行末执行时会删除换行符并与下一行合并。连续执行的 Kill 会使内容不断累积到剪贴板中。             |    ✓     |
 |        [Kill region](/macos-emacs-style/command-details#kill-region)         | `Ctrl` + `W` | Kill 选中的范围。                                        |          |
 |        [Copy region](/macos-emacs-style/command-details#copy-region)         |     —      | 复制选中的范围，但不会将其删除。                                    |          |
 |               [Yank](/macos-emacs-style/command-details#yank)                | `Ctrl` + `Y` | 粘贴系统剪贴板中的内容。                                     |    ✓     |
@@ -89,10 +89,12 @@ Kill 是 Emacs 术语中的剪切操作。本插件可以通过系统剪贴板�
 
 ## Table navigation（单元格间的光标移动）\{#table-navigation}
 
+仅执行单元格间的光标移动。在表格单元格以外不会执行任何操作。
+
 |                                  命令名称                                  | 推荐<br/>快捷键 | 功能概述                | 按键<br/>重复 |
 | :-----------------------------------------------------------------------: | :--------: | --------------------- | :------: |
-|  [Move to cell left](/macos-emacs-style/command-details#move-to-cell)     |     —      | 移动到左侧相邻单元格的开头。       |    ✓     |
-| [Move to cell right](/macos-emacs-style/command-details#move-to-cell)     |     —      | 移动到右侧相邻单元格的开头。       |    ✓     |
+|  [Move to cell left](/macos-emacs-style/command-details#move-to-cell)     |     —      | 移动到左侧相邻单元格的开头。与 `Shift` + `Tab` 不同，不会选中目标单元格的文本。       |    ✓     |
+| [Move to cell right](/macos-emacs-style/command-details#move-to-cell)     |     —      | 移动到右侧相邻单元格的开头。与 `Tab` 不同，不会选中目标单元格的文本。       |    ✓     |
 | [Move to cell below](/macos-emacs-style/command-details#move-to-cell)     |     —      | 移动到下一行同一列单元格的开头。     |    ✓     |
 | [Move to cell above](/macos-emacs-style/command-details#move-to-cell)     |     —      | 移动到上一行同一列单元格的开头。     |    ✓     |
 |   [Exit table below](/macos-emacs-style/command-details#exit-table)       |     —      | 向下脱出当前所在的表格。         |    ✓     |
