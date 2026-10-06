@@ -23,8 +23,8 @@ Commands and function summaries, grouped the same way as on the [Settings](/maco
 | :-----------------------------------------------------------------: | :--------------: | ---------------------------------------------------------------------------------------------------------------------------------------- | :-------: |
 |        [UP](/macos-emacs-style/command-details#cursor-up)        |   `Ctrl` + `P`    | Moves between text/cells, and enters tables and callouts (from below) or exits them (upward). Preserves the cursor's horizontal position when crossing a table row.      |     ✓     |
 |      [DOWN](/macos-emacs-style/command-details#cursor-down)      |   `Ctrl` + `N`    | Moves between text/cells, and enters tables and callouts (from above) or exits them (downward). Preserves the cursor's horizontal position when crossing a table row.    |     ✓     |
-|      [LEFT](/macos-emacs-style/command-details#cursor-left)      |   `Ctrl` + `B`    | Moves by character. Jumps to the previous cell when at a cell's start.                                                                   |     ✓     |
-|     [RIGHT](/macos-emacs-style/command-details#cursor-right)     |   `Ctrl` + `F`    | Moves by character. Jumps to the next cell when at a cell's end.                                                                         |     ✓     |
+|      [LEFT](/macos-emacs-style/command-details#cursor-left)      |   `Ctrl` + `B`    | Moves left by character. Jumps to the previous cell when at a cell's start.                                                              |     ✓     |
+|     [RIGHT](/macos-emacs-style/command-details#cursor-right)     |   `Ctrl` + `F`    | Moves right by character. Jumps to the next cell when at a cell's end.                                                                   |     ✓     |
 |      [HOME](/macos-emacs-style/command-details#cursor-home)      |   `Ctrl` + `A`    | Moves in three steps, in order: the visual line edge, the content start, then the line start. Inside a table, jumps from a cell's start to the previous cell. |     ✓     |
 |       [END](/macos-emacs-style/command-details#cursor-end)       |   `Ctrl` + `E`    | Moves in two steps, in order: the visual line edge, then the line end. Inside a table, jumps from a cell's end to the next cell.          |     ✓     |
 |   [TOP](/macos-emacs-style/command-details#cursor-top-bottom)    |         —         | Jumps to the start of the note.                                                                                                      |           |
@@ -40,7 +40,7 @@ Commands and function summaries, grouped the same way as on the [Settings](/maco
 
 |                                    Command Name                                     | Recommended<br/>Hotkey | Function Summary                                                                                  | Key<br/>Repeat |
 | :------------------------------------------------------------------------------: | :--------------: | ----------------------------------------------------------------------------------------------- | :-------: |
-|         [Kill line](/macos-emacs-style/command-details#kill-line)          |   `Ctrl` + `K`    | Kills from the cursor to the end of the line. Consecutive kills accumulate their content in the clipboard. |     ✓     |
+|         [Kill line](/macos-emacs-style/command-details#kill-line)          |   `Ctrl` + `K`    | Kills from the cursor to the end of the line. At the end of a line, deletes the line break and joins with the next line. Consecutive kills accumulate their content in the clipboard. |     ✓     |
 |       [Kill region](/macos-emacs-style/command-details#kill-region)        |   `Ctrl` + `W`    | Kills the selected region.                                                                        |           |
 |       [Copy region](/macos-emacs-style/command-details#copy-region)        |         —         | Copies the selected region without deleting it.                                                   |           |
 |              [Yank](/macos-emacs-style/command-details#yank)               |   `Ctrl` + `Y`    | Pastes the contents of the OS clipboard.                                                           |     ✓     |
@@ -53,7 +53,7 @@ Commands and function summaries, grouped the same way as on the [Settings](/maco
 |       [Lowercase word](/macos-emacs-style/command-details#word-case)       |         —         | Lowercases the selection, or — if there is no selection — the entire word at the cursor. Word splitting supports CJK (Chinese/Japanese) text. |     ✓     |
 |      [Capitalize word](/macos-emacs-style/command-details#word-case)       |         —         | Capitalizes the selection word by word, or — if there is no selection — the word at the cursor. Word splitting supports CJK (Chinese/Japanese) text. |     ✓     |
 |   [Transpose chars](/macos-emacs-style/command-details#transpose-chars)    |         —         | Swaps the two characters around the cursor. At the end of a line or cell, swaps the previous two characters instead. Unicode-safe. |     ✓     |
-|        [Select all](/macos-emacs-style/command-details#select-all)         |         —         | A Windows-only replacement for Select all, for when `Ctrl` + `A` has been assigned to HOME.       |           |
+|        [Select all](/macos-emacs-style/command-details#select-all)         |         —         | A replacement for Select all, intended for Windows, for when `Ctrl` + `A` has been assigned to HOME.       |           |
 
 ## Other hotkeys \{#other-hotkeys}
 
@@ -89,10 +89,12 @@ Note that the Command Name column below uses the English-language names. The nam
 
 ## Table navigation \{#table-navigation}
 
+Commands that only move the cursor between cells. They do nothing outside a table cell.
+
 |                                   Command Name                                   | Recommended<br/>Hotkey | Function Summary                                             | Key<br/>Repeat |
 | :---------------------------------------------------------------------------: | :--------------: | ------------------------------------------------------------ | :-------: |
-| [Move to cell left](/macos-emacs-style/command-details#move-to-cell)  |         —         | Moves to the start of the cell to the left.                   |     ✓     |
-| [Move to cell right](/macos-emacs-style/command-details#move-to-cell) |         —         | Moves to the start of the cell to the right.                  |     ✓     |
+| [Move to cell left](/macos-emacs-style/command-details#move-to-cell)  |         —         | Moves to the start of the cell to the left. Unlike `Shift` + `Tab`, doesn't select the destination cell's text.                   |     ✓     |
+| [Move to cell right](/macos-emacs-style/command-details#move-to-cell) |         —         | Moves to the start of the cell to the right. Unlike `Tab`, doesn't select the destination cell's text.                  |     ✓     |
 | [Move to cell below](/macos-emacs-style/command-details#move-to-cell) |         —         | Moves to the start of the cell in the same column, one row down. |     ✓     |
 | [Move to cell above](/macos-emacs-style/command-details#move-to-cell) |         —         | Moves to the start of the cell in the same column, one row up.   |     ✓     |
 |   [Exit table below](/macos-emacs-style/command-details#exit-table)   |         —         | Exits the current table downward.                              |     ✓     |

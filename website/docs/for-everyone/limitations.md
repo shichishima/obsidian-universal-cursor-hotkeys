@@ -7,7 +7,7 @@ mode: for-everyone
 ---
 # For everyone — Limitations
 
-- **A key upgraded by Key Upgrades may stop working outside the markdown editor**
+- **A key with Key Upgrades applied may stop working outside the markdown editor**
   - A few examples below — this isn't an exhaustive list.
     - Upgrading ↑/↓ disables ↑/↓ navigation between frontmatter properties.
     - Upgrading `Home`/`End` disables `Home`/`End` in the note title field.

@@ -19,7 +19,7 @@ This command is designed to behave the same as the physical ↑ cursor key. In s
 
 This UP command can be assigned to the physical ↑ key itself from the "For everyone" screen, but "the physical ↑ key" below always means the ↑ key in its own unmodified state — i.e., without this command assigned to it.
 
-**■ Behavior matching the physical ↑ key**
+**Behavior matching the physical ↑ key**
 
 Moving from the following locations behaves the same as the physical ↑ key.
 
@@ -36,7 +36,7 @@ Moving from the following locations behaves the same as the physical ↑ key.
 - **The second or later in-cell line of table cell text:** Moves up one line within the same cell.
   - Preserves the cursor's horizontal position as closely as possible.
 
-**■ Behavior differing from the physical ↑ key**
+**Behavior differing from the physical ↑ key**
 
 UP differs from the physical ↑ key in the following ways — these are the points with extra table and Markdown awareness.
 - **The first in-cell line of table cell text:** Moves to the last line of the cell directly above.
@@ -58,7 +58,7 @@ This command is designed to behave the same as the physical ↓ cursor key. In s
 
 This DOWN command can be assigned to the physical ↓ key itself from the "For everyone" screen, but "the physical ↓ key" below always means the ↓ key in its own unmodified state — i.e., without this command assigned to it.
 
-**■ Behavior matching the physical ↓ key**
+**Behavior matching the physical ↓ key**
 
 Moving from the following locations behaves the same as the physical ↓ key.
 
@@ -74,7 +74,7 @@ Moving from the following locations behaves the same as the physical ↓ key.
   - Preserves the cursor's horizontal position as closely as possible.
   - If the table sits at the very end of the note, a line is added below and the cursor lands there. (Same behavior as the physical ↓ key.)
 
-**■ Behavior differing from the physical ↓ key**
+**Behavior differing from the physical ↓ key**
 
 DOWN differs from the physical ↓ key in the following ways — these are the points with extra table and Markdown awareness.
 - **Above a table:** Enters the table from above and moves to the first visual line of the top-left cell.
@@ -94,7 +94,7 @@ DOWN differs from the physical ↓ key in the following ways — these are the p
 
 This command is designed to behave the same as the physical ← cursor key. In some situations it goes further than the physical ← key, with additional table awareness.
 
-**■ Behavior matching the physical ← key**
+**Behavior matching the physical ← key**
 
 Moving from the following locations behaves the same as the physical ← key.
 - **Within text, or partway through a cell's content:** Moves left by one character.
@@ -106,7 +106,7 @@ Moving from the following locations behaves the same as the physical ← key.
     - If the Cross-row navigation setting is OFF, stays at the start of the cell instead.
   - **The start of the second or later cell:** Moves to the end of the cell to the left.
 
-**■ Behavior differing from the physical ← key**
+**Behavior differing from the physical ← key**
 
 LEFT differs from the physical ← key under the following conditions / in the following places.
 - **At the start of the line directly below a table:** Enters the table and moves to the end of the bottom-right cell.
@@ -122,7 +122,7 @@ LEFT differs from the physical ← key under the following conditions / in the f
 
 This command is designed to behave the same as the physical → cursor key. In some situations it goes further than the physical → key, with additional table awareness.
 
-**■ Behavior matching the physical → key**
+**Behavior matching the physical → key**
 
 Moving from the following locations behaves the same as the physical → key.
 - **Within text, or partway through a cell's content:** Moves right by one character.
@@ -135,7 +135,7 @@ Moving from the following locations behaves the same as the physical → key.
     - If the table sits at the very end of the note, a line is added below and the cursor lands there. This is the same behavior as the DOWN command, unlike LEFT's constraint at the start of the note.
 - **At the end of the line directly above a table:** Enters the table and moves to the start of the leftmost cell in the header row.
 
-**■ Behavior differing from the physical → key**
+**Behavior differing from the physical → key**
 
 RIGHT differs from the physical → key under the following conditions.
 - **At the end of the rightmost cell, when the Cross-row navigation setting is OFF:**
@@ -151,7 +151,7 @@ This command is designed to behave the same as the physical `Home` key (`fn` + �
 
 This HOME command can be assigned to the physical `Home` key itself from the "For everyone" screen, but "the physical `Home` key" below always means the `Home` key in its own unmodified state — i.e., without this command assigned to it.
 
-**■ Behavior matching the physical `Home` key**
+**Behavior matching the physical `Home` key**
 
 Within a plain-text line or a table cell's line, moves toward the start of the line in up to 3 steps.
 - **Step 1:** Moves to the left edge of the current visual line. (When long text wraps across visual lines and the cursor isn't on the first visual line.)
@@ -162,13 +162,13 @@ Within a plain-text line or a table cell's line, moves toward the start of the l
 
 Running HOME again at a plain-text logical line's start doesn't move the cursor any further.
 
-**■ Behavior differing from the physical `Home` key**
+**Behavior differing from the physical `Home` key**
 
 Regarding the 3-step behavior in plain text and table cells, HOME differs from the physical `Home` key as follows. The default behavior matches the physical `Home` key, but the finer details are adjustable via settings. (→ [Smart home / Visual line movement settings](/macos-emacs-style/settings#behavior-options))
 - **Step 1 difference:** With Visual line movement OFF, the move to the first visual line's left edge is skipped.
 - **Step 2 difference:** With Smart home (standard) OFF, the leading-Markdown consideration in Step 2 is skipped entirely.
 - **Step 2 difference:** With Smart home (standard) ON and Smart home (advanced) also ON (the default), more kinds of leading Markdown are considered. In addition to the markers above, headings (`# `), footnotes (`[^1]: `), and callout type markers (`[!type] `) are also considered.
-  - Although they aren't rendered that way, a list combined with a heading (`- # `) or a blockquote combined with a heading (`> # `) also stops between the heading marker and the body text.
+  - A list combined with a heading (`- # `) or a blockquote combined with a heading (`> # `, which isn't rendered as a heading) also stops between the heading marker and the body text.
 
 At the start of a table cell (the first in-cell line, when the cell has multiple lines), HOME behaves differently from the physical `Home` key.
 - **The leftmost cell of the header row, at its start:** Exits the table and moves to the line above.
@@ -181,7 +181,7 @@ At the start of a table cell (the first in-cell line, when the cell has multiple
   - With Cross-row navigation OFF, stays at the start of the leftmost cell without moving to the row above, same as the physical `Home` key.
 - For reference, **the start of a non-first in-cell line:** Doesn't move any further. Same as the physical `Home` key.
 
-**■ Behavior in Source Mode**
+**Behavior in Source Mode**
 
 In Source Mode, HOME behaves as follows within a table. Everything from the second point onward matches Live Preview.
 - **Before the first `|`:** HOME doesn't execute — nothing happens.
@@ -199,7 +199,7 @@ This command is designed to behave the same as the physical `End` key (`fn` + �
 
 This END command can be assigned to the physical `End` key itself from the "For everyone" screen, but "the physical `End` key" below always means the `End` key in its own unmodified state — i.e., without this command assigned to it.
 
-**■ Behavior matching the physical `End` key**
+**Behavior matching the physical `End` key**
 
 Within a plain-text line or a table cell's line, moves toward the end of the line in up to 2 steps.
 - **Step 1:** Moves to the right edge of the current visual line. (When long text wraps across visual lines and the cursor isn't on the last visual line.)
@@ -207,7 +207,7 @@ Within a plain-text line or a table cell's line, moves toward the end of the lin
 
 Running END again at a plain-text logical line's end doesn't move the cursor any further.
 
-**■ Behavior differing from the physical `End` key**
+**Behavior differing from the physical `End` key**
 
 Regarding the 2-step behavior in plain text and table cells, END differs from the physical `End` key as follows. The default behavior matches the physical `End` key, but the finer details are adjustable via settings. (→ [Visual line movement setting](/macos-emacs-style/settings#behavior-options))
 - **Step 1 difference:** With Visual line movement OFF, the move to the first visual line's right edge is skipped.
@@ -223,7 +223,7 @@ At the end of a table cell (the last in-cell line, when the cell has multiple li
   - If the table sits at the very end of the note, a line is added below and the cursor lands there. (Same behavior as the DOWN command.)
 - For reference, **the end of a non-last in-cell line:** Doesn't move any further. Same as the physical `End` key.
 
-**■ Behavior in Source Mode**
+**Behavior in Source Mode**
 
 In Source Mode, END behaves as follows within a table.
 - **Before the first `|`:** Moves to the start of the first cell's body text. (Unlike HOME, this case is not a no-op.)
@@ -235,15 +235,15 @@ In Source Mode, END behaves as follows within a table.
 <details>
 <summary>TOP / BOTTOM</summary>
 
-This command is designed to behave the same as `Ctrl` + `Home`/`Ctrl` + `End` on Windows, or `command` + ↑/↓ on macOS. In some situations it goes further than these physical keys, with additional table awareness.
+This command is designed to behave the same as `Ctrl` + `Home`/`End` on Windows, or `command` + ↑/↓ on macOS. In some situations it goes further than these physical keys, with additional table awareness.
 
 The TOP / BOTTOM commands can be assigned to these same keys from the "For everyone" screen, but "the physical keys" below always means these keys in their own unmodified state — i.e., without these commands assigned to them.
 
-**■ Behavior matching the physical keys**
+**Behavior matching the physical keys**
 
 Outside a table, moves to the start of the note (TOP) or the end of the note (BOTTOM). Smart home is not applied for the TOP command.
 
-**■ Behavior differing from the physical keys**
+**Behavior differing from the physical keys**
 
 If a table sits at the start or end of the note, this differs from the physical keys by moving to a more natural "start"/"end".
 - **TOP:** Moves to the start of the leftmost cell in the header row.
@@ -261,11 +261,11 @@ This command is designed to behave the same as the physical `Page Down`/`Page Up
 
 These Page down / Page up commands can be assigned to these same keys from the "For everyone" screen, but "the physical keys" below always means these keys in their own unmodified state — i.e., without these commands assigned to them.
 
-**■ Behavior matching the physical keys**
+**Behavior matching the physical keys**
 
 If the scrolled range contains only plain text (no tables, callouts, or embeds), scrolls the view down (Page down) or up (Page up) by one screen. The cursor stays at the same position on screen after scrolling.
 
-**■ Behavior differing from the physical keys**
+**Behavior differing from the physical keys**
 
 If the scrolled range includes a table, callout, or embed (`![[...]]`), the cursor moves correctly even when the one-screen destination falls inside that table, callout, or similar block.
 
@@ -283,7 +283,7 @@ This command is designed to behave the same as `Ctrl` + ←/→ on Windows, or `
 
 This command can be assigned to these same keys from the "For everyone" screen, but "the physical keys" below always means these keys in their own unmodified state — i.e., without this command assigned to them.
 
-**■ Behavior matching the physical keys**
+**Behavior matching the physical keys**
 - **Within plain text and in-cell text:** Word left moves to the start of the (previous) word; Word right moves to the end of the (next) word.
   - Crosses a line boundary once no word remains on the current line.
   - Skips blank lines while crossing line boundaries.
@@ -294,7 +294,7 @@ This command can be assigned to these same keys from the "For everyone" screen, 
   - If the table sits at the very start of the note (Word left), it doesn't exit — nothing happens. (Same as UP / LEFT / HOME.)
   - If the table sits at the very end of the note (Word right), a blank line is added below the table and the cursor moves there.
 
-**■ Behavior differing from the physical keys**
+**Behavior differing from the physical keys**
 - **Landing position when entering a table:** Word left lands at the start of the last word in the bottom-right cell; Word right lands at the end of the first word in the header row's leftmost cell.
   - This follows the same convention as crossing a line boundary in plain text. The physical keys land at the start/end of a word in plain text, but when entering a table they simply stopped at the start/end of the cell instead.
 - **The start/end of a cell:** Moves to the word at the end/start of the cell to the left/right.
@@ -312,7 +312,7 @@ This command can be assigned to these same keys from the "For everyone" screen, 
 
 This command is designed to reproduce the behavior of Emacs's kill-line. Unlike the macOS version of Obsidian's own `control` + `K`, consecutive kills accumulate their content so it can be pasted back with `Ctrl` + `Y`. On the other hand, unlike real Emacs's kill-line, it doesn't maintain a kill ring (a history-aware buffer) — instead it goes through the OS clipboard, so you can copy & paste with other apps too.
 
-**■ Kill line's specific behavior**
+**Kill line's specific behavior**
 
 - **Outside a table, and within a Live Preview cell:**
   - Here, "end of line" within a Live Preview cell refers to a position created by a `Shift` + `Enter` line break.
@@ -331,7 +331,7 @@ This command is designed to reproduce the behavior of Emacs's kill-line. Unlike 
   - If the OS has a clipboard history feature, each consecutive kill is recorded there in sequence.
 - **Interaction with the OS's copy/cut:** Pressing `Ctrl` + `C`/`X` on Windows or `command` + `C`/`X` on macOS stops the consecutive-kill behavior.
 
-**■ Smart join**
+**Smart join**
 
 A setting lets you make line joining Markdown-aware.
 - **Smart join:** When Smart join is ON in the settings screen, joining a line first removes any leading Markdown from the start of the next line.
@@ -370,7 +370,7 @@ this becomes:
 
 Kills (cuts) the selected text and saves it to the OS clipboard. This command corresponds to Emacs's kill-region (`C-w`).
 
-**■ Kill region's specific behavior**
+**Kill region's specific behavior**
 
 - **When the selection is empty:** Does nothing.
 - **Outside a table, and within a Live Preview cell:** Kills the selected text.
@@ -381,7 +381,7 @@ Kills (cuts) the selected text and saves it to the OS clipboard. This command co
   - Within the same cell, the selection may cross a `<br>`. In this case `<br>` is converted to a line break and `\|` to `|` before saving to the clipboard.
 - **Stopping consecutive kills:** Kill region always resets the consecutive-kill accumulation. The killed text replaces the clipboard's previous contents instead of being appended to it.
 
-**■ Difference from the OS's standard cut**
+**Difference from the OS's standard cut**
 
 - **A selection spanning multiple cells:** The OS's standard cut (`Ctrl` + `X`/`command` + `X`) treats this as a structural, cell-based operation, but Kill region doesn't support a selection spanning multiple cells. (It does nothing.)
 - **Within a table cell in Source Mode, the clipboard's contents:** The OS's standard cut copies `<br>` and `\|` to the clipboard as-is. Kill region recognizes that the kill is happening inside a table even in Source Mode, and converts these to a line break and `|` before saving.
@@ -394,7 +394,7 @@ Kills (cuts) the selected text and saves it to the OS clipboard. This command co
 
 Copies the selected text to the OS clipboard. Unlike Kill region, the text isn't deleted.
 
-**■ Copy region's specific behavior**
+**Copy region's specific behavior**
 
 - **When the selection is empty:** Does nothing.
 - **Outside a table, and within a Live Preview cell:** Copies the selected text.
@@ -405,7 +405,7 @@ Copies the selected text to the OS clipboard. Unlike Kill region, the text isn't
   - Within the same cell, the selection may cross a `<br>`. In this case `<br>` is converted to a line break and `\|` to `|` before saving to the clipboard.
 - **Stopping consecutive kills:** Like Kill region, this always resets the consecutive-kill accumulation. What's saved also replaces the clipboard's existing contents instead of being appended to it.
 
-**■ Difference from the OS's standard copy**
+**Difference from the OS's standard copy**
 
 - **A selection spanning multiple cells:** The OS's standard copy (`Ctrl` + `C`/`command` + `C`) treats this as a structural, cell-based operation, but Copy region doesn't support a selection spanning multiple cells. (It does nothing.)
 - **Within a table cell in Source Mode, the clipboard's contents:** The OS's standard copy copies `<br>` and `\|` to the clipboard as-is. Copy region recognizes that the copy is happening inside a table even in Source Mode, and converts these to a line break and `|` before saving.
@@ -418,14 +418,14 @@ Copies the selected text to the OS clipboard. Unlike Kill region, the text isn't
 
 Pastes the OS clipboard's contents at the cursor position. This command corresponds to Emacs's yank (`C-y`).
 
-**■ Yank's specific behavior**
+**Yank's specific behavior**
 
 - **When the clipboard is empty:** Does nothing. If reading the clipboard fails, it uses the content of the most recent Kill/Copy instead.
 - **Outside a table, and within a Live Preview cell:** Pastes the clipboard's contents as-is. Within a Live Preview cell, any line breaks (`\n`) it contains become in-cell line breaks (the same kind `Shift` + `Enter` creates).
 - **Within a table cell in Source Mode:** To avoid breaking the table structure, line breaks are escaped to `<br>` and pipe characters (`|`) to `\|` before pasting.
 - **Stopping consecutive kills:** Yank also always resets the consecutive-kill accumulation.
 
-**■ Difference from the OS's standard paste**
+**Difference from the OS's standard paste**
 
 - **Outside a table, and within a Live Preview cell:** When pasting text, there's no difference between the OS's standard paste and Yank. Multi-line text and text containing pipe characters (`|`) are both inserted correctly.
 - **When multiple cells are stored on the clipboard:** When you cut/copy multiple cells, the OS clipboard stores them as table structure. The OS's standard paste can paste this back as a table, but Yank just pastes the table's Markdown source code. (Pasting it into plain text displays it as a table, but pasting it into a cell inserts the table's raw Markdown source.)
@@ -440,17 +440,16 @@ Pastes the OS clipboard's contents at the cursor position. This command correspo
 
 This command is designed to behave the same as the physical `Delete` key (⌦, or `fn` + ⌫, on macOS).
 
-**■ Behavior matching the physical `Delete` key**
+**Behavior matching the physical `Delete` key**
 
 Moving from the following locations behaves the same as the physical `Delete` key.
 
-- **Within text:** Deletes the character at the cursor position. (Forward deletion.)
-- **Within a Live Preview table cell:**
-  - **Partway through an in-cell line:** Forward-deletes one character.
-  - **At the end of an in-cell line (a `Shift` + `Enter` break):** Deletes that break, joining with the next in-cell line.
-  - **At the end of the cell:** Does nothing.
+- **Within text, and within a Live Preview cell:**
+  - Deletes the character at the cursor position. (Forward deletion.)
+  - At the end of a line, deletes the line break, joining with the next line.
+  - Within a Live Preview cell, a `Shift` + `Enter` break counts as the end of a line, but at the end of the cell, does nothing (it never continues into the next cell).
 
-**■ Behavior differing from the physical `Delete` key**
+**Behavior differing from the physical `Delete` key**
 
 Delete char differs from the physical `Delete` key in the following way.
 
@@ -464,9 +463,9 @@ Delete char differs from the physical `Delete` key in the following way.
 
 These two commands are simply Obsidian's own "Undo" and "Redo." They just step the entire note's edit history backward/forward, with no special table-aware or CJK-aware handling targeting specific cells or words.
 
-**■ Why these are provided as commands**
+**Why these are provided as commands**
 
-Undo is `Ctrl` + `Z` on Windows and `command` + `Z` on macOS; Redo is `Ctrl` + `Shift` + `Z` or `Ctrl` + `Y` on Windows and `command` + `Shift` + `Z` on macOS — but none of these appear in Obsidian's standard Hotkeys panel or command palette. As a result, they can't be reassigned to a non-standard key (an Emacs-equivalent key, for example).
+Undo is `Ctrl` + `Z` on Windows and `command` + `Z` on macOS; Redo is `Ctrl` + `Shift` + `Z` or `Ctrl` + `Y` on Windows and `command` + `Shift` + `Z` on macOS — but none of these appear in Obsidian's standard Hotkeys panel or command palette. As a result, they can't be reassigned to another key (an Emacs-equivalent key, for example).
 
 This plugin provides them as commands so they can be assigned to any key you like, the same as every other command.
 
@@ -480,14 +479,14 @@ These two commands kill text word by word. CJK (Chinese/Japanese) text is also h
 
 These commands can be assigned to the physical keys (`Ctrl` + `Backspace`/`Delete` on Windows, `option` + ⌫/⌦ on macOS) from the "For everyone" screen, but what follows compares against those same keys in their own unmodified state — i.e., without this command assigned to them.
 
-**■ Behavior matching the physical keys**
+**Behavior matching the physical keys**
 
 - **Within text, and within a Live Preview cell:**
   - Kill word left kills from the start of the word on the left to the cursor; Kill word right kills from the cursor to the end of the word on the right.
   - From the start/end of a line, continues on into the next line.
   - Within a Live Preview cell, a `Shift` + `Enter` break counts as the start/end of a line, but it never continues past the start/end of the cell into the previous/next cell.
 
-**■ Behavior differing from the physical keys**
+**Behavior differing from the physical keys**
 
 - **Clipboard integration and consecutive kills:** The deleted text is saved to the clipboard.
   - As with Kill line, consecutive kills accumulate the deleted content in the clipboard. Kill word and Kill line can be mixed together.
@@ -551,16 +550,16 @@ Swaps the two characters immediately before and after the cursor. This command r
 
 This command corresponds to Obsidian's own "Select all."
 
-**■ Behavior matching "Select all"**
+**Behavior matching "Select all"**
 - **Outside a table:** Selects the entire note.
 - **Within a table cell (Live Preview):** Selects the entire content of the current cell instead of the entire note.
 
-**■ Behavior differing from "Select all"**
+**Behavior differing from "Select all"**
 - **Within a table cell (Source Mode):** Even in Source Mode, this recognizes that it's inside a table and selects the entire content of the current cell instead of the entire note.
   - The whitespace at the start and end of the cell is excluded from the selection.
   - The standard "Select all" doesn't recognize tables and selects the entire note instead.
 
-**■ Why this is provided as a command**
+**Why this is provided as a command**
 
 Obsidian's standard "Select all" shortcut is `Ctrl` + `A` on Windows, but that's the Recommended Hotkey for the HOME command. Applying the Recommended Hotkey overwrites that shortcut — yet "Select all" itself isn't a command you can assign a hotkey to, so a new command had to be provided to let you run it on a different key.
 
@@ -607,13 +606,13 @@ No Recommended Hotkey is set for this command, so if you'd prefer the style wher
 
 Moves to the adjacent cell in the specified direction.
 
-**■ Move to cell's specific behavior**
+**Move to cell's specific behavior**
 - Lands the cursor at the start of the destination cell.
 - **Left/right direction:** Always stays within the current row. Does nothing at the left/right edge of the row. (Never wraps into the adjacent row.)
 - **Up/down direction:** Moves to the row above/below while keeping the same column (cell position). Does nothing on the table's first/last row.
 - Only works within a table in Live Preview. Does nothing outside a table, or in Source Mode.
 
-**■ Difference from Obsidian's standard cell movement (`Tab`/`Shift` + `Tab`)**
+**Difference from Obsidian's standard cell movement (`Tab`/`Shift` + `Tab`)**
 - Obsidian's standard right/left movement via `Tab` (the cell to the right) / `Shift` + `Tab` (the cell to the left):
   - Selects the entire content of the destination cell.
   - Wraps into the row below/above from the edge of a row.

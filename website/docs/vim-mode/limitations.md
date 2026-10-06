@@ -7,7 +7,7 @@ mode: vim-mode
 ---
 # Vim mode — Limitations
 
-## Movement across tables
+## Table-related
 
 - **A count prefix on `w`/`b`/`e` stops once it crosses a cell or row boundary:** even with a count like `5w`, the remaining count is discarded the moment it crosses a cell or row boundary.
 - **A count prefix on `gj`/`gk` also stops partway once it crosses a row:** likewise, a count like `5gj` moves correctly across multiple visual lines within a single cell, but the remaining count is discarded the moment it crosses a row boundary or enters/exits a table.
@@ -16,8 +16,8 @@ mode: vim-mode
 
 ## Settings and other plugins
 
-- **Turning on a settings toggle overrides any custom binding you've already set for the same key:** if you've already customized one of these keys yourself, that customization is overridden while the toggle is on.
-- **While the leader key is `Space`, `Space` on its own loses its original behavior:** while Table structure or Table navigation is on, pressing `Space` by itself no longer performs its original action (move right). Turning the toggle back off doesn't restore it — until you restart Obsidian, pressing `Space` in Normal mode inserts a literal space instead. Restarting Obsidian fixes it. Setting the leader key to `\` avoids this entirely. See [Settings](/vim-mode/settings) for details.
+- **Turning on a settings toggle overrides any custom binding you've already set for the same key:** if you've already customized one of these keys yourself, that customization is overridden while the toggle is ON.
+- **Once the leader key has been `Space`, `Space` on its own loses its original behavior for the rest of the session:** turning on Table structure or Table navigation even briefly removes `Space`'s native "move right" binding until you restart Obsidian. Turning the toggles back off doesn't restore it — pressing `Space` by itself does nothing, the same as while the toggle was on (it no longer inserts a literal space either). Setting the leader key to `\` avoids this entirely. See [Settings](/vim-mode/settings) for details.
 - **Not designed to work alongside a plugin that replaces Vim's own table-cell behavior:** this plugin targets Obsidian's standard, built-in Vim mode specifically.
 
 ## Not caused by this plugin

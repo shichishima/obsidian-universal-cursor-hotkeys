@@ -5,7 +5,7 @@ mode: vim-mode
 ---
 # Vim mode
 
-If you use Obsidian's built-in Vim mode, you've probably noticed bugs in cursor movement around tables in Live Preview.
+If you use Obsidian's built-in Vim mode, you've probably noticed issues with cursor movement around tables in Live Preview.
 
 This plugin fixes them.
 

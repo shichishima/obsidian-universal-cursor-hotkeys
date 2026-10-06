@@ -1,6 +1,6 @@
 ---
 title: macOS (Emacs) style
-description: Makes macOS's standard cursor-movement shortcuts work correctly inside tables too, and adds a full set of Emacs-style editing commands
+description: Makes the standard cursor-movement shortcuts on macOS work correctly inside tables too, and adds a full set of Emacs-style editing commands
 mode: macos-emacs-style
 ---
 # macOS (Emacs) style

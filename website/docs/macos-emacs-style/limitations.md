@@ -17,12 +17,12 @@ mode: macos-emacs-style
   - As above, holding `Shift` while pressing these shortcut keys extends the selection, but this is Obsidian's keyboard shortcut behavior.
   - Because of this, CJK word splitting isn't applied. (The selection extends as one block up to the next punctuation mark. For English text, the standard word-by-word selection behavior still applies.)
 - **(Windows) `Shift` + `Ctrl` + `P`/`N`/`B`/`F`/`A`/`E` don't move the cursor**
-  - Unless you explicitly assign them yourself, Windows has no command assigned to these hotkeys, so they don't do anything. (**Apply recommended** assigns `Ctrl` + `P`/`N`/`B`/`F`/`A`/`E` — `Shift` + `Ctrl` + `P`/`N`/`B`/`F`/`A`/`E` is a separate hotkey.)
+  - Unless you explicitly assign them yourself, Windows has no command assigned to these hotkeys, so they don't do anything. (**Apply recommended** assigns `Ctrl` + `P`/`N`/`B`/`F`/`A`/`E` — `Shift` + `Ctrl` + `P`/`N`/`B`/`F`/`A`/`E` is another hotkey.)
   - Use `Shift` + ↑/↓/←/→ instead for range selection. Even if you've assigned the physical arrow keys themselves to UP/DOWN via Key Upgrades, combining them with `Shift` makes them a distinct key, so they're unaffected by that assignment.
 - **(Windows) `Shift` + `Ctrl` + ←/→ don't support CJK word selection**
   - This is Obsidian's keyboard shortcut for word-unit range selection, and this plugin's CJK word splitting isn't applied to it. The selection extends as one block up to the next punctuation mark. For English text, the standard word-by-word selection behavior still applies.
 - **Multi-cell cut, copy, and paste are not supported (Kill line/Kill region/Copy region/Yank)**
-  - These are text-level operation commands — in a table, they only act on the text within each individual cell.
+  - The commands this plugin provides are text-level operation commands — in a table, they only act on the text within each individual cell.
   - Cutting, copying, or pasting table structure via multi-cell selection is not supported.
   - To cut, copy, or paste table structure, use the OS's own standard cut/copy/paste shortcuts (`Ctrl` + `X`/`C`/`V` on Windows, `command` + `X`/`C`/`V` on macOS) or the right-click context menu.
 

@@ -5,7 +5,7 @@ mode: for-everyone
 ---
 # For everyone
 
-This plugin isn't just for Vim or Emacs users.
+This plugin is not just for Vim or Emacs users.
 
 It doesn't add a special new shortcut to learn — it upgrades the behavior of the keys themselves, on the keyboard you already use every day.
 

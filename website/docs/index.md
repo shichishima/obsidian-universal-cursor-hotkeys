@@ -38,7 +38,7 @@ This plugin fixes both, for smoother cursor movement overall. It patches the cur
 ## 🅴 [I use macOS-style keyboard shortcuts (Emacs keybindings) →](/macos-emacs-style)
 - Make `Ctrl` + `P`/`N`/`B`/`F` work correctly inside Markdown tables
 - Kill & Yank, with OS-clipboard integration and accumulation
-- Screen centering via Recenter-top-bottom
+- Recenter-top-bottom for screen centering
 
 ## Acknowledgments
 
