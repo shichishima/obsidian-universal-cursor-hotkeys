@@ -383,7 +383,7 @@ Kills (cuts) the selected text and saves it to the OS clipboard. This command co
 
 **Difference from the OS's standard cut**
 
-- **A selection spanning multiple cells:** The OS's standard cut (`Ctrl` + `X`/`command` + `X`) treats this as a structural, cell-based operation, but Kill region doesn't support a selection spanning multiple cells. (It does nothing.)
+- **A selection spanning multiple cells:** Obsidian's standard cut (`Ctrl` + `X`/`command` + `X`) treats this as a structural, cell-based operation, but Kill region doesn't support a selection spanning multiple cells. (It does nothing.)
 - **Within a table cell in Source Mode, the clipboard's contents:** The OS's standard cut copies `<br>` and `\|` to the clipboard as-is. Kill region recognizes that the kill is happening inside a table even in Source Mode, and converts these to a line break and `|` before saving.
 
 </details>
@@ -407,7 +407,7 @@ Copies the selected text to the OS clipboard. Unlike Kill region, the text isn't
 
 **Difference from the OS's standard copy**
 
-- **A selection spanning multiple cells:** The OS's standard copy (`Ctrl` + `C`/`command` + `C`) treats this as a structural, cell-based operation, but Copy region doesn't support a selection spanning multiple cells. (It does nothing.)
+- **A selection spanning multiple cells:** Obsidian's standard copy (`Ctrl` + `C`/`command` + `C`) treats this as a structural, cell-based operation, but Copy region doesn't support a selection spanning multiple cells. (It does nothing.)
 - **Within a table cell in Source Mode, the clipboard's contents:** The OS's standard copy copies `<br>` and `\|` to the clipboard as-is. Copy region recognizes that the copy is happening inside a table even in Source Mode, and converts these to a line break and `|` before saving.
 
 </details>
@@ -428,9 +428,10 @@ Pastes the OS clipboard's contents at the cursor position. This command correspo
 **Difference from the OS's standard paste**
 
 - **Outside a table, and within a Live Preview cell:** When pasting text, there's no difference between the OS's standard paste and Yank. Multi-line text and text containing pipe characters (`|`) are both inserted correctly.
-- **When multiple cells are stored on the clipboard:** When you cut/copy multiple cells, the OS clipboard stores them as table structure. The OS's standard paste can paste this back as a table, but Yank just pastes the table's Markdown source code. (Pasting it into plain text displays it as a table, but pasting it into a cell inserts the table's raw Markdown source.)
-- **When an image is stored on the clipboard:** If the OS clipboard contains an image, the OS's standard paste saves the image file into the vault and inserts an embed link (`![[filename saved in the vault]]`), but Yank just pastes the filename as plain text.
+- **When multiple cells are stored on the clipboard:** When you cut/copy multiple cells, the OS clipboard stores them as table structure. Obsidian's standard paste can paste this back as a table, but Yank just pastes the table's Markdown source code. (Pasting it into plain text displays it as a table, but pasting it into a cell inserts the table's raw Markdown source.)
+- **When an image is stored on the clipboard:** If the OS clipboard contains an image, Obsidian's standard paste saves the image file into the vault and inserts an embed link (`![[filename saved in the vault]]`), but Yank just pastes the filename as plain text.
 - **Within a table cell in Source Mode:** The OS's standard paste inserts line breaks and pipe characters as-is without converting them, so pasting multi-line text or text containing pipe characters breaks the table structure. Yank converts line breaks to `<br>` and pipe characters to `\|` before inserting, so the table structure is preserved.
+- **Avoiding duplicate list markers (Obsidian 1.14+):** Obsidian's standard paste avoids duplicating a list marker (`-`, `- [ ] `, `1. `, etc.) when pasting onto a line that already has one, but Yank doesn't make this adjustment and can produce a duplicate marker.
 
 </details>
 
