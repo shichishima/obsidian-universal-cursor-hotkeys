@@ -1,5 +1,5 @@
 ---
-sidebar_position: 4
+sidebar_position: 3
 title: macOS (Emacs) style — Settings
 sidebar_label: Settings
 description: How to assign hotkeys, how to read the settings screen, what each status badge and button means, and what each Behavior option does.

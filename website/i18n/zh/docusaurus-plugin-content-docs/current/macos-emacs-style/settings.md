@@ -1,5 +1,5 @@
 ---
-sidebar_position: 4
+sidebar_position: 3
 title: macOS (Emacs) style — 设置
 sidebar_label: 设置
 description: 快捷键的分配方法、设置页面的说明、状态徽章和按钮的含义，以及各行为选项的说明

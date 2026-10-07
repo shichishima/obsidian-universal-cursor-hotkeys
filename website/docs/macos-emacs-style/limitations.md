@@ -1,5 +1,5 @@
 ---
-sidebar_position: 3
+sidebar_position: 4
 title: macOS (Emacs) style — Limitations
 sidebar_label: Limitations
 description: Known limitations of macOS-style (Emacs) keybindings — range-selection behavior, table-related quirks, and shortcut conflicts.

@@ -1,5 +1,5 @@
 ---
-sidebar_position: 3
+sidebar_position: 4
 title: macOS (Emacs) style — 限制事项
 sidebar_label: 限制事项
 description: macOS 风格键盘快捷键（Emacs 快捷键）的已知限制事项。范围选择行为、表格相关、快捷键冲突

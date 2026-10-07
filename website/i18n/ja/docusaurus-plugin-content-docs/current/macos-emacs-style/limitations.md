@@ -1,5 +1,5 @@
 ---
-sidebar_position: 3
+sidebar_position: 4
 title: macOS (Emacs) style — 制限事項
 sidebar_label: 制限事項
 description: macOS 風 (Emacs) キーバインドにおける既知の制限事項。範囲選択の挙動、テーブル関連、ショートカット競合

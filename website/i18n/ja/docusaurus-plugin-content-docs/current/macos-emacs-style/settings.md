@@ -1,5 +1,5 @@
 ---
-sidebar_position: 4
+sidebar_position: 3
 title: macOS (Emacs) style — 設定
 sidebar_label: 設定
 description: ホットキーの割り当て方法、設定画面の見方、ステータスバッジとボタンの意味、各挙動オプションの説明
