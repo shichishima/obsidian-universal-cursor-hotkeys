@@ -41,6 +41,11 @@ const config: Config = {
 
   onBrokenLinks: 'throw',
 
+  // Auto-expand a collapsed <details> block when navigating to an anchor
+  // inside it (see src/clientModules/detailsAnchor.js) — needed for the
+  // command-reference -> command-details deep links added 2026-09-20.
+  clientModules: [require.resolve('./src/clientModules/detailsAnchor.js')],
+
   // Cloudflare Web Analytics — cookieless page view/visit counts. The
   // token is a public client-side beacon identifier (visible in every
   // page's source once deployed), not a secret.
@@ -99,15 +104,10 @@ const config: Config = {
           position: 'left',
           value: `<a href="${baseUrl}changelog" class="badge badge--secondary navbar-version-badge">${pluginPkg.version}</a>`,
         },
-        // localeDropdown temporarily removed: zh/ja are configured in
-        // i18n.locales above and still build (untranslated docs fall back
-        // to English), but with no actual translated content yet, showing
-        // a switcher would let a reader pick 简体中文/日本語 and land on
-        // English anyway. Re-add this item once real translations exist.
-        // {
-        //   type: 'localeDropdown',
-        //   position: 'right',
-        // },
+        {
+          type: 'localeDropdown',
+          position: 'right',
+        },
         {
           href: 'https://github.com/shichishima/obsidian-universal-cursor-hotkeys',
           label: 'GitHub',

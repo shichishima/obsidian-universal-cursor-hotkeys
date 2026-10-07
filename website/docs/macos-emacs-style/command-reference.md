@@ -2,89 +2,100 @@
 sidebar_position: 1
 title: macOS (Emacs) style — Command Reference
 sidebar_label: Command Reference
-description: Every macOS-style (Emacs) command, its recommended hotkey, and what it does — cursor movement, editing, and table commands.
+description: A full list of every macOS-style (Emacs) command, what it does, and its recommended hotkey.
 mode: macos-emacs-style
 ---
-
 # macOS (Emacs) style — Command Reference
 
-For detailed behavior of each command, see [Command Details](/macos-emacs-style/command-details). Grouped the same way as Hotkey settings below.
+Commands and function summaries, grouped the same way as on the [Settings](/macos-emacs-style/settings) page. For detailed behavior of each command, see [Command Details](/macos-emacs-style/command-details).
 
-## Cursor movement
+- The Command Name column shows the name as it appears on Obsidian's own Hotkeys panel.
+  - Each command name links to that command's entry on the Command Details page.
+- The Recommended Hotkey column shows the key assigned by the **[Apply recommended](/macos-emacs-style/settings#apply-recommended)** button or the **Set** button.
+  - On Windows, some of these overlap with Obsidian's own standard hotkeys. After applying, check the [Displaced commands](/macos-emacs-style/settings#displaced-commands) list to see what happened to the command that previously held that hotkey.
+  - On macOS, read `Ctrl` as `control`.
+  - "—" means no recommended hotkey is set. Click the **Open →** button to open Obsidian's own Hotkeys panel and assign a hotkey of your choice manually.
+- Commands with "✓" in the Key Repeat column support key repeat.
 
-| Command Name | Recommended<br/>Hotkey | Function Summary | Key<br/>Repeat |
-| :--------: | :----------------: | ---------------- | :---: |
-| UP    | Ctrl + P           | Smart UP: Text/Cell movement, Table & callout entry (from below) & exit (from top). | ✓ |
-| DOWN  | Ctrl + N           | Smart DOWN: Text/Cell movement, Table & callout entry (from above) & exit (from bottom). | ✓ |
-| LEFT  | Ctrl + B           | Smart LEFT: Move by character or jump to the previous cell. | ✓ |
-| RIGHT | Ctrl + F           | Smart RIGHT: Move by character or jump to the next cell. | ✓ |
-| HOME  | Ctrl + A           | Smart HOME: Moves to the visual line edge, content start, or line start in steps; jumps to the previous cell inside a table. | ✓ |
-| END   | Ctrl + E           | Smart END: Moves to the visual line edge or line end in steps; jumps to the next cell inside a table. | ✓ |
-| TOP | —          | Jumps to the very start of the document. Table-aware. |  |
-| BOTTOM | —        | Jumps to the very end of the document. Table-aware. |  |
-| Page up | —        | Scroll up one page; the cursor stays at the same screen position. Bare PageUp can be set in the plugin's Settings. | ✓ |
-| Page down | —        | Scroll down one page; the cursor stays at the same screen position. Bare PageDown can be set in the plugin's Settings. | ✓ |
-| Word right | —        | Moves forward by word. Table-aware, CJK-aware. | ✓ |
-| Word left | —         | Moves backward by word. Table-aware, CJK-aware. | ✓ |
+## Cursor movement \{#cursor-movement}
 
-## Editing
+|                              Command Name                               | Recommended<br/>Hotkey | Function Summary                                                                                                                       | Key<br/>Repeat |
+| :-----------------------------------------------------------------: | :--------------: | ---------------------------------------------------------------------------------------------------------------------------------------- | :-------: |
+|        [UP](/macos-emacs-style/command-details#cursor-up)        |   `Ctrl` + `P`    | Moves between text/cells, and enters tables and callouts (from below) or exits them (upward). Preserves the cursor's horizontal position when crossing a table row.      |     ✓     |
+|      [DOWN](/macos-emacs-style/command-details#cursor-down)      |   `Ctrl` + `N`    | Moves between text/cells, and enters tables and callouts (from above) or exits them (downward). Preserves the cursor's horizontal position when crossing a table row.    |     ✓     |
+|      [LEFT](/macos-emacs-style/command-details#cursor-left)      |   `Ctrl` + `B`    | Moves left by character. Jumps to the previous cell when at a cell's start.                                                              |     ✓     |
+|     [RIGHT](/macos-emacs-style/command-details#cursor-right)     |   `Ctrl` + `F`    | Moves right by character. Jumps to the next cell when at a cell's end.                                                                   |     ✓     |
+|      [HOME](/macos-emacs-style/command-details#cursor-home)      |   `Ctrl` + `A`    | Moves in three steps, in order: the visual line edge, the content start, then the line start. Inside a table, jumps from a cell's start to the previous cell. |     ✓     |
+|       [END](/macos-emacs-style/command-details#cursor-end)       |   `Ctrl` + `E`    | Moves in two steps, in order: the visual line edge, then the line end. Inside a table, jumps from a cell's end to the next cell.          |     ✓     |
+|   [TOP](/macos-emacs-style/command-details#cursor-top-bottom)    |         —         | Jumps to the start of the note.                                                                                                      |           |
+|  [BOTTOM](/macos-emacs-style/command-details#cursor-top-bottom)  |         —         | Jumps to the end of the note.                                                                                                        |           |
+|    [Page up](/macos-emacs-style/command-details#page-up-down)    |         —         | Scrolls up by one page. The cursor stays at the same position on screen. Can land inside a table.                                        |     ✓     |
+|   [Page down](/macos-emacs-style/command-details#page-up-down)   |         —         | Scrolls down by one page. The cursor stays at the same position on screen. Can land inside a table.                                       |     ✓     |
+| [Word left](/macos-emacs-style/command-details#word-left-right)  |         —         | Moves left by word, using dictionary-based segmentation so CJK (Chinese/Japanese) text is also split into real words.                   |     ✓     |
+| [Word right](/macos-emacs-style/command-details#word-left-right) |         —         | Moves right by word, using dictionary-based segmentation so CJK (Chinese/Japanese) text is also split into real words.                  |     ✓     |
 
-| Command Name | Recommended<br/>Hotkey | Function Summary | Key<br/>Repeat |
-| :--------: | :----------------: | ---------------- | :---: |
-| Kill line | Ctrl + K      | Kill from cursor to line end. Consecutive kills accumulate in the kill cache and clipboard. | ✓ |
-| Kill region | Ctrl + W    | Cut the selected region to the kill cache. Table-aware: single-cell only; no-op for multi-row or cross-cell selections. |  |
-| Copy region | —     | Copy the selected region to the kill cache without deleting it. Same table-aware constraints as Kill region. |  |
-| Yank | Ctrl + Y           | Paste from the OS clipboard. Table-aware: converts newlines and pipes automatically. | ✓ |
-| Delete char | Ctrl + D   | Forward-delete one character. Stops at cell boundary; joins sub-lines at `<br/>` in Live Preview. | ✓ |
-| Undo | Ctrl + /   | Undo the last change. | ✓ |
-| Redo | —      | Redo the last undone change. | ✓ |
-| Kill word left | — | Kill from cursor to the start of the previous word. Table-aware: stays within the current cell, no-op at the cell's own edge. | ✓ |
-| Kill word right | — | Kill from cursor to the end of the next word. Table-aware: stays within the current cell, no-op at the cell's own edge. | ✓ |
-| Uppercase word | — | Uppercase the selection, or the whole word at the cursor. Table-aware, CJK-aware. | ✓ |
-| Lowercase word | — | Lowercase the selection, or the whole word at the cursor. Table-aware, CJK-aware. | ✓ |
-| Capitalize word | — | Capitalize the selection (word by word), or the whole word at the cursor. Table-aware, CJK-aware. | ✓ |
-| Transpose chars | — | Swap the two characters around the cursor; at the end of a line or cell, swaps the last two instead. Table-aware, Unicode-safe. | ✓ |
-| Select all | —         | Windows replacement for Select all when Ctrl+A is reassigned to HOME. |  |
+## Editing \{#editing}
 
-## Other hotkeys
+"Kill" is Emacs terminology for a cut operation. This plugin goes through the OS clipboard, so you can copy and paste across other apps too. Content from consecutive kills accumulates in the clipboard and can be pasted all together.
 
-| Command Name | Recommended<br/>Hotkey | Function Summary | Key<br/>Repeat |
-| :--------: | :----------------: | ---------------- | :---: |
-| Recenter-top-bottom | Ctrl + L | Cycle the view so the cursor appears at the center, top, or bottom of the screen on successive presses. Resets on any other action. |  |
-| Recenter | —         | Scroll the view so the cursor line is centered on screen. |  |
+|                                    Command Name                                     | Recommended<br/>Hotkey | Function Summary                                                                                  | Key<br/>Repeat |
+| :------------------------------------------------------------------------------: | :--------------: | ----------------------------------------------------------------------------------------------- | :-------: |
+|         [Kill line](/macos-emacs-style/command-details#kill-line)          |   `Ctrl` + `K`    | Kills from the cursor to the end of the line. At the end of a line, deletes the line break and joins with the next line. Consecutive kills accumulate their content in the clipboard. |     ✓     |
+|       [Kill region](/macos-emacs-style/command-details#kill-region)        |   `Ctrl` + `W`    | Kills the selected region.                                                                        |           |
+|       [Copy region](/macos-emacs-style/command-details#copy-region)        |         —         | Copies the selected region without deleting it.                                                   |           |
+|              [Yank](/macos-emacs-style/command-details#yank)               |   `Ctrl` + `Y`    | Pastes the contents of the OS clipboard.                                                           |     ✓     |
+|       [Delete char](/macos-emacs-style/command-details#delete-char)        |   `Ctrl` + `D`    | Deletes the one character to the right of the cursor.                                             |     ✓     |
+|            [Undo](/macos-emacs-style/command-details#undo-redo)            |   `Ctrl` + `/`    | Undoes the last change.                                                                            |     ✓     |
+|            [Redo](/macos-emacs-style/command-details#undo-redo)            |         —         | Redoes the last undone change.                                                                     |     ✓     |
+| [Kill word left](/macos-emacs-style/command-details#kill-word-left-right)  |         —         | Kills from the cursor to the start of the previous word. Consecutive kills accumulate their content in the clipboard. |     ✓     |
+| [Kill word right](/macos-emacs-style/command-details#kill-word-left-right) |         —         | Kills from the cursor to the end of the next word. Consecutive kills accumulate their content in the clipboard.       |     ✓     |
+|       [Uppercase word](/macos-emacs-style/command-details#word-case)       |         —         | Uppercases the selection, or — if there is no selection — the entire word at the cursor. Word splitting supports CJK (Chinese/Japanese) text. |     ✓     |
+|       [Lowercase word](/macos-emacs-style/command-details#word-case)       |         —         | Lowercases the selection, or — if there is no selection — the entire word at the cursor. Word splitting supports CJK (Chinese/Japanese) text. |     ✓     |
+|      [Capitalize word](/macos-emacs-style/command-details#word-case)       |         —         | Capitalizes the selection word by word, or — if there is no selection — the word at the cursor. Word splitting supports CJK (Chinese/Japanese) text. |     ✓     |
+|   [Transpose chars](/macos-emacs-style/command-details#transpose-chars)    |         —         | Swaps the two characters around the cursor. At the end of a line or cell, swaps the previous two characters instead. Unicode-safe. |     ✓     |
+|        [Select all](/macos-emacs-style/command-details#select-all)         |         —         | A replacement for Select all, intended for Windows, for when `Ctrl` + `A` has been assigned to HOME.       |           |
 
-## Table structure
+## Other hotkeys \{#other-hotkeys}
 
-Not commands this plugin owns — Obsidian's own built-in table-editing commands, listed here (mirroring Hotkey settings below) so they're easy to find and assign a hotkey to.
+|                                      Command Name                                      | Recommended<br/>Hotkey | Function Summary                                                                              | Key<br/>Repeat |
+| :---------------------------------------------------------------------------------: | :--------------: | -------------------------------------------------------------------------------------------- | :-------: |
+| [Recenter-top-bottom](/macos-emacs-style/command-details#recenter-top-bottom) |   `Ctrl` + `L`    | Cycles the display position of the cursor's line between the screen's center, top, and bottom with each press. |           |
+|            [Recenter](/macos-emacs-style/command-details#recenter)            |         —         | Scrolls so the cursor's line is centered on screen.                                           |           |
 
-| Command Name | Recommended<br/>Hotkey | Function Summary |
-| :--------: | :----------------: | ---------------- |
-| Insert row above | — | Inserts a new row above the current one. |
-| Insert row below | — | Inserts a new row below the current one. |
-| Move row up | — | Moves the current row up. |
-| Move row down | — | Moves the current row down. |
-| Duplicate row | — | Duplicates the current row. |
-| Delete row | — | Deletes the current row. |
-| Insert column left | — | Inserts a new column to the left of the current one. |
-| Insert column right | — | Inserts a new column to the right of the current one. |
-| Move column left | — | Moves the current column left. |
-| Move column right | — | Moves the current column right. |
-| Align column left | — | Left-aligns the current column. |
-| Align column center | — | Center-aligns the current column. |
-| Align column right | — | Right-aligns the current column. |
-| Duplicate column | — | Duplicates the current column. |
-| Delete column | — | Deletes the current column. |
-| Insert table | — | Inserts a new table at the cursor — the only one here that also works outside an existing table. |
+## Table structure \{#table-structure}
 
-## Table navigation
+The 16 commands listed here are not commands this plugin owns — they're Obsidian's own built-in table-editing commands, included here for reference. (Same as the Hotkey settings section on the Settings page.)
 
-Six ordinary commands, assignable via **Settings → Hotkeys** or Hotkey settings below. No-op outside a table cell.
+Note that the Command Name column below uses the English-language names. The name actually displayed depends on Obsidian's own language setting.
 
-| Command Name | Recommended<br/>Hotkey | Function Summary | Key<br/>Repeat |
-| :--------: | :----------------: | ---------------- | :---: |
-| Move to cell left | — | Jumps to the adjacent cell to the left, landing at its own content start — no selection is created. Distinct from Obsidian's own built-in `Tab`/`Shift-Tab` cell navigation, which wraps to the next/previous row at a row's own left/right edge (inserting a new row once it runs out of table) and selects the destination cell's entire content. | ✓ |
-| Move to cell right | — | Jumps to the adjacent cell to the right, landing at its own content start — no selection is created. Same distinction from `Tab`/`Shift-Tab` as Move to cell left. | ✓ |
-| Move to cell below | — | Jumps directly to the cell in the row below (same table column), landing at its own content start. | ✓ |
-| Move to cell above | — | Jumps directly to the cell in the row above (same table column), landing at its own content start. | ✓ |
-| Exit table below | — | Exits the table to the line below — distinct from Cursor BOTTOM, which jumps to the whole document's end, not just past this table. | ✓ |
-| Exit table above | — | Exits the table to the line above — distinct from Cursor TOP, which jumps to the whole document's start, not just past this table. | ✓ |
+|     Command Name     | Recommended<br/>Hotkey | Function Summary                                                                        |
+| :-------------------: | :--------------: | ----------------------------------------------------------------------------------------- |
+|   Insert row above    |         —         | Inserts a new row above the current row.                                                  |
+|   Insert row below    |         —         | Inserts a new row below the current row.                                                  |
+|      Move row up      |         —         | Moves the current row up.                                                                 |
+|     Move row down     |         —         | Moves the current row down.                                                               |
+|     Duplicate row     |         —         | Duplicates the current row.                                                               |
+|      Delete row       |         —         | Deletes the current row.                                                                  |
+|  Insert column left   |         —         | Inserts a new column to the left of the current column.                                   |
+|  Insert column right  |         —         | Inserts a new column to the right of the current column.                                  |
+|   Move column left    |         —         | Moves the current column left.                                                            |
+|   Move column right   |         —         | Moves the current column right.                                                           |
+|   Align column left   |         —         | Left-aligns the current column.                                                           |
+|  Align column center  |         —         | Center-aligns the current column.                                                         |
+|  Align column right   |         —         | Right-aligns the current column.                                                          |
+|   Duplicate column    |         —         | Duplicates the current column.                                                            |
+|     Delete column     |         —         | Deletes the current column.                                                               |
+|      Insert table      |         —         | Inserts a new table at the cursor position. The only command listed here that also works outside a table. |
+
+## Table navigation \{#table-navigation}
+
+Commands that only move the cursor between cells. They do nothing outside a table cell.
+
+|                                   Command Name                                   | Recommended<br/>Hotkey | Function Summary                                             | Key<br/>Repeat |
+| :---------------------------------------------------------------------------: | :--------------: | ------------------------------------------------------------ | :-------: |
+| [Move to cell left](/macos-emacs-style/command-details#move-to-cell)  |         —         | Moves to the start of the cell to the left. Unlike `Shift` + `Tab`, doesn't select the destination cell's text.                   |     ✓     |
+| [Move to cell right](/macos-emacs-style/command-details#move-to-cell) |         —         | Moves to the start of the cell to the right. Unlike `Tab`, doesn't select the destination cell's text.                  |     ✓     |
+| [Move to cell below](/macos-emacs-style/command-details#move-to-cell) |         —         | Moves to the start of the cell in the same column, one row down. |     ✓     |
+| [Move to cell above](/macos-emacs-style/command-details#move-to-cell) |         —         | Moves to the start of the cell in the same column, one row up.   |     ✓     |
+|   [Exit table below](/macos-emacs-style/command-details#exit-table)   |         —         | Exits the current table downward.                              |     ✓     |
+|   [Exit table above](/macos-emacs-style/command-details#exit-table)   |         —         | Exits the current table upward.                                |     ✓     |

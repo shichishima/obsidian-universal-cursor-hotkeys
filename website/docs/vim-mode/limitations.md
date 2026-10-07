@@ -2,16 +2,24 @@
 sidebar_position: 3
 title: Vim mode — Limitations
 sidebar_label: Limitations
-description: Known edge cases for Vim mode support — CJK input source conflicts, count-prefix limits, and table-crossing edge cases.
+description: Known limitations of Vim mode — count-prefix movement limits, conflicts with other plugins, and misrecognized key input while a CJK IME is on.
 mode: vim-mode
 ---
-
 # Vim mode — Limitations
 
-- **A CJK input source can corrupt Vim's own key handling — not caused by this plugin:** With a CJK (e.g. romaji-based Japanese) input source active, a single press of a Vim motion key (commonly `g`, `j`, or `k`) can occasionally be misread — e.g. a single `g` behaving like `gg`, or `j`/`k` moving two lines instead of one. This is a known, upstream issue in Obsidian's underlying `codemirror-vim` engine ([issue #178](https://github.com/replit/codemirror-vim/issues/178)) and reproduces identically in vanilla Obsidian Vim mode with this plugin fully disabled. **Workaround:** switch to an ASCII/alphanumeric input source before using Vim motions.
-- **`w`/`b`/`e` cross only one cell/row boundary per count:** A count like `5w` isn't fully precise once it needs to cross more than one cell or row boundary.
-- **`gj`/`gk` do not support count prefixes across a crossing:** A count like `5gj` correctly steps through multiple visual lines within a single cell, but once the count needs to cross a row boundary or enter/exit a table, it stops consuming the count after that first crossing.
-- **Entering a table from plain text always enters the leftmost cell:** `gj`/`gk` moving from a plain-text line into an adjacent table row always enters that row's leftmost cell — Obsidian's Live Preview table widget gives the outer editor no per-character position information for an unfocused table row, so there's no way to tell which cell a given column falls under before landing in one. The column *within* that cell is still preserved, matching row-to-row crossing within a table.
-- **A count-prefixed `$` doesn't cross table rows:** `3$` stays within the current table cell rather than reaching the end of a line further down, the way real vim would outside a table.
-- **For Obsidian's built-in Vim mode specifically:** not intended for use alongside a plugin that replaces or manages Vim's table-cell behavior on its own.
-- **Turning on a toggle overrides your own binding:** if you've already customized one of these keys yourself, its toggle will override that customization while it's on.
+## Table-related
+
+- **A count prefix on `w`/`b`/`e` stops once it crosses a cell or row boundary:** even with a count like `5w`, the remaining count is discarded the moment it crosses a cell or row boundary.
+- **A count prefix on `gj`/`gk` also stops partway once it crosses a row:** likewise, a count like `5gj` moves correctly across multiple visual lines within a single cell, but the remaining count is discarded the moment it crosses a row boundary or enters/exits a table.
+- **A count-prefixed `$` doesn't cross table rows:** `3$` stays within the current cell instead of reaching the end of a line several rows down, the way it would outside a table.
+- **Entering a table from plain text always lands in the leftmost cell:** using `j`/`k`/`gj`/`gk` to move from a plain-text line directly above (or below) a table into that table always lands in that row's leftmost cell. Before the cursor actually lands, Obsidian's Live Preview table widget can't return per-character position information, so there's no way to tell which cell it should enter. It still tries to preserve the cursor's horizontal position as much as possible within the leftmost cell, but it never enters the second cell or beyond (the furthest right it can reach is still the end of the leftmost cell). The cursor's horizontal position from before entering the table is remembered, and continues to be preserved through any up/down movement afterward.
+
+## Settings and other plugins
+
+- **Turning on a settings toggle overrides any custom binding you've already set for the same key:** if you've already customized one of these keys yourself, that customization is overridden while the toggle is ON.
+- **Once the leader key has been `Space`, `Space` on its own loses its original behavior for the rest of the session:** turning on Table structure or Table navigation even briefly removes `Space`'s native "move right" binding until you restart Obsidian. Turning the toggles back off doesn't restore it — pressing `Space` by itself does nothing, the same as while the toggle was on (it no longer inserts a literal space either). Setting the leader key to `\` avoids this entirely. See [Settings](/vim-mode/settings) for details.
+- **Not designed to work alongside a plugin that replaces Vim's own table-cell behavior:** this plugin targets Obsidian's standard, built-in Vim mode specifically.
+
+## Not caused by this plugin
+
+- **A CJK input method (IME) being on can cause Vim's key input to be misread:** with a CJK input method active, pressing a Vim motion key (mainly `g`, `j`, or `k`) just once can sometimes be misread as a repeated key press. For example, pressing `g` once can be treated as `gg`, or `j`/`k` can move two lines instead of one. This is a known issue in the Vim engine Obsidian uses internally (`codemirror-vim`) ([issue #178](https://github.com/replit/codemirror-vim/issues/178)), and it reproduces the same way in Obsidian's standard, built-in Vim mode even with this plugin completely disabled. **Workaround:** switch to an ASCII/alphanumeric input source before using Vim motions.
