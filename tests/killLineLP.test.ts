@@ -100,7 +100,9 @@ const matrix: Group[] = [
 			{ desc: 'first sub-line: cursor at \\n, smartJoin ON → kill \\n + leading space',
 			  head: 2, smartJoin: true,
 			  dispatch: { changes: { from: 2, to: 4, insert: '' }, selection: { anchor: 2 }, userEvent: 'delete' },
-			  killText: '\n' },
+			  // The trimmed leading space is deleted from the cell too, so it
+			  // must be in the kill cache alongside the newline.
+			  killText: '\n ' },
 			{ desc: 'last sub-line: cursor in content → kill to content end',
 			  head: 4,
 			  dispatch: { changes: { from: 4, to: 5, insert: '' }, selection: { anchor: 4 }, userEvent: 'delete' },

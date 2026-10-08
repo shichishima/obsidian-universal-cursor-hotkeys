@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- **Kill line's Smart join no longer strips the next line's leading Markdown when killing from a blank line/in-cell line inside a table:** outside tables, Smart join was already gated on the current line being non-empty — `killLineInTableLP` (Live Preview) and `killLineInTableSourceMode` (Source Mode) had no such guard, so joining from a blank line/sub-line stripped the next line's list marker, blockquote marker, heading, etc., unlike the already-correct outside-table behavior. Both now check the same condition before trimming.
+- **Kill line's Smart join no longer silently drops the trimmed Markdown from the kill cache:** when Smart join strips a next line's leading Markdown while joining after a kill, those characters were deleted from the document but never added to the kill cache — only the newline itself was. Yanking back afterward restored the joined line without that leading Markdown, permanently losing it. The kill cache now includes the trimmed text alongside the newline, in all three Kill line implementations (outside tables, Live Preview cells, Source Mode cells).
+
 ## [0.11.2] - 2026-09-26
 
 ### Fixed
