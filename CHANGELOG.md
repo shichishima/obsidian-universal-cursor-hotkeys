@@ -7,6 +7,10 @@
 - **Kill line's Smart join no longer strips the next line's leading Markdown when killing from a blank line/in-cell line inside a table:** outside tables, Smart join was already gated on the current line being non-empty — `killLineInTableLP` (Live Preview) and `killLineInTableSourceMode` (Source Mode) had no such guard, so joining from a blank line/sub-line stripped the next line's list marker, blockquote marker, heading, etc., unlike the already-correct outside-table behavior. Both now check the same condition before trimming.
 - **Kill line's Smart join no longer silently drops the trimmed Markdown from the kill cache:** when Smart join strips a next line's leading Markdown while joining after a kill, those characters were deleted from the document but never added to the kill cache — only the newline itself was. Yanking back afterward restored the joined line without that leading Markdown, permanently losing it. The kill cache now includes the trimmed text alongside the newline, in all three Kill line implementations (outside tables, Live Preview cells, Source Mode cells).
 
+### Changed
+
+- **No user-visible change:** collapsed all 23 `activeWindow.setTimeout`/`activeWindow.requestAnimationFrame` call sites (across `main.ts` and `vim-support.ts`) into two shared wrapper functions in a new `src/dom-timers.ts`. Obsidian's automated pre-release review flags every such call site, recommending bare `window.*` instead — a false positive for this plugin, since `activeWindow` (not `window`) is required for correct behavior in a popped-out note window (see the 0.11.0 entry below). This reduces the flagged-line count from 23 down to 2 (the wrappers' own bodies) without changing behavior; the two remaining warnings are expected and intentional.
+
 ## [0.11.2] - 2026-09-26
 
 ### Fixed
