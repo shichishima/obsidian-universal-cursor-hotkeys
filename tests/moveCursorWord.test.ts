@@ -227,7 +227,7 @@ describe('moveCursorWordInTable — cell/row crossing', () => {
 		plugin.crossTableRowForWord = vi.fn().mockReturnValue({ line: 1, ch: 3 })
 		const editor = makeEditor([LINE, '| next row here |'], 0, 5)
 		plugin.moveCursorWordInTable(editor, true)
-		expect(plugin.crossTableRowForWord).toHaveBeenCalledWith(editor, 0, true, false, true)
+		expect(plugin.crossTableRowForWord).toHaveBeenCalledWith(editor, 0, true, false, true, true)
 		expect(plugin.setCursorViaCm).toHaveBeenCalledWith(editor, 1, 4)
 		expect(plugin.moveCursorWordPlainText).not.toHaveBeenCalled()
 	})
@@ -236,7 +236,7 @@ describe('moveCursorWordInTable — cell/row crossing', () => {
 		plugin.crossTableRowForWord = vi.fn().mockReturnValue({ line: 1, ch: 5 })
 		const editor = makeEditor([LINE, '| prev row here |'], 0, 2)
 		plugin.moveCursorWordInTable(editor, false)
-		expect(plugin.crossTableRowForWord).toHaveBeenCalledWith(editor, 0, false, false, false)
+		expect(plugin.crossTableRowForWord).toHaveBeenCalledWith(editor, 0, false, false, false, true)
 		expect(plugin.setCursorViaCm).not.toHaveBeenCalled()
 	})
 
