@@ -2640,10 +2640,16 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			// the sub-line after the one being joined was itself blank.
 			const nextSubLine = inner.state.doc.lineAt(subLine.to + 1);
 			const afterNl = inner.state.doc.sliceString(subLine.to + 1, nextSubLine.to);
-			const trimLen = this.settings.smartJoin
+			// Matches killLineNonTable's own "current line must be non-empty"
+			// guard — Smart join shouldn't trim the next sub-line's leading
+			// Markdown when killing from a genuinely blank in-cell line.
+			const trimLen = (this.settings.smartJoin && subLine.text.length > 0)
 				? this.getBeginningOfLinePosition(afterNl, afterNl.length || 1)
 				: 0;
-			this.updateKillCache('\n');
+			// The trimmed leading Markdown (trimLen chars) is deleted from the
+			// cell right alongside the newline below — it must go into the
+			// kill cache too, or Yank can never restore it.
+			this.updateKillCache('\n' + afterNl.slice(0, trimLen));
 			navigator.clipboard.writeText(this.killCache).catch(() => {});
 			this.isDispatchingKill = true;
 			inner.dispatch({ changes: { from: subLine.to, to: subLine.to + 1 + trimLen, insert: '' }, selection: { anchor: subLine.to }, userEvent: 'delete' });
@@ -2674,13 +2680,19 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (brMatch) {
 			const brLen      = '<br>'.length;
 			const afterBr    = lineText.slice(info.endOfInCellLine + brLen);
-			const trimLen    = this.settings.smartJoin
+			// Matches killLineNonTable's own "current line must be non-empty"
+			// guard — Smart join shouldn't trim the next in-cell line's
+			// leading Markdown when killing from a genuinely blank one.
+			const trimLen    = (this.settings.smartJoin && !info.isEmpty)
 				? this.getBeginningOfLinePosition(afterBr, afterBr.length || 1)
 				: 0;
 			const toCh       = info.endOfInCellLine + brLen + trimLen;
 			const targetCh   = info.endOfInCellLine;
 			const targetLine = cursor.line;
-			this.updateKillCache('\n');
+			// The trimmed leading Markdown (trimLen chars) is deleted from the
+			// cell right alongside the <br> below — it must go into the kill
+			// cache too, or Yank can never restore it.
+			this.updateKillCache('\n' + afterBr.slice(0, trimLen));
 			navigator.clipboard.writeText(this.killCache).catch(() => {});
 			this.isDispatchingKill = true;
 			editor.setLine(targetLine, lineText.slice(0, targetCh) + lineText.slice(toCh));
@@ -2737,7 +2749,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const joinTrimLen = (this.settings.smartJoin && lineText.length > 0)
 			? this.getBeginningOfLinePosition(nextLineText, nextLineText.length || 1)
 			: 0;
-		this.updateKillCache('\n');
+		// Smart join's own trimmed leading Markdown (joinTrimLen chars) is
+		// deleted from the document right alongside the newline below — it
+		// must go into the kill cache too, or Yank can never restore it.
+		this.updateKillCache('\n' + nextLineText.slice(0, joinTrimLen));
 		navigator.clipboard.writeText(this.killCache).catch(() => {});
 		this.isDispatchingKill = true;
 		editor.replaceRange('', { line: cursor.line, ch: lineText.length }, { line: cursor.line + 1, ch: joinTrimLen });
