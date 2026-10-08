@@ -4,6 +4,7 @@ import { VimSupport } from './vim-support';
 import { InCellLineInfo, getCellBounds, getStartOfCellContent, getEndOfCellContent,
 	getEndOfCellContentByCellIndex, getRightmostCellIndex, getCellIndex, getChByCellIndex,
 	getInCellLineInfo } from './table-cell-utils';
+import { setTimeoutOnActiveWindow, requestAnimationFrameOnActiveWindow } from './dom-timers';
 import { syntaxTree } from '@codemirror/language';
 import { EditorView } from "@codemirror/view";
 import { EditorSelection, Transaction, findClusterBreak } from '@codemirror/state';
@@ -1705,7 +1706,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Used after synchronous cursor placement to let the DOM settle first.
 	private scheduleBottomVisualLine(editor: Editor, pixelGoal: number | null = null) {
 		if (this._inScrollPage) return;
-		activeWindow.setTimeout(() => {
+		setTimeoutOnActiveWindow(() => {
 			if (editor.inTableCell) {
 				this.moveToBottomVisualLineOfCell(editor);
 				this.applyRowCrossGoalColumnSync(editor, pixelGoal);
@@ -1872,8 +1873,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// there is no public Obsidian API to await that reconciliation directly.
 	private applyRowCrossGoalColumnSync(editor: Editor, pixelGoal: number | null) {
 		if (pixelGoal === null) return;
-		activeWindow.requestAnimationFrame(() => {
-			activeWindow.requestAnimationFrame(() => {
+		requestAnimationFrameOnActiveWindow(() => {
+			requestAnimationFrameOnActiveWindow(() => {
 				const viewBeforeRefine = editor.activeCM;
 				const headBeforeRefine = viewBeforeRefine.state.selection.main.head;
 				const assocBeforeRefine = viewBeforeRefine.state.selection.main.assoc;
@@ -1949,7 +1950,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 		if (this._inScrollPage) return;
-		activeWindow.setTimeout(() => {
+		setTimeoutOnActiveWindow(() => {
 			if (editor.inTableCell) {
 				this.applyRowCrossGoalColumnSync(editor, pixelGoal);
 			}
@@ -2227,16 +2228,16 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const watchNormalization = () => {
 			if (this._scrollPageGenId !== genId) return;
 			if (cm.state.selection.main.head !== savedHead) {
-				activeWindow.setTimeout(() => {
+				setTimeoutOnActiveWindow(() => {
 					if (this._scrollPageGenId !== genId) return;
 					cm.dispatch({ selection: { anchor: savedHead, head: savedHead } });
 					this.scrollToCursorAtY(editor, prevScreenY);
 				}, 100);
 				return;
 			}
-			if (++frames < 5) activeWindow.requestAnimationFrame(watchNormalization);
+			if (++frames < 5) requestAnimationFrameOnActiveWindow(watchNormalization);
 		};
-		activeWindow.requestAnimationFrame(watchNormalization);
+		requestAnimationFrameOnActiveWindow(watchNormalization);
 	}
 
 
@@ -2272,7 +2273,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			// in Kill Line), Obsidian skips auto-focus.  Transfer focus explicitly in
 			// the next frame to cover that case without risking destroying the inner view.
 			if (!this._inScrollPage) {
-				activeWindow.requestAnimationFrame(() => {
+				requestAnimationFrameOnActiveWindow(() => {
 					const inner = editor.activeCM;
 					if (inner && inner !== cm && !inner.hasFocus) {
 						inner.focus();
@@ -2292,8 +2293,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// every other "wait for Obsidian's async cell-focus reconciliation to
 	// settle" spot in this codebase. No-op outside a table cell.
 	private nudgeInnerViewVisible(editor: Editor) {
-		activeWindow.requestAnimationFrame(() => {
-			activeWindow.requestAnimationFrame(() => {
+		requestAnimationFrameOnActiveWindow(() => {
+			requestAnimationFrameOnActiveWindow(() => {
 				const inner = editor.activeCM;
 				if (inner && inner !== editor.cm) {
 					const head = inner.state.selection.main.head;
@@ -2697,7 +2698,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			this.isDispatchingKill = true;
 			editor.setLine(targetLine, lineText.slice(0, targetCh) + lineText.slice(toCh));
 			this.isDispatchingKill = false;
-			activeWindow.setTimeout(() => {
+			setTimeoutOnActiveWindow(() => {
 				this.isDispatchingKill = true;
 				this.setCursorViaCm(editor, targetLine, targetCh);
 				this.isDispatchingKill = false;
@@ -2717,7 +2718,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			this.isDispatchingKill = true;
 			editor.setLine(targetLine, lineText.slice(0, brStart) + lineText.slice(cursor.ch));
 			this.isDispatchingKill = false;
-			activeWindow.setTimeout(() => {
+			setTimeoutOnActiveWindow(() => {
 				this.isDispatchingKill = true;
 				this.setCursorViaCm(editor, targetLine, brStart);
 				this.isDispatchingKill = false;
@@ -3335,7 +3336,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			const scrollEl      = editor.cm?.scrollDOM;
 			const savedScroll   = scrollEl?.scrollTop;
 			editor.setLine(targetLine, prefix + text + suffix);
-			activeWindow.setTimeout(() => {
+			setTimeoutOnActiveWindow(() => {
 				if (scrollEl && savedScroll !== undefined) scrollEl.scrollTop = savedScroll;
 				this.setCursorViaCm(editor, targetLine, targetCh);
 			}, 0);

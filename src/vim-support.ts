@@ -2,6 +2,7 @@ import { findClusterBreak } from '@codemirror/state';
 import { getCellIndex, getChByCellIndex } from './table-cell-utils';
 import { getWordSpans } from './word-segmentation';
 import { exitTable, jumpAdjacentCell } from './table-navigation';
+import { setTimeoutOnActiveWindow, requestAnimationFrameOnActiveWindow } from './dom-timers';
 
 // Obsidian's built-in Vim mode (codemirror-vim) — not exposed in obsidian.d.ts.
 interface VimPos { line: number; ch: number }
@@ -1174,7 +1175,7 @@ export class VimSupport {
 	// crossing a view boundary from inside vim.js's own synchronous motion
 	// call previously crashed clipCursorToContent.
 	private scheduleWordCrossing(forward: boolean, bigWord: boolean, wordEnd: boolean): void {
-		activeWindow.setTimeout(() => {
+		setTimeoutOnActiveWindow(() => {
 			const editor = getActiveEditor();
 			if (!editor || !editor.inTableCell) return;
 			const cellIndex = VimSupport.currentCellIndex() ?? getCellIndex(editor.getLine(editor.getCursor().line), editor.getCursor().ch);
@@ -1255,7 +1256,7 @@ export class VimSupport {
 	};
 
 	private scheduleDocumentEdgeJump(forward: boolean, explicitLine: number | null): void {
-		activeWindow.setTimeout(() => {
+		setTimeoutOnActiveWindow(() => {
 			const editor = getActiveEditor();
 			if (!editor) return;
 			this.host.jumpToDocumentLine(editor, forward, explicitLine);
@@ -1851,7 +1852,7 @@ export class VimSupport {
 	// for single-row crossing, including entering/exiting the table entirely, and
 	// (via overshoot) multi-row crossing for count-prefixed motions.
 	private scheduleRowCrossing(forward: boolean, goalHPos: number, goalHSPos: number, goalCellIndex: number | null, overshoot: number): void {
-		activeWindow.setTimeout(() => {
+		setTimeoutOnActiveWindow(() => {
 			const editor = getActiveEditor();
 			if (!editor || !editor.inTableCell) return;
 			// goalCellIndex should already be non-null here (we're crossing *from*
@@ -1864,7 +1865,7 @@ export class VimSupport {
 			// editor.activeCM reports in this same setTimeout tick — reading it here
 			// risks resyncing against a transient view that isn't what vim.js will
 			// actually hand the next motion call.
-			activeWindow.requestAnimationFrame(() => {
+			requestAnimationFrameOnActiveWindow(() => {
 				this.resyncAfterDeferredMove(editor, landedOuter, goalHPos, goalHSPos, cellIndex);
 			});
 		}, 0);
@@ -1875,7 +1876,7 @@ export class VimSupport {
 	// setTimeout for the same reason as scheduleRowCrossing — entering a table
 	// cell is itself a view-boundary crossing, carrying the same crash risk.
 	private scheduleTableEntry(targetLine: number, forward: boolean, goalHPos: number, goalHSPos: number, goalCellIndex: number | null, remaining: number): void {
-		activeWindow.setTimeout(() => {
+		setTimeoutOnActiveWindow(() => {
 			const editor = getActiveEditor();
 			if (!editor) return;
 			// Note: by the time this fires, editor.inTableCell is likely already
@@ -1894,7 +1895,7 @@ export class VimSupport {
 			const landedOuter = this.host.enterTableAtLine(editor, targetLine, cellIndex, forward, goalHPos, remaining);
 			// See scheduleRowCrossing's own comment on why this read is deferred an
 			// extra frame past the RAF-based focus-transfer fallback.
-			activeWindow.requestAnimationFrame(() => {
+			requestAnimationFrameOnActiveWindow(() => {
 				this.resyncAfterDeferredMove(editor, landedOuter, goalHPos, goalHSPos, cellIndex);
 			});
 		}, 0);
@@ -2273,7 +2274,7 @@ export class VimSupport {
 	// *second* setCursorViaCm call to pixel-correct it. Never a separate raw
 	// EditorView.dispatch — see this override's own class comment for why.
 	private scheduleDisplayLineCrossing(forward: boolean, goalHSPos: number, goalCellIndex: number | null): void {
-		activeWindow.setTimeout(() => {
+		setTimeoutOnActiveWindow(() => {
 			const editor = getActiveEditor();
 			if (!editor || !editor.inTableCell) return;
 			const cellIndex = goalCellIndex ?? getCellIndex(editor.getLine(editor.getCursor().line), editor.getCursor().ch);
@@ -2311,7 +2312,7 @@ export class VimSupport {
 	// Single-row precision only (remaining=0), matching
 	// crossTableRowForCell's own scope cut above.
 	private scheduleDisplayLineEntry(targetLine: number, forward: boolean, goalHSPos: number, goalCellIndex: number | null): void {
-		activeWindow.setTimeout(() => {
+		setTimeoutOnActiveWindow(() => {
 			const editor = getActiveEditor();
 			if (!editor) return;
 			// See scheduleTableEntry's own identical check: confirms targetLine
@@ -2345,8 +2346,8 @@ export class VimSupport {
 		// confirmed via popout-window diagnostic logging that anything less doesn't
 		// reliably wait long enough for the rough landing's own freshly-created
 		// inner view to settle before refineDisplayLineColumn reads its selection).
-		activeWindow.requestAnimationFrame(() => {
-			activeWindow.requestAnimationFrame(() => {
+		requestAnimationFrameOnActiveWindow(() => {
+			requestAnimationFrameOnActiveWindow(() => {
 				const refined = this.host.refineDisplayLineColumn(editor, goalHSPos);
 				// refined.ch is in *outer* (raw markdown) coordinates — e.g. it
 				// includes the cell's own "| " row-prefix — but goalHPos must be
