@@ -67,7 +67,14 @@ export function exitTable(editor: TableNavEditor, host: TableNavHost, forward: b
 		// inTableCell to false nor move visible DOM focus across this
 		// specific boundary, unlike jumpAdjacentCell's own cell-to-cell
 		// landings below (which never leave the table and work fine with it).
-		host.setCursorAcrossTableBoundary(editor, line, host.getBeginningOfLinePosition(text, 1));
+		// text.length (not a hardcoded 1) so the skip check can actually
+		// succeed against a real Markdown prefix — matches the established
+		// pattern at every other getBeginningOfLinePosition call site (e.g.
+		// Kill line's Smart join). A hardcoded 1 defeats the skip for any
+		// realistic prefix (list marker, blockquote, heading, indent — all
+		// ≥1 char), making this landing indistinguishable from Smart Home
+		// being off entirely.
+		host.setCursorAcrossTableBoundary(editor, line, host.getBeginningOfLinePosition(text, text.length || 1));
 		return;
 	}
 	if (forward) {

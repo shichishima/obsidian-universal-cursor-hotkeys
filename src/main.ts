@@ -351,7 +351,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
 				if (this.isComposing(editor)) return;
-				if (editor.inTableCell) exitTable(editor, this, true);
+				const inSourceTable = this.isSourceModeTableLine(editor.getLine(editor.getCursor().line));
+				if (editor.inTableCell || inSourceTable) exitTable(editor, this, true);
 			}
 		});
 
@@ -361,7 +362,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
 				if (this.isComposing(editor)) return;
-				if (editor.inTableCell) exitTable(editor, this, false);
+				const inSourceTable = this.isSourceModeTableLine(editor.getLine(editor.getCursor().line));
+				if (editor.inTableCell || inSourceTable) exitTable(editor, this, false);
 			}
 		});
 
@@ -2386,6 +2388,15 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private isTableLineSourceMode(line: string): boolean {
 		const trimmed = line.trimEnd();
 		return trimmed.startsWith('|') && trimmed.endsWith('|');
+	}
+
+	// VimSupportHost's own exposed version of the isLivePreviewMode() +
+	// isTableLineSourceMode() combo every Source-Mode-aware command in this
+	// file already repeats inline — vim-support.ts has no direct access to
+	// either private method, and tx/tX (tableExitDown/tableExitUp) are its
+	// first callers that need this check.
+	isSourceModeTableLine(line: string): boolean {
+		return !this.isLivePreviewMode() && this.isTableLineSourceMode(line);
 	}
 
 

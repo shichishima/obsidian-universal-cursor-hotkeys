@@ -40,7 +40,10 @@ describe('exitTable', () => {
 		// (confirmed live that setCursor + focus(), in either order, does not
 		// reliably transition inTableCell/DOM focus across this boundary).
 		expect(host.setCursorAcrossTableBoundary).toHaveBeenCalledWith(editor, 3, 3)
-		expect(host.getBeginningOfLinePosition).toHaveBeenCalledWith('plain text', 1)
+		// text.length (10), not a hardcoded 1 — see table-navigation.ts's own
+		// doc comment: a hardcoded 1 defeats the Smart Home skip check for
+		// any realistic Markdown prefix.
+		expect(host.getBeginningOfLinePosition).toHaveBeenCalledWith('plain text', 10)
 		expect(editor.setCursor).not.toHaveBeenCalled()
 	})
 
