@@ -2517,12 +2517,16 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		});
 	}
 
-	// Table-aware wrapper around CM6's own transposeChars: cell/<br>-segment
-	// boundaries are hard stops (unlike Word right/case conversion) since
-	// transpose swaps arbitrary adjacent characters — if either one happened to
-	// be `|` or part of a `<br>` tag, the swap would corrupt table structure.
-	// At a segment's own end, falls back to swapLastTwoInRange instead of a
-	// plain no-op, matching real Emacs's end-of-line special case.
+	// Table-aware wrapper around CM6's own transposeChars: only the true cell
+	// boundary (`|`) is a hard stop — a `<br>` (in-cell line) boundary is
+	// crossable, same as every other command's convention that <br>-separated
+	// in-cell lines behave like plain-text lines within the same cell. `<br>`
+	// itself is swapped as one atomic 4-character unit (never partially), the
+	// same way a real `\n` is treated as one atomic unit when transposeChars
+	// crosses a line boundary outside a table — e.g. "A<br>B<br>C" with the
+	// cursor at the start of "B" becomes "AB<br><br>C". At a segment's own
+	// end, falls back to swapLastTwoInRange instead of a plain no-op, matching
+	// real Emacs's end-of-line special case.
 	private transposeChars(editor: Editor) {
 		if (editor.inTableCell) {
 			this.transposeCharsInTableLP(editor);
@@ -2557,7 +2561,14 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const head = inner.state.selection.main.head;
 		const subLine = inner.state.doc.lineAt(head);
 
-		if (head === subLine.from) return; // segment start: no-op, no special case here
+		// Only the inner document's very first line's own start (head === 0)
+		// is the true cell boundary (right after the opening |) — a hard
+		// wall. Every other sub-line's start is a <br> boundary: the inner
+		// view already represents each <br>-delimited in-cell line as a real
+		// CM6 line, so falling through to CM6's own transposeChars below
+		// just crosses that real \n, same as crossing any other line
+		// boundary in plain text.
+		if (head === subLine.from && subLine.number === 1) return;
 		if (head === subLine.to) {
 			this.swapLastTwoInRange(inner, subLine.from, subLine.to);
 			return;
@@ -2566,11 +2577,41 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 	private transposeCharsInTableSource(editor: Editor, info: InCellLineInfo) {
-		const cursor = editor.getCursor();
-		if (info.isEmpty || cursor.ch <= info.startOfInCellLine) return; // segment start: no-op
+		if (info.isEmpty) return; // empty in-cell line: no-op, matches the plain-text empty-line case
 
+		const cursor = editor.getCursor();
 		const cm = editor.cm;
 		if (!cm) return;
+
+		if (cursor.ch <= info.startOfInCellLine) {
+			// 'single'/'first': nothing precedes this in-cell line but the
+			// cell's own opening `|` — a genuine hard wall, matching Kill
+			// word's/multi-cell selection's established cell-scoping rule.
+			if (info.lineType === 'single' || info.lineType === 'first') return;
+
+			// 'middle'/'last': a <br> tag immediately precedes this in-cell
+			// line. Swap the whole 4-character tag (never partially) with the
+			// following grapheme cluster — see this function's own doc
+			// comment above for the worked example.
+			const lineText  = editor.getLine(cursor.line);
+			const brStart   = info.startOfInCellLine - 4; // '<br>' (any case) is always exactly 4 chars
+			const brTag     = lineText.slice(brStart, info.startOfInCellLine);
+			const after     = lineText.slice(info.startOfInCellLine);
+			const clusterEnd = findClusterBreak(after, 0);
+			const firstCluster = after.slice(0, clusterEnd);
+
+			const cmLine = cm.state.doc.line(cursor.line + 1);
+			cm.dispatch({
+				changes: {
+					from: cmLine.from + brStart,
+					to: cmLine.from + info.startOfInCellLine + clusterEnd,
+					insert: firstCluster + brTag,
+				},
+				selection: { anchor: cmLine.from + brStart + firstCluster.length + brTag.length },
+				userEvent: 'move.character',
+			});
+			return;
+		}
 
 		if (cursor.ch >= info.endOfInCellLine) {
 			const cmLine = cm.state.doc.line(cursor.line + 1);
