@@ -1,6 +1,10 @@
 # Universal Cursor Hotkeys — CJK-aware word navigation inside Obsidian's Markdown tables, with full Vim mode support
 Your everyday arrow keys, Home/End, Page Up/Down, and word movement work smarter around Live Preview's Markdown tables, and handle CJK (Chinese/Japanese) text just as well. Vim mode and macOS-style (Emacs) keybindings get the same upgrade.
 
+📖 **[Full documentation (English)](https://shichishima.github.io/obsidian-universal-cursor-hotkeys/)** ·
+  [简体中文](https://shichishima.github.io/obsidian-universal-cursor-hotkeys/zh/) ·
+  [日本語](https://shichishima.github.io/obsidian-universal-cursor-hotkeys/ja/)
+
 <img width="688" height="387" alt="Side-by-side demo: standard Obsidian vs. Universal Cursor Hotkeys navigating Markdown tables and CJK text" src="https://github.com/user-attachments/assets/b85426e8-e8be-451a-9766-fff410cb634e" />
 
 ## Overview
@@ -27,7 +31,7 @@ You don't need Vim mode or Emacs-style keybindings to benefit from this plugin.
 
 **Getting started:** Open **Settings → Universal Cursor Hotkeys → For everyone** and click **Apply all**.
 
-<img width="600" height="467" alt="For everyone settings tab, with the Apply all button highlighted" src="https://github.com/user-attachments/assets/44085eab-9e76-402c-a39d-f3aaa3a17756" />
+<img width="600" height="342" alt="For everyone settings tab, with the Apply all button highlighted" src="https://github.com/user-attachments/assets/408de3d4-d2e7-48e9-8083-719c773da77b" />
 
 **What it does:**
 - **↑ / ↓** — column-aware: keeps your column position across table rows instead of snapping to a cell's start.
