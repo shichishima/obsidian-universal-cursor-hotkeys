@@ -301,6 +301,12 @@ export interface VimSupportHost {
 	// Full (syntax-tree-based) table-membership check — confirms a cheap textual
 	// pre-filter before committing to a table-entry landing (see scheduleTableEntry).
 	isLinePartOfTable(editor: unknown, line: number, ch: number): boolean;
+	// Source Mode's own table-row check (not a syntax-tree lookup — plain
+	// text, mirrors isTableLineSourceMode()+isLivePreviewMode() already
+	// repeated inline at every Source-Mode-aware command in main.ts). Used
+	// by tableExitDown/tableExitUp (tx/tX) below, which — unlike the rest of
+	// this file's table motions — aren't gated on inTableCell alone.
+	isSourceModeTableLine(line: string): boolean;
 	// Lands on cellIndex's <br>-segment at goalCh, remaining logical lines in from
 	// targetLine's own first/last segment (0 = that edge segment itself; walks
 	// further rows if remaining doesn't fit within targetLine's own cell) — for
@@ -737,13 +743,17 @@ export class VimSupport {
 	// wrappers, matching every other gated table command's own shape.
 	private readonly tableExitDown: VimActionFn = () => {
 		const editor = getActiveEditor();
-		if (!editor?.inTableCell) return;
+		if (!editor) return;
+		const inSourceTable = this.host.isSourceModeTableLine(editor.getLine(editor.getCursor().line));
+		if (!editor.inTableCell && !inSourceTable) return;
 		exitTable(editor, this.host, true);
 	};
 
 	private readonly tableExitUp: VimActionFn = () => {
 		const editor = getActiveEditor();
-		if (!editor?.inTableCell) return;
+		if (!editor) return;
+		const inSourceTable = this.host.isSourceModeTableLine(editor.getLine(editor.getCursor().line));
+		if (!editor.inTableCell && !inSourceTable) return;
 		exitTable(editor, this.host, false);
 	};
 
