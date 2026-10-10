@@ -215,6 +215,28 @@ describe('moveByDisplayLines: inside a table cell', () => {
 		expect(host.refineDisplayLineColumn).toHaveBeenCalledWith(expect.anything(), 10 /* goalHSPos = ch1 * 10 */)
 	})
 
+	it('regression: a genuine exit resyncs with Infinity for a sticky `$` goal, matching every other sentinel-propagation site in this file — confirmed live that an earlier version of this fix (deferring the same two full frames an in-table landing needs for a freshly-mounted inner view to settle, which a genuine exit never has) opened a real race where a fast next keystroke read stale continuity state before this crossing\'s own resync had a chance to run, causing the column to silently drift on a differently-shaped destination line', () => {
+		const editor = makeCellEditor({ line: 5, ch: 9 }, makeInner(['aaa'], 1))
+		const host = makeHost({
+			crossTableRowForCell: vi.fn(() => {
+				editor.inTableCell = false
+				return { line: 6, ch: 0 }
+			}),
+			refineDisplayLineColumn: vi.fn().mockReturnValue({ line: 6, ch: 4 }),
+		})
+		const vim = new VimSupport(host) as any
+		const resyncSpy = vi.spyOn(vim, 'resyncAfterDeferredMove')
+		win = installVimWindow(editor)
+		const cm = { getLine: () => 'aaa', lastLine: () => 0, charCoords: (pos: { ch: number }) => ({ left: pos.ch * 10 }) }
+		const vimState: any = { lastHPos: Infinity, lastHSPos: (VimSupport as any).STICKY_EOL_PIXEL_SENTINEL, lastMotion: vim.moveToEol }
+		vim.moveByDisplayLines(cm, { line: 0, ch: 1 }, { forward: true, repeat: 1 }, vimState)
+		win.flush()
+		expect(host.refineDisplayLineColumn).toHaveBeenCalled()
+		expect(resyncSpy).toHaveBeenCalledWith(
+			expect.anything(), { line: 6, ch: 4 }, Infinity, (VimSupport as any).STICKY_EOL_PIXEL_SENTINEL, expect.anything(),
+		)
+	})
+
 	it('regression: exiting the table preserves the viewport-relative pixel goal (not discarded, not left unconverted) — a later gj/gk continuing in plain text converts it via a same-reference-point offset, using *that* call\'s own guaranteed-valid vcm', () => {
 		// Reported live: right after exiting a table, the column was correct,
 		// but a *second* gj/gk continuing in plain text lost the column badly
