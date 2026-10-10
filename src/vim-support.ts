@@ -2443,6 +2443,30 @@ export class VimSupport {
 			// visual line).
 			const roughLanding = this.host.crossTableRowForCell(editor, cellIndex, forward, forward ? 0 : Number.MAX_SAFE_INTEGER, 1);
 			if (!roughLanding) return;
+			if (!editor.inTableCell) {
+				// Genuine exit into plain text: unlike an in-table landing, the
+				// destination here is an already-existing outer view, not a
+				// freshly-mounted inner cell view — there's no "wait for a new
+				// view to render" reason to defer this the same two full frames
+				// scheduleDisplayLineRefinement needs for that case. Confirmed
+				// live that deferring anyway opened a real race: a fast next
+				// keystroke could run before this crossing's own resync had a
+				// chance to re-seed this.goalHSPos/goalHSPosNeedsDivConversion,
+				// silently falling back to a small, freshly-computed value
+				// instead of the preserved curswant — visible as the cursor's
+				// column drifting on that next gj/gk, non-deterministically
+				// depending on how fast the two keystrokes were pressed. One
+				// frame (not two) still gives the rough landing's own dispatch
+				// a real paint/layout pass before refineDisplayLineColumn reads
+				// coordsAtPos/posAtCoords against it.
+				requestAnimationFrameOnActiveWindow(() => {
+					const refined = this.host.refineDisplayLineColumn(editor, goalHSPos);
+					let goalHPos = refined?.ch ?? 0;
+					if (goalHSPos === VimSupport.STICKY_EOL_PIXEL_SENTINEL) goalHPos = Infinity;
+					this.resyncAfterDeferredMove(editor, refined, goalHPos, goalHSPos, cellIndex);
+				});
+				return;
+			}
 			this.scheduleDisplayLineRefinement(editor, goalHSPos, cellIndex);
 		}, 0);
 	}
