@@ -192,16 +192,23 @@ describe('moveByDisplayLines: plain text', () => {
 			expect(host.refineDisplayLineColumn).not.toHaveBeenCalled()
 		})
 
-		it('`$` sticky goal entry re-seeds goalHSPos/vim.lastHSPos with the pixel sentinel (not null) so stickiness survives into whatever gj/gk does next inside the table', () => {
-			// Regression: passing null here does NOT make a later gj/gk
-			// recompute a fresh pixel goal on its own — vim.js's own
+		it('`$` sticky goal entry re-seeds BOTH goalHPos (Infinity) and goalHSPos/vim.lastHSPos (the pixel sentinel) — not the rough landing\'s own concrete ch, and not null — so stickiness survives into whatever gj/gk OR a plain j/k does next inside the table', () => {
+			// Regression (pixel side): passing null does NOT make a later
+			// gj/gk recompute a fresh pixel goal on its own — vim.js's own
 			// external-selection handling (triggered by this landing's own
 			// dispatch) silently re-seeds vim.lastHSPos with a concrete
 			// measurement of wherever the cursor actually landed instead,
 			// which only coincidentally happened to still exceed one short
 			// intermediate segment's own width before failing outright on a
-			// longer one. Confirmed live — see scheduleDisplayLineEntry's
-			// own doc comment for the full trace.
+			// longer one.
+			// Regression (ch side): passing the rough landing's own
+			// concrete ch (not Infinity) broke a later PLAIN j/k switching
+			// away from gj/gk right after this entry (e.g.
+			// $ -> gk -> gk -> k) — it read that concretized ch instead of
+			// Infinity, clamping against a small number left over from an
+			// earlier, shorter segment rather than the next segment's own
+			// true end. Confirmed live both ways — see
+			// scheduleDisplayLineEntry's own doc comment for the full trace.
 			const host = makeHost({
 				isLinePartOfTable: vi.fn().mockReturnValue(true),
 				enterTableAtLine: vi.fn().mockReturnValue({ line: 2, ch: 12 }),
@@ -214,7 +221,7 @@ describe('moveByDisplayLines: plain text', () => {
 			vimLocal.moveByDisplayLines(cm, { line: 1, ch: 0 }, { forward: true, repeat: 1 }, vimState)
 			win.flush()
 			expect(resyncSpy).toHaveBeenCalledWith(
-				expect.anything(), { line: 2, ch: 12 }, 12, (VimSupport as any).STICKY_EOL_PIXEL_SENTINEL, 1,
+				expect.anything(), { line: 2, ch: 12 }, Infinity, (VimSupport as any).STICKY_EOL_PIXEL_SENTINEL, 1,
 			)
 		})
 

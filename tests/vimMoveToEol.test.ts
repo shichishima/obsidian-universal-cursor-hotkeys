@@ -112,7 +112,7 @@ describe('Vim $ (moveToEol)', () => {
 		expect(vim.goalHSPosNeedsDivConversion).toBe(false)
 	})
 
-	it('inside a table cell, still sets goalHSPos/vim.lastHSPos to the actual concrete pixel measurement (via the inner view) — the sentinel is plain-text only (table-cell gj/gk crossing/entry has its own separate, narrower sticky-goal handling)', () => {
+	it('inside a table cell, ALSO sets goalHSPos/vim.lastHSPos to the pixel sentinel, not a concrete measurement — an earlier version of this fix scoped the sentinel to plain text only, but that was live-confirmed wrong (see STICKY_EOL_PIXEL_SENTINEL\'s own doc comment): a concrete in-cell measurement carried through a plain j/k press in between still broke a later gj/gk landing on a differently-shaped segment', () => {
 		const { cm } = makeCmAndEditor()
 		const innerCoordsAtPos = vi.fn().mockReturnValue({ left: 999 })
 		const editor: FakeEditor = {
@@ -125,9 +125,9 @@ describe('Vim $ (moveToEol)', () => {
 		const vim = new VimSupport(makeHost()) as any
 		const vimState: any = { lastHPos: 0, lastHSPos: 0, lastMotion: null }
 		vim.moveToEol(cm, { line: 0, ch: 2 }, { forward: true, repeat: 1 }, vimState)
-		expect(innerCoordsAtPos).toHaveBeenCalled()
-		expect(vim.goalHSPos).toBe(999)
-		expect(vimState.lastHSPos).toBe(999)
+		expect(innerCoordsAtPos).not.toHaveBeenCalled()
+		expect(vim.goalHSPos).toBe((VimSupport as any).STICKY_EOL_PIXEL_SENTINEL)
+		expect(vimState.lastHSPos).toBe((VimSupport as any).STICKY_EOL_PIXEL_SENTINEL)
 	})
 
 	it('does not gate its own goal-tracking on an operator being pending (D/C share this motion, and real vim.js\'s own moveToEol never checks it either)', () => {
