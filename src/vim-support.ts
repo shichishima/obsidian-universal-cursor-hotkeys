@@ -1517,6 +1517,20 @@ export class VimSupport {
 	// but kept in sync so a *future* gj/gk override can carry a valid pixel
 	// goal across the same view boundaries this field already handles for ch.
 	private goalHSPos: number | null = null;
+	// Plain-text `$` pixel sentinel (see moveToEol's own doc comment for the
+	// full rationale) — large enough that no real line's rendered width can
+	// ever reach it (clamping to that line's own true end instead), but NOT
+	// Number.MAX_SAFE_INTEGER: confirmed live that vim.js's own findPosV
+	// doesn't clamp a value that astronomically large the way posAtCoords
+	// elsewhere in this codebase does — it instead lands at ch 0, as if the
+	// pixel-to-position lookup (likely a DOM-coordinate-based one, given the
+	// failure mode) treats a value that far outside any plausible viewport
+	// as unresolvable and falls back to a degenerate zero position. This
+	// value is still far larger than any realistic rendered line (100,000px
+	// at even a generous 20px/char is a 5,000-character single visual line)
+	// while staying within whatever range findPosV's own internal lookup
+	// actually tolerates.
+	private static readonly STICKY_EOL_PIXEL_SENTINEL = 100000;
 	// Set only by resyncAfterDeferredMove's own genuine-exit case (see its own
 	// comment): true means this.goalHSPos is still expressed in the *inner*
 	// (viewport-relative, raw-CM6-coordsAtPos) space it had while crossing
@@ -1622,6 +1636,25 @@ export class VimSupport {
 		const goalCellIndex = continuing && this.goalCellIndex !== null
 			? this.goalCellIndex
 			: VimSupport.currentCellIndex();
+		// Whether the *incoming* pixel goal (not this motion's own ch-based
+		// goalHPos, which a table entry's own resync deliberately concretizes
+		// — see scheduleDisplayLineEntry's own doc comment) was ALREADY the
+		// sticky-EOL sentinel before this call. goalHPos itself can't be used
+		// as that signal once inside a table — entering it (sticky or not)
+		// always leaves goalHPos concrete afterward, by design, so a plain
+		// `j`/`k` crossing still lands at the exact right ch. Checking the
+		// pixel field's own incoming value instead survives that
+		// ch-concretizing step, so a `j`/`k` press interleaved into a
+		// $-then-gj/gk chain keeps propagating the pixel sentinel forward
+		// for whichever gj/gk comes after it — same priority order as every
+		// other continuity field here. Confirmed live this is necessary:
+		// $ -> gk -> k -> gk stopped reaching each line's own true end on
+		// the final gk without this, even though the ch-based tail fix
+		// just below (sentinel propagation keyed off goalHPos===Infinity)
+		// looked sufficient on paper.
+		const incomingIsStickyEolPixel =
+			(externalContinuing && this.goalHSPos === VimSupport.STICKY_EOL_PIXEL_SENTINEL) ||
+			(nativeContinuing && vim?.lastHSPos === VimSupport.STICKY_EOL_PIXEL_SENTINEL);
 
 		const lastLine = vcm.lastLine();
 
@@ -1763,8 +1796,28 @@ export class VimSupport {
 			// identical call sites) — an unclamped wide goal here crashes
 			// coordsAtPos with "No tile at position N" once it genuinely
 			// exceeds the landed line's length.
+			//
+			// Sticky `$` goal: keep gj/gk's own pixel tracking in sync with
+			// the same sticky semantics (incomingIsStickyEolPixel, computed
+			// above — see its own doc comment for why this, not
+			// goalHPos === Infinity, is the correct signal here), instead of
+			// unconditionally recomputing a concrete one-off measurement
+			// (which is what real vim.js's own moveByLines does too — see
+			// this function's own doc comment above, and what this plugin
+			// used to do unconditionally here as well — but confirmed live
+			// to break gj/gk's own stickiness the moment a single plain j/k
+			// press is interleaved into a $-then-gj/gk chain: e.g.
+			// $ -> gk -> k -> gk stopped reaching each line's own true end
+			// after the "k", unlike real Vim/Neovim, which shares one
+			// curswant/MAXCOL value across j/k and gj/gk and never narrows
+			// it away just because a character-column motion — one that
+			// itself never explicitly set a *different* column — ran in
+			// between). See project_obsidian_native_gjgk_dollar_stickiness_gap
+			// for the full investigation.
 			const clampedGoalCh = Math.min(goalHPos, VimSupport.maxNormalModeCh(vcm.getLine(line)));
-			this.goalHSPos = VimSupport.charCoordsLeft(vcm, { line, ch: clampedGoalCh }, editorNow?.inTableCell ? editorNow.activeCM : undefined);
+			this.goalHSPos = incomingIsStickyEolPixel
+				? VimSupport.STICKY_EOL_PIXEL_SENTINEL
+				: VimSupport.charCoordsLeft(vcm, { line, ch: clampedGoalCh }, editorNow?.inTableCell ? editorNow.activeCM : undefined);
 			this.goalHSPosNeedsDivConversion = false;
 			vim.lastHSPos = this.goalHSPos;
 		}
@@ -1797,11 +1850,7 @@ export class VimSupport {
 	// line" goal-column sentinel, explicitly recognized by real vim.js's own
 	// moveByLines/moveByDisplayLines switch-case as part of the SAME
 	// curswant-continuity family moveByLines/moveByScroll/moveToColumn share
-	// (see nativeContinuing's own comment in both overrides here) — and
-	// vim.lastHSPos to the actual end-of-line's own *concrete* pixel
-	// position (not Infinity — only the ch-based goal is "always this line's
-	// own end"; the pixel goal a later gj/gk reads is an ordinary, finite
-	// curswant value, matching real vim.js's own source exactly).
+	// (see nativeContinuing's own comment in both overrides here).
 	//
 	// Overridden here — unlike most of vim.js's own motions this plugin
 	// leaves completely untouched — specifically so `$` participates in this
@@ -1809,11 +1858,34 @@ export class VimSupport {
 	// per-view lastHPos/lastHSPos alone can't survive a table row-crossing/
 	// entry/exit (a fresh inner view resets its own vim state), the exact
 	// same reason moveByLines/moveByDisplayLines already need their own
-	// external carry. Using `Infinity` itself as the stored goal needs no
-	// special-casing anywhere else in this file — every existing consumer
-	// already clamps via `Math.min(goalHPos, maxNormalModeCh(...))`, which
-	// resolves to "this line's own last character" for free when goalHPos is
-	// Infinity, exactly matching real vim's own behavior.
+	// external carry. Using `Infinity` itself as the stored ch-based goal
+	// needs no special-casing anywhere else in this file — every existing
+	// consumer already clamps via `Math.min(goalHPos, maxNormalModeCh(...))`,
+	// which resolves to "this line's own last character" for free when
+	// goalHPos is Infinity, exactly matching real vim's own behavior.
+	//
+	// goalHSPos (gj/gk's own PIXEL-based goal) is handled differently in
+	// plain text vs. inside a table cell — see project_obsidian_native_gjgk_dollar_stickiness_gap
+	// (assistant memory) for the full investigation. Real vim.js's own
+	// moveToEol stores a concrete, one-time-measured pixel value here, not
+	// Infinity — meaning real Obsidian's own bundled Vim mode loses `$`'s
+	// stickiness the moment a SECOND gj/gk lands on a line shaped
+	// differently than the one `$` was pressed on (confirmed via a live
+	// 3-way comparison against real Vim/Neovim, which DOES stay sticky —
+	// Obsidian's own JS reimplementation just doesn't carry that part of
+	// real vim's curswant/MAXCOL semantics through to gj/gk). In plain
+	// text, this plugin now stores Number.MAX_SAFE_INTEGER instead of a
+	// measured value: no real line's rendered width can ever reach it, so
+	// the existing posAtCoords/findPosV "clamp to the nearest position"
+	// behavior (already relied on throughout this file for ordinary
+	// too-wide pixel goals) re-derives each line's own TRUE end dynamically
+	// on every subsequent gj/gk, matching real Vim's actual behavior rather
+	// than Obsidian's own approximation of it. Scoped to plain text only —
+	// `$` inside a table cell keeps the original concrete-pixel measurement
+	// unchanged (table-cell gj/gk crossing/entry already has its own
+	// separate, narrower sticky-goal handling — see scheduleDisplayLineEntry's
+	// own chGoalIsStickyEol, which reads goalHPos, not goalHSPos, and is
+	// unaffected by this).
 	//
 	// Not gated on isOperatorPending (unlike some of this file's own
 	// multi-branch motions) — real vim.js's own moveToEol never checks
@@ -1827,7 +1899,9 @@ export class VimSupport {
 
 		const editorNow = getActiveEditor();
 		this.goalHPos = Infinity;
-		this.goalHSPos = VimSupport.charCoordsLeft(vcm, result, editorNow?.inTableCell ? editorNow.activeCM : undefined);
+		this.goalHSPos = editorNow?.inTableCell
+			? VimSupport.charCoordsLeft(vcm, result, editorNow.activeCM)
+			: VimSupport.STICKY_EOL_PIXEL_SENTINEL;
 		this.goalHSPosNeedsDivConversion = false;
 		this.goalCellIndex = VimSupport.currentCellIndex();
 		this.lastReturnedPos = result;
@@ -2373,12 +2447,27 @@ export class VimSupport {
 				// rendered start (858px), so posAtCoords's non-precise clamp
 				// snapped all the way back to the cell's own first character
 				// instead of leaving the correct rough landing alone. Resync
-				// state directly against the rough landing instead;
-				// goalHSPos is reset to null (not carried forward) so a later
-				// continuing gj/gk recomputes its own pixel goal fresh from
-				// here, rather than reusing this same stale, unrelated value.
+				// state directly against the rough landing instead; goalHSPos
+				// is re-seeded with the SAME pixel sentinel (not the stale
+				// measured value, and not null either — see below) so the
+				// stickiness survives into whatever gj/gk does next inside
+				// this table, the same way it already does in plain text.
+				// Confirmed live (second bug, found via diagnostic logging):
+				// passing null here does NOT make a later gj/gk recompute a
+				// fresh goal on its own — vim.js's own external-selection
+				// handling (triggered by this landing's own dispatch)
+				// silently re-seeds vim.lastHSPos with a concrete measurement
+				// of wherever the cursor actually landed, regardless of what
+				// this function passes. That concrete value coincidentally
+				// still exceeded one subsequent (short) segment's own width
+				// on the next press, masking the problem, but failed outright
+				// on the press after that (a longer segment the coincidental
+				// value no longer exceeded). Re-seeding with the real
+				// sentinel instead of null (or a stale measurement) is the
+				// only value that reliably keeps clamping to each segment's
+				// own true end, regardless of its width.
 				requestAnimationFrameOnActiveWindow(() => {
-					this.resyncAfterDeferredMove(editor, roughLanding, roughLanding.ch, null, cellIndex);
+					this.resyncAfterDeferredMove(editor, roughLanding, roughLanding.ch, VimSupport.STICKY_EOL_PIXEL_SENTINEL, cellIndex);
 				});
 				return;
 			}

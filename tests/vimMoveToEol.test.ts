@@ -89,15 +89,45 @@ describe('Vim $ (moveToEol)', () => {
 		expect(vimState.lastHPos).toBe(Infinity)
 	})
 
-	it('sets goalHSPos/vim.lastHSPos to a concrete (non-infinite) pixel value — only the ch-based goal is "always this line\'s end"', () => {
+	it('in plain text, sets goalHSPos/vim.lastHSPos to a pixel sentinel (100000) no real line can ever reach, so a later gj/gk re-derives each line\'s own TRUE end dynamically instead of reusing one stale, concrete measurement', () => {
+		// Unlike real vim.js's own moveToEol (a one-time, concrete pixel
+		// measurement — see project_obsidian_native_gjgk_dollar_stickiness_gap
+		// for why that loses $'s stickiness after a single gj/gk press, a
+		// real, confirmed gap in Obsidian's own bundled Vim mode), this
+		// plugin substitutes an always-too-large sentinel in plain text so
+		// vim.js's own findPosV "clamp to nearest" behavior re-derives the
+		// true end of whichever line is actually landed on, every time —
+		// matching real Vim/Neovim's actual MAXCOL semantics. NOT
+		// Number.MAX_SAFE_INTEGER — confirmed live that findPosV doesn't
+		// clamp a value that astronomically large the way posAtCoords
+		// elsewhere in this codebase does (lands at ch 0 instead); see
+		// STICKY_EOL_PIXEL_SENTINEL's own doc comment.
 		const { cm, editor } = makeCmAndEditor()
 		win = installVimWindow(editor)
 		const vim = new VimSupport(makeHost()) as any
 		const vimState: any = { lastHPos: 0, lastHSPos: 0, lastMotion: null }
 		vim.moveToEol(cm, { line: 0, ch: 2 }, { forward: true, repeat: 1 }, vimState)
-		expect(vim.goalHSPos).toBe(40) // ch4 (last char of 'aaaaa') * PX_PER_CH
-		expect(vimState.lastHSPos).toBe(40)
+		expect(vim.goalHSPos).toBe(100000)
+		expect(vimState.lastHSPos).toBe(100000)
 		expect(vim.goalHSPosNeedsDivConversion).toBe(false)
+	})
+
+	it('inside a table cell, still sets goalHSPos/vim.lastHSPos to the actual concrete pixel measurement (via the inner view) — the sentinel is plain-text only (table-cell gj/gk crossing/entry has its own separate, narrower sticky-goal handling)', () => {
+		const { cm } = makeCmAndEditor()
+		const innerCoordsAtPos = vi.fn().mockReturnValue({ left: 999 })
+		const editor: FakeEditor = {
+			inTableCell: true,
+			getCursor: () => ({ line: 0, ch: 2 }),
+			getLine: (n: number) => LINES[n] ?? '',
+			activeCM: { state: { doc: { line: (_n: number) => ({ from: 0 }) } }, coordsAtPos: innerCoordsAtPos } as any,
+		}
+		win = installVimWindow(editor)
+		const vim = new VimSupport(makeHost()) as any
+		const vimState: any = { lastHPos: 0, lastHSPos: 0, lastMotion: null }
+		vim.moveToEol(cm, { line: 0, ch: 2 }, { forward: true, repeat: 1 }, vimState)
+		expect(innerCoordsAtPos).toHaveBeenCalled()
+		expect(vim.goalHSPos).toBe(999)
+		expect(vimState.lastHSPos).toBe(999)
 	})
 
 	it('does not gate its own goal-tracking on an operator being pending (D/C share this motion, and real vim.js\'s own moveToEol never checks it either)', () => {
@@ -141,6 +171,18 @@ describe('Vim $ (moveToEol)', () => {
 			const vimState: any = { lastHPos: Infinity, lastHSPos: 40, lastMotion: vim.moveToEol }
 			const result = vim.moveByDisplayLines(cm, { line: 0, ch: 4 }, { forward: true, repeat: 1 }, vimState)
 			expect(result).toEqual({ line: 1, ch: 1 })
+		})
+
+		it('moveByDisplayLines (gj/gk) recovers across two consecutive gk presses using the real pixel sentinel — re-derives each line\'s own TRUE end on every press, rather than getting stuck on a stale concrete value that only happens to still exceed a short intermediate line (see project_obsidian_native_gjgk_dollar_stickiness_gap for the live repro this fixes: UCH used to behave like Obsidian\'s own native Vim mode here, G -> 3 -> c instead of the real-Vim G -> 3 -> n)', () => {
+			const vim = new VimSupport(makeHost()) as any
+			const { cm, editor } = makeCmAndEditor()
+			win = installVimWindow(editor)
+			const sentinel = (VimSupport as any).STICKY_EOL_PIXEL_SENTINEL
+			const vimState: any = { lastHPos: Infinity, lastHSPos: sentinel, lastMotion: vim.moveToEol }
+			const step1 = vim.moveByDisplayLines(cm, { line: 2, ch: 10 }, { forward: false, repeat: 1 }, vimState)
+			expect(step1).toEqual({ line: 1, ch: 1 }) // 'bb' — clamped to its own last char
+			const step2 = vim.moveByDisplayLines(cm, step1, { forward: false, repeat: 1 }, vimState)
+			expect(step2).toEqual({ line: 0, ch: 4 }) // 'aaaaa' — recovered to ITS true end, not stuck at 'bb'.length
 		})
 	})
 

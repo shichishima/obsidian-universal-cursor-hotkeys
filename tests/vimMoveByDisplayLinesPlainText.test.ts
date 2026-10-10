@@ -192,6 +192,32 @@ describe('moveByDisplayLines: plain text', () => {
 			expect(host.refineDisplayLineColumn).not.toHaveBeenCalled()
 		})
 
+		it('`$` sticky goal entry re-seeds goalHSPos/vim.lastHSPos with the pixel sentinel (not null) so stickiness survives into whatever gj/gk does next inside the table', () => {
+			// Regression: passing null here does NOT make a later gj/gk
+			// recompute a fresh pixel goal on its own — vim.js's own
+			// external-selection handling (triggered by this landing's own
+			// dispatch) silently re-seeds vim.lastHSPos with a concrete
+			// measurement of wherever the cursor actually landed instead,
+			// which only coincidentally happened to still exceed one short
+			// intermediate segment's own width before failing outright on a
+			// longer one. Confirmed live — see scheduleDisplayLineEntry's
+			// own doc comment for the full trace.
+			const host = makeHost({
+				isLinePartOfTable: vi.fn().mockReturnValue(true),
+				enterTableAtLine: vi.fn().mockReturnValue({ line: 2, ch: 12 }),
+			})
+			const vimLocal = new VimSupport(host) as any
+			const resyncSpy = vi.spyOn(vimLocal, 'resyncAfterDeferredMove')
+			const { cm, editor } = makeTableCmAndEditor()
+			win.setEditor(editor)
+			const vimState: any = { lastHPos: Infinity, lastHSPos: 0, lastMotion: vimLocal.moveToEol }
+			vimLocal.moveByDisplayLines(cm, { line: 1, ch: 0 }, { forward: true, repeat: 1 }, vimState)
+			win.flush()
+			expect(resyncSpy).toHaveBeenCalledWith(
+				expect.anything(), { line: 2, ch: 12 }, 12, (VimSupport as any).STICKY_EOL_PIXEL_SENTINEL, 1,
+			)
+		})
+
 		it('regression: entering backward (gk) lands at the target segment\'s own end, matching the crossing case\'s identical wrapped-segment fix', () => {
 			const host = makeHost({ isLinePartOfTable: vi.fn().mockReturnValue(true) })
 			const vimLocal = new VimSupport(host) as any
