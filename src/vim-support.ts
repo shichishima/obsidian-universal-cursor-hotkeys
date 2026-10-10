@@ -1,5 +1,5 @@
 import { findClusterBreak } from '@codemirror/state';
-import { getCellIndex, getChByCellIndex } from './table-cell-utils';
+import { getCellIndex, getChByCellIndex, getRightmostCellIndex } from './table-cell-utils';
 import { getWordSpans } from './word-segmentation';
 import { exitTable, jumpAdjacentCell } from './table-navigation';
 import { setTimeoutOnActiveWindow, requestAnimationFrameOnActiveWindow } from './dom-timers';
@@ -1900,8 +1900,15 @@ export class VimSupport {
 
 			// goalCellIndex is null for a genuinely fresh entry (no continuing
 			// chain to remember a cell from) — falls back to the leftmost cell,
-			// matching Ctrl-N/P's own table-entry convention.
-			const cellIndex = goalCellIndex ?? 0;
+			// matching Ctrl-N/P's own table-entry convention. Exception: a
+			// sticky `$` goal (goalHPos === Infinity, real vim's own "always
+			// this line's own end" sentinel — see moveToEol's own doc comment)
+			// has no per-character position to preserve in the first place,
+			// so the "no position info for an unfocused row" rationale behind
+			// the leftmost-cell fallback doesn't apply here — enter the LAST
+			// cell instead, matching real vim's own "end of the next line"
+			// intent for `$` followed by `j`/`k`.
+			const cellIndex = goalCellIndex ?? (goalHPos === Infinity ? getRightmostCellIndex(editor.getLine(targetLine)) : 0);
 			const landedOuter = this.host.enterTableAtLine(editor, targetLine, cellIndex, forward, goalHPos, remaining);
 			// See scheduleRowCrossing's own comment on why this read is deferred an
 			// extra frame past the RAF-based focus-transfer fallback.
@@ -2073,6 +2080,19 @@ export class VimSupport {
 			outerNow.line === this.lastOuterPos.line && outerNow.ch === this.lastOuterPos.ch;
 		const externalContinuing = continuingInner || continuingOuter;
 		const continuing = nativeContinuing || externalContinuing;
+		// Whether the *ch-based* goal (not this motion's own pixel-based
+		// goalHSPos) is still a sticky `$` at this exact moment — real vim's
+		// own gj/gk never themselves preserve this across repeated presses
+		// (see moveToEol's own doc comment: only goalHPos, not goalHSPos, is
+		// ever Infinity), so this only ever matters for the single gj/gk
+		// press that happens to enter a table directly from plain text right
+		// after a `$` — scheduleDisplayLineEntry's own cellIndex fallback
+		// below is the only consumer. Same continuity-priority gating as
+		// goalHSPos/goalCellIndex just above (never trust a stale Infinity
+		// left over from a `$` press with an unrelated motion in between).
+		const chGoalIsStickyEol =
+			(nativeContinuing && vim?.lastHPos === Infinity) ||
+			(externalContinuing && this.goalHPos === Infinity);
 		// goalHSPosNeedsDivConversion (see its own comment) takes priority over
 		// both external and native continuity. Bug fixed here (second
 		// attempt): the first attempt recomputed goalHSPos "fresh from head"
@@ -2237,7 +2257,7 @@ export class VimSupport {
 				const entryPixelGoal = editorNow?.cm
 					? VimSupport.convertPixelGoalSpace(vcm, cur, editorNow.cm, 'viewport', goalHSPos)
 					: goalHSPos;
-				this.scheduleDisplayLineEntry(enteredAt, motionArgs.forward, entryPixelGoal, goalCellIndex);
+				this.scheduleDisplayLineEntry(enteredAt, motionArgs.forward, entryPixelGoal, goalCellIndex, chGoalIsStickyEol);
 			}
 			// Stay put rather than jumping straight to enteredAt — same
 			// reasoning as moveByLines' own identical branch.
@@ -2321,7 +2341,7 @@ export class VimSupport {
 	// pixel-correction follow-up, not just a rough, uncorrected landing.
 	// Single-row precision only (remaining=0), matching
 	// crossTableRowForCell's own scope cut above.
-	private scheduleDisplayLineEntry(targetLine: number, forward: boolean, goalHSPos: number, goalCellIndex: number | null): void {
+	private scheduleDisplayLineEntry(targetLine: number, forward: boolean, goalHSPos: number, goalCellIndex: number | null, chGoalIsStickyEol: boolean): void {
 		setTimeoutOnActiveWindow(() => {
 			const editor = getActiveEditor();
 			if (!editor) return;
@@ -2329,9 +2349,39 @@ export class VimSupport {
 			// is genuinely a table row (not just text that starts with '|')
 			// before committing to this landing.
 			if (!this.host.isLinePartOfTable(editor, targetLine, 1)) return;
-			const cellIndex = goalCellIndex ?? 0;
+			// See scheduleTableEntry's own identical fallback and its doc
+			// comment — chGoalIsStickyEol is the one-time signal (computed by
+			// moveByDisplayLines's own caller, before this motion's own tail
+			// overwrites it) that this entry is the single gj/gk press
+			// immediately following a `$`.
+			const cellIndex = goalCellIndex ?? (chGoalIsStickyEol ? getRightmostCellIndex(editor.getLine(targetLine)) : 0);
 			const roughLanding = this.host.enterTableAtLine(editor, targetLine, cellIndex, forward, forward ? 0 : Number.MAX_SAFE_INTEGER, 0);
 			if (!roughLanding) return;
+			if (chGoalIsStickyEol) {
+				// A sticky `$` goal has no "same visual column" to preserve —
+				// the rough landing above already lands at this segment's own
+				// exact start/end (goalCh 0 / MAX_SAFE_INTEGER passed just
+				// above), which IS the correct final position, the same way
+				// it already is for j/k's own identical entry (scheduleTableEntry
+				// has no pixel-refinement step at all). Pixel-refining it
+				// against goalHSPos — the stale pixel position of the
+				// ORIGINAL, now-abandoned plain-text line — would clamp it to
+				// whatever position in this entirely differently-rendered
+				// cell happens to be nearest that unrelated value. Confirmed
+				// live via diagnostic logging: goalHSPos (730px, from a long
+				// plain-text line) fell to the *left* of this cell's own
+				// rendered start (858px), so posAtCoords's non-precise clamp
+				// snapped all the way back to the cell's own first character
+				// instead of leaving the correct rough landing alone. Resync
+				// state directly against the rough landing instead;
+				// goalHSPos is reset to null (not carried forward) so a later
+				// continuing gj/gk recomputes its own pixel goal fresh from
+				// here, rather than reusing this same stale, unrelated value.
+				requestAnimationFrameOnActiveWindow(() => {
+					this.resyncAfterDeferredMove(editor, roughLanding, roughLanding.ch, null, cellIndex);
+				});
+				return;
+			}
 			this.scheduleDisplayLineRefinement(editor, goalHSPos, cellIndex);
 		}, 0);
 	}

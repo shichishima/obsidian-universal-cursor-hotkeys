@@ -23,6 +23,7 @@ const makeHost = (overrides: Partial<VimSupportHost> = {}): VimSupportHost => ({
 	crossTableRowForWord: vi.fn().mockReturnValue(null),
 	jumpToDocumentLine: vi.fn().mockReturnValue(null),
 	isLinePartOfTable: vi.fn().mockReturnValue(false),
+	isSourceModeTableLine: vi.fn().mockReturnValue(false),
 	enterTableAtLine: vi.fn().mockReturnValue(null),
 	refineDisplayLineColumn: vi.fn().mockReturnValue(null),
 	executeObsidianCommand: vi.fn().mockReturnValue(true),
@@ -143,6 +144,52 @@ describe('moveByDisplayLines: plain text', () => {
 			expect(host.enterTableAtLine).toHaveBeenCalledWith(
 				expect.anything(), 2 /* table row line */, 0 /* cellIndex fallback */, true, 0 /* forward: segment start */, 0 /* remaining */,
 			)
+		})
+
+		it('`$` sticky goal ($, then gj, into a table) enters the RIGHTMOST cell, not the usual leftmost fallback', () => {
+			// Simulates `$` having just run: vim.js's own native lastHPos
+			// sentinel (Infinity) carried over via the same nativeContinuing
+			// check this function already uses for its own goalHSPos/
+			// goalCellIndex fields — see moveByDisplayLines' own
+			// chGoalIsStickyEol doc comment. Unlike goalHSPos (this motion's
+			// own pixel goal, never Infinity even right after `$` — see
+			// moveToEol's own doc comment), this only matters as a one-time
+			// signal at the exact moment of entry.
+			const host = makeHost({ isLinePartOfTable: vi.fn().mockReturnValue(true) })
+			const vimLocal = new VimSupport(host) as any
+			const { cm, editor } = makeTableCmAndEditor()
+			win.setEditor(editor)
+			const vimState: any = { lastHPos: Infinity, lastHSPos: 0, lastMotion: vimLocal.moveToEol }
+			vimLocal.moveByDisplayLines(cm, { line: 1, ch: 0 }, { forward: true, repeat: 1 }, vimState)
+			win.flush()
+			// cellIndex 1 (rightmost — the table row has 2 cells), not 0.
+			expect(host.enterTableAtLine).toHaveBeenCalledWith(
+				expect.anything(), 2, 1 /* rightmost cellIndex */, true, 0, 0,
+			)
+		})
+
+		it('`$` sticky goal entry skips the pixel-refinement step entirely — the rough landing (already at this segment\'s own exact end) is final', () => {
+			// Regression: pixel-refining a sticky `$` entry against goalHSPos
+			// (the stale pixel position of the ORIGINAL, now-abandoned
+			// plain-text line) can clamp the cursor to a position in the
+			// entered cell nearest that unrelated value — observed live
+			// snapping all the way back to the cell's own first character,
+			// since the entered cell's own rendered width has nothing to do
+			// with how far right the original plain-text line happened to
+			// extend. For a sticky goal, the rough landing (enterTableAtLine
+			// with goalCh=MAX_SAFE_INTEGER) is already correct and final, so
+			// refineDisplayLineColumn must never be called for this case.
+			const host = makeHost({
+				isLinePartOfTable: vi.fn().mockReturnValue(true),
+				enterTableAtLine: vi.fn().mockReturnValue({ line: 2, ch: 12 }),
+			})
+			const vimLocal = new VimSupport(host) as any
+			const { cm, editor } = makeTableCmAndEditor()
+			win.setEditor(editor)
+			const vimState: any = { lastHPos: Infinity, lastHSPos: 0, lastMotion: vimLocal.moveToEol }
+			vimLocal.moveByDisplayLines(cm, { line: 1, ch: 0 }, { forward: true, repeat: 1 }, vimState)
+			win.flush()
+			expect(host.refineDisplayLineColumn).not.toHaveBeenCalled()
 		})
 
 		it('regression: entering backward (gk) lands at the target segment\'s own end, matching the crossing case\'s identical wrapped-segment fix', () => {
