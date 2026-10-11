@@ -35,9 +35,12 @@ describe('isPositionInTable', () => {
 			expect(plugin.isPositionInTable(editor, 0, 1, true)).toBe(true)
 		})
 
-		it('pipe not at start returns false', () => {
+		it('internal pipe with no leading pipe (both-edges-omitted table row) returns true', () => {
+			// GFM tables may omit both edge pipes — a row like this is a valid
+			// 2-cell table row, not plain text, so the fast path must recognize
+			// the internal separator pipe even without a leading `|`.
 			const editor = { getLine: vi.fn(() => 'text | more') }
-			expect(plugin.isPositionInTable(editor, 0, 1, true)).toBe(false)
+			expect(plugin.isPositionInTable(editor, 0, 1, true)).toBe(true)
 		})
 
 		it('does not call syntaxTree', () => {

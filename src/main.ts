@@ -3,7 +3,7 @@ import { UniversalCursorHotkeysSettingTab, DisplacedCommand } from './settings';
 import { VimSupport } from './vim-support';
 import { InCellLineInfo, getCellBounds, getStartOfCellContent, getEndOfCellContent,
 	getEndOfCellContentByCellIndex, getRightmostCellIndex, getCellIndex, getChByCellIndex,
-	getInCellLineInfo } from './table-cell-utils';
+	getInCellLineInfo, getPipePositions } from './table-cell-utils';
 import { setTimeoutOnActiveWindow, requestAnimationFrameOnActiveWindow } from './dom-timers';
 import { syntaxTree } from '@codemirror/language';
 import { EditorView } from "@codemirror/view";
@@ -1973,7 +1973,15 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	//===========================================================================
 
 	private isPositionInTable(editor: Editor, line: number, ch: number, alreadyInTable = false): boolean {
-		if (alreadyInTable) return editor.getLine(line).trimStart().startsWith('|');
+		// A leading `|` isn't required — GFM tables may omit both edge pipes
+		// (see table-cell-utils.ts's own getCellBoundaries) — so this cheap
+		// fast-path (callers already know we're walking line-by-line from a
+		// confirmed table context, just need to tell "still in it" from
+		// "walked off the end") checks for any real separator pipe instead.
+		// A genuinely table-less line never has one (ignoring the degenerate,
+		// unparseable 1-cell/both-edges-omitted row, which isn't recognizable
+		// as a table at all to begin with).
+		if (alreadyInTable) return getPipePositions(editor.getLine(line)).length > 0;
 		const cm = editor.cm;
 		if (!cm) return false;
 
