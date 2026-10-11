@@ -4,7 +4,6 @@ import { VimSupport } from './vim-support';
 import { InCellLineInfo, getCellBounds, getStartOfCellContent, getEndOfCellContent,
 	getEndOfCellContentByCellIndex, getRightmostCellIndex, getCellIndex, getChByCellIndex,
 	getInCellLineInfo, getPipePositions } from './table-cell-utils';
-	getInCellLineInfo } from './table-cell-utils';
 import { setTimeoutOnActiveWindow, requestAnimationFrameOnActiveWindow } from './dom-timers';
 import { syntaxTree } from '@codemirror/language';
 import { EditorView } from "@codemirror/view";
@@ -1263,11 +1262,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// Captured before crossing, while editor.activeCM is still the outer
 		// (plain-text) view.
 		const pixelGoal = this.computeRowCrossPixelGoal(editor);
-		const nextLineText = editor.getLine(cursor.line + 1);
-		const targetCh = getChByCellIndex(nextLineText, 0);
-		console.log('[DEBUG moveCursorDownIntoTable] nextLineText=', JSON.stringify(nextLineText), 'targetCh=', targetCh, 'pixelGoal=', pixelGoal);
+		const targetCh = getChByCellIndex(editor.getLine(cursor.line + 1), 0);
 		editor.setCursor({ line: cursor.line + 1, ch: targetCh });
-		console.log('[DEBUG moveCursorDownIntoTable] after setCursor, cursor=', editor.getCursor(), 'activeCM===cm?', editor.activeCM === editor.cm);
 		this.applyRowCrossGoalColumn(editor, pixelGoal);
 	}
 
@@ -1892,12 +1888,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				const viewBeforeRefine = editor.activeCM;
 				const headBeforeRefine = viewBeforeRefine.state.selection.main.head;
 				const assocBeforeRefine = viewBeforeRefine.state.selection.main.assoc;
-				console.log('[DEBUG applyRowCrossGoalColumnSync] before refine: outerCursor=', editor.getCursor(), 'innerHead=', headBeforeRefine, 'innerDocText=', JSON.stringify(viewBeforeRefine.state.doc.toString()));
 				this.refineDisplayLineColumn(editor, pixelGoal, true);
 				const view = editor.activeCM;
 				const head = view.state.selection.main.head;
 				const rect = view.contentDOM.getBoundingClientRect();
-				console.log('[DEBUG applyRowCrossGoalColumnSync] after refine: outerCursor=', editor.getCursor(), 'innerHead=', head, 'innerDocText=', JSON.stringify(view.state.doc.toString()));
 				// assoc: head may sit exactly on a visual-line wrap boundary, so
 				// whether it should render as "this line's own right edge" or
 				// "the next line's own left edge" is genuinely ambiguous without
@@ -2687,8 +2681,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 
-		console.log('[DEBUG killLineInTableLP] outerCursor=', editor.getCursor(), 'outerLineText=', JSON.stringify(editor.getLine(editor.getCursor().line)), 'innerDoc=', JSON.stringify(inner.state.doc.toString()), 'innerHead=', inner.state.selection.main.head);
-
 		// Inner view path: use sub-line boundaries directly.
 		const head          = inner.state.selection.main.head;
 		const subLine       = inner.state.doc.lineAt(head);
@@ -2699,14 +2691,12 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 		if (head < endOfSubLine) {
 			const text = inner.state.doc.sliceString(head, endOfSubLine);
-			console.log('[DEBUG killLineInTableLP] about to kill text=', JSON.stringify(text), 'from', head, 'to', endOfSubLine);
 			this.updateKillCache(text);
 			navigator.clipboard.writeText(this.killCache).catch(() => {});
 			this.isDispatchingKill = true;
 			inner.dispatch({ changes: { from: head, to: endOfSubLine, insert: '' }, selection: { anchor: head }, userEvent: 'delete' });
 			this.isDispatchingKill = false;
 			this.isKillChaining = true;
-			console.log('[DEBUG killLineInTableLP] after dispatch: outerCursor=', editor.getCursor(), 'outerLineText=', JSON.stringify(editor.getLine(editor.getCursor().line)));
 			return;
 		}
 
@@ -3579,7 +3569,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (inner && inner !== e.cm) {
 			const head = inner.state.selection.main.head;
 			const resolved = universalCursorHotkeysPlugin.resolveSameLineOffset(inner, head, pixelGoal, allowLineEnd);
-			console.log('[DEBUG refineDisplayLineColumn] inner branch: head=', head, 'pixelGoal=', pixelGoal, 'resolved=', resolved, 'innerDoc=', JSON.stringify(inner.state.doc.toString()));
 			if (resolved === null) return e.getCursor();
 
 			// Convert the (confirmed same-line) refined inner ch back into an
@@ -3589,10 +3578,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			const outerCursor = e.getCursor();
 			const outerLineText = e.getLine(outerCursor.line);
 			const segInfo = getInCellLineInfo(outerLineText, outerCursor.ch);
-			console.log('[DEBUG refineDisplayLineColumn] outerCursor=', outerCursor, 'outerLineText=', JSON.stringify(outerLineText), 'segInfo=', segInfo);
 			if (!segInfo) return e.getCursor(); // shouldn't happen — we're inside a cell
 			const targetOuterCh = segInfo.startOfInCellLine + (resolved - headLine.from);
-			console.log('[DEBUG refineDisplayLineColumn] targetOuterCh=', targetOuterCh, '-> char at that pos:', JSON.stringify(outerLineText[targetOuterCh]));
 			this.setCursorViaCm(e, outerCursor.line, targetOuterCh);
 			return e.getCursor();
 		}
