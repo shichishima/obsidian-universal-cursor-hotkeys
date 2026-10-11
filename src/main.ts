@@ -913,11 +913,19 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 
-		// Enter a blockquote/callout from the empty line directly below it.
+		// Enter a blockquote/callout from a line directly below it that is no
+		// longer part of it — not just a blank line: Markdown doesn't require
+		// a blank line to end a blockquote/callout, a block-starting construct
+		// (list marker, ordered list, checkbox, heading, fenced code block,
+		// etc.) ends it too, per CommonMark's laziness rules, with no blank
+		// line needed (live-confirmed: the physical ↑ key enters/expands the
+		// callout from any of those, but this plugin's own UP used to pass
+		// straight through since it only checked "current line is blank").
 		// goUp skips over the collapsed widget; setCursor triggers LP expansion (same mechanism as goLeft).
-		// Precondition: current line is empty or whitespace-only.
-		// Detection: syntax tree at end of prevLine has HyperMD-quote (covers > lines and lazy continuation).
-		if (editor.getLine(cursor.line).trim() === '' &&
+		// Precondition: current line is NOT itself part of the quote/callout
+		// (a blank line never is, so this subsumes the old blank-only check).
+		// Detection: syntax tree at end of the line has HyperMD-quote (covers > lines and lazy continuation).
+		if (!this.isLineInQuote(editor, cursor.line) &&
 			this.isLineInQuote(editor, cursor.line - 1)) {
 			const prevLine = cursor.line - 1;
 			const prevLen  = editor.getLine(prevLine).length;
