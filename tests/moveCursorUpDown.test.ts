@@ -142,7 +142,8 @@ describe('moveCursorUp — callout entry', () => {
 	it('setCursor to prev line when current line is empty and prev is in quote', () => {
 		const lines = ['> [!info] callout', '']
 		const { editor, setCursor, exec } = makeEditor(lines, 1, 0)
-		plugin.isLineInQuote.mockReturnValue(true)
+		// A blank line is never itself "in quote" — only line 0 (the callout) is.
+		plugin.isLineInQuote.mockImplementation((_e: unknown, line: number) => line === 0)
 		plugin.moveCursorUp(editor)
 		expect(setCursor).toHaveBeenCalledWith({ line: 0, ch: 0 })
 		expect(exec).not.toHaveBeenCalled()
@@ -151,7 +152,7 @@ describe('moveCursorUp — callout entry', () => {
 	it('setCursor to prev line when current line is whitespace-only', () => {
 		const lines = ['> blockquote', '   ']
 		const { editor, setCursor, exec } = makeEditor(lines, 1, 0)
-		plugin.isLineInQuote.mockReturnValue(true)
+		plugin.isLineInQuote.mockImplementation((_e: unknown, line: number) => line === 0)
 		plugin.moveCursorUp(editor)
 		expect(setCursor).toHaveBeenCalledWith({ line: 0, ch: 0 })
 		expect(exec).not.toHaveBeenCalled()
@@ -161,14 +162,28 @@ describe('moveCursorUp — callout entry', () => {
 		// prev line '> short' = 7 chars; cursor ch=10 is clamped to 7
 		const lines = ['> short', '']
 		const { editor, setCursor } = makeEditor(lines, 1, 10)
-		plugin.isLineInQuote.mockReturnValue(true)
+		plugin.isLineInQuote.mockImplementation((_e: unknown, line: number) => line === 0)
 		plugin.moveCursorUp(editor)
 		expect(setCursor).toHaveBeenCalledWith({ line: 0, ch: 7 })
 	})
 
-	it('exec goUp when current line is not empty', () => {
+	it('setCursor to prev line when current line starts a new block (no blank line needed) and prev is in quote — the live-confirmed gap vs. the physical ↑ key: list markers, ordered lists, checkboxes, headings, and fenced code blocks all end a blockquote/callout per CommonMark\'s laziness rules without a blank line, so the syntax tree no longer marks the current line as in-quote even though it is non-empty', () => {
+		const lines = ['> [!info] callout', '- list item right after, no blank line']
+		const { editor, setCursor, exec } = makeEditor(lines, 1, 4)
+		// Only line 0 (the callout) is in-quote; line 1 (the list item) is not,
+		// despite being non-empty — this is exactly the case the old
+		// "current line must be blank" precondition missed.
+		plugin.isLineInQuote.mockImplementation((_e: unknown, line: number) => line === 0)
+		plugin.moveCursorUp(editor)
+		expect(setCursor).toHaveBeenCalledWith({ line: 0, ch: Math.min(4, '> [!info] callout'.length) })
+		expect(exec).not.toHaveBeenCalled()
+	})
+
+	it('exec goUp when current line is a non-blank lazy continuation still inside the quote (no entry — control case, must not regress)', () => {
 		const lines = ['> [!info] callout', 'some text']
 		const { editor, setCursor, exec } = makeEditor(lines, 1, 4)
+		// Both lines are in-quote here — line 1 is a lazy continuation
+		// (no blank line, no `>`, but still part of the same block).
 		plugin.isLineInQuote.mockReturnValue(true)
 		plugin.moveCursorUp(editor)
 		expect(exec).toHaveBeenCalledWith('goUp')

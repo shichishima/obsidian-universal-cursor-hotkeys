@@ -47,6 +47,7 @@ const makeHost = (settings: VimSupportHost['settings'] = makeSettings()): VimSup
 	crossTableRowForWord: vi.fn().mockReturnValue(null),
 	jumpToDocumentLine: vi.fn().mockReturnValue(null),
 	isLinePartOfTable: vi.fn().mockReturnValue(false),
+	isSourceModeTableLine: vi.fn().mockReturnValue(false),
 	enterTableAtLine: vi.fn().mockReturnValue(null),
 	refineDisplayLineColumn: vi.fn().mockReturnValue(null),
 	getBeginningOfLinePosition: vi.fn().mockReturnValue(0),
@@ -118,13 +119,13 @@ describe('Vim table navigation registration (setTableNavigationEnabled)', () => 
 			expect((globalThis as any).window.CodeMirrorAdapter.Vim.multiSelectHandleKey).not.toBe(multiSelectHandleKey)
 		})
 
-		it('disabling both restores multiSelectHandleKey', () => {
+		it('disabling both still does NOT restore multiSelectHandleKey — Space\'s native binding is already gone for the session', () => {
 			const vim = new VimSupport(makeHost())
 			vim.setTableStructureEnabled(true)
 			vim.setTableNavigationEnabled(true)
 			vim.setTableStructureEnabled(false)
 			vim.setTableNavigationEnabled(false)
-			expect((globalThis as any).window.CodeMirrorAdapter.Vim.multiSelectHandleKey).toBe(multiSelectHandleKey)
+			expect((globalThis as any).window.CodeMirrorAdapter.Vim.multiSelectHandleKey).not.toBe(multiSelectHandleKey)
 		})
 	})
 
