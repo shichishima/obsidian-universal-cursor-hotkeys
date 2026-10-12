@@ -21,6 +21,7 @@ const makeHost = (overrides: Partial<VimSupportHost> = {}): VimSupportHost => ({
 	crossTableRowForWord: vi.fn().mockReturnValue(null),
 	jumpToDocumentLine: vi.fn().mockReturnValue(null),
 	isLinePartOfTable: vi.fn().mockReturnValue(true),
+	isSourceModeTableLine: vi.fn().mockReturnValue(false),
 	enterTableAtLine: vi.fn().mockReturnValue(null),
 	refineDisplayLineColumn: vi.fn().mockReturnValue(null),
 	executeObsidianCommand: vi.fn().mockReturnValue(true),
@@ -115,6 +116,29 @@ describe('moveByLines: plain text entering a table', () => {
 		vim.moveByLines(cmFor(6), { line: 6, ch: 0 }, { forward: false, repeat: 1 })
 		win.flush()
 		expect(host.enterTableAtLine).toHaveBeenCalledWith(expect.anything(), 5 /* data row 1 */, 0, false, 0, 1)
+	})
+
+	it('`$` sticky goal ($, then j, into a table) enters the RIGHTMOST cell, not the usual leftmost fallback', () => {
+		// Simulates `$` having just run: a sticky ch goal (Infinity, real
+		// vim's own "always this line's own end" sentinel) carried over via
+		// the same external continuity mechanism (lastCm/lastReturnedPos)
+		// every other goal field already uses. See scheduleTableEntry's own
+		// doc comment: a sticky `$` goal has no per-character position to
+		// preserve, so the leftmost-cell rationale doesn't apply — the LAST
+		// cell is used instead.
+		const host = makeHost()
+		const vim = new VimSupport(host) as any
+		win = installVimWindow(makeEditor({ line: 2, ch: 0 }))
+		const cm = cmFor()
+		vim.goalHPos = Infinity
+		vim.lastCm = cm
+		vim.lastReturnedPos = { line: 2, ch: 0 }
+		vim.moveByLines(cm, { line: 2, ch: 0 }, { forward: true, repeat: 1 })
+		win.flush()
+		// cellIndex 1 (rightmost — the header row has 2 cells), not 0.
+		expect(host.enterTableAtLine).toHaveBeenCalledWith(
+			expect.anything(), 3, 1 /* rightmost cellIndex */, true, Infinity, 1,
+		)
 	})
 
 	it('aborts the entry if isLinePartOfTable rejects the cheap pre-filter match', () => {

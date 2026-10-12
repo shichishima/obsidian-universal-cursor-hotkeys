@@ -20,6 +20,7 @@ const makeHost = (overrides: Partial<VimSupportHost> = {}): VimSupportHost => ({
 	crossTableRowForWord: vi.fn().mockReturnValue(null),
 	jumpToDocumentLine: vi.fn().mockReturnValue(null),
 	isLinePartOfTable: vi.fn().mockReturnValue(false),
+	isSourceModeTableLine: vi.fn().mockReturnValue(false),
 	enterTableAtLine: vi.fn().mockReturnValue(null),
 	refineDisplayLineColumn: vi.fn().mockReturnValue(null),
 	getBeginningOfLinePosition: vi.fn().mockReturnValue(0),
@@ -125,7 +126,7 @@ describe('Vim w/b/e (moveByWords)', () => {
 			expect(result).toEqual({ line: 0, ch: 5 }) // synchronous return is just the clamped placeholder
 			expect(host.crossTableRowForWord).not.toHaveBeenCalled() // deferred, not yet run
 			win.flush()
-			expect(host.crossTableRowForWord).toHaveBeenCalledWith(editor, expect.anything(), true, false, false)
+			expect(host.crossTableRowForWord).toHaveBeenCalledWith(editor, expect.anything(), true, false, false, false)
 		})
 
 		it('hitting the cell boundary backward schedules a crossing with forward=false', () => {
@@ -135,7 +136,7 @@ describe('Vim w/b/e (moveByWords)', () => {
 			const win = installVimWindow(editor)
 			vim.moveByWords(cm(['hello']), { line: 0, ch: 0 }, { forward: false, repeat: 1 })
 			win.flush()
-			expect(host.crossTableRowForWord).toHaveBeenCalledWith(editor, expect.anything(), false, false, false)
+			expect(host.crossTableRowForWord).toHaveBeenCalledWith(editor, expect.anything(), false, false, false, false)
 		})
 
 		it('passes bigWord through to the crossing call', () => {
@@ -145,7 +146,7 @@ describe('Vim w/b/e (moveByWords)', () => {
 			const win = installVimWindow(editor)
 			vim.moveByWords(cm(['hello']), { line: 0, ch: 5 }, { forward: true, repeat: 1, bigWord: true })
 			win.flush()
-			expect(host.crossTableRowForWord).toHaveBeenCalledWith(editor, expect.anything(), true, true, false)
+			expect(host.crossTableRowForWord).toHaveBeenCalledWith(editor, expect.anything(), true, true, false, false)
 		})
 
 		it('passes wordEnd through to the crossing call (e at a cell boundary)', () => {
@@ -155,7 +156,7 @@ describe('Vim w/b/e (moveByWords)', () => {
 			const win = installVimWindow(editor)
 			vim.moveByWords(cm(['hello']), { line: 0, ch: 4 }, { forward: true, repeat: 1, wordEnd: true })
 			win.flush()
-			expect(host.crossTableRowForWord).toHaveBeenCalledWith(editor, expect.anything(), true, false, true)
+			expect(host.crossTableRowForWord).toHaveBeenCalledWith(editor, expect.anything(), true, false, true, false)
 		})
 	})
 

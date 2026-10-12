@@ -225,7 +225,7 @@ describe('transposeCharsInTableLP', () => {
 		{ desc: 'multi segment: at first segment end (before <br>) → swap last two, does not cross into next segment',
 			innerText: 'ab\ncd', head: 2,
 			expectDispatch: { changes: { from: 0, to: 2, insert: 'ba' }, selection: { anchor: 2 }, userEvent: 'move.character' } },
-		{ desc: 'multi segment: at second segment start (after <br>) → no-op', innerText: 'ab\ncd', head: 3 },
+		{ desc: 'multi segment: at second segment start (after <br>) → crosses the <br> boundary via CM6 transposeChars', innerText: 'ab\ncd', head: 3, expectTranspose: true },
 		{ desc: 'multi segment: mid second segment → CM6 transposeChars',      innerText: 'ab\ncd', head: 4, expectTranspose: true },
 		{ desc: 'multi segment: at last segment end → swap last two',         innerText: 'ab\ncd', head: 5,
 			expectDispatch: { changes: { from: 3, to: 5, insert: 'dc' }, selection: { anchor: 5 }, userEvent: 'move.character' } },
@@ -270,15 +270,15 @@ describe('transposeCharsInTableSource', () => {
 	it('mid-cell: delegates to CM6 transposeChars', () => {
 		const lineText = '| hello |'
 		const editor = makeEditor([lineText], 0, 4, lineText)
-		const info = { startOfInCellLine: 2, endOfInCellLine: 7, isEmpty: false }
+		const info = { lineType: 'single', startOfInCellLine: 2, endOfInCellLine: 7, isEmpty: false }
 		plugin.transposeCharsInTableSource(editor, info)
 		expect(cmTransposeChars).toHaveBeenCalledWith(editor.cm)
 	})
 
-	it('at cell content start → no-op', () => {
+	it('at cell content start ("single" line type, no preceding <br>) → no-op (true cell boundary)', () => {
 		const lineText = '| hello |'
 		const editor = makeEditor([lineText], 0, 2, lineText)
-		const info = { startOfInCellLine: 2, endOfInCellLine: 7, isEmpty: false }
+		const info = { lineType: 'single', startOfInCellLine: 2, endOfInCellLine: 7, isEmpty: false }
 		plugin.transposeCharsInTableSource(editor, info)
 		expect(cmTransposeChars).not.toHaveBeenCalled()
 		expect(editor._dispatch).not.toHaveBeenCalled()
@@ -289,7 +289,7 @@ describe('transposeCharsInTableSource', () => {
 		// 'l','o' (indices 5,6 in the line) — only that sub-range is replaced.
 		const lineText = '| hello |'
 		const editor = makeEditor([lineText], 0, 7, lineText)
-		const info = { startOfInCellLine: 2, endOfInCellLine: 7, isEmpty: false }
+		const info = { lineType: 'single', startOfInCellLine: 2, endOfInCellLine: 7, isEmpty: false }
 		plugin.transposeCharsInTableSource(editor, info)
 		expect(cmTransposeChars).not.toHaveBeenCalled()
 		expect(editor._dispatch).toHaveBeenCalledWith({
@@ -302,7 +302,7 @@ describe('transposeCharsInTableSource', () => {
 	it('empty cell → no-op', () => {
 		const lineText = '|  |'
 		const editor = makeEditor([lineText], 0, 1, lineText)
-		const info = { startOfInCellLine: 2, endOfInCellLine: 2, isEmpty: true }
+		const info = { lineType: 'single', startOfInCellLine: 2, endOfInCellLine: 2, isEmpty: true }
 		plugin.transposeCharsInTableSource(editor, info)
 		expect(cmTransposeChars).not.toHaveBeenCalled()
 		expect(editor._dispatch).not.toHaveBeenCalled()
@@ -311,11 +311,44 @@ describe('transposeCharsInTableSource', () => {
 	it('<br> sub-line end → swaps last two within that sub-line only, not crossing into the next one', () => {
 		const lineText = '| ab<br>cd |'
 		const editor = makeEditor([lineText], 0, 4, lineText)
-		const info = { startOfInCellLine: 2, endOfInCellLine: 4, isEmpty: false }
+		const info = { lineType: 'first', startOfInCellLine: 2, endOfInCellLine: 4, isEmpty: false }
 		plugin.transposeCharsInTableSource(editor, info)
 		expect(editor._dispatch).toHaveBeenCalledWith({
 			changes: { from: 2, to: 4, insert: 'ba' },
 			selection: { anchor: 4 },
+			userEvent: 'move.character',
+		})
+	})
+
+	it('at a "last" in-cell line start (right after <br>) → swaps the whole <br> tag with the following character', () => {
+		// '| ab<br>cd |': the <br> spans [4,8); the "cd" segment (lineType
+		// 'last') starts at 8. Crossing here should swap the 4-char <br> tag
+		// with the single following character 'c', giving "| abc<br>d |".
+		const lineText = '| ab<br>cd |'
+		const editor = makeEditor([lineText], 0, 8, lineText)
+		const info = { lineType: 'last', startOfInCellLine: 8, endOfInCellLine: 10, isEmpty: false }
+		plugin.transposeCharsInTableSource(editor, info)
+		expect(cmTransposeChars).not.toHaveBeenCalled()
+		expect(editor._dispatch).toHaveBeenCalledWith({
+			changes: { from: 4, to: 9, insert: 'c<br>' },
+			selection: { anchor: 9 },
+			userEvent: 'move.character',
+		})
+	})
+
+	it('at a "middle" in-cell line start (right after <br>) → swaps the whole <br> tag with the following character', () => {
+		// '| a<br>b<br>c |': the first <br> spans [3,7); the "b" segment
+		// (lineType 'middle') starts at 7. Crossing here should swap that
+		// <br> tag with 'b', giving "| ab<br><br>c |" (same pattern as
+		// crossing a real newline in plain text: A<br>B<br>C -> AB<br><br>C).
+		const lineText = '| a<br>b<br>c |'
+		const editor = makeEditor([lineText], 0, 7, lineText)
+		const info = { lineType: 'middle', startOfInCellLine: 7, endOfInCellLine: 8, isEmpty: false }
+		plugin.transposeCharsInTableSource(editor, info)
+		expect(cmTransposeChars).not.toHaveBeenCalled()
+		expect(editor._dispatch).toHaveBeenCalledWith({
+			changes: { from: 3, to: 8, insert: 'b<br>' },
+			selection: { anchor: 8 },
 			userEvent: 'move.character',
 		})
 	})

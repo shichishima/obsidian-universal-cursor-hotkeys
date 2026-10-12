@@ -118,7 +118,10 @@ describe('killLine', () => {
 				const editor = makeEditor(['hello', '  world'], 0, 5)
 				plugin.killLineNonTable(editor)
 				expect(editor._buf[0]).toBe('helloworld')
-				expect(plugin.killCache).toBe('\n')
+				// The stripped leading whitespace is deleted from the document
+				// too, so it must be in the kill cache alongside the newline —
+				// otherwise Yank could never restore it.
+				expect(plugin.killCache).toBe('\n  ')
 				expect(plugin.isKillChaining).toBe(true)
 			})
 
@@ -126,7 +129,9 @@ describe('killLine', () => {
 				const editor = makeEditor(['hello', '- item'], 0, 5)
 				plugin.killLineNonTable(editor)
 				expect(editor._buf[0]).toBe('helloitem')
-				expect(plugin.killCache).toBe('\n')
+				// Same as above — the stripped "- " marker must be in the kill
+				// cache, not silently discarded.
+				expect(plugin.killCache).toBe('\n- ')
 			})
 
 			it('joins next line with no leading syntax — unchanged', () => {
@@ -256,6 +261,9 @@ describe('killLine', () => {
 			plugin.killLineInTableSourceMode(editor, info)
 			// <br> + '   ' (3 spaces) removed
 			expect(editor.setLine).toHaveBeenCalledWith(0, '| ab |')
+			// The trimmed spaces are deleted from the cell too, so they must
+			// be in the kill cache alongside the newline.
+			expect(plugin.killCache).toBe('\n   ')
 
 			vi.runAllTimers()
 			expect(plugin.isKillChaining).toBe(true)
@@ -273,6 +281,9 @@ describe('killLine', () => {
 			plugin.killLineInTableSourceMode(editor, info)
 			// <br> + '   - ' removed, content 'item' remains
 			expect(editor.setLine).toHaveBeenCalledWith(0, '| aitem |')
+			// The trimmed list marker is deleted from the cell too, so it
+			// must be in the kill cache alongside the newline.
+			expect(plugin.killCache).toBe('\n   - ')
 
 			vi.runAllTimers()
 			expect(plugin.isKillChaining).toBe(true)

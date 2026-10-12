@@ -17,20 +17,56 @@ export function getPipePositions(line: string): number[] {
 	return [...line.matchAll(CELL_SEPARATOR_REGEX)].map(m => m.index);
 }
 
-// Returns the open/close pipe positions bounding the cell that contains ch.
-// open  = index of the pipe immediately to the left of ch
-// close = index of the pipe immediately to the right of ch (or line.length if absent)
-// Returns null if ch is not inside any cell (no pipe to the left).
-export function getCellBounds(line: string, ch: number): { open: number; close: number } | null {
+// Returns the cell-boundary positions for a table row, length = cellCount + 1.
+// boundaries[0]      = the leading `|` position, or -1 if the row omits it —
+//                      a virtual left edge, mirroring how boundaries[last]
+//                      already falls back to line.length when the trailing
+//                      `|` is omitted. GFM tables require both edge pipes to
+//                      be omitted together (a row with only one omitted
+//                      isn't recognized as a table row at all — confirmed
+//                      live), but every function below stays correct
+//                      regardless, since it never assumes which combination
+//                      it was given.
+// boundaries[i]      = the i-th inner separator `|` (1 <= i <= cellCount - 1)
+// boundaries[last]   = the trailing `|` position, or line.length if omitted.
+function getCellBoundaries(line: string): number[] {
 	const pipes = getPipePositions(line);
-	let open = -1;
-	for (const p of pipes) {
-		if (p < ch) open = p;
+	// A line with zero pipes isn't recognizable as a table row at all (even a
+	// multi-cell row with both edges omitted still has its inner separator
+	// pipes) — return no boundaries rather than synthesizing a virtual
+	// single-cell row, so callers keep treating plain text as "not a cell."
+	if (pipes.length === 0) return [];
+	const hasLeadingPipe  = line.slice(0, pipes[0]).trim() === '';
+	const hasTrailingPipe = line.slice(pipes[pipes.length - 1] + 1).trim() === '';
+	const boundaries = [...pipes];
+	if (!hasLeadingPipe) boundaries.unshift(-1);
+	if (!hasTrailingPipe) boundaries.push(line.length);
+	return boundaries;
+}
+
+// Index of the rightmost boundary strictly before ch (i.e., ch's cell spans
+// boundaries[idx]..boundaries[idx + 1]), or -1 if ch is at/before the very
+// first boundary. Shared scan logic for getCellBounds/getCellIndex, so the
+// edge-pipe-omission handling (via getCellBoundaries) lives in one place.
+function findBoundaryIndex(boundaries: number[], ch: number): number {
+	let idx = -1;
+	for (let i = 0; i < boundaries.length; i++) {
+		if (boundaries[i] < ch) idx = i;
 		else break;
 	}
-	if (open === -1) return null;
-	const close = pipes.find(p => p >= ch) ?? line.length;
-	return { open, close };
+	return idx;
+}
+
+// Returns the open/close boundary positions bounding the cell that contains ch.
+// open  = the boundary immediately to the left of ch (-1 if the row omits its leading `|`)
+// close = the boundary immediately to the right of ch (line.length if the row omits its trailing `|`)
+// Returns null if ch is not inside any cell (at/before the first boundary, or
+// at/after the last).
+export function getCellBounds(line: string, ch: number): { open: number; close: number } | null {
+	const boundaries = getCellBoundaries(line);
+	const idx = findBoundaryIndex(boundaries, ch);
+	if (idx === -1 || idx >= boundaries.length - 1) return null;
+	return { open: boundaries[idx], close: boundaries[idx + 1] };
 }
 
 // +----------------------+
@@ -62,34 +98,34 @@ export function getEndOfCellContent(line: string, ch: number): number {
 // Returns endOfCellContent for the cell at the given 0-based cellIndex.
 // Returns -1 if cellIndex is out of range.
 export function getEndOfCellContentByCellIndex(line: string, cellIndex: number): number {
-	const pipes = getPipePositions(line);
-	if (cellIndex < 0 || cellIndex + 1 >= pipes.length) return -1;
-	const openPipe  = pipes[cellIndex];
-	const closePipe = pipes[cellIndex + 1];
+	const boundaries = getCellBoundaries(line);
+	if (cellIndex < 0 || cellIndex >= boundaries.length - 1) return -1;
+	const openPipe  = boundaries[cellIndex];
+	const closePipe = boundaries[cellIndex + 1];
 	return openPipe + 1 + line.slice(openPipe + 1, closePipe).trimEnd().length;
 }
 
 // Returns the 0-based index of the rightmost cell in a table row.
 export function getRightmostCellIndex(line: string): number {
-	return Math.max(0, getPipePositions(line).length - 2);
+	return Math.max(0, getCellBoundaries(line).length - 2);
 }
 
 export function getCellIndex(line: string, ch: number): number {
-	return Math.max(0, getPipePositions(line.substring(0, ch)).length - 1);
+	return Math.max(0, findBoundaryIndex(getCellBoundaries(line), ch));
 }
 
 export function getChByCellIndex(lineText: string, cellIndex: number): number {
-	const pipes = getPipePositions(lineText);
+	const boundaries = getCellBoundaries(lineText);
 
-	if (cellIndex >= 0 && cellIndex < pipes.length) {
-		const pipeIndex = pipes[cellIndex];
-		const searchEnd = pipes[cellIndex + 1] ?? lineText.length;
-		const cellContent = lineText.substring(pipeIndex + 1, searchEnd);
+	if (cellIndex >= 0 && cellIndex < boundaries.length - 1) {
+		const openPipe  = boundaries[cellIndex];
+		const closePipe = boundaries[cellIndex + 1];
+		const cellContent = lineText.substring(openPipe + 1, closePipe);
 		const firstNonSpaceMatch = cellContent.search(/\S/);
 
 		return firstNonSpaceMatch !== -1
-			? pipeIndex + 1 + firstNonSpaceMatch
-			: pipeIndex + 1;
+			? openPipe + 1 + firstNonSpaceMatch
+			: openPipe + 1;
 	}
 
 	return -1;

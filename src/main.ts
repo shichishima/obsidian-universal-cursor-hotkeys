@@ -3,7 +3,8 @@ import { UniversalCursorHotkeysSettingTab, DisplacedCommand } from './settings';
 import { VimSupport } from './vim-support';
 import { InCellLineInfo, getCellBounds, getStartOfCellContent, getEndOfCellContent,
 	getEndOfCellContentByCellIndex, getRightmostCellIndex, getCellIndex, getChByCellIndex,
-	getInCellLineInfo } from './table-cell-utils';
+	getInCellLineInfo, getPipePositions } from './table-cell-utils';
+import { setTimeoutOnActiveWindow, requestAnimationFrameOnActiveWindow } from './dom-timers';
 import { syntaxTree } from '@codemirror/language';
 import { EditorView } from "@codemirror/view";
 import { EditorSelection, Transaction, findClusterBreak } from '@codemirror/state';
@@ -350,7 +351,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
 				if (this.isComposing(editor)) return;
-				if (editor.inTableCell) exitTable(editor, this, true);
+				const inSourceTable = this.isSourceModeTableLine(editor.getLine(editor.getCursor().line));
+				if (editor.inTableCell || inSourceTable) exitTable(editor, this, true);
 			}
 		});
 
@@ -360,7 +362,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
 				if (this.isComposing(editor)) return;
-				if (editor.inTableCell) exitTable(editor, this, false);
+				const inSourceTable = this.isSourceModeTableLine(editor.getLine(editor.getCursor().line));
+				if (editor.inTableCell || inSourceTable) exitTable(editor, this, false);
 			}
 		});
 
@@ -910,11 +913,19 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 
-		// Enter a blockquote/callout from the empty line directly below it.
+		// Enter a blockquote/callout from a line directly below it that is no
+		// longer part of it — not just a blank line: Markdown doesn't require
+		// a blank line to end a blockquote/callout, a block-starting construct
+		// (list marker, ordered list, checkbox, heading, fenced code block,
+		// etc.) ends it too, per CommonMark's laziness rules, with no blank
+		// line needed (live-confirmed: the physical ↑ key enters/expands the
+		// callout from any of those, but this plugin's own UP used to pass
+		// straight through since it only checked "current line is blank").
 		// goUp skips over the collapsed widget; setCursor triggers LP expansion (same mechanism as goLeft).
-		// Precondition: current line is empty or whitespace-only.
-		// Detection: syntax tree at end of prevLine has HyperMD-quote (covers > lines and lazy continuation).
-		if (editor.getLine(cursor.line).trim() === '' &&
+		// Precondition: current line is NOT itself part of the quote/callout
+		// (a blank line never is, so this subsumes the old blank-only check).
+		// Detection: syntax tree at end of the line has HyperMD-quote (covers > lines and lazy continuation).
+		if (!this.isLineInQuote(editor, cursor.line) &&
 			this.isLineInQuote(editor, cursor.line - 1)) {
 			const prevLine = cursor.line - 1;
 			const prevLen  = editor.getLine(prevLine).length;
@@ -1705,7 +1716,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Used after synchronous cursor placement to let the DOM settle first.
 	private scheduleBottomVisualLine(editor: Editor, pixelGoal: number | null = null) {
 		if (this._inScrollPage) return;
-		activeWindow.setTimeout(() => {
+		setTimeoutOnActiveWindow(() => {
 			if (editor.inTableCell) {
 				this.moveToBottomVisualLineOfCell(editor);
 				this.applyRowCrossGoalColumnSync(editor, pixelGoal);
@@ -1872,8 +1883,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// there is no public Obsidian API to await that reconciliation directly.
 	private applyRowCrossGoalColumnSync(editor: Editor, pixelGoal: number | null) {
 		if (pixelGoal === null) return;
-		activeWindow.requestAnimationFrame(() => {
-			activeWindow.requestAnimationFrame(() => {
+		requestAnimationFrameOnActiveWindow(() => {
+			requestAnimationFrameOnActiveWindow(() => {
 				const viewBeforeRefine = editor.activeCM;
 				const headBeforeRefine = viewBeforeRefine.state.selection.main.head;
 				const assocBeforeRefine = viewBeforeRefine.state.selection.main.assoc;
@@ -1949,7 +1960,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 		if (this._inScrollPage) return;
-		activeWindow.setTimeout(() => {
+		setTimeoutOnActiveWindow(() => {
 			if (editor.inTableCell) {
 				this.applyRowCrossGoalColumnSync(editor, pixelGoal);
 			}
@@ -1962,7 +1973,15 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	//===========================================================================
 
 	private isPositionInTable(editor: Editor, line: number, ch: number, alreadyInTable = false): boolean {
-		if (alreadyInTable) return editor.getLine(line).trimStart().startsWith('|');
+		// A leading `|` isn't required — GFM tables may omit both edge pipes
+		// (see table-cell-utils.ts's own getCellBoundaries) — so this cheap
+		// fast-path (callers already know we're walking line-by-line from a
+		// confirmed table context, just need to tell "still in it" from
+		// "walked off the end") checks for any real separator pipe instead.
+		// A genuinely table-less line never has one (ignoring the degenerate,
+		// unparseable 1-cell/both-edges-omitted row, which isn't recognizable
+		// as a table at all to begin with).
+		if (alreadyInTable) return getPipePositions(editor.getLine(line)).length > 0;
 		const cm = editor.cm;
 		if (!cm) return false;
 
@@ -2227,16 +2246,16 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const watchNormalization = () => {
 			if (this._scrollPageGenId !== genId) return;
 			if (cm.state.selection.main.head !== savedHead) {
-				activeWindow.setTimeout(() => {
+				setTimeoutOnActiveWindow(() => {
 					if (this._scrollPageGenId !== genId) return;
 					cm.dispatch({ selection: { anchor: savedHead, head: savedHead } });
 					this.scrollToCursorAtY(editor, prevScreenY);
 				}, 100);
 				return;
 			}
-			if (++frames < 5) activeWindow.requestAnimationFrame(watchNormalization);
+			if (++frames < 5) requestAnimationFrameOnActiveWindow(watchNormalization);
 		};
-		activeWindow.requestAnimationFrame(watchNormalization);
+		requestAnimationFrameOnActiveWindow(watchNormalization);
 	}
 
 
@@ -2272,7 +2291,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			// in Kill Line), Obsidian skips auto-focus.  Transfer focus explicitly in
 			// the next frame to cover that case without risking destroying the inner view.
 			if (!this._inScrollPage) {
-				activeWindow.requestAnimationFrame(() => {
+				requestAnimationFrameOnActiveWindow(() => {
 					const inner = editor.activeCM;
 					if (inner && inner !== cm && !inner.hasFocus) {
 						inner.focus();
@@ -2292,8 +2311,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// every other "wait for Obsidian's async cell-focus reconciliation to
 	// settle" spot in this codebase. No-op outside a table cell.
 	private nudgeInnerViewVisible(editor: Editor) {
-		activeWindow.requestAnimationFrame(() => {
-			activeWindow.requestAnimationFrame(() => {
+		requestAnimationFrameOnActiveWindow(() => {
+			requestAnimationFrameOnActiveWindow(() => {
 				const inner = editor.activeCM;
 				if (inner && inner !== editor.cm) {
 					const head = inner.state.selection.main.head;
@@ -2385,6 +2404,15 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private isTableLineSourceMode(line: string): boolean {
 		const trimmed = line.trimEnd();
 		return trimmed.startsWith('|') && trimmed.endsWith('|');
+	}
+
+	// VimSupportHost's own exposed version of the isLivePreviewMode() +
+	// isTableLineSourceMode() combo every Source-Mode-aware command in this
+	// file already repeats inline — vim-support.ts has no direct access to
+	// either private method, and tx/tX (tableExitDown/tableExitUp) are its
+	// first callers that need this check.
+	isSourceModeTableLine(line: string): boolean {
+		return !this.isLivePreviewMode() && this.isTableLineSourceMode(line);
 	}
 
 
@@ -2516,12 +2544,16 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		});
 	}
 
-	// Table-aware wrapper around CM6's own transposeChars: cell/<br>-segment
-	// boundaries are hard stops (unlike Word right/case conversion) since
-	// transpose swaps arbitrary adjacent characters — if either one happened to
-	// be `|` or part of a `<br>` tag, the swap would corrupt table structure.
-	// At a segment's own end, falls back to swapLastTwoInRange instead of a
-	// plain no-op, matching real Emacs's end-of-line special case.
+	// Table-aware wrapper around CM6's own transposeChars: only the true cell
+	// boundary (`|`) is a hard stop — a `<br>` (in-cell line) boundary is
+	// crossable, same as every other command's convention that <br>-separated
+	// in-cell lines behave like plain-text lines within the same cell. `<br>`
+	// itself is swapped as one atomic 4-character unit (never partially), the
+	// same way a real `\n` is treated as one atomic unit when transposeChars
+	// crosses a line boundary outside a table — e.g. "A<br>B<br>C" with the
+	// cursor at the start of "B" becomes "AB<br><br>C". At a segment's own
+	// end, falls back to swapLastTwoInRange instead of a plain no-op, matching
+	// real Emacs's end-of-line special case.
 	private transposeChars(editor: Editor) {
 		if (editor.inTableCell) {
 			this.transposeCharsInTableLP(editor);
@@ -2556,7 +2588,14 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const head = inner.state.selection.main.head;
 		const subLine = inner.state.doc.lineAt(head);
 
-		if (head === subLine.from) return; // segment start: no-op, no special case here
+		// Only the inner document's very first line's own start (head === 0)
+		// is the true cell boundary (right after the opening |) — a hard
+		// wall. Every other sub-line's start is a <br> boundary: the inner
+		// view already represents each <br>-delimited in-cell line as a real
+		// CM6 line, so falling through to CM6's own transposeChars below
+		// just crosses that real \n, same as crossing any other line
+		// boundary in plain text.
+		if (head === subLine.from && subLine.number === 1) return;
 		if (head === subLine.to) {
 			this.swapLastTwoInRange(inner, subLine.from, subLine.to);
 			return;
@@ -2565,11 +2604,41 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 	private transposeCharsInTableSource(editor: Editor, info: InCellLineInfo) {
-		const cursor = editor.getCursor();
-		if (info.isEmpty || cursor.ch <= info.startOfInCellLine) return; // segment start: no-op
+		if (info.isEmpty) return; // empty in-cell line: no-op, matches the plain-text empty-line case
 
+		const cursor = editor.getCursor();
 		const cm = editor.cm;
 		if (!cm) return;
+
+		if (cursor.ch <= info.startOfInCellLine) {
+			// 'single'/'first': nothing precedes this in-cell line but the
+			// cell's own opening `|` — a genuine hard wall, matching Kill
+			// word's/multi-cell selection's established cell-scoping rule.
+			if (info.lineType === 'single' || info.lineType === 'first') return;
+
+			// 'middle'/'last': a <br> tag immediately precedes this in-cell
+			// line. Swap the whole 4-character tag (never partially) with the
+			// following grapheme cluster — see this function's own doc
+			// comment above for the worked example.
+			const lineText  = editor.getLine(cursor.line);
+			const brStart   = info.startOfInCellLine - 4; // '<br>' (any case) is always exactly 4 chars
+			const brTag     = lineText.slice(brStart, info.startOfInCellLine);
+			const after     = lineText.slice(info.startOfInCellLine);
+			const clusterEnd = findClusterBreak(after, 0);
+			const firstCluster = after.slice(0, clusterEnd);
+
+			const cmLine = cm.state.doc.line(cursor.line + 1);
+			cm.dispatch({
+				changes: {
+					from: cmLine.from + brStart,
+					to: cmLine.from + info.startOfInCellLine + clusterEnd,
+					insert: firstCluster + brTag,
+				},
+				selection: { anchor: cmLine.from + brStart + firstCluster.length + brTag.length },
+				userEvent: 'move.character',
+			});
+			return;
+		}
 
 		if (cursor.ch >= info.endOfInCellLine) {
 			const cmLine = cm.state.doc.line(cursor.line + 1);
@@ -2640,10 +2709,16 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			// the sub-line after the one being joined was itself blank.
 			const nextSubLine = inner.state.doc.lineAt(subLine.to + 1);
 			const afterNl = inner.state.doc.sliceString(subLine.to + 1, nextSubLine.to);
-			const trimLen = this.settings.smartJoin
+			// Matches killLineNonTable's own "current line must be non-empty"
+			// guard — Smart join shouldn't trim the next sub-line's leading
+			// Markdown when killing from a genuinely blank in-cell line.
+			const trimLen = (this.settings.smartJoin && subLine.text.length > 0)
 				? this.getBeginningOfLinePosition(afterNl, afterNl.length || 1)
 				: 0;
-			this.updateKillCache('\n');
+			// The trimmed leading Markdown (trimLen chars) is deleted from the
+			// cell right alongside the newline below — it must go into the
+			// kill cache too, or Yank can never restore it.
+			this.updateKillCache('\n' + afterNl.slice(0, trimLen));
 			navigator.clipboard.writeText(this.killCache).catch(() => {});
 			this.isDispatchingKill = true;
 			inner.dispatch({ changes: { from: subLine.to, to: subLine.to + 1 + trimLen, insert: '' }, selection: { anchor: subLine.to }, userEvent: 'delete' });
@@ -2674,18 +2749,24 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (brMatch) {
 			const brLen      = '<br>'.length;
 			const afterBr    = lineText.slice(info.endOfInCellLine + brLen);
-			const trimLen    = this.settings.smartJoin
+			// Matches killLineNonTable's own "current line must be non-empty"
+			// guard — Smart join shouldn't trim the next in-cell line's
+			// leading Markdown when killing from a genuinely blank one.
+			const trimLen    = (this.settings.smartJoin && !info.isEmpty)
 				? this.getBeginningOfLinePosition(afterBr, afterBr.length || 1)
 				: 0;
 			const toCh       = info.endOfInCellLine + brLen + trimLen;
 			const targetCh   = info.endOfInCellLine;
 			const targetLine = cursor.line;
-			this.updateKillCache('\n');
+			// The trimmed leading Markdown (trimLen chars) is deleted from the
+			// cell right alongside the <br> below — it must go into the kill
+			// cache too, or Yank can never restore it.
+			this.updateKillCache('\n' + afterBr.slice(0, trimLen));
 			navigator.clipboard.writeText(this.killCache).catch(() => {});
 			this.isDispatchingKill = true;
 			editor.setLine(targetLine, lineText.slice(0, targetCh) + lineText.slice(toCh));
 			this.isDispatchingKill = false;
-			activeWindow.setTimeout(() => {
+			setTimeoutOnActiveWindow(() => {
 				this.isDispatchingKill = true;
 				this.setCursorViaCm(editor, targetLine, targetCh);
 				this.isDispatchingKill = false;
@@ -2705,7 +2786,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			this.isDispatchingKill = true;
 			editor.setLine(targetLine, lineText.slice(0, brStart) + lineText.slice(cursor.ch));
 			this.isDispatchingKill = false;
-			activeWindow.setTimeout(() => {
+			setTimeoutOnActiveWindow(() => {
 				this.isDispatchingKill = true;
 				this.setCursorViaCm(editor, targetLine, brStart);
 				this.isDispatchingKill = false;
@@ -2737,7 +2818,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const joinTrimLen = (this.settings.smartJoin && lineText.length > 0)
 			? this.getBeginningOfLinePosition(nextLineText, nextLineText.length || 1)
 			: 0;
-		this.updateKillCache('\n');
+		// Smart join's own trimmed leading Markdown (joinTrimLen chars) is
+		// deleted from the document right alongside the newline below — it
+		// must go into the kill cache too, or Yank can never restore it.
+		this.updateKillCache('\n' + nextLineText.slice(0, joinTrimLen));
 		navigator.clipboard.writeText(this.killCache).catch(() => {});
 		this.isDispatchingKill = true;
 		editor.replaceRange('', { line: cursor.line, ch: lineText.length }, { line: cursor.line + 1, ch: joinTrimLen });
@@ -3320,7 +3404,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			const scrollEl      = editor.cm?.scrollDOM;
 			const savedScroll   = scrollEl?.scrollTop;
 			editor.setLine(targetLine, prefix + text + suffix);
-			activeWindow.setTimeout(() => {
+			setTimeoutOnActiveWindow(() => {
 				if (scrollEl && savedScroll !== undefined) scrollEl.scrollTop = savedScroll;
 				this.setCursorViaCm(editor, targetLine, targetCh);
 			}, 0);

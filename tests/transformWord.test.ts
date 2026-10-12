@@ -243,7 +243,7 @@ describe('transformWord', () => {
 			editor.getCursor = outer.getCursor
 			editor.getLine = outer.getLine
 			plugin.transformWordInTableLP(editor, upper)
-			expect(plugin.crossTableRowForWord).toHaveBeenCalledWith(editor, 0, true, false, false)
+			expect(plugin.crossTableRowForWord).toHaveBeenCalledWith(editor, 0, true, false, false, true)
 			expect(plugin.continueWordTransformAfterLanding).toHaveBeenCalledWith(editor, { line: 1, ch: 2 }, upper)
 		})
 
@@ -270,7 +270,7 @@ describe('transformWord', () => {
 			const editor = makePlainEditor([line], { line: 0, ch: 5 }) // end of 'foo'
 			const info = { lineType: 'single', startOfInCellLine: 2, endOfInCellLine: 5, isEmpty: false } as any
 			plugin.transformWordInTableSourceMode(editor, upper, info)
-			expect(plugin.crossTableRowForWord).toHaveBeenCalledWith(editor, 0, true, false, false)
+			expect(plugin.crossTableRowForWord).toHaveBeenCalledWith(editor, 0, true, false, false, true)
 			expect(plugin.continueWordTransformAfterLanding).toHaveBeenCalledWith(editor, { line: 1, ch: 2 }, upper)
 		})
 	})
