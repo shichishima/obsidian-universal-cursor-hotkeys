@@ -25,7 +25,6 @@ Moving from the following locations behaves the same as the physical ↑ key.
 
 - **Within text:** Moves up to the previous visual line.
 - **Below a blockquote, callout, image, embed, or thematic break:** Enters the block from below and expands its Markdown source.
-  - For blockquotes and callouts, the block must end with a blank (or whitespace-only) line immediately below it. If a list line or similar follows directly, UP cannot enter the block.
   - For images and embeds (`![[...]]`, `![...](...)`), this applies only when the syntax starts at the beginning of the line.
   - For thematic breaks (`---`, `***`, `___`), the cursor lands at the start of that line.
   - Obsidian's macOS shortcut `Ctrl` + `P` behaves differently from the physical ↑ key here — it passed straight through this block and moved above it instead.
@@ -539,8 +538,8 @@ Swaps the two characters immediately before and after the cursor. This command r
   - As a result, the first character of the line appears to get pulled up into the previous line.
   - After the swap, the cursor sits right after the line break — which, in effect, means it stays at the start of the line without moving.
   - Repeating this pulls characters up to the line above one at a time; once the line becomes empty, it becomes the end of a 0-character line, and nothing further happens after that.
-- **At the very start or end of the note:** There's no character on one side to swap with, so nothing happens.
-- **Table-aware in Source Mode:** Within a table, the `|` to the left of a cell is treated as the start of the note, and `<br>` and the `|` to the right of a cell are treated as the end of a line. These characters never move, so the table is never broken.
+- **At the very start/end of the note, or the start/end of a cell:** There's no character on one side to swap with, so nothing happens.
+- **Table-aware in Source Mode:** Within a table, the `|` to the left of a cell is treated as the start of the note, and the `|` to the right of a cell is treated as the end of a line — these boundary characters never move, so the table is never broken. A `<br>`, on the other hand, is treated the same as a real line break: the whole `<br>` tag (4 characters) is swapped as a single unit with the character before or after it. (For example, with the cursor at the start of "B" in `A<br>B<br>C`, swapping produces `AB<br><br>C`.)
 - **Unicode-safe:** Characters that internally span multiple character units — such as emoji — are treated and swapped as a single character. (Surrogate pairs like "🟩"/"𠮷", and emoji with variation selectors like "☺️".)
 
 </details>
@@ -631,9 +630,10 @@ Moves to the adjacent cell in the specified direction.
 Moves outside the current table.
 
 - Exit table above lands on the line directly above the table; Exit table below lands on the line directly below it.
+- Smart home skips over any leading Markdown at the start of the landing line.
 - **If the table sits at the very start of the note (Exit table above):** Since there's no line above to exit to, it lands at the start of the leftmost cell in the table's header row instead.
   - Smart home skips over any leading Markdown at the start of the cell.
 - **If the table sits at the very end of the note (Exit table below):** A blank line is added at the end of the note and the cursor lands there.
-- Only works within a table in Live Preview. Does nothing outside a table, or in Source Mode.
+- Works within a table in both Live Preview and Source Mode. Does nothing outside a table.
 
 </details>
