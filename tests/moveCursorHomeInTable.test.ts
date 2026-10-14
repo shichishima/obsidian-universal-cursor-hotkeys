@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { EditorSelection } from '@codemirror/state'
 
 vi.mock('@codemirror/language', () => ({
 	syntaxTree: vi.fn(),
@@ -49,7 +50,7 @@ function makeInnerView(innerText: string, innerHead: number) {
 				lineAt: makeLineAt(innerText),
 				lines: innerText.split('\n').length,
 			},
-			selection: { main: { head: innerHead } },
+			selection: EditorSelection.create([EditorSelection.cursor(innerHead)], 0),
 		},
 		dispatch,
 	}
@@ -197,7 +198,7 @@ describe('moveCursorHomeInTable', () => {
 
 					if (row.dispatchAnchor !== undefined) {
 						expect(editor._innerDispatch).toHaveBeenCalledWith({
-							selection: { anchor: row.dispatchAnchor },
+							selection: EditorSelection.create([EditorSelection.cursor(row.dispatchAnchor)], 0),
 							userEvent: 'move',
 						})
 						expect(plugin.moveToLeftCellEnd).not.toHaveBeenCalled()
@@ -241,7 +242,7 @@ describe('moveCursorHomeInTable — VL step', () => {
 		// head=9, vlStartPos=5 (> startOfSubLine=1, < head=9) → VL step fires
 		const editor = makeEditorWithCoords(10, VL_LINE, 100, 5)
 		plugin.moveCursorHomeInTable(editor)
-		expect(editor._innerDispatch).toHaveBeenCalledWith({ selection: { anchor: 5 }, userEvent: 'move' })
+		expect(editor._innerDispatch).toHaveBeenCalledWith({ selection: EditorSelection.create([EditorSelection.cursor(5)], 0), userEvent: 'move' })
 	})
 
 	it('VL2+, already at VL edge (head === vlStartPos) → fall through to smart home', () => {
@@ -250,7 +251,7 @@ describe('moveCursorHomeInTable — VL step', () => {
 		const editor = makeEditorWithCoords(6, VL_LINE, 100, 5)
 		plugin.moveCursorHomeInTable(editor)
 		// smart home: smartHomeInner=1 → dispatch(1)
-		expect(editor._innerDispatch).toHaveBeenCalledWith({ selection: { anchor: 1 }, userEvent: 'move' })
+		expect(editor._innerDispatch).toHaveBeenCalledWith({ selection: EditorSelection.create([EditorSelection.cursor(1)], 0), userEvent: 'move' })
 	})
 
 	it('VL1 (vlStartPos <= startOfSubLine) → fall through to smart home', () => {
@@ -258,7 +259,7 @@ describe('moveCursorHomeInTable — VL step', () => {
 		// head=9, vlStartPos=1 (= startOfSubLine) → vlStartPos > startOfSubLine is false → skip VL step
 		const editor = makeEditorWithCoords(10, VL_LINE, 100, 1)
 		plugin.moveCursorHomeInTable(editor)
-		expect(editor._innerDispatch).toHaveBeenCalledWith({ selection: { anchor: 1 }, userEvent: 'move' })
+		expect(editor._innerDispatch).toHaveBeenCalledWith({ selection: EditorSelection.create([EditorSelection.cursor(1)], 0), userEvent: 'move' })
 	})
 
 	it('visualLineMovement OFF → skip VL step, fall through to smart home', () => {
@@ -266,7 +267,7 @@ describe('moveCursorHomeInTable — VL step', () => {
 		const editor = makeEditorWithCoords(10, VL_LINE, 100, 5)
 		plugin.moveCursorHomeInTable(editor)
 		// VL step skipped → smart home: dispatch(1)
-		expect(editor._innerDispatch).toHaveBeenCalledWith({ selection: { anchor: 1 }, userEvent: 'move' })
+		expect(editor._innerDispatch).toHaveBeenCalledWith({ selection: EditorSelection.create([EditorSelection.cursor(1)], 0), userEvent: 'move' })
 		expect(editor._coordsAtPos).not.toHaveBeenCalled()
 	})
 
@@ -275,7 +276,7 @@ describe('moveCursorHomeInTable — VL step', () => {
 		// coordsTop=null → coordsAtPos returns null → skip VL step
 		const editor = makeEditorWithCoords(10, VL_LINE, null, 5)
 		plugin.moveCursorHomeInTable(editor)
-		expect(editor._innerDispatch).toHaveBeenCalledWith({ selection: { anchor: 1 }, userEvent: 'move' })
+		expect(editor._innerDispatch).toHaveBeenCalledWith({ selection: EditorSelection.create([EditorSelection.cursor(1)], 0), userEvent: 'move' })
 	})
 
 	it('posAtCoords returns null → skip VL step, fall through to smart home', () => {
@@ -283,6 +284,86 @@ describe('moveCursorHomeInTable — VL step', () => {
 		// coordsTop=100 (non-null) but posAtCoords returns null → skip VL step
 		const editor = makeEditorWithCoords(10, VL_LINE, 100, null)
 		plugin.moveCursorHomeInTable(editor)
-		expect(editor._innerDispatch).toHaveBeenCalledWith({ selection: { anchor: 1 }, userEvent: 'move' })
+		expect(editor._innerDispatch).toHaveBeenCalledWith({ selection: EditorSelection.create([EditorSelection.cursor(1)], 0), userEvent: 'move' })
+	})
+})
+
+// ===========================================================================
+// Multi-cursor: moveCursorHomeInTable never calls a native CM6 command (just
+// coordinate/text math via computeHomeTargetInCell), so every inner-view
+// range's own target is computed directly before any dispatch — same
+// table-boundary policy as everywhere else in this file, just at cell
+// granularity (dispatchInCellMotion).
+// ===========================================================================
+
+describe('moveCursorHomeInTable — multi-cursor', () => {
+	let plugin: any
+
+	// innerText: ' text1\n text2 ' — sub-line 1 'text1' (startOfSubLine=1,
+	// first sub-line skips the leading space); sub-line 2 ' text2 ' (from=7,
+	// startOfSubLine=7, non-first sub-lines don't skip leading space).
+	const MULTI_LINE = ' text1\n text2 '
+
+	function makeMultiInnerView(heads: number[], mainIndex: number) {
+		const dispatch = vi.fn()
+		const inner = {
+			state: {
+				doc: {
+					toString: () => MULTI_LINE,
+					lineAt: makeLineAt(MULTI_LINE),
+					lines: MULTI_LINE.split('\n').length,
+				},
+				selection: EditorSelection.create(heads.map(h => EditorSelection.cursor(h)), mainIndex),
+			},
+			dispatch,
+		}
+		return {
+			editor: { activeCM: inner, cm: {}, _innerDispatch: dispatch },
+			dispatch,
+		}
+	}
+
+	beforeEach(() => {
+		plugin = Object.create(UniversalCursorHotkeysPlugin.prototype)
+		plugin.settings = { smartHomeStandard: true, smartHomeAdvanced: true, visualLineMovement: false }
+		plugin.moveToLeftCellEnd = vi.fn()
+	})
+
+	it('both ranges stay within the cell: batched into one dispatch', () => {
+		// main (index 0) on sub-line 2 ' text2 ' at head=10 -> the leading
+		// space counts as 1 skippable char (getBeginningOfLinePosition),
+		// smart home target = startOfSubLine(7) + 1 = 8.
+		// secondary on sub-line 1 at head=4 -> smart home target 1.
+		const { editor, dispatch } = makeMultiInnerView([10, 4], 0)
+		plugin.moveCursorHomeInTable(editor)
+
+		expect(dispatch).toHaveBeenCalledWith({
+			selection: EditorSelection.create([EditorSelection.cursor(8), EditorSelection.cursor(1)], 0),
+			userEvent: 'move',
+		})
+	})
+
+	it('secondary alone would exit the cell while main stays: dropped', () => {
+		// main (index 0) on sub-line 2 at head=10 -> stays, target 8 (see above).
+		// secondary at head=1 (sub-line 1's own start) -> wants to exit.
+		const { editor, dispatch } = makeMultiInnerView([10, 1], 0)
+		plugin.moveCursorHomeInTable(editor)
+
+		expect(dispatch).toHaveBeenCalledWith({
+			selection: EditorSelection.create([EditorSelection.cursor(8)], 0),
+			userEvent: 'move',
+		})
+		expect(plugin.moveToLeftCellEnd).not.toHaveBeenCalled()
+	})
+
+	it('main exits the cell while a secondary stays: hands off entirely, no batch dispatch', () => {
+		// main (index 0) at head=1 (sub-line 1's own start) -> wants to exit.
+		// secondary on sub-line 2 at head=10 -> would stay, but moot: the
+		// whole inner view is torn down once main leaves this cell.
+		const { editor, dispatch } = makeMultiInnerView([1, 10], 0)
+		plugin.moveCursorHomeInTable(editor)
+
+		expect(plugin.moveToLeftCellEnd).toHaveBeenCalledWith(editor)
+		expect(dispatch).not.toHaveBeenCalled()
 	})
 })

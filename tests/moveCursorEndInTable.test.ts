@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { EditorSelection } from '@codemirror/state'
 
 vi.mock('@codemirror/language', () => ({
 	syntaxTree: vi.fn(),
@@ -48,7 +49,7 @@ function makeEditor(innerText: string, head: number) {
 				lineAt: makeLineAt(innerText),
 				lines: innerText.split('\n').length,
 			},
-			selection: { main: { head } },
+			selection: EditorSelection.create([EditorSelection.cursor(head)], 0),
 		},
 		dispatch,
 	}
@@ -72,7 +73,7 @@ function makeEditorWithVLBoundary(innerText: string, head: number, vlEndHead: nu
 				lineAt: makeLineAt(innerText),
 				lines: innerText.split('\n').length,
 			},
-			selection: { main: { head } },
+			selection: EditorSelection.create([EditorSelection.cursor(head)], 0),
 		},
 		dispatch,
 		moveToLineBoundary,
@@ -151,7 +152,7 @@ describe('moveCursorEndInTable', () => {
 					plugin.moveCursorEndInTable(editor)
 
 					if (row.dispatchAnchor !== undefined) {
-						expect(editor._innerDispatch).toHaveBeenCalledWith({ selection: { anchor: row.dispatchAnchor }, userEvent: 'move' })
+						expect(editor._innerDispatch).toHaveBeenCalledWith({ selection: EditorSelection.create([EditorSelection.cursor(row.dispatchAnchor)], 0), userEvent: 'move' })
 						expect(plugin.moveToRightCellStart).not.toHaveBeenCalled()
 					} else if (row.callsRightCell) {
 						expect(plugin.moveToRightCellStart).toHaveBeenCalled()
@@ -208,7 +209,7 @@ describe('moveCursorEndInTable — VL step', () => {
 		// head=10 === vlEndHead=10 → head !== vlEndHead is false → skip VL step
 		const editor = makeEditorWithVLBoundary(VL_INNER, 10, 10)
 		plugin.moveCursorEndInTable(editor)
-		expect(editor._innerDispatch).toHaveBeenCalledWith({ selection: { anchor: 18 }, userEvent: 'move' })
+		expect(editor._innerDispatch).toHaveBeenCalledWith({ selection: EditorSelection.create([EditorSelection.cursor(18)], 0), userEvent: 'move' })
 	})
 
 	it('VL step: last VL (vlEndHead === endOfSubLine) → dispatch to endOfSubLine', () => {
@@ -216,14 +217,92 @@ describe('moveCursorEndInTable — VL step', () => {
 		// head=5, vlEndHead=18 = endOfSubLine → vlEndHead < endOfSubLine is false → skip VL step
 		const editor = makeEditorWithVLBoundary(VL_INNER, 5, 18)
 		plugin.moveCursorEndInTable(editor)
-		expect(editor._innerDispatch).toHaveBeenCalledWith({ selection: { anchor: 18 }, userEvent: 'move' })
+		expect(editor._innerDispatch).toHaveBeenCalledWith({ selection: EditorSelection.create([EditorSelection.cursor(18)], 0), userEvent: 'move' })
 	})
 
 	it('visualLineMovement OFF → skip VL step, dispatch to endOfSubLine', () => {
 		plugin.settings = vlOff
 		const editor = makeEditorWithVLBoundary(VL_INNER, 5, 10)
 		plugin.moveCursorEndInTable(editor)
-		expect(editor._innerDispatch).toHaveBeenCalledWith({ selection: { anchor: 18 }, userEvent: 'move' })
+		expect(editor._innerDispatch).toHaveBeenCalledWith({ selection: EditorSelection.create([EditorSelection.cursor(18)], 0), userEvent: 'move' })
 		expect(editor._moveToLineBoundary).not.toHaveBeenCalled()
+	})
+})
+
+// ===========================================================================
+// Multi-cursor: moveCursorEndInTable never calls a native CM6 command (just
+// coordinate/text math via computeEndTargetInCell), so every inner-view
+// range's own target is computed directly before any dispatch — same
+// table-boundary policy as everywhere else in this file, just at cell
+// granularity (dispatchInCellMotion).
+// ===========================================================================
+
+describe('moveCursorEndInTable — multi-cursor', () => {
+	let plugin: any
+
+	// innerText: ' text1\n text2 ' — sub-line 1 'text1' (from=0, to=6,
+	// endOfSubLine=6, the \n boundary); sub-line 2 ' text2 ' (from=7,
+	// isLastSubLine, endOfSubLine = 7 + trimEnd(' text2 ').length = 13).
+	const MULTI_LINE = ' text1\n text2 '
+
+	function makeMultiInnerView(heads: number[], mainIndex: number) {
+		const dispatch = vi.fn()
+		const inner = {
+			state: {
+				doc: {
+					toString: () => MULTI_LINE,
+					lineAt: makeLineAt(MULTI_LINE),
+					lines: MULTI_LINE.split('\n').length,
+				},
+				selection: EditorSelection.create(heads.map(h => EditorSelection.cursor(h)), mainIndex),
+			},
+			dispatch,
+		}
+		return {
+			editor: { activeCM: inner, cm: {}, _innerDispatch: dispatch },
+			dispatch,
+		}
+	}
+
+	beforeEach(() => {
+		plugin = Object.create(UniversalCursorHotkeysPlugin.prototype)
+		plugin.settings = { visualLineMovement: false }
+		plugin.moveToRightCellStart = vi.fn()
+	})
+
+	it('both ranges stay within the cell: batched into one dispatch', () => {
+		// main (index 0) on sub-line 1 at head=3 (middle) -> target 6 (endOfSubLine).
+		// secondary on sub-line 2 at head=9 (middle) -> target 13.
+		const { editor, dispatch } = makeMultiInnerView([3, 9], 0)
+		plugin.moveCursorEndInTable(editor)
+
+		expect(dispatch).toHaveBeenCalledWith({
+			selection: EditorSelection.create([EditorSelection.cursor(6), EditorSelection.cursor(13)], 0),
+			userEvent: 'move',
+		})
+	})
+
+	it('secondary alone would exit the cell while main stays: dropped', () => {
+		// main (index 0) on sub-line 1 at head=3 -> stays, target 6.
+		// secondary at head=13 (sub-line 2's own end, isLastSubLine) -> wants to exit.
+		const { editor, dispatch } = makeMultiInnerView([3, 13], 0)
+		plugin.moveCursorEndInTable(editor)
+
+		expect(dispatch).toHaveBeenCalledWith({
+			selection: EditorSelection.create([EditorSelection.cursor(6)], 0),
+			userEvent: 'move',
+		})
+		expect(plugin.moveToRightCellStart).not.toHaveBeenCalled()
+	})
+
+	it('main exits the cell while a secondary stays: hands off entirely, no batch dispatch', () => {
+		// main (index 0) at head=13 (sub-line 2's own end) -> wants to exit.
+		// secondary on sub-line 1 at head=3 -> would stay, but moot: the
+		// whole inner view is torn down once main leaves this cell.
+		const { editor, dispatch } = makeMultiInnerView([13, 3], 0)
+		plugin.moveCursorEndInTable(editor)
+
+		expect(plugin.moveToRightCellStart).toHaveBeenCalledWith(editor)
+		expect(dispatch).not.toHaveBeenCalled()
 	})
 })
