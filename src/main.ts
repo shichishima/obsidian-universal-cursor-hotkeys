@@ -669,15 +669,31 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	//===========================================================================
 
 	// In-cell Home: VL edge (if visualLineMovement) → smart home → sub-line start → left cell.
+	// Multi-cursor-safe: computes each existing inner-view range's own
+	// target independently (pure, no dispatch) via computeHomeTargetInCell
+	// below, same shape as moveCursorWordPlainText's own multi-cursor loop
+	// — no native CM6 command involved here either, just coordinate/text
+	// math, so every range's target is knowable up front.
 	private moveCursorHomeInTable(editor: Editor) {
 		const inner = editor.activeCM;
 		if (!inner || inner === editor.cm) {
 			// Fallback: no-op if inner view is unavailable (cursor not in LP table cell).
 			return;
 		}
+		this.dispatchInCellMotion(
+			inner,
+			range => this.computeHomeTargetInCell(inner, range),
+			() => this.moveToLeftCellEnd(editor),
+		);
+	}
 
-		// Inner view path: use sub-line boundaries directly.
-		const head    = inner.state.selection.main.head;
+	// Pure (no dispatch) per-range Home target within the current cell.
+	// 'exit' means this range is at the cell's own first sub-line start —
+	// pressing Home again means leaving this cell (a different inner view)
+	// via moveToLeftCellEnd.
+	private computeHomeTargetInCell(inner: EditorView, range: SelectionRange):
+			{ kind: 'exit' } | { kind: 'stay'; pos: number; assoc?: -1 | 1 } {
+		const head    = range.head;
 		const subLine = inner.state.doc.lineAt(head);
 
 		// First sub-line: skip leading whitespace to reach content start.
@@ -688,8 +704,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			: subLine.from;
 
 		if (head <= startOfSubLine) {
-			if (subLine.number === 1) this.moveToLeftCellEnd(editor);
-			return;
+			if (isFirstSubLine) return { kind: 'exit' };
+			return { kind: 'stay', pos: startOfSubLine };
 		}
 
 		// VL step: when on VL2+ within a sub-line, move to the VL left edge first.
@@ -698,15 +714,14 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			// is visually at the right end of VL_N, so coordsAtPos with side=-1 returns VL_N
 			// coords. Without this, default side=1 would return VL_N+1 coords and make the
 			// VL step appear to be a no-op (vlStartPos === head).
-			const assoc = inner.state.selection.main.assoc;
+			const assoc = range.assoc;
 			const coords = inner.coordsAtPos(head, assoc < 0 ? -1 : 1);
 			if (coords) {
 				// x=0 is left of all inner-view content; posAtCoords snaps to the leftmost
 				// character on the current visual line. y = midpoint of that line (height ≈ 18 px).
 				const vlStartPos = inner.posAtCoords({ x: 0, y: coords.top + 9 }, false);
 				if (vlStartPos !== null && vlStartPos > startOfSubLine && head > vlStartPos) {
-					inner.dispatch({ selection: { anchor: vlStartPos }, userEvent: 'move' });
-					return;
+					return { kind: 'stay', pos: vlStartPos };
 				}
 			}
 		}
@@ -715,11 +730,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const contentText    = subLine.text.slice(startOfSubLine - subLine.from);
 		const smartHomeInner = startOfSubLine + this.getBeginningOfLinePosition(contentText, head - startOfSubLine);
 
-		if (head > smartHomeInner) {
-			inner.dispatch({ selection: { anchor: smartHomeInner }, userEvent: 'move' });
-			return;
-		}
-		inner.dispatch({ selection: { anchor: startOfSubLine }, userEvent: 'move' });
+		if (head > smartHomeInner) return { kind: 'stay', pos: smartHomeInner };
+		return { kind: 'stay', pos: startOfSubLine };
 	}
 
 
@@ -794,15 +806,26 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	//===========================================================================
 
 	// In-cell End: VL edge (if visualLineMovement) → sub-line end → right cell.
+	// Multi-cursor-safe — see moveCursorHomeInTable's own identical note.
 	private moveCursorEndInTable(editor: Editor) {
 		const inner = editor.activeCM;
 		if (!inner || inner === editor.cm) {
 			// Fallback: no-op if inner view is unavailable (cursor not in LP table cell).
 			return;
 		}
+		this.dispatchInCellMotion(
+			inner,
+			range => this.computeEndTargetInCell(inner, range),
+			() => this.moveToRightCellStart(editor),
+		);
+	}
 
-		// Inner view path: use sub-line boundaries directly.
-		const head    = inner.state.selection.main.head;
+	// Pure (no dispatch) per-range End target within the current cell.
+	// 'exit' means this range is at the cell's own last sub-line end —
+	// pressing End again means leaving this cell via moveToRightCellStart.
+	private computeEndTargetInCell(inner: EditorView, range: SelectionRange):
+			{ kind: 'exit' } | { kind: 'stay'; pos: number; assoc?: -1 | 1 } {
+		const head    = range.head;
 		const subLine = inner.state.doc.lineAt(head);
 
 		// Last sub-line: trim trailing whitespace; non-last: end is at \n boundary.
@@ -812,24 +835,19 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			: subLine.to;
 
 		if (head >= endOfSubLine) {
-			if (isLastSubLine) this.moveToRightCellStart(editor);
-			// first/middle at end: no-op
-			return;
+			if (isLastSubLine) return { kind: 'exit' };
+			return { kind: 'stay', pos: head }; // first/middle at end: no-op
 		}
 
 		// VL step: when on a non-last VL within the sub-line, move to the VL right edge first.
 		if (this.settings.visualLineMovement) {
-			const vlEnd = inner.moveToLineBoundary(inner.state.selection.main, true, true);
+			const vlEnd = inner.moveToLineBoundary(range, true, true);
 			if (vlEnd.head !== head && vlEnd.head < endOfSubLine) {
-				inner.dispatch({
-					selection: EditorSelection.create([EditorSelection.cursor(vlEnd.head, vlEnd.assoc)]),
-					userEvent: 'move',
-				});
-				return;
+				return { kind: 'stay', pos: vlEnd.head, assoc: vlEnd.assoc as -1 | 1 };
 			}
 		}
 
-		inner.dispatch({ selection: { anchor: endOfSubLine }, userEvent: 'move' });
+		return { kind: 'stay', pos: endOfSubLine };
 	}
 
 
@@ -2442,6 +2460,59 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}
 	}
 
+	// Multi-cursor-safe dispatcher for in-cell motion (Home/End-in-table's
+	// own shared shape, see their respective compute* functions): computes
+	// every existing inner-view range's own result first (pure, no
+	// dispatch). A range's own result is either 'exit' (this range needs to
+	// leave the current cell — a different inner view) or 'stay' (a target
+	// position within the SAME cell, possibly unchanged). Same
+	// table-boundary policy as everywhere else in this file, just at CELL
+	// granularity instead of table granularity: if the primary's own result
+	// is 'exit', hands off entirely to onPrimaryExit, which already
+	// collapses the whole selection on its own (tearing down this inner
+	// view for a new one via the outer, single-cursor setCursorViaCm) — no
+	// extra handling needed for that case. Otherwise batches every 'stay'
+	// range into one dispatch and drops any OTHER range whose own result is
+	// 'exit' when the primary's isn't (can't coexist with the primary in
+	// the same cell's inner view).
+	private dispatchInCellMotion(
+		inner: EditorView,
+		computeResult: (range: SelectionRange) => { kind: 'exit' } | { kind: 'stay'; pos: number; assoc?: -1 | 1 },
+		onPrimaryExit: () => void,
+	) {
+		const sel = inner.state.selection;
+		const main = sel.main;
+		const mainIndex = sel.ranges.indexOf(main);
+		const results = sel.ranges.map(computeResult);
+
+		if (results[mainIndex].kind === 'exit') {
+			onPrimaryExit();
+			return;
+		}
+
+		let changed = false;
+		let newMainIndex = -1;
+		const kept: SelectionRange[] = [];
+		sel.ranges.forEach((range, i) => {
+			const result = results[i];
+			const isMain = range === main;
+			if (!isMain && result.kind === 'exit') {
+				// Would leave this cell while the primary isn't — dropped.
+				changed = true;
+				return;
+			}
+			let keptRange = range;
+			if (result.kind === 'stay' && result.pos !== range.head) {
+				changed = true;
+				keptRange = EditorSelection.cursor(result.pos, result.assoc);
+			}
+			if (isMain) newMainIndex = kept.length;
+			kept.push(keptRange);
+		});
+		if (!changed) return;
+		inner.dispatch({ selection: EditorSelection.create(kept, newMainIndex), userEvent: 'move' });
+	}
+
 	// Multi-cursor + table-boundary policy, shared by LEFT/RIGHT/UP/DOWN's
 	// own wrappers above. A table cell is rendered through a separate inner
 	// EditorView/EditorState from the outer document, and only one view can
@@ -2521,10 +2592,15 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// landed on (read back from the live selection rather than recomputed,
 	// since setCursorViaCm may have already applied a further correction on
 	// top of the original landing).
+	// Re-asserts the CURRENT selection as-is (every range, not just main) so
+	// the scrollIntoView transaction effect below can run without
+	// collapsing a multi-cursor selection down to one range — confirmed
+	// live (2026-10-14): moveCursorWordPlainText's own multi-range dispatch
+	// was getting silently collapsed by this call immediately afterward,
+	// whenever the primary's own word-motion crossed to a different line.
 	private scrollCursorIntoView(editor: Editor) {
 		const cm = editor.cm;
-		const pos = cm.state.selection.main.head;
-		cm.dispatch({ selection: { anchor: pos }, scrollIntoView: true, userEvent: 'move' });
+		cm.dispatch({ selection: cm.state.selection, scrollIntoView: true, userEvent: 'move' });
 	}
 
 
@@ -4400,12 +4476,49 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// word-end convention (wordEnd -> last char's own index); this caret
 	// cursor needs one further to the right, hence the +1 correction applied
 	// only on the forward landing.
+	// Multi-cursor-safe: this cell's own word search (walkSegments/
+	// getInCellLineInfo etc.) is expressed in OUTER raw-line coordinates
+	// (shared with Vim's own w/b/e — deliberately left untouched, see
+	// exitCellWithWord's own comment), while the actual selection ranges
+	// live in the INNER view's own offsets. <br>-segment number and inner
+	// sub-line number are always the same count, so findWordTargetInCellForRange
+	// bridges the two by walking from the cell's own first segment the same
+	// number of segments as a given range's own inner sub-line is from 1 —
+	// uniformly for every range, no primary/secondary distinction needed
+	// for this part. Falls back to the original single-range implementation
+	// (moveCursorWordInTableSingle) when no inner view is available at all.
 	private moveCursorWordInTable(editor: Editor, forward: boolean) {
 		const cursor = editor.getCursor();
 		const lineText = editor.getLine(cursor.line);
-		let segInfo = getInCellLineInfo(lineText, cursor.ch);
-		if (!segInfo) return;
+		const primarySegInfo = getInCellLineInfo(lineText, cursor.ch);
+		if (!primarySegInfo) return;
 
+		const inner = editor.activeCM;
+		if (!inner || inner === editor.cm) {
+			this.moveCursorWordInTableSingle(editor, forward, cursor, lineText, primarySegInfo);
+			return;
+		}
+
+		const cellIndex = getCellIndex(lineText, cursor.ch);
+		const cellStartCh = getChByCellIndex(lineText, cellIndex);
+		const firstSegInfo = getInCellLineInfo(lineText, cellStartCh);
+		if (!firstSegInfo) return;
+
+		this.dispatchInCellMotion(
+			inner,
+			range => this.findWordTargetInCellForRange(inner, range, lineText, firstSegInfo, forward),
+			() => this.exitCellWithWord(editor, cellIndex, forward),
+		);
+	}
+
+	// Original single-range implementation, unchanged — used both as the
+	// no-inner-view fallback above and, per range, is what
+	// findWordTargetInCellForRange below mirrors (returning a result
+	// instead of dispatching, and tracking the inner sub-line number in
+	// lockstep with each segment walked).
+	private moveCursorWordInTableSingle(
+		editor: Editor, forward: boolean, cursor: { line: number; ch: number }, lineText: string, segInfo: InCellLineInfo,
+	) {
 		let localCh = cursor.ch - segInfo.startOfInCellLine;
 		for (;;) {
 			const scopeStart = segInfo.startOfInCellLine;
@@ -4424,25 +4537,69 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}
 
 		const cellIndex = getCellIndex(lineText, cursor.ch);
+		this.exitCellWithWord(editor, cellIndex, forward);
+	}
+
+	// Pure (no dispatch) per-range word search within the current cell.
+	// Seeds this range's own starting segment purely from its inner
+	// sub-line number (not from the primary's own position) — walking
+	// (subLineNumber - 1) segments from the cell's first segment — so every
+	// range is computed the same uniform way. Converts the eventual OUTER
+	// landing ch back to an inner offset via inner.state.doc.line(N), where
+	// N is tracked in lockstep with each segment walked during the search.
+	private findWordTargetInCellForRange(
+		inner: EditorView, range: SelectionRange, lineText: string, firstSegInfo: InCellLineInfo, forward: boolean,
+	): { kind: 'exit' } | { kind: 'stay'; pos: number } {
+		const startSubLine = inner.state.doc.lineAt(range.head);
+		let subLineNumber = startSubLine.number;
+		let segInfo = subLineNumber > 1
+			? this.walkSegments(lineText, firstSegInfo, true, subLineNumber - 1).segInfo
+			: firstSegInfo;
+		let localCh = range.head - startSubLine.from;
+
+		for (;;) {
+			const scopeStart = segInfo.startOfInCellLine;
+			const scopedText = lineText.slice(scopeStart, segInfo.endOfInCellLine);
+			const fromCh = Math.max(0, Math.min(localCh, scopedText.length));
+			const span = findWordSpanOnLine(scopedText, fromCh, forward);
+			if (span) {
+				const targetCh = scopeStart + (forward ? span.to : span.from);
+				const targetSubLine = inner.state.doc.line(subLineNumber);
+				return { kind: 'stay', pos: targetSubLine.from + (targetCh - scopeStart) };
+			}
+			const { segInfo: nextSeg, steps } = this.walkSegments(lineText, segInfo, forward, 1);
+			if (steps === 0) return { kind: 'exit' };
+			segInfo = nextSeg;
+			subLineNumber += forward ? 1 : -1;
+			localCh = forward ? 0 : segInfo.endOfInCellLine - segInfo.startOfInCellLine;
+		}
+	}
+
+	// Primary's own search exhausted this cell: hand off entirely to the
+	// existing single-cursor cross-row/cross-cell logic, which already
+	// collapses the whole selection down to primary on its own
+	// (setCursorViaCm inside crossTableRowForWord) — same table-boundary
+	// policy as everywhere else in this file, no change needed here.
+	//
+	// crossTableRowForWord/exitTableWithWord are shared with Vim's own
+	// w/b/e, and real vim's own word motion treats a blank line as a word
+	// in its own right — correct for Vim, so that shared code is
+	// deliberately left alone. Real Emacs has no such convention: its own
+	// word motion skips blank lines entirely (moveCursorWordPlainText
+	// already does this for the all-plain-text case). So when exiting the
+	// table lands on a genuinely wordless line — the exact situation where
+	// the shared code's own "stop here" fallback kicks in — hand off to
+	// moveCursorWordPlainText to keep searching from here, purely as a
+	// post-processing step on top of the untouched shared landing (the real
+	// cursor is already sitting there; crossTableRowForWord's own
+	// setCursorToPrevRow/NextRow dispatch already moved it).
+	private exitCellWithWord(editor: Editor, cellIndex: number, forward: boolean) {
 		const landed = this.crossTableRowForWord(editor, cellIndex, forward, false, forward, true);
 		if (landed && forward) {
 			const landedLineText = editor.getLine(landed.line);
 			const targetCh = Math.min(landed.ch + 1, landedLineText.length);
 			if (targetCh !== landed.ch) this.setCursorViaCm(editor, landed.line, targetCh);
 		}
-
-		// crossTableRowForWord/exitTableWithWord are shared with Vim's own
-		// w/b/e, and real vim's own word motion treats a blank line as a
-		// word in its own right — correct for Vim, so that shared code is
-		// deliberately left alone. Real Emacs has no such convention: its
-		// own word motion skips blank lines entirely (moveCursorWordPlainText
-		// already does this for the all-plain-text case). So when exiting
-		// the table lands on a genuinely wordless line — the exact situation
-		// where the shared code's own "stop here" fallback kicks in — hand
-		// off to moveCursorWordPlainText to keep searching from here, purely
-		// as a post-processing step on top of the untouched shared landing
-		// (the real cursor is already sitting there; crossTableRowForWord's
-		// own setCursorToPrevRow/NextRow dispatch already moved it).
 		if (landed && !this.isPositionInTable(editor, landed.line, 1)
 				&& getWordSpans(editor.getLine(landed.line)).length === 0) {
 			this.moveCursorWordPlainText(editor, forward);

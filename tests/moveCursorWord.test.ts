@@ -88,6 +88,29 @@ describe('moveCursorWord — dispatcher', () => {
 	})
 })
 
+// scrollCursorIntoView used to collapse every OTHER range by dispatching a
+// bare { anchor: pos } selection — confirmed live (2026-10-14):
+// moveCursorWordPlainText's own correct multi-range dispatch was getting
+// silently collapsed back down to one range immediately afterward, any
+// time the primary's own word-motion crossed to a different line.
+describe('scrollCursorIntoView', () => {
+	let plugin: any
+
+	beforeEach(() => {
+		plugin = Object.create(UniversalCursorHotkeysPlugin.prototype)
+	})
+
+	it('re-dispatches the current selection unchanged (every range, not just main), with scrollIntoView', () => {
+		const dispatch = vi.fn()
+		const selection = EditorSelection.create([EditorSelection.cursor(3), EditorSelection.cursor(20)], 1)
+		const editor: any = { cm: { state: { selection }, dispatch } }
+
+		plugin.scrollCursorIntoView(editor)
+
+		expect(dispatch).toHaveBeenCalledWith({ selection, scrollIntoView: true, userEvent: 'move' })
+	})
+})
+
 describe('moveCursorWordPlainText', () => {
 	let plugin: any
 
@@ -483,5 +506,112 @@ describe('moveCursorWordInTable — cell/row crossing', () => {
 			plugin.moveCursorWordInTable(editor, true)
 			expect(plugin.moveCursorWordPlainText).toHaveBeenCalledWith(editor, true)
 		})
+	})
+})
+
+// ---------------------------------------------------------------------------
+// Multi-cursor: moveCursorWordInTable's own search is expressed in OUTER
+// raw-line coordinates (shared with Vim's own w/b/e), while the actual
+// selection ranges live in the INNER view's own offsets — findWordTargetInCellForRange
+// bridges the two per range. Uses '| foo<br>bar |' (two segments: "foo" at
+// outer [2,5), "bar" at outer [9,12)); inner doc mirrors this with <br>
+// resolved to a real \n: sub-line 1 "foo" (inner [0,3)), sub-line 2 "bar"
+// (inner [4,7)).
+// ---------------------------------------------------------------------------
+
+describe('moveCursorWordInTable — multi-cursor', () => {
+	let plugin: any
+
+	const BR_LINE = '| foo<br>bar |'
+	const INNER_TEXT = 'foo\nbar'
+
+	function makeInnerDoc(text: string) {
+		const parts = text.split('\n')
+		const lines = parts.map((t, i) => {
+			let from = 0
+			for (let j = 0; j < i; j++) from += parts[j].length + 1
+			return { from, to: from + t.length, text: t, number: i + 1 }
+		})
+		return {
+			lineAt: (pos: number) => lines.slice().reverse().find(l => pos >= l.from) ?? lines[0],
+			line: (n: number) => lines[n - 1],
+			lines: lines.length,
+			toString: () => text,
+		}
+	}
+
+	function makeMultiEditor(heads: number[], mainIndex: number) {
+		const dispatch = vi.fn()
+		const inner = {
+			state: {
+				doc: makeInnerDoc(INNER_TEXT),
+				selection: EditorSelection.create(heads.map(h => EditorSelection.cursor(h)), mainIndex),
+			},
+			dispatch,
+		}
+		return {
+			editor: {
+				getCursor: vi.fn(() => ({ line: 0, ch: 2 })), // anywhere in this cell; only used to resolve cellIndex
+				getLine: vi.fn(() => BR_LINE),
+				activeCM: inner,
+				cm: {},
+			},
+			dispatch,
+		}
+	}
+
+	beforeEach(() => {
+		plugin = Object.create(UniversalCursorHotkeysPlugin.prototype)
+		plugin.setCursorViaCm = vi.fn()
+		plugin.isPositionInTable = vi.fn().mockReturnValue(false)
+	})
+
+	it('single range through the inner-view path: matches the original single-cursor landing', () => {
+		// head=0 ("foo" start, sub-line 1) forward -> lands at the end of
+		// "foo" (inner pos 3), same target the old OUTER-only path would
+		// have produced for the equivalent cursor position.
+		const { editor, dispatch } = makeMultiEditor([0], 0)
+		plugin.moveCursorWordInTable(editor, true)
+
+		expect(dispatch).toHaveBeenCalledWith({
+			selection: EditorSelection.create([EditorSelection.cursor(3)], 0),
+			userEvent: 'move',
+		})
+	})
+
+	it('both ranges stay within the cell: batched into one dispatch', () => {
+		// main (index 0) at inner head=0 ("foo" start) -> lands at 3 (end of "foo").
+		// secondary at inner head=4 ("bar" start) -> lands at 7 (end of "bar").
+		const { editor, dispatch } = makeMultiEditor([0, 4], 0)
+		plugin.moveCursorWordInTable(editor, true)
+
+		expect(dispatch).toHaveBeenCalledWith({
+			selection: EditorSelection.create([EditorSelection.cursor(3), EditorSelection.cursor(7)], 0),
+			userEvent: 'move',
+		})
+	})
+
+	it('secondary alone exhausts the cell while main stays: dropped', () => {
+		// main (index 0) at inner head=0 -> stays, target 3.
+		// secondary at inner head=7 ("bar" end, the cell's own last segment) -> exits.
+		const { editor, dispatch } = makeMultiEditor([0, 7], 0)
+		plugin.moveCursorWordInTable(editor, true)
+
+		expect(dispatch).toHaveBeenCalledWith({
+			selection: EditorSelection.create([EditorSelection.cursor(3)], 0),
+			userEvent: 'move',
+		})
+	})
+
+	it('main exhausts the cell while a secondary stays: hands off entirely, no inner dispatch', () => {
+		plugin.crossTableRowForWord = vi.fn().mockReturnValue({ line: 1, ch: 3 })
+		// main (index 0) at inner head=7 ("bar" end) -> wants to exit.
+		// secondary at inner head=0 -> would stay, but moot: the whole inner
+		// view is torn down once main leaves this cell.
+		const { editor, dispatch } = makeMultiEditor([7, 0], 0)
+		plugin.moveCursorWordInTable(editor, true)
+
+		expect(plugin.crossTableRowForWord).toHaveBeenCalledWith(editor, 0, true, false, true, true)
+		expect(dispatch).not.toHaveBeenCalled()
 	})
 })
