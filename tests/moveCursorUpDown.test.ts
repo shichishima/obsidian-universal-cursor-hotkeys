@@ -38,7 +38,12 @@ function makeEditor(lines: string[], line: number, ch: number) {
 			lineCount: vi.fn().mockReturnValue(lines.length),
 			setCursor,
 			exec,
-			cm: {},
+			// Single-range selection: reconcileSecondaryRangesAfterTableCrossing/
+			// dropSecondariesAboutToCrossTableBoundary (called by
+			// moveCursorUp/Down's own wrappers) short-circuit on
+			// ranges.length <= 1, so this file's single-cursor scenarios never
+			// touch anything beyond this array's length.
+			cm: { state: { selection: { ranges: [{ head: 0 }] } } },
 		},
 		setCursor,
 		exec,

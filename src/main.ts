@@ -7,7 +7,7 @@ import { InCellLineInfo, getCellBounds, getStartOfCellContent, getEndOfCellConte
 import { setTimeoutOnActiveWindow, requestAnimationFrameOnActiveWindow } from './dom-timers';
 import { syntaxTree } from '@codemirror/language';
 import { EditorView } from "@codemirror/view";
-import { EditorSelection, Transaction, findClusterBreak } from '@codemirror/state';
+import { EditorSelection, SelectionRange, Transaction, findClusterBreak } from '@codemirror/state';
 import { deleteCharForward, cursorPageDown, cursorPageUp, transposeChars as cmTransposeChars } from '@codemirror/commands';
 import { getWordSpans, getBigWordSpans, findWordSpanOnLine } from './word-segmentation';
 import { exitTable, jumpAdjacentCell } from './table-navigation';
@@ -552,7 +552,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	private moveCursorHome(editor: Editor) {
 		const cursor = editor.getCursor();
-		if (cursor.ch === 0) return;
 
 		if (editor.inTableCell) {
 			this.moveCursorHomeInTable(editor);
@@ -583,7 +582,17 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 
+	// Wrapper: see reconcileSecondaryRangesAfterTableCrossing's own doc
+	// comment for why this runs after every LEFT/RIGHT/UP/DOWN whose
+	// current position starts outside a table cell (multi-cursor + table
+	// boundary policy).
 	private moveCursorLeft(editor: Editor) {
+		const startedInTable = editor.inTableCell;
+		this.moveCursorLeftImpl(editor);
+		if (!startedInTable) this.reconcileSecondaryRangesAfterTableCrossing(editor);
+	}
+
+	private moveCursorLeftImpl(editor: Editor) {
 		const cursor = editor.getCursor();
 
 		if (editor.inTableCell) {
@@ -612,6 +621,12 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 
 	private moveCursorRight(editor: Editor) {
+		const startedInTable = editor.inTableCell;
+		this.moveCursorRightImpl(editor);
+		if (!startedInTable) this.reconcileSecondaryRangesAfterTableCrossing(editor);
+	}
+
+	private moveCursorRightImpl(editor: Editor) {
 		const cursor = editor.getCursor();
 
 		if (editor.inTableCell) {
@@ -735,34 +750,42 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 
 	// Non-table Home: visual-line-aware 2-step home, markdown-aware smart home.
+	// Loops over every existing selection range (not just the primary one) so
+	// pressing Home with multiple cursors active moves each of them to its
+	// own line's Home position instead of collapsing to a single cursor.
 	private moveCursorHomeNonTable(editor: Editor) {
-		const cursor = editor.getCursor();
-		const line = editor.getLine(cursor.line);
 		const cm = editor.cm;
-		if (cm && this.settings.visualLineMovement) {
-			const lineFrom = editor.posToOffset({ line: cursor.line, ch: 0 });
-			const currentHead = cm.state.selection.main.head;
-			const vlStart = cm.moveToLineBoundary(cm.state.selection.main, false, true);
-			const vlCh = vlStart.head - lineFrom;
-			// Only treat as VL2+ if vlCh is past the smart home position.
-			// Prevents widget decorations (e.g. footnote [^1]: ) from causing a false VL dispatch.
-			const lineSmartHomePos = this.getBeginningOfLinePosition(line, line.length || 1);
-
-			if (vlStart.head !== currentHead && vlCh > lineSmartHomePos) {
-				// Case (1a): VL2+, not at VL left edge -> move to VL left edge.
-				cm.dispatch({
-					selection: EditorSelection.create([EditorSelection.cursor(vlStart.head, vlStart.assoc)]),
-					scrollIntoView: true,
-					userEvent: 'move',
-				});
-				return;
-			}
-			// Case (1b): VL2+ at left edge, or Case (2): VL1 -> fall through to smart home.
+		if (!cm) {
+			// No cm: smart home only, single cursor (multi-cursor is a CM6-level
+			// concept — nothing to loop over without cm.state.selection).
+			const cursor = editor.getCursor();
+			const line = editor.getLine(cursor.line);
+			const position = this.getBeginningOfLinePosition(line, cursor.ch);
+			editor.setCursor({ line: cursor.line, ch: position });
+			return;
 		}
+		this.setCursorsViaCm(editor, (range) => {
+			const pos = editor.offsetToPos(range.head);
+			const lineText = editor.getLine(pos.line);
+			if (this.settings.visualLineMovement) {
+				const lineFrom = editor.posToOffset({ line: pos.line, ch: 0 });
+				const vlStart = cm.moveToLineBoundary(range, false, true);
+				const vlCh = vlStart.head - lineFrom;
+				// Only treat as VL2+ if vlCh is past the smart home position.
+				// Prevents widget decorations (e.g. footnote [^1]: ) from causing a false VL dispatch.
+				const lineSmartHomePos = this.getBeginningOfLinePosition(lineText, lineText.length || 1);
 
-		// Smart home: content start -> ch=0.
-		const position = this.getBeginningOfLinePosition(line, cursor.ch);
-		editor.setCursor({ line: cursor.line, ch: position });
+				if (vlStart.head !== range.head && vlCh > lineSmartHomePos) {
+					// Case (1a): VL2+, not at VL left edge -> move to VL left edge.
+					return { pos: vlStart.head, assoc: vlStart.assoc as -1 | 1 };
+				}
+				// Case (1b): VL2+ at left edge, or Case (2): VL1 -> fall through to smart home.
+			}
+
+			// Smart home: content start -> ch=0.
+			const position = this.getBeginningOfLinePosition(lineText, pos.ch);
+			return { pos: editor.posToOffset({ line: pos.line, ch: position }) };
+		});
 	}
 
 
@@ -843,29 +866,34 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 
 	// Non-table End: visual-line-aware 2-step end.
+	// Loops over every existing selection range the same way
+	// moveCursorHomeNonTable above does, for the same multi-cursor reason.
 	private moveCursorEndNonTable(editor: Editor) {
 		const cm = editor.cm;
-		if (cm && this.settings.visualLineMovement) {
-			const currentHead = cm.state.selection.main.head;
-			const vlEnd = cm.moveToLineBoundary(cm.state.selection.main, true, true);
-
-			if (vlEnd.head !== currentHead) {
-				// Not yet at VL end: move to VL end.
-				cm.dispatch({
-					selection: EditorSelection.create([EditorSelection.cursor(vlEnd.head, vlEnd.assoc)]),
-					scrollIntoView: true,
-					userEvent: 'move',
-				});
-				return;
+		if (!cm) {
+			// No cm: single cursor (see moveCursorHomeNonTable's identical fallback).
+			const cursor = editor.getCursor();
+			const line = editor.getLine(cursor.line);
+			if (cursor.ch !== line.length) {
+				editor.setCursor({ line: cursor.line, ch: line.length });
 			}
-			// Fell through: already at VL end.
+			return;
 		}
-		// visualLineMovement OFF, no cm, or already at VL end -> move to logical line end.
-		const cursor = editor.getCursor();
-		const line = editor.getLine(cursor.line);
-		if (cursor.ch !== line.length) {
-			editor.setCursor({ line: cursor.line, ch: line.length });
-		}
+		this.setCursorsViaCm(editor, (range) => {
+			if (this.settings.visualLineMovement) {
+				const vlEnd = cm.moveToLineBoundary(range, true, true);
+				if (vlEnd.head !== range.head) {
+					// Not yet at VL end: move to VL end.
+					return { pos: vlEnd.head, assoc: vlEnd.assoc as -1 | 1 };
+				}
+				// Fell through: already at VL end.
+			}
+			// visualLineMovement OFF, or already at VL end -> move to logical line end.
+			const pos = editor.offsetToPos(range.head);
+			const lineText = editor.getLine(pos.line);
+			if (pos.ch === lineText.length) return null;
+			return { pos: editor.posToOffset({ line: pos.line, ch: lineText.length }) };
+		});
 	}
 
 
@@ -885,6 +913,20 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// position provably didn't change and the command itself didn't set its own.
 	private execPreservingGoalColumn(editor: Editor, command: 'goUp' | 'goDown'): void {
 		const cm = editor.cm;
+		// This is the generic fast path: reached only when the caller has
+		// already confirmed main itself isn't crossing a table boundary this
+		// step (moveCursorUpImpl/DownImpl route that case to
+		// moveCursorUpIntoTable/DownIntoTable instead, before ever reaching
+		// here). editor.exec('goUp'/'goDown') below has no per-row
+		// table-entry awareness for any OTHER range in the selection — only
+		// those main-only helpers provide that — so a secondary range
+		// sitting right at a table's edge would otherwise skip over the
+		// entire table in one jump instead of landing in its first/last row.
+		// Confirmed live: the skipped range's final position then happens to
+		// read as "not in table" again, same as main's, so a later
+		// post-motion table-status comparison (reconcileSecondaryRangesAfterTableCrossing)
+		// can't catch it — this has to be filtered out beforehand instead.
+		this.dropSecondariesAboutToCrossTableBoundary(editor, command === 'goDown' ? 1 : -1);
 		const beforeCursor = editor.getCursor();
 		const beforeGoal = cm?.state?.selection?.main?.goalColumn;
 		editor.exec(command);
@@ -893,10 +935,59 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (afterCursor.line !== beforeCursor.line || afterCursor.ch !== beforeCursor.ch) return;
 		const main = cm.state.selection.main;
 		if (main.goalColumn !== undefined) return;
-		cm.dispatch({ selection: EditorSelection.create([EditorSelection.cursor(main.head, main.assoc, undefined, beforeGoal)]) });
+		// Restore the goalColumn onto main only, keeping every other range
+		// (multi-cursor) exactly as exec just left it — this dispatch used
+		// to always collapse to a single range regardless of how many were
+		// active (same class of bug as everywhere else in this file).
+		const ranges = cm.state.selection.ranges.map(range =>
+			range === main
+				? EditorSelection.cursor(main.head, main.assoc, undefined, beforeGoal)
+				: range
+		);
+		cm.dispatch({ selection: EditorSelection.create(ranges, cm.state.selection.mainIndex) });
 	}
 
+	// Multi-cursor + table-boundary policy, called from
+	// execPreservingGoalColumn's own generic UP/DOWN fast path right before
+	// editor.exec('goUp'/'goDown') — see that function's own doc comment for
+	// why this has to run beforehand rather than after, unlike
+	// reconcileSecondaryRangesAfterTableCrossing's own after-the-fact check.
+	// Uses only the CURRENT (pre-motion) selection, so — unlike a before/after
+	// position diff — it needs no range-identity tracking across the
+	// dispatch (EditorSelection always keeps its ranges sorted by position,
+	// so index-based before/after correspondence isn't reliable once a range
+	// jumps far enough to cross another range's position).
+	private dropSecondariesAboutToCrossTableBoundary(editor: Editor, verticalDirection: 1 | -1) {
+		const cm = editor.cm;
+		if (!cm) return;
+		const sel = cm.state.selection;
+		if (sel.ranges.length <= 1) return;
+		const main = sel.main;
+		const mainPos = editor.offsetToPos(main.head);
+		const mainWillCross = this.isPositionInTable(editor, mainPos.line + verticalDirection, 1);
+		const kept = sel.ranges.filter(range => {
+			if (range === main) return true;
+			const pos = editor.offsetToPos(range.head);
+			return this.isPositionInTable(editor, pos.line + verticalDirection, 1) === mainWillCross;
+		});
+		if (kept.length === sel.ranges.length) return;
+		cm.dispatch({
+			selection: EditorSelection.create(kept, kept.indexOf(main)),
+			userEvent: 'move',
+		});
+	}
+
+	// Wrapper: see reconcileSecondaryRangesAfterTableCrossing's own doc
+	// comment for why this runs after every LEFT/RIGHT/UP/DOWN whose
+	// current position starts outside a table cell (multi-cursor + table
+	// boundary policy).
 	private moveCursorUp(editor: Editor) {
+		const startedInTable = editor.inTableCell;
+		this.moveCursorUpImpl(editor);
+		if (!startedInTable) this.reconcileSecondaryRangesAfterTableCrossing(editor);
+	}
+
+	private moveCursorUpImpl(editor: Editor) {
 		const cursor = editor.getCursor();
 
 		if (cursor.line === 0 || !this.isLivePreviewMode()) {
@@ -943,6 +1034,12 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 
 	private moveCursorDown(editor: Editor) {
+		const startedInTable = editor.inTableCell;
+		this.moveCursorDownImpl(editor);
+		if (!startedInTable) this.reconcileSecondaryRangesAfterTableCrossing(editor);
+	}
+
+	private moveCursorDownImpl(editor: Editor) {
 		const cursor = editor.getCursor();
 
 		if (!this.isLivePreviewMode()) {
@@ -2280,6 +2377,50 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const current = preserveActiveSelection ? cm.state.selection.main : null;
 		const anchor = current && current.anchor !== current.head ? current.anchor : pos;
 		cm.dispatch({ selection: { anchor, head: pos }, userEvent: 'move' });
+		this.focusAfterCursorMove(editor, cm, targetInTable);
+	}
+
+	// Multi-cursor-safe sibling of setCursorViaCm above: computeTarget is
+	// called once per EXISTING selection range (not just the primary one),
+	// and every range is repositioned in a single dispatch instead of
+	// collapsing the selection down to one cursor. Returning null for a
+	// given range leaves it exactly where it was (e.g. already at the
+	// target, or a no-op for that specific range) — and when every range
+	// returns null, skips the dispatch entirely, matching the old
+	// single-cursor callers' own "already there, do nothing" guards (no
+	// spurious selectionSet transaction, e.g. from pressing End already at
+	// a line's end). Targets are raw CM6 offsets (not {line, ch}) so
+	// callers that already have an offset (e.g. from moveToLineBoundary)
+	// can pass it straight through, along with its assoc — needed at VL
+	// wrap points, same as the single-cursor callers below already relied
+	// on. Table-entry/exit focus handling only looks at the resulting MAIN
+	// range: only one view (outer or one inner table cell) can hold DOM
+	// focus at a time, so secondary ranges can't affect this independently.
+	private setCursorsViaCm(editor: Editor, computeTarget: (range: SelectionRange) => { pos: number; assoc?: -1 | 1 } | null) {
+		const cm = editor.cm;
+		let changed = false;
+		const ranges = cm.state.selection.ranges.map(range => {
+			const target = computeTarget(range);
+			if (!target) return range;
+			changed = true;
+			return EditorSelection.cursor(target.pos, target.assoc);
+		});
+		if (!changed) return;
+		const selection = EditorSelection.create(ranges, cm.state.selection.mainIndex);
+		cm.dispatch({ selection, scrollIntoView: true, userEvent: 'move' });
+		const mainPos = editor.offsetToPos(selection.main.head);
+		// Probes with ch=1, not mainPos.ch — matching every other
+		// isPositionInTable call site in this file (see
+		// reconcileSecondaryRangesAfterTableCrossing's own identical fix,
+		// 2026-10-14). Currently unreachable (Home/End never land on a
+		// table's own line), but setCursorsViaCm is a general-purpose
+		// multi-cursor helper any future caller could reuse for a motion
+		// that does.
+		this.focusAfterCursorMove(editor, cm, this.isPositionInTable(editor, mainPos.line, 1));
+	}
+
+	// Shared by setCursorViaCm/setCursorsViaCm above.
+	private focusAfterCursorMove(editor: Editor, cm: EditorView, targetInTable: boolean) {
 		if (!targetInTable) {
 			// Exiting the table: outer CM must receive keyboard events.
 			cm.focus();
@@ -2299,6 +2440,50 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				});
 			}
 		}
+	}
+
+	// Multi-cursor + table-boundary policy, shared by LEFT/RIGHT/UP/DOWN's
+	// own wrappers above. A table cell is rendered through a separate inner
+	// EditorView/EditorState from the outer document, and only one view can
+	// hold DOM focus at a time — so once the PRIMARY range's motion settles
+	// on one side (in a table cell or not), any OTHER range that ends up on
+	// the opposite side cannot coexist with it in the same selection and is
+	// dropped. The primary itself is never dropped — it defines which side
+	// "wins" — which also makes this a no-op for the common single-cursor
+	// case (ranges.length === 1) and for the case where the primary's own
+	// move already collapsed the whole selection to one range (the existing
+	// single-cursor table-entry/exit helpers already do this on their own,
+	// matching this same policy by construction).
+	private reconcileSecondaryRangesAfterTableCrossing(editor: Editor) {
+		const cm = editor.cm;
+		if (!cm) return;
+		const sel = cm.state.selection;
+		if (sel.ranges.length <= 1) return;
+		const main = sel.main;
+		const mainPos = editor.offsetToPos(main.head);
+		// Probes with ch=1, not the range's own ch, matching every other
+		// isPositionInTable call site in this file (e.g. moveCursorLeft's
+		// own cursor.line ± 1, 1). Confirmed live: ch=0 exactly at a table's
+		// own left/top edge resolves (via the syntax tree's side=-1 lean) as
+		// "still outside" — a secondary landing exactly there via a plain
+		// goRight reads as not-in-table for one extra step, visibly
+		// rendering as stuck astride the table edge until the next motion
+		// pushes it one character further in. What's actually being asked
+		// here is "is this LINE part of a table", not the exact horizontal
+		// position, so ch=1 (same fix as every existing caller already
+		// uses) is the right probe regardless of where on the line the
+		// range's own head happens to sit.
+		const mainInTable = this.isPositionInTable(editor, mainPos.line, 1);
+		const kept = sel.ranges.filter(range => {
+			if (range === main) return true;
+			const pos = editor.offsetToPos(range.head);
+			return this.isPositionInTable(editor, pos.line, 1) === mainInTable;
+		});
+		if (kept.length === sel.ranges.length) return;
+		cm.dispatch({
+			selection: EditorSelection.create(kept, kept.indexOf(main)),
+			userEvent: 'move',
+		});
 	}
 
 	// Confirmed live in a popout window (see
