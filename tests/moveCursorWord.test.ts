@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { EditorSelection } from '@codemirror/state'
 
 vi.mock('@codemirror/language', () => ({
 	syntaxTree: vi.fn(),
@@ -16,14 +17,51 @@ import UniversalCursorHotkeysPlugin from '../src/main.ts'
 // using vim's block-cursor word-end convention, one char short of where an
 // Emacs caret should rest).
 
+// Real line/ch <-> offset conversion over a plain-text document (one
+// newline between each line) — moveCursorWordPlainText's multi-cursor loop
+// reads/writes real CM6 offsets via posToOffset/offsetToPos now, not just
+// {line, ch} pairs, so the mock needs to round-trip correctly rather than
+// using a simplified single-line model.
+function makeOffsetConverters(lines: string[]) {
+	const lineStarts: number[] = [0]
+	for (let i = 0; i < lines.length; i++) {
+		lineStarts.push(lineStarts[i] + lines[i].length + 1)
+	}
+	return {
+		posToOffset: ({ line, ch }: { line: number; ch: number }) => lineStarts[line] + ch,
+		offsetToPos: (offset: number) => {
+			let line = 0
+			while (line + 1 < lineStarts.length && lineStarts[line + 1] <= offset) line++
+			return { line, ch: offset - lineStarts[line] }
+		},
+	}
+}
+
 function makeEditor(lines: string[], cursorLine: number, cursorCh: number, inTableCell = false) {
+	const { posToOffset, offsetToPos } = makeOffsetConverters(lines)
+	const headOffset = posToOffset({ line: cursorLine, ch: cursorCh })
 	return {
 		getCursor: vi.fn(() => ({ line: cursorLine, ch: cursorCh })),
 		getLine: vi.fn((n: number) => lines[n] ?? ''),
 		lineCount: vi.fn(() => lines.length),
 		inTableCell,
-		cm: { state: { selection: { main: { head: 0 } } }, dispatch: vi.fn() },
+		posToOffset: vi.fn(posToOffset),
+		offsetToPos: vi.fn(offsetToPos),
+		cm: {
+			state: { selection: EditorSelection.create([EditorSelection.cursor(headOffset)], 0) },
+			dispatch: vi.fn(),
+		},
 	}
+}
+
+// Decodes moveCursorWordPlainText's own position dispatch (always the first
+// cm.dispatch call, if any — a scroll-into-view follow-up dispatches
+// separately afterward) and checks where it actually landed.
+function expectLanded(editor: any, line: number, ch: number) {
+	expect(editor.cm.dispatch).toHaveBeenCalled()
+	const spec = editor.cm.dispatch.mock.calls[0][0]
+	const headOffset = spec.selection.main.head
+	expect(editor.offsetToPos(headOffset)).toEqual({ line, ch })
 }
 
 describe('moveCursorWord — dispatcher', () => {
@@ -62,37 +100,37 @@ describe('moveCursorWordPlainText', () => {
 	it('forward: from a word start, lands right after that word', () => {
 		const editor = makeEditor(['foo bar'], 0, 0)
 		plugin.moveCursorWordPlainText(editor, true)
-		expect(plugin.setCursorViaCm).toHaveBeenCalledWith(editor, 0, 3)
+		expectLanded(editor, 0, 3)
 	})
 
 	it('same-line landing does not request a scroll (already on-screen)', () => {
 		const editor = makeEditor(['foo bar'], 0, 0)
 		plugin.moveCursorWordPlainText(editor, true)
-		expect(editor.cm.dispatch).not.toHaveBeenCalled()
+		expect(editor.cm.dispatch).toHaveBeenCalledTimes(1) // position only, no separate scroll dispatch
 	})
 
 	it('forward: from right after a word, skips to the end of the next word', () => {
 		const editor = makeEditor(['foo bar'], 0, 3)
 		plugin.moveCursorWordPlainText(editor, true)
-		expect(plugin.setCursorViaCm).toHaveBeenCalledWith(editor, 0, 7)
+		expectLanded(editor, 0, 7)
 	})
 
 	it('backward: from end of buffer, lands at the start of the nearest word', () => {
 		const editor = makeEditor(['foo bar'], 0, 7)
 		plugin.moveCursorWordPlainText(editor, false)
-		expect(plugin.setCursorViaCm).toHaveBeenCalledWith(editor, 0, 4)
+		expectLanded(editor, 0, 4)
 	})
 
 	it('backward: from a word start, skips to the start of the previous word', () => {
 		const editor = makeEditor(['foo bar'], 0, 4)
 		plugin.moveCursorWordPlainText(editor, false)
-		expect(plugin.setCursorViaCm).toHaveBeenCalledWith(editor, 0, 0)
+		expectLanded(editor, 0, 0)
 	})
 
 	it('forward: no more words on this line, crosses to the next line', () => {
 		const editor = makeEditor(['foo', 'bar'], 0, 3)
 		plugin.moveCursorWordPlainText(editor, true)
-		expect(plugin.setCursorViaCm).toHaveBeenCalledWith(editor, 1, 3)
+		expectLanded(editor, 1, 3)
 	})
 
 	it('a cross-line landing requests a scroll-into-view follow-up (may land off-screen)', () => {
@@ -106,25 +144,25 @@ describe('moveCursorWordPlainText', () => {
 	it('backward: no more words on this line, crosses to the previous line', () => {
 		const editor = makeEditor(['foo', 'bar'], 1, 0)
 		plugin.moveCursorWordPlainText(editor, false)
-		expect(plugin.setCursorViaCm).toHaveBeenCalledWith(editor, 0, 0)
+		expectLanded(editor, 0, 0)
 	})
 
 	it('forward: at the document end with no further word, stays put', () => {
 		const editor = makeEditor(['foo bar'], 0, 7)
 		plugin.moveCursorWordPlainText(editor, true)
-		expect(plugin.setCursorViaCm).not.toHaveBeenCalled()
+		expect(editor.cm.dispatch).not.toHaveBeenCalled()
 	})
 
 	it('backward: at the document start with no earlier word, stays put', () => {
 		const editor = makeEditor(['foo bar'], 0, 0)
 		plugin.moveCursorWordPlainText(editor, false)
-		expect(plugin.setCursorViaCm).not.toHaveBeenCalled()
+		expect(editor.cm.dispatch).not.toHaveBeenCalled()
 	})
 
 	it('skips blank lines while crossing forward', () => {
 		const editor = makeEditor(['foo', '', '', 'bar'], 0, 3)
 		plugin.moveCursorWordPlainText(editor, true)
-		expect(plugin.setCursorViaCm).toHaveBeenCalledWith(editor, 3, 3)
+		expectLanded(editor, 3, 3)
 	})
 
 	it('forward: reaches a table row — enters it via landInRowEdgeCellForWord, applying the +1 caret correction', () => {
@@ -154,6 +192,110 @@ describe('moveCursorWordPlainText', () => {
 		const editor = makeEditor(['foo', '| bar |'], 0, 3)
 		expect(() => plugin.moveCursorWordPlainText(editor, true)).not.toThrow()
 		expect(plugin.setCursorViaCm).not.toHaveBeenCalled()
+	})
+})
+
+// ---------------------------------------------------------------------------
+// Multi-cursor: moveCursorWordPlainText never calls a native CM6 command (the
+// search itself is pure text scanning), so every range's own target is
+// computed directly — unlike Ctrl-P/N/B/F, there's no "native exec skips the
+// whole table" risk to guard against beforehand. Still applies the same
+// table-boundary policy as everywhere else in this file.
+// ---------------------------------------------------------------------------
+
+describe('moveCursorWordPlainText — multi-cursor', () => {
+	let plugin: any
+
+	function makeMultiEditor(lines: string[], positions: { line: number; ch: number }[], mainIndex: number) {
+		const { posToOffset, offsetToPos } = makeOffsetConverters(lines)
+		const selection = EditorSelection.create(
+			positions.map(p => EditorSelection.cursor(posToOffset(p))),
+			mainIndex,
+		)
+		return {
+			getCursor: vi.fn(() => positions[mainIndex]),
+			getLine: vi.fn((n: number) => lines[n] ?? ''),
+			lineCount: vi.fn(() => lines.length),
+			posToOffset: vi.fn(posToOffset),
+			offsetToPos: vi.fn(offsetToPos),
+			cm: { state: { selection }, dispatch: vi.fn() },
+		}
+	}
+
+	beforeEach(() => {
+		plugin = Object.create(UniversalCursorHotkeysPlugin.prototype)
+		plugin.setCursorViaCm = vi.fn()
+		plugin.isPositionInTable = vi.fn().mockReturnValue(false)
+	})
+
+	it('every range stays in plain text: all land in one dispatch', () => {
+		const editor = makeMultiEditor(
+			['foo bar', 'baz qux'],
+			[{ line: 0, ch: 0 }, { line: 1, ch: 0 }],
+			0,
+		)
+		plugin.moveCursorWordPlainText(editor, true)
+
+		expect(editor.cm.dispatch).toHaveBeenCalledWith({
+			selection: EditorSelection.create([
+				EditorSelection.cursor(editor.posToOffset({ line: 0, ch: 3 })),
+				EditorSelection.cursor(editor.posToOffset({ line: 1, ch: 3 })),
+			], 0),
+			userEvent: 'move',
+		})
+	})
+
+	it('secondary alone would cross into a table: dropped, primary still lands normally', () => {
+		plugin.isPositionInTable = vi.fn((_e: unknown, line: number) => line === 1)
+		// main (index 0) on line 0 has a further word on the same line, so it
+		// never reaches line 1 at all. secondary (index 1) is at the end of
+		// its own line (ch=7, past "bar") with nothing further to find
+		// there, so its own search continues to line 1 — the table.
+		const editor = makeMultiEditor(
+			['foo bar', ''],
+			[{ line: 0, ch: 0 }, { line: 0, ch: 7 }],
+			0,
+		)
+		plugin.moveCursorWordPlainText(editor, true)
+
+		expect(editor.cm.dispatch).toHaveBeenCalledWith({
+			selection: EditorSelection.create([
+				EditorSelection.cursor(editor.posToOffset({ line: 0, ch: 3 })),
+			], 0),
+			userEvent: 'move',
+		})
+	})
+
+	it('primary crosses into a table while a secondary stays in plain text: collapses to primary (unchanged single-cursor entry path)', () => {
+		plugin.isPositionInTable = vi.fn((_e: unknown, line: number) => line === 1)
+		plugin.landInRowEdgeCellForWord = vi.fn().mockReturnValue({ line: 1, ch: 3 })
+		// main (index 1) is at the end of its own line (ch=7, past "bar")
+		// with nothing further to find there, so its own search reaches
+		// line 1 — the table. secondary (index 0) stays comfortably in
+		// plain text elsewhere (ch=0, finds "foo" on the same line).
+		const editor = makeMultiEditor(
+			['foo bar', '| baz |'],
+			[{ line: 0, ch: 0 }, { line: 0, ch: 7 }],
+			1,
+		)
+		plugin.moveCursorWordPlainText(editor, true)
+
+		expect(plugin.landInRowEdgeCellForWord).toHaveBeenCalledWith(editor, 1, true, false, true)
+		expect(plugin.setCursorViaCm).toHaveBeenCalledWith(editor, 1, 4)
+	})
+
+	it('both ranges would cross into the same table: nothing dropped, no-op from the plain-text side (hands off to the table-entry path)', () => {
+		plugin.isPositionInTable = vi.fn((_e: unknown, line: number) => line === 1)
+		plugin.landInRowEdgeCellForWord = vi.fn().mockReturnValue({ line: 1, ch: 3 })
+		const editor = makeMultiEditor(
+			['foo', 'bar'],
+			[{ line: 0, ch: 3 }, { line: 0, ch: 3 }],
+			0,
+		)
+		plugin.moveCursorWordPlainText(editor, true)
+
+		// Primary itself crosses -> hands off entirely, same as the single-cursor case.
+		expect(plugin.landInRowEdgeCellForWord).toHaveBeenCalledWith(editor, 1, true, false, true)
 	})
 })
 

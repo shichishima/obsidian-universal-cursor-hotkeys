@@ -4281,45 +4281,111 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// start/end is reached (a real Emacs buffer would signal "End/Beginning
 	// of buffer" and simply not move further — same here, via the early
 	// return once there's no further line to try).
+	// Multi-cursor-safe: unlike Ctrl-P/N/B/F, this never calls a native CM6
+	// command (findWordSpanOnLine is our own plain text search), so every
+	// range's own target can be computed directly up front with no "native
+	// exec skips the whole table" risk to guard against beforehand — see
+	// findWordTargetPlainText below. Still applies this file's established
+	// table-boundary policy: a secondary range whose own search would cross
+	// into a table that the primary isn't crossing into this step can't
+	// coexist with the primary in the same view, and is dropped outright.
 	private moveCursorWordPlainText(editor: Editor, forward: boolean) {
-		const cursor = editor.getCursor();
-		let lineNum = cursor.line;
-		let ch = cursor.ch;
+		const cm = editor.cm;
+		const sel = cm.state.selection;
+		const main = sel.main;
+		const mainIndex = sel.ranges.indexOf(main);
+		const results = sel.ranges.map(range =>
+			this.findWordTargetPlainText(editor, editor.offsetToPos(range.head), forward));
+		const mainResult = results[mainIndex];
+
+		if (mainResult.kind === 'table') {
+			// Primary's own search reaches a table row: hand off entirely to
+			// the existing single-cursor entry path below, which already
+			// collapses the whole selection down to primary on its own
+			// (setCursorViaCm inside landInRowEdgeCellForWord/
+			// landInCellSegment) — same as moveCursorUpIntoTable/
+			// DownIntoTable's own primary-crosses case, no change needed here.
+			this.enterTableWithWordFromPlainText(editor, mainResult.tableLine, forward);
+			return;
+		}
+
+		let changed = false;
+		let newMainIndex = -1;
+		const kept: SelectionRange[] = [];
+		sel.ranges.forEach((range, i) => {
+			const result = results[i];
+			const isMain = range === main;
+			if (!isMain && result.kind === 'table') {
+				// Would cross into a table the primary isn't — dropped.
+				changed = true;
+				return;
+			}
+			let keptRange = range;
+			if (result.kind === 'found') {
+				changed = true;
+				keptRange = EditorSelection.cursor(result.pos);
+			}
+			if (isMain) newMainIndex = kept.length;
+			kept.push(keptRange);
+		});
+		if (!changed) return;
+		cm.dispatch({ selection: EditorSelection.create(kept, newMainIndex), userEvent: 'move' });
+		if (mainResult.kind === 'found' && mainResult.crossedLines) this.scrollCursorIntoView(editor);
+	}
+
+	// Pure (no dispatch) word search for a single range, starting from
+	// `from` — the shared target-computation core moveCursorWordPlainText's
+	// multi-cursor loop above runs once per range before dispatching
+	// anything. Walks line by line via findWordSpanOnLine until a word is
+	// found, a Live Preview table row is reached, or the document's own
+	// start/end is reached (a real Emacs buffer would signal "End/Beginning
+	// of buffer" and simply not move further — same here, via 'noMove').
+	private findWordTargetPlainText(editor: Editor, from: { line: number; ch: number }, forward: boolean):
+			{ kind: 'noMove' }
+			| { kind: 'found'; pos: number; crossedLines: boolean }
+			| { kind: 'table'; tableLine: number } {
+		let lineNum = from.line;
+		let ch = from.ch;
 		for (;;) {
 			const lineText = editor.getLine(lineNum);
 			const span = findWordSpanOnLine(lineText, ch, forward);
 			if (span) {
 				const targetCh = forward ? span.to : span.from;
-				if (lineNum !== cursor.line || targetCh !== cursor.ch) {
-					this.setCursorViaCm(editor, lineNum, targetCh);
-					if (lineNum !== cursor.line) this.scrollCursorIntoView(editor);
-				}
-				return;
+				if (lineNum === from.line && targetCh === from.ch) return { kind: 'noMove' };
+				return {
+					kind: 'found',
+					pos: editor.posToOffset({ line: lineNum, ch: targetCh }),
+					crossedLines: lineNum !== from.line,
+				};
 			}
 			const nextLine = forward ? lineNum + 1 : lineNum - 1;
-			if (nextLine < 0 || nextLine >= editor.lineCount()) return; // document edge — stay put
+			if (nextLine < 0 || nextLine >= editor.lineCount()) return { kind: 'noMove' }; // document edge — stay put
 			if (this.isPositionInTable(editor, nextLine, 1)) {
-				// Reaching a Live Preview table row: enter it the same way
-				// crossTableRowForWord's own row-crossing does (leftmost
-				// cell forward, rightmost cell backward), then apply the
-				// same +1 caret correction moveCursorWordInTable's own
-				// crossing already needs (landInRowEdgeCellForWord/
-				// refineWordLanding land using vim's block-cursor word-end
-				// convention, one char short of where Emacs's own caret
-				// should rest — see moveCursorWordInTable's identical
-				// comment).
-				const landed = this.landInRowEdgeCellForWord(editor, nextLine, forward, false, forward);
-				if (landed && forward) {
-					const landedLineText = editor.getLine(landed.line);
-					const targetCh = Math.min(landed.ch + 1, landedLineText.length);
-					if (targetCh !== landed.ch) this.setCursorViaCm(editor, landed.line, targetCh);
-				}
-				if (landed) this.scrollCursorIntoView(editor);
-				return;
+				return { kind: 'table', tableLine: nextLine };
 			}
 			lineNum = nextLine;
 			ch = forward ? 0 : editor.getLine(lineNum).length;
 		}
+	}
+
+	// Primary's own word-search reached a table row (moveCursorWordPlainText's
+	// 'table' case above) — unchanged from the original single-cursor logic.
+	private enterTableWithWordFromPlainText(editor: Editor, tableLine: number, forward: boolean) {
+		// Reaching a Live Preview table row: enter it the same way
+		// crossTableRowForWord's own row-crossing does (leftmost cell
+		// forward, rightmost cell backward), then apply the same +1 caret
+		// correction moveCursorWordInTable's own crossing already needs
+		// (landInRowEdgeCellForWord/refineWordLanding land using vim's
+		// block-cursor word-end convention, one char short of where Emacs's
+		// own caret should rest — see moveCursorWordInTable's identical
+		// comment).
+		const landed = this.landInRowEdgeCellForWord(editor, tableLine, forward, false, forward);
+		if (landed && forward) {
+			const landedLineText = editor.getLine(landed.line);
+			const targetCh = Math.min(landed.ch + 1, landedLineText.length);
+			if (targetCh !== landed.ch) this.setCursorViaCm(editor, landed.line, targetCh);
+		}
+		if (landed) this.scrollCursorIntoView(editor);
 	}
 
 	// Alt-F/Alt-B inside a Live Preview table cell. First searches the
