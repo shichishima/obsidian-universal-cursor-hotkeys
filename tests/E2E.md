@@ -54,9 +54,18 @@ shifting a spec's own hardcoded line offsets.
   composing), so this sets `cm.inputState.composing` directly instead — a
   plain, non-private instance property — which exercises this plugin's own
   guard condition the same way.
+- `keyUpgradesToggle.e2e.ts` — toggling a Key Upgrades row (HOME's "3-step
+  Smart home") actually calls the real `hotkeyManager.setHotkeys`, not just
+  the settings UI's own display state. `app.setting.openTabById()` renders
+  the tab fully in memory but doesn't attach it to the live document in
+  this environment (confirmed live — true regardless of the real
+  "app:open-settings" command, or patching `window.activeDocument`/
+  `activeWindow` first, neither of which turned out to gate this), and a
+  detached element's own click handlers don't fire correctly even via a
+  direct `.click()` — so this appends the settings container to
+  `document.body` itself before clicking, and removes it again afterward.
 
 ## Planned, in priority order
 
-1. Key Upgrades hotkey assignment
-2. Popout window support
-3. Vim mode commands
+1. Popout window support
+2. Vim mode commands
