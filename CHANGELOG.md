@@ -4,7 +4,12 @@
 
 ### Fixed
 
-- **Uppercase/Lowercase/Capitalize word no longer collapses a multi-cursor selection down to one cursor:** previously only the primary cursor's own word was transformed — every other cursor was silently dropped from the selection without being transformed. Both the non-table and in-table-cell paths now transform each cursor's own word independently, matching this plugin's other multi-cursor fixes.
+- **Multi-cursor selections no longer collapse down to a single cursor when running cursor-movement commands:**
+  - HOME/END (previously collapsed on every press)
+  - Ctrl-P/N/B/F, arrow keys (previously collapsed only at table/document boundaries)
+  - Word right/left (previously collapsed on every press)
+  - Uppercase/Lowercase/Capitalize word (previously collapsed on every press)
+  - One case is unchanged by design, not a bug: when the primary cursor itself crosses a table/cell boundary, the selection still collapses to primary.
 
 ## [0.11.3] - 2026-10-12
 
