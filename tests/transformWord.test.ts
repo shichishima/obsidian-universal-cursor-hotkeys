@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { EditorSelection } from '@codemirror/state'
 
 vi.mock('@codemirror/language', () => ({
 	syntaxTree: vi.fn(),
@@ -18,6 +19,9 @@ function makePlainEditor(
 	inTableCell = false,
 ) {
 	const buf = [...lines]
+	const posToOffset = (pos: { line: number; ch: number }) => pos.line * 1000 + pos.ch
+	const offsetToPos = (offset: number) => ({ line: Math.floor(offset / 1000), ch: offset % 1000 })
+	const selection = EditorSelection.create([EditorSelection.cursor(posToOffset(from))], 0)
 	return {
 		getCursor: vi.fn((sel?: string) => (sel === 'to' ? { ...to } : sel === 'from' ? { ...from } : { ...from })),
 		getLine: vi.fn((line: number) => buf[line] ?? ''),
@@ -45,8 +49,24 @@ function makePlainEditor(
 			}
 		}),
 		inTableCell,
-		posToOffset: vi.fn((pos: { line: number; ch: number }) => pos.line * 1000 + pos.ch),
-		cm: { dispatch: vi.fn(), focus: vi.fn() },
+		posToOffset: vi.fn(posToOffset),
+		offsetToPos: vi.fn(offsetToPos),
+		cm: {
+			state: { selection },
+			// Applies each change (single line only, matching this mock's
+			// line*1000+ch offset encoding) directly to buf, mirroring what a
+			// real cm.dispatch({changes}) would do — the multi-cursor rewrite
+			// dispatches raw changes instead of going through replaceRange.
+			dispatch: vi.fn((spec: { changes?: { from: number; to: number; insert: string } | { from: number; to: number; insert: string }[] }) => {
+				const list = spec.changes ? (Array.isArray(spec.changes) ? spec.changes : [spec.changes]) : []
+				for (const c of list) {
+					const f = offsetToPos(c.from)
+					const t = offsetToPos(c.to)
+					buf[f.line] = buf[f.line].slice(0, f.ch) + c.insert + buf[t.line].slice(t.ch)
+				}
+			}),
+			focus: vi.fn(),
+		},
 		activeCM: undefined,
 		_buf: buf,
 	}
@@ -79,6 +99,53 @@ function makeLine(text: string) {
 	}
 }
 
+// Multi-cursor variant of makePlainEditor — several independent ranges,
+// one of them marked main.
+function makeMultiPlainEditor(lines: string[], heads: { line: number; ch: number }[], mainIndex: number) {
+	const buf = [...lines]
+	const posToOffset = (pos: { line: number; ch: number }) => pos.line * 1000 + pos.ch
+	const offsetToPos = (offset: number) => ({ line: Math.floor(offset / 1000), ch: offset % 1000 })
+	const selection = EditorSelection.create(heads.map(h => EditorSelection.cursor(posToOffset(h))), mainIndex)
+	return {
+		getLine: vi.fn((line: number) => buf[line] ?? ''),
+		lineCount: vi.fn(() => buf.length),
+		getRange: vi.fn((f: any, t: any) => buf[f.line].slice(f.ch, t.ch)),
+		posToOffset: vi.fn(posToOffset),
+		offsetToPos: vi.fn(offsetToPos),
+		cm: {
+			state: { selection },
+			dispatch: vi.fn(),
+			focus: vi.fn(),
+		},
+		activeCM: undefined,
+		_buf: buf,
+	}
+}
+
+// Multi-cursor variant of makeLPEditor — several independent inner ranges,
+// one of them marked main.
+function makeMultiLPEditor(innerText: string, heads: number[], mainIndex: number) {
+	const dispatch = vi.fn()
+	const inner = {
+		state: {
+			doc: {
+				toString: () => innerText,
+				lineAt: makeLineAt(innerText),
+				line: makeLine(innerText),
+				lines: innerText.split('\n').length,
+				sliceString: (from: number, to?: number) => innerText.slice(from, to),
+			},
+			selection: EditorSelection.create(heads.map(h => EditorSelection.cursor(h)), mainIndex),
+		},
+		dispatch,
+	}
+	return {
+		activeCM: inner,
+		cm: {} as any,
+		_innerDispatch: dispatch,
+	}
+}
+
 function makeLPEditor(innerText: string, head: number, selFrom = head, selTo = head) {
 	const dispatch = vi.fn()
 	const inner = {
@@ -90,7 +157,7 @@ function makeLPEditor(innerText: string, head: number, selFrom = head, selTo = h
 				lines: innerText.split('\n').length,
 				sliceString: (from: number, to?: number) => innerText.slice(from, to),
 			},
-			selection: { main: { head, from: selFrom, to: selTo } },
+			selection: EditorSelection.create([EditorSelection.range(selFrom, selTo)], 0),
 		},
 		dispatch,
 	}
@@ -200,6 +267,40 @@ describe('transformWord', () => {
 			expect(plugin.landInRowEdgeCellForWord).toHaveBeenCalledWith(editor, 1, true, false, false)
 			expect(plugin.continueWordTransformAfterLanding).toHaveBeenCalledWith(editor, { line: 1, ch: 2 }, upper)
 		})
+
+		it('multi-cursor: each range in plain text transforms independently', () => {
+			const editor = makeMultiPlainEditor(['foo bar', 'baz qux'], [{ line: 0, ch: 0 }, { line: 1, ch: 0 }], 0)
+			plugin.transformWordNonTable(editor, upper)
+			expect(editor.cm.dispatch).toHaveBeenCalledWith({
+				changes: [{ from: 0, to: 3, insert: 'FOO' }, { from: 1000, to: 1003, insert: 'BAZ' }],
+				selection: EditorSelection.create([EditorSelection.cursor(3), EditorSelection.cursor(1003)], 0),
+				userEvent: 'input',
+			})
+		})
+
+		it('multi-cursor: a secondary range that alone would reach a table is dropped, primary still transforms', () => {
+			plugin.isPositionInTable = vi.fn((_e: any, line: number) => line === 1)
+			// secondary at end of line 0 (ch 7) has nothing left on its own line and would reach the table row; main stays in plain text.
+			const editor = makeMultiPlainEditor(['foo bar', '| baz |'], [{ line: 0, ch: 0 }, { line: 0, ch: 7 }], 0)
+			plugin.transformWordNonTable(editor, upper)
+			expect(editor.cm.dispatch).toHaveBeenCalledWith({
+				changes: [{ from: 0, to: 3, insert: 'FOO' }],
+				selection: EditorSelection.create([EditorSelection.cursor(3)], 0),
+				userEvent: 'input',
+			})
+		})
+
+		it('multi-cursor: primary reaching a table hands off entirely, ignoring any secondary range', () => {
+			plugin.isPositionInTable = vi.fn((_e: any, line: number) => line === 1)
+			plugin.landInRowEdgeCellForWord = vi.fn().mockReturnValue({ line: 1, ch: 2 })
+			plugin.continueWordTransformAfterLanding = vi.fn()
+			// secondary at ch 0 would stay in plain text; main at ch 7 reaches the table row.
+			const editor = makeMultiPlainEditor(['foo bar', '| baz |'], [{ line: 0, ch: 0 }, { line: 0, ch: 7 }], 1)
+			plugin.transformWordNonTable(editor, upper)
+			expect(plugin.landInRowEdgeCellForWord).toHaveBeenCalledWith(editor, 1, true, false, false)
+			expect(plugin.continueWordTransformAfterLanding).toHaveBeenCalledWith(editor, { line: 1, ch: 2 }, upper)
+			expect(editor.cm.dispatch).not.toHaveBeenCalled()
+		})
 	})
 
 	describe('transformWordInTableLP', () => {
@@ -207,8 +308,8 @@ describe('transformWord', () => {
 			const editor = makeLPEditor('foo bar', 1)
 			plugin.transformWordInTableLP(editor, upper)
 			expect(editor._innerDispatch).toHaveBeenCalledWith({
-				changes: { from: 0, to: 3, insert: 'FOO' },
-				selection: { anchor: 3 },
+				changes: [{ from: 0, to: 3, insert: 'FOO' }],
+				selection: EditorSelection.create([EditorSelection.cursor(3)], 0),
 				userEvent: 'input',
 			})
 		})
@@ -217,8 +318,8 @@ describe('transformWord', () => {
 			const editor = makeLPEditor('hello world', 8) // cursor inside "world"
 			plugin.transformWordInTableLP(editor, capitalize)
 			expect(editor._innerDispatch).toHaveBeenCalledWith({
-				changes: { from: 6, to: 11, insert: 'World' },
-				selection: { anchor: 11 },
+				changes: [{ from: 6, to: 11, insert: 'World' }],
+				selection: EditorSelection.create([EditorSelection.cursor(11)], 0),
 				userEvent: 'input',
 			})
 		})
@@ -228,8 +329,8 @@ describe('transformWord', () => {
 			const editor = makeLPEditor('foo\nbar', 3)
 			plugin.transformWordInTableLP(editor, upper)
 			expect(editor._innerDispatch).toHaveBeenCalledWith({
-				changes: { from: 4, to: 7, insert: 'BAR' },
-				selection: { anchor: 7 },
+				changes: [{ from: 4, to: 7, insert: 'BAR' }],
+				selection: EditorSelection.create([EditorSelection.cursor(7)], 0),
 				userEvent: 'input',
 			})
 		})
@@ -245,6 +346,41 @@ describe('transformWord', () => {
 			plugin.transformWordInTableLP(editor, upper)
 			expect(plugin.crossTableRowForWord).toHaveBeenCalledWith(editor, 0, true, false, false, true)
 			expect(plugin.continueWordTransformAfterLanding).toHaveBeenCalledWith(editor, { line: 1, ch: 2 }, upper)
+		})
+
+		it('multi-cursor: each range within the cell transforms independently', () => {
+			const editor = makeMultiLPEditor('foo bar', [1, 5], 0)
+			plugin.transformWordInTableLP(editor, upper)
+			expect(editor._innerDispatch).toHaveBeenCalledWith({
+				changes: [{ from: 0, to: 3, insert: 'FOO' }, { from: 4, to: 7, insert: 'BAR' }],
+				selection: EditorSelection.create([EditorSelection.cursor(3), EditorSelection.cursor(7)], 0),
+				userEvent: 'input',
+			})
+		})
+
+		it('multi-cursor: a secondary range that alone would exit the cell is dropped, primary still transforms', () => {
+			// 'foo\nbar' — secondary at the very end has nothing further in this cell; main stays within 'foo'.
+			const editor = makeMultiLPEditor('foo\nbar', [1, 7], 0)
+			plugin.transformWordInTableLP(editor, upper)
+			expect(editor._innerDispatch).toHaveBeenCalledWith({
+				changes: [{ from: 0, to: 3, insert: 'FOO' }],
+				selection: EditorSelection.create([EditorSelection.cursor(3)], 0),
+				userEvent: 'input',
+			})
+		})
+
+		it('multi-cursor: primary exiting the cell hands off entirely, ignoring any secondary range', () => {
+			plugin.crossTableRowForWord = vi.fn().mockReturnValue({ line: 1, ch: 2 })
+			plugin.continueWordTransformAfterLanding = vi.fn()
+			// main at the end of the only segment (exits); secondary within 'foo' would otherwise stay.
+			const editor: any = makeMultiLPEditor('foo', [3, 1], 0)
+			const outer = makePlainEditor(['| foo |'], { line: 0, ch: 5 })
+			editor.getCursor = outer.getCursor
+			editor.getLine = outer.getLine
+			plugin.transformWordInTableLP(editor, upper)
+			expect(plugin.crossTableRowForWord).toHaveBeenCalledWith(editor, 0, true, false, false, true)
+			expect(plugin.continueWordTransformAfterLanding).toHaveBeenCalledWith(editor, { line: 1, ch: 2 }, upper)
+			expect(editor._innerDispatch).not.toHaveBeenCalled()
 		})
 
 		it('no-op when not inside a table cell (activeCM === cm)', () => {

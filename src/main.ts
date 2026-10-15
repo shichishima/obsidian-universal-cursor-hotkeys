@@ -3331,75 +3331,156 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		this.setCursorViaCm(editor, to.line, to.ch);
 	}
 
-	// Plain text: like moveCursorWordPlainText/killWordNonTable, crosses line
-	// boundaries (including blank lines) freely, and hands off into a table
-	// row reached this way instead of stopping there.
+	// Multi-cursor-safe: same shape as moveCursorWordPlainText's own
+	// multi-cursor loop, but each range's own result is a text SPAN to
+	// transform rather than just a landing position. Uppercase/Lowercase/
+	// Capitalize never change a span's own length (only character case), so
+	// each range's resulting cursor is simply its own unchanged `to` offset
+	// — no position-remapping through the changeset is needed.
 	private transformWordNonTable(editor: Editor, transform: (s: string) => string) {
-		const cursor = editor.getCursor();
-		let lineNum = cursor.line;
-		let ch = cursor.ch;
-		for (;;) {
-			const lt = editor.getLine(lineNum);
-			const span = findWordSpanOnLine(lt, ch, true);
-			if (span) {
-				const from = { line: lineNum, ch: span.from };
-				const to = { line: lineNum, ch: span.to };
-				const original = editor.getRange(from, to);
-				editor.replaceRange(transform(original), from, to);
-				// Bug fixed here: editor.replaceRange has no cursor-positioning
-				// parameter of its own, so it defaults to the replaced range's
-				// own start — unlike the LP-table branches below, which land
-				// correctly because their raw dispatch specifies
-				// selection: { anchor: to } as part of the same change. Kill
-				// Line never needed this follow-up since deleting to an empty
-				// string collapses from/to to the same point either way; a
-				// same-length (or near enough) replace has a genuine
-				// start-vs-end ambiguity replaceRange doesn't resolve on its own.
-				this.setCursorViaCm(editor, lineNum, span.to);
+		const cm = editor.cm;
+		const sel = cm.state.selection;
+		const main = sel.main;
+		const mainIndex = sel.ranges.indexOf(main);
+		const results = sel.ranges.map(range =>
+			this.findWordTargetPlainTextForTransform(editor, editor.offsetToPos(range.head)));
+		const mainResult = results[mainIndex];
+
+		if (mainResult.kind === 'table') {
+			// Primary's own search reaches a table row: hand off entirely to
+			// the existing single-cursor entry+continuation path, which
+			// already collapses the whole selection down to primary on its
+			// own (setCursorViaCm inside landInRowEdgeCellForWord) — same as
+			// moveCursorWordPlainText's own primary-crosses case.
+			this.continueWordTransformAfterLanding(editor, this.landInRowEdgeCellForWord(editor, mainResult.tableLine, true, false, false), transform);
+			return;
+		}
+
+		let changed = false;
+		let newMainIndex = -1;
+		const changes: { from: number; to: number; insert: string }[] = [];
+		const kept: SelectionRange[] = [];
+		sel.ranges.forEach((range, i) => {
+			const result = results[i];
+			const isMain = range === main;
+			if (!isMain && result.kind === 'table') {
+				// Would cross into a table the primary isn't — dropped.
+				changed = true;
 				return;
 			}
-			const nextLine = lineNum + 1;
-			if (nextLine >= editor.lineCount()) return;
-			if (this.isPositionInTable(editor, nextLine, 1)) {
-				this.continueWordTransformAfterLanding(editor, this.landInRowEdgeCellForWord(editor, nextLine, true, false, false), transform);
+			if (result.kind === 'found') {
+				changed = true;
+				const original = editor.getRange(editor.offsetToPos(result.from), editor.offsetToPos(result.to));
+				changes.push({ from: result.from, to: result.to, insert: transform(original) });
+				if (isMain) newMainIndex = kept.length;
+				kept.push(EditorSelection.cursor(result.to));
 				return;
+			}
+			// 'noMove' — document edge, nothing further on this range's own line.
+			if (isMain) newMainIndex = kept.length;
+			kept.push(range);
+		});
+		if (!changed) return;
+		cm.dispatch({ changes, selection: EditorSelection.create(kept, newMainIndex), userEvent: 'input' });
+	}
+
+	// Pure (no dispatch) per-range word search for transformWordNonTable's
+	// multi-cursor loop above — same walk as findWordTargetPlainText, but
+	// forward-only (Uppercase/Lowercase/Capitalize always search forward
+	// from point, unlike Word left/right) and returns the found word's own
+	// {from, to} span rather than just a landing ch, since the caller needs
+	// to read and replace that span's text.
+	private findWordTargetPlainTextForTransform(editor: Editor, from: { line: number; ch: number }):
+			{ kind: 'noMove' }
+			| { kind: 'found'; from: number; to: number }
+			| { kind: 'table'; tableLine: number } {
+		let lineNum = from.line;
+		let ch = from.ch;
+		for (;;) {
+			const lineText = editor.getLine(lineNum);
+			const span = findWordSpanOnLine(lineText, ch, true);
+			if (span) {
+				return {
+					kind: 'found',
+					from: editor.posToOffset({ line: lineNum, ch: span.from }),
+					to: editor.posToOffset({ line: lineNum, ch: span.to }),
+				};
+			}
+			const nextLine = lineNum + 1;
+			if (nextLine >= editor.lineCount()) return { kind: 'noMove' };
+			if (this.isPositionInTable(editor, nextLine, 1)) {
+				return { kind: 'table', tableLine: nextLine };
 			}
 			lineNum = nextLine;
 			ch = 0;
 		}
 	}
 
-	// LP table cell: like moveCursorWordInTable/killWordInTableLP, crosses
-	// <br>-segments freely within the same cell, then crosses into the
-	// adjacent cell/row once the cell itself is exhausted.
+	// Multi-cursor-safe — same shape as transformWordNonTable above, but
+	// this cell's own word search is already expressed in the INNER view's
+	// own coordinates (unlike moveCursorWordInTable's OUTER-raw-line
+	// search), so no inner/outer bridging is needed here at all.
 	private transformWordInTableLP(editor: Editor, transform: (s: string) => string) {
 		const inner = editor.activeCM;
 		if (!inner || inner === editor.cm) return;
 
-		let head = inner.state.selection.main.head;
-		let subLine = inner.state.doc.lineAt(head);
-		let localHead = head - subLine.from;
+		const sel = inner.state.selection;
+		const main = sel.main;
+		const mainIndex = sel.ranges.indexOf(main);
+		const results = sel.ranges.map(range => this.findWordTargetInCellForTransform(inner, range));
+		const mainResult = results[mainIndex];
 
+		if (mainResult.kind === 'exit') {
+			// Primary's own search exhausted this cell: hand off entirely to
+			// the existing single-cursor cross-row/cell continuation path,
+			// which already collapses to one range on its own (setCursorViaCm
+			// inside crossTableRowForWord) — same policy as everywhere else.
+			const outerCursor = editor.getCursor();
+			const outerLineText = editor.getLine(outerCursor.line);
+			const cellIndex = getCellIndex(outerLineText, outerCursor.ch);
+			this.continueWordTransformAfterLanding(editor, this.crossTableRowForWord(editor, cellIndex, true, false, false, true), transform);
+			return;
+		}
+
+		let changed = false;
+		let newMainIndex = -1;
+		const changes: { from: number; to: number; insert: string }[] = [];
+		const kept: SelectionRange[] = [];
+		sel.ranges.forEach((range, i) => {
+			const result = results[i];
+			const isMain = range === main;
+			if (!isMain && result.kind === 'exit') {
+				// Would leave this cell while the primary isn't — dropped.
+				changed = true;
+				return;
+			}
+			if (result.kind === 'exit') return; // unreachable: mainResult.kind !== 'exit' was already checked above.
+			changed = true;
+			const original = inner.state.doc.sliceString(result.from, result.to);
+			changes.push({ from: result.from, to: result.to, insert: transform(original) });
+			if (isMain) newMainIndex = kept.length;
+			kept.push(EditorSelection.cursor(result.to));
+		});
+		if (!changed) return;
+		inner.dispatch({ changes, selection: EditorSelection.create(kept, newMainIndex), userEvent: 'input' });
+	}
+
+	// Pure (no dispatch) per-range word search within the current cell, for
+	// transformWordInTableLP's multi-cursor loop above.
+	private findWordTargetInCellForTransform(inner: EditorView, range: SelectionRange):
+			{ kind: 'exit' } | { kind: 'found'; from: number; to: number } {
+		let subLine = inner.state.doc.lineAt(range.head);
+		let localHead = range.head - subLine.from;
 		for (;;) {
 			const span = findWordSpanOnLine(subLine.text, localHead, true);
 			if (span) {
-				const from = subLine.from + span.from;
-				const to = subLine.from + span.to;
-				const original = inner.state.doc.sliceString(from, to);
-				inner.dispatch({ changes: { from, to, insert: transform(original) }, selection: { anchor: to }, userEvent: 'input' });
-				return;
+				return { kind: 'found', from: subLine.from + span.from, to: subLine.from + span.to };
 			}
 			const nextLineNum = subLine.number + 1;
-			if (nextLineNum > inner.state.doc.lines) break;
+			if (nextLineNum > inner.state.doc.lines) return { kind: 'exit' };
 			subLine = inner.state.doc.line(nextLineNum);
 			localHead = 0;
-			head = subLine.from;
 		}
-
-		const outerCursor = editor.getCursor();
-		const outerLineText = editor.getLine(outerCursor.line);
-		const cellIndex = getCellIndex(outerLineText, outerCursor.ch);
-		this.continueWordTransformAfterLanding(editor, this.crossTableRowForWord(editor, cellIndex, true, false, false, true), transform);
 	}
 
 	// Source Mode table cell: like moveCursorWordInTable/killWordInTableSourceMode
