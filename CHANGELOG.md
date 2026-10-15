@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- **Uppercase/Lowercase/Capitalize word no longer collapses a multi-cursor selection down to one cursor:** previously only the primary cursor's own word was transformed — every other cursor was silently dropped from the selection without being transformed. Both the non-table and in-table-cell paths now transform each cursor's own word independently, matching this plugin's other multi-cursor fixes.
+
 ## [0.11.3] - 2026-10-12
 
 ### Fixed
