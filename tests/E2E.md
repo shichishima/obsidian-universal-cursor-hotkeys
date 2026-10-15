@@ -16,10 +16,11 @@ single group array in `wdio.conf.mts`, listed in an explicit order —
 lightest spec first as a warm-up, table-heavy specs last), instead of
 relaunching Obsidian per file. Faster, and somewhat less flaky — table-entry
 assertions can still intermittently fail even so (`inTableCell` settling
-slower than any poll tried catches), roughly 1 in 4-6 full runs as of
-2026-10-15. Not chased further than that; a real launch-focus-steal was also
-investigated and dropped once the single-instance change made it a one-time
-rather than per-file annoyance.
+slower than any poll tried catches), rate varying run to run (seen anywhere
+from 0 to 2 of the 3 table-dependent assertions failing in a given run) as
+of 2026-10-15. Not chased further than that; a real launch-focus-steal was
+also investigated and dropped once the single-instance change made it a
+one-time rather than per-file annoyance.
 
 Each fixture note under `vaults/smoke/` starts with a `# heading` + `-`
 bullet(s) describing what it's for, then a `---` separator, then the actual
@@ -45,10 +46,17 @@ shifting a spec's own hardcoded line offsets.
   also-fixed gj/gk flash on the same kind of line is frame-level visual
   timing, not reliably detectable through WDIO's own polling granularity,
   so that half is left to manual verification.
+- `imeComposition.e2e.ts` — HOME no-ops while `editor.cm.composing` is true,
+  then works normally once composition ends. Real IME composition isn't
+  something WDIO can drive (compositionstart/compositionupdate alone only
+  set CM6's internal counter to 0, not the `> 0` the composing getter
+  checks — it only goes above 0 once a real DOM mutation lands while
+  composing), so this sets `cm.inputState.composing` directly instead — a
+  plain, non-private instance property — which exercises this plugin's own
+  guard condition the same way.
 
 ## Planned, in priority order
 
-1. IME composition guard (commands must no-op mid-composition)
-2. Key Upgrades hotkey assignment
-3. Popout window support
-4. Vim mode commands
+1. Key Upgrades hotkey assignment
+2. Popout window support
+3. Vim mode commands

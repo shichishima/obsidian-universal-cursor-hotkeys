@@ -30,6 +30,7 @@ export const config: WebdriverIO.Config = {
 	specs: [[
 		'./specs/smoke.e2e.ts',
 		'./specs/multiCursorHome.e2e.ts',
+		'./specs/imeComposition.e2e.ts',
 		'./specs/multiCursorTableCrossing.e2e.ts',
 		'./specs/exitTableSmartHome.e2e.ts',
 	]],
