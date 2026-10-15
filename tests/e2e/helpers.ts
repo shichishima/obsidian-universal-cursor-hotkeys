@@ -1,10 +1,21 @@
 import { browser } from '@wdio/globals'
 
-// Keeping the Obsidian window from stealing OS-level focus on launch is
-// handled centrally in wdio.conf.mts's own `before` hook (a plain Node
-// osascript call, re-activating whatever app was frontmost before the test
-// run started) — see that file's own comment for why window-level tricks
-// (opacity, position, minimize) tried here first were all rejected.
+// Entering/exiting a table cell swaps in (or back out of) a separate inner
+// CM6 view — confirmed live, more than once, that inTableCell can still read
+// stale for a frame or two right after the command that triggered the
+// transition (matching this plugin's own "two RAF frames" deferral
+// elsewhere for the same cell-focus reconciliation). Any command gated on
+// editor.inTableCell (e.g. table-exit-up/down) can silently no-op if run
+// before this settles. Poll instead of asserting/acting cold.
+export async function waitForInTableCell(expected: boolean, timeout = 2000) {
+	await browser.waitUntil(async () => {
+		const inTableCell = await browser.executeObsidian(({ app, obsidian }) => {
+			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+			return (view.editor as any).inTableCell as boolean
+		})
+		return inTableCell === expected
+	}, { timeout, interval: 100, timeoutMsg: `inTableCell never reached ${expected}` }).catch(() => {})
+}
 
 // Each fixture note under vaults/smoke/ keeps a `# heading` + `- description`
 // block above a `---` separator, documenting what it's for — editable in
