@@ -106,6 +106,35 @@ describe('Set-mark', () => {
 			})
 			expect(outerCm.dispatch).not.toHaveBeenCalled()
 		})
+
+		// Mirrors CM6's own simplifySelection (bound to bare Escape by
+		// default): multiple ranges collapse to the main range ONLY, in one
+		// step — even if that main range is itself a non-empty selection,
+		// it is NOT also collapsed to a cursor in the same press (that's a
+		// second, separate press's job, matching native Escape's own
+		// step-wise "first drop extra cursors, then collapse the
+		// selection" cascade). See keyboardQuit's own doc comment for why
+		// this matters: a future bare-ESC Key Upgrade targeting this
+		// command must not quietly remove the "Escape clears multi-cursor"
+		// capability users already have today.
+		it('collapses a multi-range selection to the main range only, in one step, even when main is itself non-empty', () => {
+			plugin.markActive = true
+			const dispatch = vi.fn()
+			const selection = EditorSelection.create(
+				[EditorSelection.range(0, 2), EditorSelection.range(10, 15)],
+				1, // main is the second range, itself non-empty
+			)
+			const cm: any = { state: { selection }, dispatch }
+			const editor: any = { cm, activeCM: cm }
+
+			plugin.keyboardQuit(editor)
+
+			expect(plugin.markActive).toBe(false)
+			expect(dispatch).toHaveBeenCalledWith({
+				selection: EditorSelection.create([EditorSelection.range(10, 15)]),
+				userEvent: 'select',
+			})
+		})
 	})
 
 	describe('moveCursorUp/moveCursorDown — markActive branch', () => {

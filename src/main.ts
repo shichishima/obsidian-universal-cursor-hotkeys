@@ -1345,10 +1345,24 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		this.collapseActiveSelectionToHead(editor);
 	}
 
-	// Ctrl-G (keyboard-quit candidate): deactivates the mark and collapses
-	// the selection the same way.
+	// Ctrl-G (keyboard-quit candidate): deactivates the mark, then performs
+	// one step of CM6's own simplifySelection cascade (bound to bare Escape
+	// by default: multiple ranges -> collapse to the main range only;
+	// otherwise a non-empty single range -> collapse to a cursor at its
+	// head). This command is the planned target of a future bare-ESC Key
+	// Upgrade — without mirroring simplifySelection here, remapping ESC to
+	// it would quietly take away the "Escape clears multi-cursor" capability
+	// users already have today (confirmed live: bare ESC already does this
+	// natively), and would also leave Ctrl-G with nothing useful to offer a
+	// user who never touches Set-mark at all.
 	private keyboardQuit(editor: Editor) {
 		this.markActive = false;
+		const view = editor.activeCM ?? editor.cm;
+		const sel = view.state.selection;
+		if (sel.ranges.length > 1) {
+			view.dispatch({ selection: EditorSelection.create([sel.main]), userEvent: 'select' });
+			return;
+		}
 		this.collapseActiveSelectionToHead(editor);
 	}
 
