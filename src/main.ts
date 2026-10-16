@@ -590,6 +590,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	//===========================================================================
 
 	private moveCursorHome(editor: Editor) {
+		if (this.markActive) {
+			this.extendMarkHome(editor);
+			return;
+		}
 		const cursor = editor.getCursor();
 
 		if (editor.inTableCell) {
@@ -607,6 +611,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 
 	private moveCursorEnd(editor: Editor) {
+		if (this.markActive) {
+			this.extendMarkEnd(editor);
+			return;
+		}
 		if (editor.inTableCell) {
 			this.moveCursorEndInTable(editor);
 			return;
@@ -626,6 +634,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// current position starts outside a table cell (multi-cursor + table
 	// boundary policy).
 	private moveCursorLeft(editor: Editor) {
+		if (this.markActive) {
+			this.extendMarkHorizontalChar(editor, false);
+			return;
+		}
 		const startedInTable = editor.inTableCell;
 		this.moveCursorLeftImpl(editor);
 		if (!startedInTable) this.reconcileSecondaryRangesAfterTableCrossing(editor);
@@ -660,6 +672,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 
 	private moveCursorRight(editor: Editor) {
+		if (this.markActive) {
+			this.extendMarkHorizontalChar(editor, true);
+			return;
+		}
 		const startedInTable = editor.inTableCell;
 		this.moveCursorRightImpl(editor);
 		if (!startedInTable) this.reconcileSecondaryRangesAfterTableCrossing(editor);
@@ -815,28 +831,37 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			editor.setCursor({ line: cursor.line, ch: position });
 			return;
 		}
-		this.setCursorsViaCm(editor, (range) => {
-			const pos = editor.offsetToPos(range.head);
-			const lineText = editor.getLine(pos.line);
-			if (this.settings.visualLineMovement) {
-				const lineFrom = editor.posToOffset({ line: pos.line, ch: 0 });
-				const vlStart = cm.moveToLineBoundary(range, false, true);
-				const vlCh = vlStart.head - lineFrom;
-				// Only treat as VL2+ if vlCh is past the smart home position.
-				// Prevents widget decorations (e.g. footnote [^1]: ) from causing a false VL dispatch.
-				const lineSmartHomePos = this.getBeginningOfLinePosition(lineText, lineText.length || 1);
+		this.setCursorsViaCm(editor, (range) => this.computeHomeTargetNonTable(editor, cm, range));
+	}
 
-				if (vlStart.head !== range.head && vlCh > lineSmartHomePos) {
-					// Case (1a): VL2+, not at VL left edge -> move to VL left edge.
-					return { pos: vlStart.head, assoc: vlStart.assoc as -1 | 1 };
-				}
-				// Case (1b): VL2+ at left edge, or Case (2): VL1 -> fall through to smart home.
+	// Pure (no dispatch) per-range Home target outside a table — same VL-step
+	// then Smart-Home logic moveCursorHomeNonTable always used inline, pulled
+	// out so extendMarkHome (Set-mark) can reuse it unchanged: the target is
+	// already a pure function of (line text, current ch), not separate
+	// mutable step-counter state, so extending under Set-mark needs no
+	// different Smart-Home behavior at all — just a different dispatch shape
+	// (range extend instead of cursor collapse) built from the same target.
+	private computeHomeTargetNonTable(editor: Editor, cm: EditorView, range: SelectionRange): { pos: number; assoc?: -1 | 1 } {
+		const pos = editor.offsetToPos(range.head);
+		const lineText = editor.getLine(pos.line);
+		if (this.settings.visualLineMovement) {
+			const lineFrom = editor.posToOffset({ line: pos.line, ch: 0 });
+			const vlStart = cm.moveToLineBoundary(range, false, true);
+			const vlCh = vlStart.head - lineFrom;
+			// Only treat as VL2+ if vlCh is past the smart home position.
+			// Prevents widget decorations (e.g. footnote [^1]: ) from causing a false VL dispatch.
+			const lineSmartHomePos = this.getBeginningOfLinePosition(lineText, lineText.length || 1);
+
+			if (vlStart.head !== range.head && vlCh > lineSmartHomePos) {
+				// Case (1a): VL2+, not at VL left edge -> move to VL left edge.
+				return { pos: vlStart.head, assoc: vlStart.assoc as -1 | 1 };
 			}
+			// Case (1b): VL2+ at left edge, or Case (2): VL1 -> fall through to smart home.
+		}
 
-			// Smart home: content start -> ch=0.
-			const position = this.getBeginningOfLinePosition(lineText, pos.ch);
-			return { pos: editor.posToOffset({ line: pos.line, ch: position }) };
-		});
+		// Smart home: content start -> ch=0.
+		const position = this.getBeginningOfLinePosition(lineText, pos.ch);
+		return { pos: editor.posToOffset({ line: pos.line, ch: position }) };
 	}
 
 
@@ -936,21 +961,29 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			}
 			return;
 		}
-		this.setCursorsViaCm(editor, (range) => {
-			if (this.settings.visualLineMovement) {
-				const vlEnd = cm.moveToLineBoundary(range, true, true);
-				if (vlEnd.head !== range.head) {
-					// Not yet at VL end: move to VL end.
-					return { pos: vlEnd.head, assoc: vlEnd.assoc as -1 | 1 };
-				}
-				// Fell through: already at VL end.
+		this.setCursorsViaCm(editor, (range) => this.computeEndTargetNonTable(editor, cm, range));
+	}
+
+	// Pure (no dispatch) per-range End target outside a table — see
+	// computeHomeTargetNonTable's identical note on why this is pulled out
+	// (reused unchanged by extendMarkEnd). Returning null means "already at
+	// the logical line end, nothing to move" — the collapsing caller
+	// (setCursorsViaCm) skips the dispatch for that range; the extending
+	// caller leaves that range's head untouched.
+	private computeEndTargetNonTable(editor: Editor, cm: EditorView, range: SelectionRange): { pos: number; assoc?: -1 | 1 } | null {
+		if (this.settings.visualLineMovement) {
+			const vlEnd = cm.moveToLineBoundary(range, true, true);
+			if (vlEnd.head !== range.head) {
+				// Not yet at VL end: move to VL end.
+				return { pos: vlEnd.head, assoc: vlEnd.assoc as -1 | 1 };
 			}
-			// visualLineMovement OFF, or already at VL end -> move to logical line end.
-			const pos = editor.offsetToPos(range.head);
-			const lineText = editor.getLine(pos.line);
-			if (pos.ch === lineText.length) return null;
-			return { pos: editor.posToOffset({ line: pos.line, ch: lineText.length }) };
-		});
+			// Fell through: already at VL end.
+		}
+		// visualLineMovement OFF, or already at VL end -> move to logical line end.
+		const pos = editor.offsetToPos(range.head);
+		const lineText = editor.getLine(pos.line);
+		if (pos.ch === lineText.length) return null;
+		return { pos: editor.posToOffset({ line: pos.line, ch: lineText.length }) };
 	}
 
 
@@ -1107,7 +1140,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 	//===========================================================================
-	// Set-mark (Ctrl-Space / Ctrl-G) — Ctrl-N/P extension only, first increment
+	// Set-mark (Ctrl-Space / Ctrl-G) — Ctrl-N/P (first increment),
+	// Ctrl-B/F/A/E (second increment)
 	//===========================================================================
 
 	// Extends every range's own selection one line up/down instead of just
@@ -1150,6 +1184,141 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				: range;
 			const head = view.moveVertically(startRange, forward);
 			return EditorSelection.range(range.anchor, head.head, head.goalColumn, head.bidiLevel ?? undefined, head.assoc);
+		});
+		view.dispatch({ selection: EditorSelection.create(ranges, sel.mainIndex), userEvent: 'select', scrollIntoView: true });
+	}
+
+	// Generic extend-dispatch helper for HOME/End's *outer* (non-table) case:
+	// calls computeTarget once per existing range (computeHomeTargetNonTable/
+	// computeEndTargetNonTable — the exact same pure functions the plain,
+	// collapsing path already uses, since Smart-Home's target is a pure
+	// function of (line text, current ch), not separate step-counter state,
+	// so there's nothing different to compute here under Set-mark), and
+	// extends range.anchor -> target.pos instead of collapsing to a cursor.
+	// A null target leaves that one range untouched ("already there");
+	// skips the dispatch entirely if no range changed, mirroring
+	// setCursorsViaCm's own no-op guard.
+	private extendMarkHorizontalLine(editor: Editor, computeTarget: (range: SelectionRange) => { pos: number; assoc?: -1 | 1 } | null) {
+		const cm = editor.cm;
+		const sel = cm.state.selection;
+		let changed = false;
+		const ranges = sel.ranges.map(range => {
+			const target = computeTarget(range);
+			if (!target) return range;
+			changed = true;
+			return EditorSelection.range(range.anchor, target.pos, undefined, undefined, target.assoc);
+		});
+		if (!changed) return;
+		cm.dispatch({ selection: EditorSelection.create(ranges, sel.mainIndex), userEvent: 'select', scrollIntoView: true });
+	}
+
+	// Generic extend-dispatch helper for HOME/End's *in-cell* case: calls
+	// computeResult once per existing inner-view range (computeHomeTargetInCell/
+	// computeEndTargetInCell, unmodified) and extends to its 'stay' target.
+	// 'exit' (the cell's own first/last sub-line boundary) clamps instead of
+	// delegating to the plain path's onPrimaryExit — a single CM6 range
+	// can't span this cell's own inner EditorState and the outer one, so
+	// extending to an adjacent cell is structurally impossible (same
+	// reasoning as extendMarkVertically's own in-cell clamp).
+	private extendMarkInCell(inner: EditorView, computeResult: (range: SelectionRange) => { kind: 'exit' } | { kind: 'stay'; pos: number; assoc?: -1 | 1 }) {
+		const sel = inner.state.selection;
+		let changed = false;
+		const ranges = sel.ranges.map(range => {
+			const result = computeResult(range);
+			if (result.kind === 'exit' || result.pos === range.head) return range;
+			changed = true;
+			return EditorSelection.range(range.anchor, result.pos, undefined, undefined, result.assoc);
+		});
+		if (!changed) return;
+		inner.dispatch({ selection: EditorSelection.create(ranges, sel.mainIndex), userEvent: 'select', scrollIntoView: true });
+	}
+
+	// Ctrl-A (Set-mark candidate): extends every range to its own Home
+	// target, same Smart-Home/VL-step behavior as the plain command.
+	private extendMarkHome(editor: Editor) {
+		if (editor.inTableCell) {
+			const inner = editor.activeCM;
+			if (!inner || inner === editor.cm) return;
+			this.extendMarkInCell(inner, range => this.computeHomeTargetInCell(inner, range));
+			return;
+		}
+		const cm = editor.cm;
+		this.extendMarkHorizontalLine(editor, range => this.computeHomeTargetNonTable(editor, cm, range));
+	}
+
+	// Ctrl-E (Set-mark candidate): extends every range to its own End
+	// target, same VL-step behavior as the plain command.
+	private extendMarkEnd(editor: Editor) {
+		if (editor.inTableCell) {
+			const inner = editor.activeCM;
+			if (!inner || inner === editor.cm) return;
+			this.extendMarkInCell(inner, range => this.computeEndTargetInCell(inner, range));
+			return;
+		}
+		const cm = editor.cm;
+		this.extendMarkHorizontalLine(editor, range => this.computeEndTargetNonTable(editor, cm, range));
+	}
+
+	// Pure (no dispatch, no document mutation — Set-mark extension must
+	// never mutate the document, unlike exitTable's own forward
+	// EOF-blank-line-append case): scans past a whole contiguous table
+	// block when extending LEFT/RIGHT crosses into one, mirroring
+	// extendMarkVertically's own "treat the whole table as one atomic
+	// unit" policy. moveVertically gets this for free via pixel-based
+	// visual-line geometry (an unfocused table renders as one visual
+	// block); EditorView.moveByChar operates on raw logical lines instead
+	// (confirmed by reading @codemirror/view's own source: it steps
+	// straight into doc.line(line.number ± 1), no visual-block awareness),
+	// so this needs its own scan — same trimStart().startsWith('|')
+	// pre-filter + isPositionInTable confirm convention as
+	// table-navigation.ts's own exitTable. No Smart-Home landing
+	// refinement either, unlike exitTable — matches extendMarkVertically's
+	// own plain, un-refined landing precedent (confirmed by
+	// setMarkTableSkip.e2e.ts's own assertion landing at raw ch: 0).
+	// Returns null if the table runs all the way to that edge of the
+	// document — the caller clamps instead of landing anywhere.
+	private findOffsetPastWholeTableHorizontal(editor: Editor, fromLine: number, forward: boolean): number | null {
+		const lastLine = editor.lastLine();
+		let line = fromLine;
+		while (forward ? line < lastLine : line > 0) {
+			line += forward ? 1 : -1;
+			const text = editor.getLine(line);
+			if (text.trimStart().startsWith('|')) continue;
+			if (this.isPositionInTable(editor, line, 1)) continue;
+			return editor.posToOffset({ line, ch: forward ? 0 : text.length });
+		}
+		return null;
+	}
+
+	// Ctrl-B/F (Set-mark candidate): extends every range one character
+	// left/right. No goalColumn concept here at all (that's vertical-
+	// movement-only) and no primary/secondary distinction needed (same
+	// reasoning as extendMarkVertically). In-cell ranges clamp for free —
+	// inner.moveByChar can't go past the inner EditorState's own document,
+	// which is just this cell's own content.
+	private extendMarkHorizontalChar(editor: Editor, forward: boolean) {
+		const inner = editor.activeCM;
+		const isInCell = !!(editor.inTableCell && inner && inner !== editor.cm);
+		const view = isInCell ? inner! : editor.cm;
+		const sel = view.state.selection;
+		const ranges = sel.ranges.map(range => {
+			if (!isInCell && this.isLivePreviewMode()) {
+				const pos = editor.offsetToPos(range.head);
+				const lineLen = editor.getLine(pos.line).length;
+				const atLineEdge = forward
+					? pos.ch >= lineLen && pos.line < editor.lastLine()
+					: pos.ch === 0 && pos.line > 0;
+				if (atLineEdge) {
+					const adjacentLine = pos.line + (forward ? 1 : -1);
+					if (this.isPositionInTable(editor, adjacentLine, 1)) {
+						const target = this.findOffsetPastWholeTableHorizontal(editor, pos.line, forward);
+						if (target === null) return range; // table runs to the document's edge: clamp
+						return EditorSelection.range(range.anchor, target);
+					}
+				}
+			}
+			const head = view.moveByChar(range, forward);
+			return EditorSelection.range(range.anchor, head.head, undefined, head.bidiLevel ?? undefined, head.assoc);
 		});
 		view.dispatch({ selection: EditorSelection.create(ranges, sel.mainIndex), userEvent: 'select', scrollIntoView: true });
 	}

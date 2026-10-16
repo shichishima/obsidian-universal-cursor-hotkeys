@@ -200,6 +200,80 @@ describe('Set-mark', () => {
 			})
 		})
 
+		describe('moveCursorLeft/moveCursorRight — markActive branch', () => {
+			it('moveCursorRight calls extendMarkHorizontalChar(editor, true) and skips the plain-motion path entirely when markActive', () => {
+				plugin.markActive = true
+				plugin.extendMarkHorizontalChar = vi.fn()
+				plugin.moveCursorRightImpl = vi.fn()
+				plugin.reconcileSecondaryRangesAfterTableCrossing = vi.fn()
+				const editor: any = { inTableCell: false }
+
+				plugin.moveCursorRight(editor)
+
+				expect(plugin.extendMarkHorizontalChar).toHaveBeenCalledWith(editor, true)
+				expect(plugin.moveCursorRightImpl).not.toHaveBeenCalled()
+				expect(plugin.reconcileSecondaryRangesAfterTableCrossing).not.toHaveBeenCalled()
+			})
+
+			it('moveCursorLeft calls extendMarkHorizontalChar(editor, false) and skips the plain-motion path entirely when markActive', () => {
+				plugin.markActive = true
+				plugin.extendMarkHorizontalChar = vi.fn()
+				plugin.moveCursorLeftImpl = vi.fn()
+				plugin.reconcileSecondaryRangesAfterTableCrossing = vi.fn()
+				const editor: any = { inTableCell: false }
+
+				plugin.moveCursorLeft(editor)
+
+				expect(plugin.extendMarkHorizontalChar).toHaveBeenCalledWith(editor, false)
+				expect(plugin.moveCursorLeftImpl).not.toHaveBeenCalled()
+				expect(plugin.reconcileSecondaryRangesAfterTableCrossing).not.toHaveBeenCalled()
+			})
+
+			it('moveCursorRight takes the existing plain-motion path, unchanged, when markActive is false', () => {
+				plugin.markActive = false
+				plugin.extendMarkHorizontalChar = vi.fn()
+				plugin.moveCursorRightImpl = vi.fn()
+				plugin.reconcileSecondaryRangesAfterTableCrossing = vi.fn()
+				const editor: any = { inTableCell: false }
+
+				plugin.moveCursorRight(editor)
+
+				expect(plugin.extendMarkHorizontalChar).not.toHaveBeenCalled()
+				expect(plugin.moveCursorRightImpl).toHaveBeenCalledWith(editor)
+				expect(plugin.reconcileSecondaryRangesAfterTableCrossing).toHaveBeenCalledWith(editor)
+			})
+		})
+
+		describe('moveCursorHome/moveCursorEnd — markActive branch', () => {
+			it('moveCursorHome calls extendMarkHome(editor) and skips the plain-motion path entirely when markActive', () => {
+				plugin.markActive = true
+				plugin.extendMarkHome = vi.fn()
+				plugin.moveCursorHomeInTable = vi.fn()
+				plugin.moveCursorHomeNonTable = vi.fn()
+				const editor: any = { inTableCell: false, getCursor: () => ({ line: 0, ch: 0 }) }
+
+				plugin.moveCursorHome(editor)
+
+				expect(plugin.extendMarkHome).toHaveBeenCalledWith(editor)
+				expect(plugin.moveCursorHomeInTable).not.toHaveBeenCalled()
+				expect(plugin.moveCursorHomeNonTable).not.toHaveBeenCalled()
+			})
+
+			it('moveCursorEnd calls extendMarkEnd(editor) and skips the plain-motion path entirely when markActive', () => {
+				plugin.markActive = true
+				plugin.extendMarkEnd = vi.fn()
+				plugin.moveCursorEndInTable = vi.fn()
+				plugin.moveCursorEndNonTable = vi.fn()
+				const editor: any = { inTableCell: false, getCursor: () => ({ line: 0, ch: 0 }) }
+
+				plugin.moveCursorEnd(editor)
+
+				expect(plugin.extendMarkEnd).toHaveBeenCalledWith(editor)
+				expect(plugin.moveCursorEndInTable).not.toHaveBeenCalled()
+				expect(plugin.moveCursorEndNonTable).not.toHaveBeenCalled()
+			})
+		})
+
 		// Regression: a real mouse-drag selection's own resulting range
 		// carries a native goalColumn of -1 (confirmed live, directly off
 		// cm.state.selection.main — not undefined/no-goal, and not
@@ -229,6 +303,208 @@ describe('Set-mark', () => {
 			cm.state.selection = realGoalSelection
 			plugin.extendMarkVertically(editor, true)
 			expect(moveVertically.mock.calls[0][0].goalColumn).toBe(7) // forwarded unchanged
+		})
+	})
+
+	describe('extendMarkHorizontalChar', () => {
+		it('extends every range via the native moveByChar result, in one dispatch (outer view, plain text)', () => {
+			plugin.isLivePreviewMode = vi.fn().mockReturnValue(false)
+			const cm: any = {
+				state: { selection: EditorSelection.create([EditorSelection.range(0, 0), EditorSelection.range(20, 20)], 0) },
+				moveByChar: vi.fn().mockReturnValue({ head: 5, assoc: 1 }),
+				dispatch: vi.fn(),
+			}
+			const editor: any = { cm, activeCM: cm, inTableCell: false }
+
+			plugin.extendMarkHorizontalChar(editor, true)
+
+			expect(cm.moveByChar).toHaveBeenCalledTimes(2)
+			expect(cm.dispatch).toHaveBeenCalledWith({
+				selection: EditorSelection.create([
+					EditorSelection.range(0, 5, undefined, undefined, 1),
+					EditorSelection.range(20, 5, undefined, undefined, 1),
+				], 0),
+				userEvent: 'select',
+				scrollIntoView: true,
+			})
+		})
+
+		it('uses the inner (table cell) view instead of the outer one when inTableCell, and never checks for a table-skip there', () => {
+			const outerCm: any = { state: {}, dispatch: vi.fn(), moveByChar: vi.fn() }
+			const inner: any = {
+				state: { selection: EditorSelection.create([EditorSelection.range(4, 4)], 0) },
+				moveByChar: vi.fn().mockReturnValue({ head: 9, assoc: 1 }),
+				dispatch: vi.fn(),
+			}
+			plugin.isLivePreviewMode = vi.fn().mockReturnValue(true) // must be ignored for the in-cell branch
+			const editor: any = { cm: outerCm, activeCM: inner, inTableCell: true }
+
+			plugin.extendMarkHorizontalChar(editor, false)
+
+			expect(inner.moveByChar).toHaveBeenCalledWith(expect.objectContaining({ anchor: 4, head: 4 }), false)
+			expect(inner.dispatch).toHaveBeenCalled()
+			expect(outerCm.dispatch).not.toHaveBeenCalled()
+			expect(outerCm.moveByChar).not.toHaveBeenCalled()
+		})
+
+		it('skips the whole table when the adjacent line is part of one, landing via findOffsetPastWholeTableHorizontal instead of moveByChar', () => {
+			plugin.isLivePreviewMode = vi.fn().mockReturnValue(true)
+			plugin.isPositionInTable = vi.fn().mockReturnValue(true) // adjacent line IS a table
+			plugin.findOffsetPastWholeTableHorizontal = vi.fn().mockReturnValue(999)
+			const cm: any = {
+				state: { selection: EditorSelection.create([EditorSelection.range(0, 10)], 0) },
+				moveByChar: vi.fn(),
+				dispatch: vi.fn(),
+			}
+			const editor: any = {
+				cm, activeCM: cm, inTableCell: false,
+				offsetToPos: vi.fn().mockReturnValue({ line: 2, ch: 5 }), // at the line's own end
+				getLine: vi.fn().mockReturnValue('abcde'), // length 5, matches ch -> at line edge going forward
+				lastLine: vi.fn().mockReturnValue(10),
+			}
+
+			plugin.extendMarkHorizontalChar(editor, true)
+
+			expect(plugin.findOffsetPastWholeTableHorizontal).toHaveBeenCalledWith(editor, 2, true)
+			expect(cm.moveByChar).not.toHaveBeenCalled()
+			expect(cm.dispatch).toHaveBeenCalledWith({
+				selection: EditorSelection.create([EditorSelection.range(0, 999)], 0),
+				userEvent: 'select',
+				scrollIntoView: true,
+			})
+		})
+
+		it('clamps (leaves the range unchanged) when the table runs all the way to the document edge', () => {
+			plugin.isLivePreviewMode = vi.fn().mockReturnValue(true)
+			plugin.isPositionInTable = vi.fn().mockReturnValue(true)
+			plugin.findOffsetPastWholeTableHorizontal = vi.fn().mockReturnValue(null)
+			const cm: any = {
+				state: { selection: EditorSelection.create([EditorSelection.range(0, 10)], 0) },
+				moveByChar: vi.fn(),
+				dispatch: vi.fn(),
+			}
+			const editor: any = {
+				cm, activeCM: cm, inTableCell: false,
+				offsetToPos: vi.fn().mockReturnValue({ line: 2, ch: 5 }),
+				getLine: vi.fn().mockReturnValue('abcde'),
+				lastLine: vi.fn().mockReturnValue(10),
+			}
+
+			plugin.extendMarkHorizontalChar(editor, true)
+
+			expect(cm.dispatch).toHaveBeenCalledWith({
+				selection: EditorSelection.create([EditorSelection.range(0, 10)], 0),
+				userEvent: 'select',
+				scrollIntoView: true,
+			})
+		})
+	})
+
+	describe('findOffsetPastWholeTableHorizontal', () => {
+		it("scans forward past a whole table block, landing at the far line's own content start (ch=0)", () => {
+			const lines = ['before', '| a | b |', '| - | - |', '| c | d |', 'after']
+			const posToOffset = vi.fn().mockReturnValue(42)
+			const editor: any = {
+				lastLine: () => lines.length - 1,
+				getLine: (n: number) => lines[n],
+				posToOffset,
+			}
+			plugin.isPositionInTable = vi.fn((_e: any, line: number) => line >= 1 && line <= 3)
+
+			const result = plugin.findOffsetPastWholeTableHorizontal(editor, 0, true)
+
+			expect(posToOffset).toHaveBeenCalledWith({ line: 4, ch: 0 })
+			expect(result).toBe(42)
+		})
+
+		it("scans backward past a whole table block, landing at the near line's own end (ch=line.length)", () => {
+			const lines = ['before', '| a | b |', '| - | - |', '| c | d |', 'after']
+			const posToOffset = vi.fn().mockReturnValue(7)
+			const editor: any = {
+				lastLine: () => lines.length - 1,
+				getLine: (n: number) => lines[n],
+				posToOffset,
+			}
+			plugin.isPositionInTable = vi.fn((_e: any, line: number) => line >= 1 && line <= 3)
+
+			const result = plugin.findOffsetPastWholeTableHorizontal(editor, 4, false)
+
+			expect(posToOffset).toHaveBeenCalledWith({ line: 0, ch: 'before'.length })
+			expect(result).toBe(7)
+		})
+
+		it("returns null when the table runs all the way to the document's own edge", () => {
+			const lines = ['| a | b |', '| - | - |', 'after']
+			const editor: any = {
+				lastLine: () => lines.length - 1,
+				getLine: (n: number) => lines[n],
+				posToOffset: vi.fn(),
+			}
+			plugin.isPositionInTable = vi.fn((_e: any, line: number) => line === 0 || line === 1)
+
+			const result = plugin.findOffsetPastWholeTableHorizontal(editor, 1, false)
+
+			expect(result).toBeNull()
+		})
+	})
+
+	describe('extendMarkHome/extendMarkEnd', () => {
+		it("extendMarkHome extends every outer range to its own computeHomeTargetNonTable result, in one dispatch", () => {
+			const cm: any = {
+				state: { selection: EditorSelection.create([EditorSelection.range(0, 3), EditorSelection.range(20, 23)], 0) },
+				dispatch: vi.fn(),
+			}
+			const editor: any = { cm, inTableCell: false }
+			plugin.computeHomeTargetNonTable = vi.fn().mockReturnValue({ pos: 0, assoc: 1 })
+
+			plugin.extendMarkHome(editor)
+
+			expect(plugin.computeHomeTargetNonTable).toHaveBeenCalledTimes(2)
+			expect(cm.dispatch).toHaveBeenCalledWith({
+				selection: EditorSelection.create([
+					EditorSelection.range(0, 0, undefined, undefined, 1),
+					EditorSelection.range(20, 0, undefined, undefined, 1),
+				], 0),
+				userEvent: 'select',
+				scrollIntoView: true,
+			})
+		})
+
+		it('extendMarkEnd skips the dispatch entirely when every range is already at its End target (null)', () => {
+			const cm: any = {
+				state: { selection: EditorSelection.create([EditorSelection.range(0, 5)], 0) },
+				dispatch: vi.fn(),
+			}
+			const editor: any = { cm, inTableCell: false }
+			plugin.computeEndTargetNonTable = vi.fn().mockReturnValue(null)
+
+			plugin.extendMarkEnd(editor)
+
+			expect(cm.dispatch).not.toHaveBeenCalled()
+		})
+
+		it("extendMarkHome delegates to the inner view when inTableCell, clamping a range already at the cell's own edge instead of exiting", () => {
+			const inner: any = {
+				state: { selection: EditorSelection.create([EditorSelection.range(2, 2), EditorSelection.range(2, 8)], 1) },
+				dispatch: vi.fn(),
+			}
+			const outerCm: any = { dispatch: vi.fn() }
+			const editor: any = { cm: outerCm, activeCM: inner, inTableCell: true }
+			plugin.computeHomeTargetInCell = vi.fn()
+				.mockReturnValueOnce({ kind: 'exit' }) // first range: already at the cell's own first sub-line start
+				.mockReturnValueOnce({ kind: 'stay', pos: 5 }) // second range: moves to 5
+
+			plugin.extendMarkHome(editor)
+
+			expect(inner.dispatch).toHaveBeenCalledWith({
+				selection: EditorSelection.create([
+					EditorSelection.range(2, 2), // unchanged (clamped, not exited)
+					EditorSelection.range(2, 5),
+				], 1),
+				userEvent: 'select',
+				scrollIntoView: true,
+			})
+			expect(outerCm.dispatch).not.toHaveBeenCalled()
 		})
 	})
 })

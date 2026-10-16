@@ -70,11 +70,16 @@ just the settings UI's display state.
 #### `setMarkTableSkip.e2e.ts`
 
 Set-mark + Ctrl-N across a table lands with the whole table inside the
-region (never enters a cell).
+region (never enters a cell). Also covers Ctrl-F/Ctrl-B (same waypoints,
+approached horizontally).
 
-- A hand-rolled "scan past the table" fallback turned out unnecessary —
-  CM6's own `moveVertically` already treats an unfocused table as one
-  visual line.
+- For Ctrl-N: a hand-rolled "scan past the table" fallback turned out
+  unnecessary — CM6's own `moveVertically` already treats an unfocused
+  table as one visual line.
+- For Ctrl-F/Ctrl-B: the opposite finding — `EditorView.moveByChar`
+  operates on raw logical lines with no visual-block awareness, so it
+  does *not* skip a table for free. A real scan
+  (`findOffsetPastWholeTableHorizontal`) was needed and is exercised here.
 
 #### `setMarkMouseAndLeafChange.e2e.ts`
 
@@ -93,6 +98,6 @@ selection; active-leaf-change always clears it.
 
 ## Planned, in priority order
 
-1. Set-mark: LEFT/RIGHT, HOME/END, Word left/right extension
+1. Set-mark: Word left/right extension
 2. Popout window support
 3. Vim mode commands

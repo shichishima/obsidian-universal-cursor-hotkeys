@@ -55,3 +55,66 @@ describe('Set-mark extend crossing a table (Ctrl-N)', function () {
 		await expect(state.inTableCell).toBe(false) // never actually entered a cell along the way
 	})
 })
+
+// LEFT/RIGHT's native moveByChar operates on raw logical lines (no
+// visual-block awareness, unlike moveVertically) — see
+// extendMarkHorizontalChar/findOffsetPastWholeTableHorizontal in main.ts
+// for the table-skip scan this needs that UP/DOWN didn't. Same fixture,
+// same waypoints, just approached horizontally: end of "before" -> blank
+// line -> [skip the whole table] -> blank line -> start of "after", 3
+// presses each direction, mirroring the Ctrl-N test's own 3-press cadence.
+describe('Set-mark extend crossing a table (Ctrl-F/Ctrl-B)', function () {
+	it('Ctrl-F (RIGHT) skips the whole table atomically, landing with it inside the region', async function () {
+		const l = await openFixtureAndGetContentStart('SetMarkTableSkip.md')
+
+		await browser.executeObsidian(({ app, obsidian }, l2) => {
+			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+			view.editor.setCursor({ line: l2, ch: 'before'.length }) // end of "before"
+		}, l)
+		await browser.executeObsidianCommand('universal-cursor-hotkeys:set-mark')
+
+		await browser.executeObsidianCommand('universal-cursor-hotkeys:cursor-right')
+		await browser.executeObsidianCommand('universal-cursor-hotkeys:cursor-right')
+		await browser.executeObsidianCommand('universal-cursor-hotkeys:cursor-right')
+
+		const state = await browser.executeObsidian(({ app, obsidian }) => {
+			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+			return {
+				selections: view.editor.listSelections(),
+				selectedText: view.editor.getSelection(),
+				inTableCell: (view.editor as any).inTableCell as boolean,
+			}
+		})
+
+		await expect(state.selections).toEqual([{ anchor: { line: l, ch: 6 }, head: { line: l + 6, ch: 0 } }])
+		await expect(state.selectedText).toBe('\n\n| a | b |\n| --- | --- |\n| c | d |\n\n')
+		await expect(state.inTableCell).toBe(false)
+	})
+
+	it('Ctrl-B (LEFT) skips the whole table atomically, landing with it inside the region', async function () {
+		const l = await openFixtureAndGetContentStart('SetMarkTableSkip.md')
+
+		await browser.executeObsidian(({ app, obsidian }, l2) => {
+			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+			view.editor.setCursor({ line: l2 + 6, ch: 0 }) // start of "after"
+		}, l)
+		await browser.executeObsidianCommand('universal-cursor-hotkeys:set-mark')
+
+		await browser.executeObsidianCommand('universal-cursor-hotkeys:cursor-left')
+		await browser.executeObsidianCommand('universal-cursor-hotkeys:cursor-left')
+		await browser.executeObsidianCommand('universal-cursor-hotkeys:cursor-left')
+
+		const state = await browser.executeObsidian(({ app, obsidian }) => {
+			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+			return {
+				selections: view.editor.listSelections(),
+				selectedText: view.editor.getSelection(),
+				inTableCell: (view.editor as any).inTableCell as boolean,
+			}
+		})
+
+		await expect(state.selections).toEqual([{ anchor: { line: l + 6, ch: 0 }, head: { line: l, ch: 6 } }])
+		await expect(state.selectedText).toBe('\n\n| a | b |\n| --- | --- |\n| c | d |\n\n')
+		await expect(state.inTableCell).toBe(false)
+	})
+})
