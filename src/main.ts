@@ -511,7 +511,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 		this.addCommand({
 			id: 'keyboard-quit',
-			name: 'Keyboard quit',
+			name: 'Deselect',
 			editorCallback: (editor: Editor) => {
 				if (this.isComposing(editor)) return;
 				this.keyboardQuit(editor);
@@ -559,6 +559,22 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		this.registerEvent(this.app.workspace.on('active-leaf-change', () => {
 			this.markActive = false;
 		}));
+
+		// A bare-ESC Key Upgrade (app.hotkeyManager.setHotkeys claiming the
+		// key globally) was tried and reverted (2026-10-17): it broke
+		// Escape in non-CM6 contexts that rely on it natively (Excalidraw,
+		// the note title field's own deselect). This listener is purely
+		// passive instead — no preventDefault/stopPropagation, so native
+		// Escape handling everywhere (CM6's own simplifySelection included)
+		// proceeds completely untouched. It only solves the mark-active
+		// desync this was meant to fix: without it, pressing Escape to
+		// collapse a Set-mark selection leaves markActive true (this
+		// keydown never reaches any of this plugin's own commands), so the
+		// very next Ctrl-B/F/N/P/A/E would silently re-arm a new region
+		// from wherever the cursor ended up.
+		this.registerDomEvent(activeDocument, 'keydown', (e: KeyboardEvent) => {
+			if (e.key === 'Escape') this.markActive = false;
+		});
 
 		this.registerDomEvent(activeDocument, 'copy', () => {
 			this.killCache = '';

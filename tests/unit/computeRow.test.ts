@@ -93,6 +93,12 @@ describe('formatHotkey', () => {
 	it('Windows: PageUp → Page Up', () => {
 		expect(formatHotkey({ modifiers: [], key: 'PageUp' }, false)).toBe('Page Up')
 	})
+	it('Windows: Ctrl+Space → Ctrl+Space (not Ctrl+, an invisible key)', () => {
+		expect(formatHotkey({ modifiers: ['Ctrl'], key: ' ' }, false)).toBe('Ctrl+Space')
+	})
+	it('Mac: Ctrl+Space → ⌃ Space (not ⌃ alone, an invisible key)', () => {
+		expect(formatHotkey({ modifiers: ['Ctrl'], key: ' ' }, true)).toBe('⌃ Space')
+	})
 	it('Mac: Ctrl+A → ⌃ A', () => {
 		expect(formatHotkey({ modifiers: ['Ctrl'], key: 'A' }, true)).toBe('⌃ A')
 	})

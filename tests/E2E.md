@@ -96,6 +96,24 @@ selection; active-leaf-change always clears it.
   Ctrl-N/P at column 0. Fixed in `extendMarkVertically` by only trusting a
   non-negative `goalColumn`.
 
+#### `setMarkEscapeKeydown.e2e.ts`
+
+Native Escape (CM6's own `simplifySelection`) collapses the selection;
+this plugin's own passive `keydown` listener clears `markActive` as a
+side effect, so a later extend command does a plain move instead of
+silently re-arming a new region.
+
+- A bare-ESC Key Upgrade (claiming the key globally via
+  `app.hotkeyManager.setHotkeys`) was tried first and reverted — it broke
+  Escape in non-CM6 contexts that rely on it natively (Excalidraw, the
+  note title field's own deselect). The passive listener never calls
+  `preventDefault`/`stopPropagation`, so native Escape handling everywhere
+  is untouched.
+- Dispatches a real `KeyboardEvent('keydown', { key: 'Escape' })` on
+  `cm.contentDOM` (where CM6's own key handling lives), not a synthetic
+  command call — confirms the event actually bubbles to this plugin's
+  `document`-level listener.
+
 ## Planned, in priority order
 
 1. Set-mark: Word left/right extension
