@@ -158,6 +158,15 @@ describe('copyRegion', () => {
 			expect(plugin.isKillChaining).toBe(false)
 			expect(plugin.killCache).toBe('hello') // replaced, not appended
 		})
+
+		// Set-mark category A: an operation that consumes/destroys the
+		// active selection deactivates the mark.
+		it('deactivates Set-mark (markActive)', () => {
+			plugin.markActive = true
+			const editor = makeEditor(['hello world'], { line: 0, ch: 0 }, { line: 0, ch: 5 })
+			plugin.copyRegion(editor)
+			expect(plugin.markActive).toBe(false)
+		})
 	})
 
 

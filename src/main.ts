@@ -290,6 +290,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
 				if (this.isComposing(editor)) return;
+				this.markActive = false;
 				editor.undo();
 			}
 		});
@@ -300,6 +301,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
 				if (this.isComposing(editor)) return;
+				this.markActive = false;
 				editor.redo();
 			}
 		});
@@ -3040,6 +3042,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	//===========================================================================
 
 	private deleteChar(editor: Editor) {
+		this.markActive = false;
 		if (editor.inTableCell) {
 			this.deleteCharInTableLP(editor);
 			return;
@@ -3141,6 +3144,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// end, falls back to swapLastTwoInRange instead of a plain no-op, matching
 	// real Emacs's end-of-line special case.
 	private transposeChars(editor: Editor) {
+		this.markActive = false;
 		if (editor.inTableCell) {
 			this.transposeCharsInTableLP(editor);
 			return;
@@ -3431,6 +3435,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// boundary lookup reuses the same findWordSpanOnLine primitive Word
 	// right/left (moveCursorWord) already use.
 	private killWord(editor: Editor, forward: boolean) {
+		this.markActive = false;
 		const lineText = editor.getLine(editor.getCursor().line);
 		const inSourceTable = !this.isLivePreviewMode() && this.isTableLineSourceMode(lineText);
 
@@ -3639,6 +3644,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const to = editor.getCursor('to');
 		if (this.getValidatedRegionText(editor) === null) return;
 
+		this.markActive = false;
 		if (editor.inTableCell) {
 			const inner = editor.activeCM;
 			if (!inner || inner === editor.cm) return;
@@ -3949,6 +3955,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const text = this.getValidatedRegionText(editor);
 		if (text === null) return;
 
+		this.markActive = false;
 		this.isKillChaining = false;
 		this.updateKillCache(text);
 		navigator.clipboard.writeText(this.killCache).catch(() => {});
@@ -3968,6 +3975,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const inLPTable = editor.inTableCell;
 		const fromLine  = editor.getLine(from.line);
 
+		this.markActive = false;
 		this.isKillChaining = false;
 		this.updateKillCache(text);
 		navigator.clipboard.writeText(this.killCache).catch(() => {});
@@ -4024,6 +4032,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	//===========================================================================
 
 	private async yank(editor: Editor) {
+		this.markActive = false;
 		this.isKillChaining = false;
 		let raw: string;
 		try {

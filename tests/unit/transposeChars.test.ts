@@ -149,6 +149,16 @@ describe('transposeChars (plain text dispatcher)', () => {
 		expect(editor._dispatch).not.toHaveBeenCalled()
 	})
 
+	// Set-mark category A: an operation that consumes/destroys the active
+	// selection deactivates the mark — unconditional here since every
+	// branch of this dispatcher performs some kind of edit.
+	it('deactivates Set-mark (markActive)', () => {
+		plugin.markActive = true
+		const editor = makeEditor(['abcdef'], 0, 3)
+		plugin.transposeChars(editor)
+		expect(plugin.markActive).toBe(false)
+	})
+
 	it('at line start (non-empty line): still delegates to CM6 transposeChars (no override)', () => {
 		const editor = makeEditor(['abc'], 0, 0)
 		plugin.transposeChars(editor)

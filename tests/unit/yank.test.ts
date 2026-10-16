@@ -79,6 +79,16 @@ describe('yank', () => {
 			await plugin.yank(editor)
 			expect(editor.replaceSelection).not.toHaveBeenCalled()
 		})
+
+		// Set-mark category A: an operation that consumes/destroys the
+		// active selection deactivates the mark.
+		it('deactivates Set-mark (markActive)', async () => {
+			plugin.markActive = true
+			mockClipboard('hello')
+			const editor = makeEditor('some text', 4)
+			await plugin.yank(editor)
+			expect(plugin.markActive).toBe(false)
+		})
 	})
 
 	// ===========================================================================
