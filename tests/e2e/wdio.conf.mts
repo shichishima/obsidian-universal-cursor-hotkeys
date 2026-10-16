@@ -34,6 +34,8 @@ export const config: WebdriverIO.Config = {
 		'./specs/keyUpgradesToggle.e2e.ts',
 		'./specs/multiCursorTableCrossing.e2e.ts',
 		'./specs/exitTableSmartHome.e2e.ts',
+		'./specs/setMarkTableSkip.e2e.ts',
+		'./specs/setMarkMouseAndLeafChange.e2e.ts',
 	]],
 
 	// Serial by default — confirmed live that running multiple Obsidian/

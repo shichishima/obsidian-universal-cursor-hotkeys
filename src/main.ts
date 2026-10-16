@@ -133,6 +133,13 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private killCache: string = '';
 	private _recenterStep = 0; // 0=center, 1=top, 2=bottom
 
+	// Emacs-style Set-mark: session-only, not persisted to settings (real
+	// Emacs's own mark is per-buffer, non-persistent too). The mark position
+	// itself is never stored separately — it's just whichever range's
+	// anchor is already sitting at the point Set mark was pressed; motion
+	// commands extend the selection from there while this is true.
+	private markActive: boolean = false;
+
 	// Guards every editorCallback below against firing mid-IME-composition.
 	// Confirmed live (2026-09-26): during active composition, CM6's own
 	// `composing` flag stays true even once the IME itself stops consuming
@@ -493,8 +500,36 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			}
 		});
 
+		this.addCommand({
+			id: 'set-mark',
+			name: 'Set mark',
+			editorCallback: (editor: Editor) => {
+				if (this.isComposing(editor)) return;
+				this.setMark(editor);
+			}
+		});
+
+		this.addCommand({
+			id: 'keyboard-quit',
+			name: 'Keyboard quit',
+			editorCallback: (editor: Editor) => {
+				if (this.isComposing(editor)) return;
+				this.keyboardQuit(editor);
+			}
+		});
+
 		this.registerEditorExtension(
 			EditorView.updateListener.of((update) => {
+				// Mouse click/drag: the "select.pointer" tag covers both (CM6
+				// tags them identically); a click collapses to an empty
+				// selection and clears the mark, a drag leaves a real
+				// selection in place and that selection itself becomes the
+				// new region (no anchor-setting code needed beyond flipping
+				// the flag — the drag's own anchor/head already are it).
+				if (update.selectionSet && update.transactions.some(tr => tr.isUserEvent('select.pointer'))) {
+					this.markActive = !update.state.selection.main.empty;
+				}
+
 				if (!this.isKillChaining && this._recenterStep === 0) return;
 				if (!update.docChanged && !update.selectionSet) return;
 				// Only reset on genuine user actions (keystrokes, arrow keys, etc.).
@@ -520,6 +555,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			this.isKillChaining = false;
 			this._recenterStep = 0;
 		});
+
+		this.registerEvent(this.app.workspace.on('active-leaf-change', () => {
+			this.markActive = false;
+		}));
 
 		this.registerDomEvent(activeDocument, 'copy', () => {
 			this.killCache = '';
@@ -998,8 +1037,14 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Wrapper: see reconcileSecondaryRangesAfterTableCrossing's own doc
 	// comment for why this runs after every LEFT/RIGHT/UP/DOWN whose
 	// current position starts outside a table cell (multi-cursor + table
-	// boundary policy).
+	// boundary policy). Set-mark extension bypasses all of this entirely —
+	// see extendMarkVertically's own doc comment for why it needs none of
+	// the drop/collapse machinery below.
 	private moveCursorUp(editor: Editor) {
+		if (this.markActive) {
+			this.extendMarkVertically(editor, false);
+			return;
+		}
 		const startedInTable = editor.inTableCell;
 		this.moveCursorUpImpl(editor);
 		if (!startedInTable) this.reconcileSecondaryRangesAfterTableCrossing(editor);
@@ -1052,9 +1097,90 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 
 	private moveCursorDown(editor: Editor) {
+		if (this.markActive) {
+			this.extendMarkVertically(editor, true);
+			return;
+		}
 		const startedInTable = editor.inTableCell;
 		this.moveCursorDownImpl(editor);
 		if (!startedInTable) this.reconcileSecondaryRangesAfterTableCrossing(editor);
+	}
+
+	//===========================================================================
+	// Set-mark (Ctrl-Space / Ctrl-G) — Ctrl-N/P extension only, first increment
+	//===========================================================================
+
+	// Extends every range's own selection one line up/down instead of just
+	// moving a collapsed cursor — real Emacs's own Set-mark semantics, via
+	// CM6's own anchor/head (no separate mark position is ever stored; see
+	// markActive's own doc comment). No primary/secondary distinction is
+	// needed anywhere here, unlike plain (non-mark) multi-cursor table
+	// crossing: a range extending from inside a cell can only ever be
+	// sharing that cell with other ranges also confined to it (the
+	// pre-existing "all ranges share one view" invariant), so each range's
+	// own crossing is independent of every other range's.
+	//
+	// No table-aware logic needed at all for the outer-view case, which was
+	// NOT expected going in — confirmed live: an un-focused table in Live
+	// Preview renders as one collapsed visual block for the outer view's
+	// own purposes, so EditorView.moveVertically already treats the whole
+	// table as a single visual line and skips straight past it in one
+	// call — the table's own rows end up inside the region exactly like a
+	// mouse-drag selection already renders it, which native Shift+cursor
+	// cannot do. A hand-rolled "scan past the whole table" fallback was
+	// built and tested first (an isPositionInTable-driven version mirroring
+	// table-navigation.ts's own exitTable scan) but turned out to be
+	// entirely redundant once this was discovered, so it was removed
+	// rather than kept as unreachable insurance.
+	private extendMarkVertically(editor: Editor, forward: boolean) {
+		const inner = editor.activeCM;
+		const view = (editor.inTableCell && inner && inner !== editor.cm) ? inner : editor.cm;
+		const sel = view.state.selection;
+		const ranges = sel.ranges.map(range => {
+			// A range's own goalColumn is only meaningful as "the column to
+			// preserve" when it's the product of a previous vertical move —
+			// a genuine pixel offset from the content area's left edge can
+			// never be negative. Confirmed live: a real mouse-drag selection's
+			// resulting range carries goalColumn = -1 natively (not
+			// undefined/no-goal), which moveVertically otherwise trusts
+			// as-is, making every first extend after a drag land at column 0
+			// regardless of where the drag's own head actually was.
+			const startRange = (range.goalColumn ?? 0) < 0
+				? EditorSelection.range(range.anchor, range.head)
+				: range;
+			const head = view.moveVertically(startRange, forward);
+			return EditorSelection.range(range.anchor, head.head, head.goalColumn, head.bidiLevel ?? undefined, head.assoc);
+		});
+		view.dispatch({ selection: EditorSelection.create(ranges, sel.mainIndex), userEvent: 'select', scrollIntoView: true });
+	}
+
+	// Shared by Set-mark's own re-set semantics (pressing Ctrl-Space again
+	// while already active abandons whatever's currently selected and
+	// re-anchors fresh from the current head — explicit, not just "already
+	// active, leave it alone") and Ctrl-G's mark-clear: collapses whichever
+	// view currently holds the selection (outer or one inner cell) to a
+	// plain cursor at each range's own head.
+	private collapseActiveSelectionToHead(editor: Editor) {
+		const view = editor.activeCM ?? editor.cm;
+		const sel = view.state.selection;
+		if (sel.ranges.every(r => r.empty)) return;
+		const ranges = sel.ranges.map(r => EditorSelection.cursor(r.head));
+		view.dispatch({ selection: EditorSelection.create(ranges, sel.mainIndex), userEvent: 'select' });
+	}
+
+	// Ctrl-Space (set-mark candidate): re-anchors at the current position —
+	// a no-op the first time (nothing selected yet to abandon), but an
+	// explicit re-set when pressed again while a region is already active.
+	private setMark(editor: Editor) {
+		this.markActive = true;
+		this.collapseActiveSelectionToHead(editor);
+	}
+
+	// Ctrl-G (keyboard-quit candidate): deactivates the mark and collapses
+	// the selection the same way.
+	private keyboardQuit(editor: Editor) {
+		this.markActive = false;
+		this.collapseActiveSelectionToHead(editor);
 	}
 
 	private moveCursorDownImpl(editor: Editor) {
