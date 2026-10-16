@@ -536,4 +536,153 @@ describe('Set-mark', () => {
 			expect(outerCm.dispatch).not.toHaveBeenCalled()
 		})
 	})
+
+	describe('moveCursorWord — markActive branch', () => {
+		it('calls extendMarkWord(editor, forward) and skips the plain-motion path entirely when markActive', () => {
+			plugin.markActive = true
+			plugin.extendMarkWord = vi.fn()
+			plugin.moveCursorWordInTable = vi.fn()
+			plugin.moveCursorWordPlainText = vi.fn()
+			const editor: any = { inTableCell: false }
+
+			plugin.moveCursorWord(editor, true)
+
+			expect(plugin.extendMarkWord).toHaveBeenCalledWith(editor, true)
+			expect(plugin.moveCursorWordInTable).not.toHaveBeenCalled()
+			expect(plugin.moveCursorWordPlainText).not.toHaveBeenCalled()
+		})
+
+		it('takes the existing plain-motion path, unchanged, when markActive is false', () => {
+			plugin.markActive = false
+			plugin.extendMarkWord = vi.fn()
+			plugin.moveCursorWordPlainText = vi.fn()
+			const editor: any = { inTableCell: false }
+
+			plugin.moveCursorWord(editor, false)
+
+			expect(plugin.extendMarkWord).not.toHaveBeenCalled()
+			expect(plugin.moveCursorWordPlainText).toHaveBeenCalledWith(editor, false)
+		})
+	})
+
+	describe('extendMarkWord', () => {
+		it('extends every range to its own findWordTargetPlainText result, in one dispatch (outer view, found)', () => {
+			const cm: any = {
+				state: { selection: EditorSelection.create([EditorSelection.range(0, 0), EditorSelection.range(20, 20)], 0) },
+				dispatch: vi.fn(),
+			}
+			const editor: any = { cm, inTableCell: false, offsetToPos: vi.fn((o: number) => ({ line: 0, ch: o })) }
+			plugin.findWordTargetPlainText = vi.fn().mockReturnValue({ kind: 'found', pos: 5, crossedLines: false })
+
+			plugin.extendMarkWord(editor, true)
+
+			expect(plugin.findWordTargetPlainText).toHaveBeenCalledTimes(2)
+			expect(cm.dispatch).toHaveBeenCalledWith({
+				selection: EditorSelection.create([
+					EditorSelection.range(0, 5),
+					EditorSelection.range(20, 5),
+				], 0),
+				userEvent: 'select',
+				scrollIntoView: true,
+			})
+		})
+
+		it('leaves a range unchanged when findWordTargetPlainText reports noMove (document edge)', () => {
+			const cm: any = {
+				state: { selection: EditorSelection.create([EditorSelection.range(3, 7)], 0) },
+				dispatch: vi.fn(),
+			}
+			const editor: any = { cm, inTableCell: false, offsetToPos: vi.fn(() => ({ line: 0, ch: 7 })) }
+			plugin.findWordTargetPlainText = vi.fn().mockReturnValue({ kind: 'noMove' })
+
+			plugin.extendMarkWord(editor, true)
+
+			expect(cm.dispatch).toHaveBeenCalledWith({
+				selection: EditorSelection.create([EditorSelection.range(3, 7)], 0),
+				userEvent: 'select',
+				scrollIntoView: true,
+			})
+		})
+
+		// Table-crossing policy matches extendMarkHorizontalChar's own: skip
+		// the whole table atomically (via the same shared
+		// findOffsetPastWholeTableHorizontal), not enter it the way the
+		// plain (non-mark) path's enterTableWithWordFromPlainText does.
+		it('skips the whole table atomically when the search reaches a table row, forward', () => {
+			const cm: any = {
+				state: { selection: EditorSelection.create([EditorSelection.range(0, 10)], 0) },
+				dispatch: vi.fn(),
+			}
+			const editor: any = { cm, inTableCell: false, offsetToPos: vi.fn(() => ({ line: 2, ch: 10 })) }
+			plugin.findWordTargetPlainText = vi.fn().mockReturnValue({ kind: 'table', tableLine: 5 })
+			plugin.findOffsetPastWholeTableHorizontal = vi.fn().mockReturnValue(999)
+
+			plugin.extendMarkWord(editor, true)
+
+			expect(plugin.findOffsetPastWholeTableHorizontal).toHaveBeenCalledWith(editor, 4, true) // tableLine - 1
+			expect(cm.dispatch).toHaveBeenCalledWith({
+				selection: EditorSelection.create([EditorSelection.range(0, 999)], 0),
+				userEvent: 'select',
+				scrollIntoView: true,
+			})
+		})
+
+		it('skips the whole table atomically when the search reaches a table row, backward', () => {
+			const cm: any = {
+				state: { selection: EditorSelection.create([EditorSelection.range(10, 0)], 0) },
+				dispatch: vi.fn(),
+			}
+			const editor: any = { cm, inTableCell: false, offsetToPos: vi.fn(() => ({ line: 2, ch: 0 })) }
+			plugin.findWordTargetPlainText = vi.fn().mockReturnValue({ kind: 'table', tableLine: 5 })
+			plugin.findOffsetPastWholeTableHorizontal = vi.fn().mockReturnValue(42)
+
+			plugin.extendMarkWord(editor, false)
+
+			expect(plugin.findOffsetPastWholeTableHorizontal).toHaveBeenCalledWith(editor, 6, false) // tableLine + 1
+			expect(cm.dispatch).toHaveBeenCalledWith({
+				selection: EditorSelection.create([EditorSelection.range(10, 42)], 0),
+				userEvent: 'select',
+				scrollIntoView: true,
+			})
+		})
+
+		it('clamps (leaves the range unchanged) when the table runs all the way to the document edge', () => {
+			const cm: any = {
+				state: { selection: EditorSelection.create([EditorSelection.range(0, 10)], 0) },
+				dispatch: vi.fn(),
+			}
+			const editor: any = { cm, inTableCell: false, offsetToPos: vi.fn(() => ({ line: 2, ch: 10 })) }
+			plugin.findWordTargetPlainText = vi.fn().mockReturnValue({ kind: 'table', tableLine: 5 })
+			plugin.findOffsetPastWholeTableHorizontal = vi.fn().mockReturnValue(null)
+
+			plugin.extendMarkWord(editor, true)
+
+			expect(cm.dispatch).toHaveBeenCalledWith({
+				selection: EditorSelection.create([EditorSelection.range(0, 10)], 0),
+				userEvent: 'select',
+				scrollIntoView: true,
+			})
+		})
+
+		it('delegates to the inner view via extendMarkInCell when inTableCell, reusing findWordTargetInCellForRange unchanged', () => {
+			const outerCm: any = { dispatch: vi.fn() }
+			const inner: any = { state: {}, dispatch: vi.fn() }
+			const editor: any = {
+				cm: outerCm, activeCM: inner, inTableCell: true,
+				getCursor: vi.fn(() => ({ line: 0, ch: 2 })),
+				getLine: vi.fn(() => '| a | b |'),
+			}
+			plugin.extendMarkInCell = vi.fn()
+			plugin.findWordTargetInCellForRange = vi.fn()
+
+			plugin.extendMarkWord(editor, true)
+
+			expect(plugin.extendMarkInCell).toHaveBeenCalledWith(inner, expect.any(Function))
+			const passedComputeFn = plugin.extendMarkInCell.mock.calls[0][1]
+			const fakeRange = { head: 0 } as any
+			passedComputeFn(fakeRange)
+			expect(plugin.findWordTargetInCellForRange).toHaveBeenCalledWith(inner, fakeRange, '| a | b |', expect.anything(), true)
+			expect(outerCm.dispatch).not.toHaveBeenCalled()
+		})
+	})
 })

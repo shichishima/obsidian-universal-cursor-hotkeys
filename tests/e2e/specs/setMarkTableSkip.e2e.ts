@@ -118,3 +118,70 @@ describe('Set-mark extend crossing a table (Ctrl-F/Ctrl-B)', function () {
 		await expect(state.inTableCell).toBe(false)
 	})
 })
+
+// Word left/right (Alt-F/Alt-B) use a different engine entirely
+// (word-segmentation.ts's findWordSpanOnLine, not a native CM6 primitive),
+// but its own existing per-range search function (findWordTargetPlainText)
+// already reports "search reached a table row" as its own outcome, so
+// extendMarkWord reuses the same findOffsetPastWholeTableHorizontal scan
+// as Ctrl-F/Ctrl-B above — no new table-detection logic. Same fixture,
+// same waypoints, but word-granularity landings go one step further than
+// the char-based Ctrl-F/Ctrl-B test: the final word on "after" ends up
+// selected too (word-right lands at its end, word-left at its start).
+// 3 presses each direction: own word -> [skip the whole table, landing on
+// the blank line right after it] -> the far side's own word.
+describe('Set-mark extend crossing a table (Alt-F/Alt-B)', function () {
+	it('Alt-F (word-right) skips the whole table atomically, landing with it inside the region', async function () {
+		const l = await openFixtureAndGetContentStart('SetMarkTableSkip.md')
+
+		await browser.executeObsidian(({ app, obsidian }, l2) => {
+			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+			view.editor.setCursor({ line: l2, ch: 0 }) // start of "before"
+		}, l)
+		await browser.executeObsidianCommand('universal-cursor-hotkeys:set-mark')
+
+		await browser.executeObsidianCommand('universal-cursor-hotkeys:word-right')
+		await browser.executeObsidianCommand('universal-cursor-hotkeys:word-right')
+		await browser.executeObsidianCommand('universal-cursor-hotkeys:word-right')
+
+		const state = await browser.executeObsidian(({ app, obsidian }) => {
+			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+			return {
+				selections: view.editor.listSelections(),
+				selectedText: view.editor.getSelection(),
+				inTableCell: (view.editor as any).inTableCell as boolean,
+			}
+		})
+
+		await expect(state.selections).toEqual([{ anchor: { line: l, ch: 0 }, head: { line: l + 6, ch: 'after'.length } }])
+		await expect(state.selectedText).toBe('before\n\n| a | b |\n| --- | --- |\n| c | d |\n\nafter')
+		await expect(state.inTableCell).toBe(false)
+	})
+
+	it('Alt-B (word-left) skips the whole table atomically, landing with it inside the region', async function () {
+		const l = await openFixtureAndGetContentStart('SetMarkTableSkip.md')
+
+		await browser.executeObsidian(({ app, obsidian }, l2) => {
+			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+			view.editor.setCursor({ line: l2 + 6, ch: 'after'.length }) // end of "after"
+		}, l)
+		await browser.executeObsidianCommand('universal-cursor-hotkeys:set-mark')
+
+		await browser.executeObsidianCommand('universal-cursor-hotkeys:word-left')
+		await browser.executeObsidianCommand('universal-cursor-hotkeys:word-left')
+		await browser.executeObsidianCommand('universal-cursor-hotkeys:word-left')
+
+		const state = await browser.executeObsidian(({ app, obsidian }) => {
+			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+			return {
+				selections: view.editor.listSelections(),
+				selectedText: view.editor.getSelection(),
+				inTableCell: (view.editor as any).inTableCell as boolean,
+			}
+		})
+
+		await expect(state.selections).toEqual([{ anchor: { line: l + 6, ch: 'after'.length }, head: { line: l, ch: 0 } }])
+		await expect(state.selectedText).toBe('before\n\n| a | b |\n| --- | --- |\n| c | d |\n\nafter')
+		await expect(state.inTableCell).toBe(false)
+	})
+})

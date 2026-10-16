@@ -729,6 +729,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// moveCursorWordInTable/moveCursorWordPlainText further below for the two
 	// underlying search strategies (table cell vs. everything else).
 	private moveCursorWord(editor: Editor, forward: boolean) {
+		if (this.markActive) {
+			this.extendMarkWord(editor, forward);
+			return;
+		}
 		if (editor.inTableCell) {
 			this.moveCursorWordInTable(editor, forward);
 			return;
@@ -1339,6 +1343,55 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return EditorSelection.range(range.anchor, head.head, undefined, head.bidiLevel ?? undefined, head.assoc);
 		});
 		view.dispatch({ selection: EditorSelection.create(ranges, sel.mainIndex), userEvent: 'select', scrollIntoView: true });
+	}
+
+	// Alt-F/Alt-B (Set-mark candidate): extends every range to its own
+	// word-search target. Self-contained like extendMarkHorizontalChar
+	// above (not routed through extendMarkHorizontalLine's generic
+	// 2-outcome contract, since the outer case here has a third outcome —
+	// "search reached a table row" — that needs its own handling), but
+	// otherwise reuses the plain (non-mark) implementation's own per-range
+	// pure functions unchanged: findWordTargetPlainText (outer) and
+	// findWordTargetInCellForRange (in-cell, via the shared extendMarkInCell
+	// helper already built for Home/End) were already structured as pure,
+	// multi-cursor-safe searches, so no new search logic was needed here at
+	// all.
+	//
+	// Table-crossing policy matches extendMarkHorizontalChar's own: skip
+	// the whole table atomically via findOffsetPastWholeTableHorizontal,
+	// rather than entering it the way the plain (non-mark) path's own
+	// enterTableWithWordFromPlainText does — a selection can't span the
+	// outer view and a table cell's own inner view at once. fromLine is
+	// the line just *before* the table (tableLine ∓ 1), matching
+	// extendMarkHorizontalChar's own calling convention for the same
+	// function.
+	private extendMarkWord(editor: Editor, forward: boolean) {
+		const inner = editor.activeCM;
+		if (editor.inTableCell && inner && inner !== editor.cm) {
+			const lineText = editor.getLine(editor.getCursor().line);
+			const cellIndex = getCellIndex(lineText, editor.getCursor().ch);
+			const cellStartCh = getChByCellIndex(lineText, cellIndex);
+			const firstSegInfo = getInCellLineInfo(lineText, cellStartCh);
+			if (!firstSegInfo) return;
+			this.extendMarkInCell(inner, range =>
+				this.findWordTargetInCellForRange(inner, range, lineText, firstSegInfo, forward));
+			return;
+		}
+
+		const cm = editor.cm;
+		const sel = cm.state.selection;
+		const ranges = sel.ranges.map(range => {
+			const result = this.findWordTargetPlainText(editor, editor.offsetToPos(range.head), forward);
+			if (result.kind === 'noMove') return range;
+			if (result.kind === 'table') {
+				const fromLine = forward ? result.tableLine - 1 : result.tableLine + 1;
+				const target = this.findOffsetPastWholeTableHorizontal(editor, fromLine, forward);
+				if (target === null) return range; // table runs to the document's edge: clamp
+				return EditorSelection.range(range.anchor, target);
+			}
+			return EditorSelection.range(range.anchor, result.pos);
+		});
+		cm.dispatch({ selection: EditorSelection.create(ranges, sel.mainIndex), userEvent: 'select', scrollIntoView: true });
 	}
 
 	// Shared by Set-mark's own re-set semantics (pressing Ctrl-Space again

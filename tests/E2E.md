@@ -70,8 +70,8 @@ just the settings UI's display state.
 #### `setMarkTableSkip.e2e.ts`
 
 Set-mark + Ctrl-N across a table lands with the whole table inside the
-region (never enters a cell). Also covers Ctrl-F/Ctrl-B (same waypoints,
-approached horizontally).
+region (never enters a cell). Also covers Ctrl-F/Ctrl-B and Alt-F/Alt-B
+(same waypoints, approached horizontally/by word).
 
 - For Ctrl-N: a hand-rolled "scan past the table" fallback turned out
   unnecessary — CM6's own `moveVertically` already treats an unfocused
@@ -80,6 +80,14 @@ approached horizontally).
   operates on raw logical lines with no visual-block awareness, so it
   does *not* skip a table for free. A real scan
   (`findOffsetPastWholeTableHorizontal`) was needed and is exercised here.
+- For Alt-F/Alt-B: word movement uses its own engine entirely
+  (`word-segmentation.ts`, not a native CM6 primitive), but its existing
+  per-range search function already reports "search reached a table row"
+  as its own outcome, so this reuses the *same*
+  `findOffsetPastWholeTableHorizontal` scan as Ctrl-F/Ctrl-B — no new
+  table-detection logic needed. Word-granularity landings go one step
+  further than the char-based test: the final word on the far side ends
+  up selected too.
 
 #### `setMarkMouseAndLeafChange.e2e.ts`
 
@@ -116,6 +124,5 @@ silently re-arming a new region.
 
 ## Planned, in priority order
 
-1. Set-mark: Word left/right extension
-2. Popout window support
-3. Vim mode commands
+1. Popout window support
+2. Vim mode commands
