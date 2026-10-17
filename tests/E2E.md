@@ -249,6 +249,31 @@ convention); only the second press moved, plainly.
   handling needed, it's the same non-empty -> empty native collapse rule
   `setMarkNativeCollapseClearing.e2e.ts` above already covers (that rule
   doesn't check anchor, only the tag and the emptiness transition).
+- Also covers a real false positive the anchor check alone would have
+  missed: native `selectAll` (Ctrl-A/Cmd-A) always dispatches `anchor: 0,
+  head: doc.length` under the same bare `"select"` tag — if the cursor
+  already sat at position 0, "anchor unchanged" passes by coincidence
+  (confirmed live before the fix: simulating that exact dispatch armed the
+  mark). Fixed by excluding "the whole buffer, start to end" from the arm
+  rule. This is a deliberate, narrow trade — a genuine Shift-Ctrl-End
+  extend starting from position 0 in a short document is
+  state-identical to `selectAll` and is sacrificed too (falls back to the
+  older, still-correct collapse-first behavior there) — covered by a
+  second case confirming the exclusion doesn't over-reach: the same
+  extend from a non-zero position still arms correctly.
+- A broader audit of every other range-selection mechanism (mouse
+  double-/triple-click, Shift+Click, Shift+Home/End/PageUp/PageDown/
+  Ctrl+Home/Ctrl+End) found no further gaps — all of them either already
+  share the mouse-click/drag's own `"select.pointer"` tag (confirmed via
+  reading `@codemirror/view`'s `MouseSelection.select()`: every mouse
+  gesture, click/double/triple-click/drag/shift-click, dispatches through
+  that one method unconditionally) or the same anchor-preserving
+  `extendSel`/`"select"` shape as Shift+Arrow (confirmed via reading
+  `@codemirror/commands` directly — `selectLineBoundaryBackward/Forward`,
+  `selectPageUp/Down` all call `extendSel`; `selectDocStart/End` don't,
+  but still pass the *prior* anchor through explicitly, so they still
+  satisfy the same check). `selectAll` was the one exception that needed
+  the explicit exclusion above.
 
 ## Planned, in priority order
 

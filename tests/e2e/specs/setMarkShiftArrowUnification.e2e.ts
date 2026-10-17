@@ -106,4 +106,51 @@ describe('Set-mark: Shift+Arrow range-selection unifies with Ctrl-PNBF extension
 		await expect(after.selection).toEqual([{ anchor: { line: l, ch: 0 }, head: { line: l, ch: 0 } }])
 		await expect(after.markActive).toBe(false)
 	})
+
+	// Real, confirmed false positive the anchor-preserved check alone would
+	// have missed: native selectAll (Ctrl-A/Cmd-A, if bound outside this
+	// plugin's own "Select all" command) always dispatches anchor 0/head
+	// doc.length under the same bare "select" tag as a genuine extend. If
+	// the cursor already happened to sit at position 0, "anchor unchanged"
+	// passes by pure coincidence — selectAll's own result is
+	// state-identical to a genuine Shift-Ctrl-End extend made from
+	// position 0, so nothing in the transaction can tell them apart.
+	// Deliberately excluding "the whole buffer, start to end" trades away
+	// arming for that one indistinguishable case (falls back to the older,
+	// still-correct collapse-first behavior there) in exchange for not
+	// misfiring on the much more commonly hit selectAll collision.
+	it('native selectAll from document position 0 does not arm markActive', async function () {
+		await openFixtureAndGetContentStart('SetMarkMouseAndLeafChange.md')
+		const result = await browser.executeObsidian(({ app, obsidian }) => {
+			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+			const cm = (view.editor as any).cm
+			view.editor.setCursor({ line: 0, ch: 0 })
+			// Same dispatch shape as @codemirror/commands' own selectAll.
+			cm.dispatch({
+				selection: { anchor: 0, head: cm.state.doc.length },
+				userEvent: 'select',
+			})
+			return (app as any).plugins.plugins['universal-cursor-hotkeys'].markActive as boolean
+		})
+		await expect(result).toBe(false)
+	})
+
+	it('a genuine Shift+Ctrl+End extend from a non-zero position still arms markActive (the whole-buffer exclusion is narrow, not a general regression)', async function () {
+		const l = await openFixtureAndGetContentStart('SetMarkMouseAndLeafChange.md')
+		await browser.executeObsidian(({ app, obsidian }, l2) => {
+			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+			view.editor.setCursor({ line: l2, ch: 1 }) // deliberately NOT position 0
+		}, l)
+		await browser.executeObsidian(({ app, obsidian }) => {
+			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+			const cm = (view.editor as any).cm
+			cm.contentDOM.dispatchEvent(new KeyboardEvent('keydown', {
+				key: 'End', shiftKey: true, metaKey: true, bubbles: true, cancelable: true,
+			}))
+		})
+		const result = await browser.executeObsidian(({ app }) => {
+			return (app as any).plugins.plugins['universal-cursor-hotkeys'].markActive as boolean
+		})
+		await expect(result).toBe(true)
+	})
 })

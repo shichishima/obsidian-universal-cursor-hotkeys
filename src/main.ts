@@ -551,9 +551,39 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				// Shift+cursor range-selection with this plugin's own
 				// Set-mark under one shared selection model (something
 				// emacs-text-editor, a competing plugin, doesn't offer).
+				// Confirmed by reading @codemirror/commands directly that
+				// every Shift-bound selection command this plugin doesn't
+				// already own (char/line/page/line-boundary/doc-boundary)
+				// goes through this same anchor-preserving shape, so this
+				// one check covers all of them without enumerating keys —
+				// Shift+Ctrl+Home/End (selectDocStart/End) don't call the
+				// shared extendSel helper the others do, but still pass the
+				// *same* prior anchor through explicitly, so they still
+				// satisfy this check.
+				//
+				// Native selectAll (Ctrl-A/Cmd-A, if bound outside this
+				// plugin's own "Select all" command) is a real, confirmed
+				// false-positive risk this anchor check alone doesn't
+				// catch: it always dispatches anchor 0/head doc.length
+				// under the same bare "select" tag, and if the cursor
+				// already happened to sit at position 0, the "anchor
+				// unchanged" check above passes purely by coincidence
+				// (confirmed live: simulating that exact dispatch armed
+				// the mark). selectAll's own resulting range is
+				// state-identical to a genuine Shift-Ctrl-End extend made
+				// from position 0 in a short document — nothing in the
+				// transaction or resulting state can tell those two apart,
+				// so excluding "the whole buffer, start to end" is a
+				// deliberate, narrow trade: it only sacrifices arming for
+				// that one indistinguishable case, falling back to the
+				// older (still correct, just non-proactive) collapse-first
+				// behavior there, while fixing the much more commonly hit
+				// selectAll collision.
+				const mainRange = update.state.selection.main;
+				const spansWholeBuffer = mainRange.from === 0 && mainRange.to === update.state.doc.length;
 				if (update.selectionSet && !this.markActive &&
-					update.startState.selection.main.anchor === update.state.selection.main.anchor &&
-					!update.state.selection.main.empty &&
+					update.startState.selection.main.anchor === mainRange.anchor &&
+					!mainRange.empty && !spansWholeBuffer &&
 					update.transactions.some(tr =>
 						tr.isUserEvent('select') && !tr.isUserEvent('select.pointer') && !tr.isUserEvent('select.uch')
 					)
