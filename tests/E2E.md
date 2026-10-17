@@ -226,6 +226,30 @@ through the same shared `setSel` helper, tagged `userEvent: "select"`
   the bare cursor at that point — out of scope, not the gap that was
   reported.
 
+#### `setMarkShiftArrowUnification.e2e.ts`
+
+Shift+Arrow range-selection now arms `markActive` immediately, the same
+way a mouse drag already does — unifying Shift+cursor selection with this
+plugin's own Set-mark under one shared selection model. Before this, the
+first Ctrl-B/F/N/P/A/E after a Shift-selection just collapsed it (matching
+the universal "first press on an active selection collapses in place"
+convention); only the second press moved, plainly.
+
+- Shift+Arrow dispatches through `@codemirror/commands`' `extendSel`
+  helper, tagged bare `userEvent: "select"` — the same family as plain
+  movement and this plugin's own `"select.uch"`-tagged extends. The
+  distinguishing signal (confirmed via scratch diagnostic logging, not
+  kept) is the anchor: `extendSel` always preserves it while moving the
+  head, while a plain arrow key collapsing an existing selection actually
+  moves the anchor to meet the new head. Filtering to "anchor unchanged,
+  resulting non-empty, tag is `select` but not `select.pointer`/
+  `select.uch`" isolates exactly this case.
+- Shrinking a Shift-selection back to empty (e.g. Shift+ArrowLeft after
+  Shift+ArrowRight) correctly clears `markActive` too — no special
+  handling needed, it's the same non-empty -> empty native collapse rule
+  `setMarkNativeCollapseClearing.e2e.ts` above already covers (that rule
+  doesn't check anchor, only the tag and the emptiness transition).
+
 ## Planned, in priority order
 
 1. Popout window support

@@ -532,6 +532,35 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 					this.markActive = !update.state.selection.main.empty;
 				}
 
+				// Shift+Arrow (and anything else sharing CM6's own
+				// extendSel/"select" tag while preserving the anchor) arms
+				// the mark exactly like mouse drag just above — same
+				// proactive precedent, same reasoning: the anchor staying
+				// put while the head moves, ending non-empty, means
+				// something other than this plugin just extended a
+				// selection from a fixed anchor. Confirmed live (scratch
+				// diagnostic, not kept) that Shift+ArrowRight dispatches
+				// with the bare "select" tag and leaves the anchor
+				// untouched — unlike a plain arrow key collapsing an
+				// existing selection, which actually *moves* the anchor to
+				// meet the new head (confirmed via the same diagnostic),
+				// so that case can't accidentally satisfy this check too.
+				// Once armed this way, this plugin's own Ctrl-B/F/N/P/A/E
+				// extend from the exact same anchor/head CM6 already
+				// tracks — no separate anchor-setting code needed, unifying
+				// Shift+cursor range-selection with this plugin's own
+				// Set-mark under one shared selection model (something
+				// emacs-text-editor, a competing plugin, doesn't offer).
+				if (update.selectionSet && !this.markActive &&
+					update.startState.selection.main.anchor === update.state.selection.main.anchor &&
+					!update.state.selection.main.empty &&
+					update.transactions.some(tr =>
+						tr.isUserEvent('select') && !tr.isUserEvent('select.pointer') && !tr.isUserEvent('select.uch')
+					)
+				) {
+					this.markActive = true;
+				}
+
 				// Native physical cursor movement (bare arrow keys, Home/End,
 				// Page Up/Down, etc. — none of this plugin's own commands)
 				// collapses an active selection on the first press without
