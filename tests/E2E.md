@@ -346,6 +346,38 @@ while jumping the selection to an unrelated position.
   needed there. Whether Page Up/Down should instead *extend* the mark
   (and how to handle landing mid-table if so) is a separate, still-open
   design question, deliberately deferred.
+- **A table sitting directly at the document's own start/end, with no
+  buffering blank line, used to leave `inTableCell` permanently stuck
+  `true` after an in-cell extend** — found by the user after the above
+  shipped. Root cause: the cell-exit mechanism's own throwaway collapse
+  dispatch (see above) used the real target position (`0`/`doc.length`)
+  as its landing spot, which — only when a table happens to occupy that
+  exact boundary — is ALSO inside a table, so the "exit" itself lands
+  back in table territory instead of safe plain text. The eventual
+  selection's own anchor/head values turned out numerically correct
+  either way (confirmed via direct comparison against the un-fixed
+  code) — only `inTableCell` itself stayed wrongly stuck `true`. Fixed
+  by landing the throwaway collapse one step past the table's own edge
+  (`findOffsetPastWholeTableHorizontal`, the same scan this plugin's own
+  horizontal-extend table-skip already uses) instead of directly on the
+  real target.
+  - Also investigated and ruled out as a real possibility before landing
+    on this fix: whether a leading/trailing blank line is actually
+    *required* for correct behavior here (as it would be for the
+    equivalent native mouse-drag case — a plain mouse drag from inside a
+    cell to the literal document boundary appears to hit the same kind
+    of limitation, though that specific comparison wasn't conclusively
+    verified via a reliable automated drag simulation). It isn't
+    required for this plugin's own Set-mark extend — the fix above
+    handles the no-blank-line case correctly on its own.
+  - Two new tests added (table at the literal note start, TOP; table at
+    the literal note end, BOTTOM), using `editor.setValue` on a
+    dedicated fixture file each (not a shared one — reusing a fixture
+    another spec also opens caused real cross-test corruption the first
+    time this was tried: `setValue` on a shared file leaks into that
+    file's next `openFixtureAndGetContentStart` within the same session,
+    surfacing as a `"no --- separator found"` error in a totally
+    unrelated, later-running spec).
 
 ## Planned, in priority order
 

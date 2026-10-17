@@ -143,4 +143,101 @@ describe('Set-mark: TOP/BOTTOM extend to the buffer edge', function () {
 			{ anchor: { line: l + 4, ch: 9 }, head: { line: 0, ch: 0 } },
 		])
 	})
+
+	// Edge case found by the user after the above shipped: a table sitting
+	// directly at the document's own start/end, with no buffering blank
+	// line, means the throwaway collapse dispatch inside
+	// extendMarkBufferEdge's own cell-exit mechanism (see its comment in
+	// main.ts) lands on ANOTHER table boundary instead of safe plain text
+	// — confirmed live that this leaves editor.inTableCell stuck true
+	// permanently (not just transiently), even though the eventual
+	// selection's own anchor/head end up numerically correct regardless.
+	// Fixed by landing the throwaway collapse one step past the table's
+	// own edge (findOffsetPastWholeTableHorizontal) instead of directly on
+	// the real target. Uses editor.setValue (not a fixture's own file) to
+	// get a table at the literal first/last line with no file-naming
+	// convention to satisfy.
+	it('a table at the literal start of the note (no leading blank line) still exits and sweeps correctly', async function () {
+		await openFixtureAndGetContentStart('SetMarkBufferEdgeTableAtStart.md')
+		await browser.executeObsidian(({ app, obsidian }) => {
+			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+			view.editor.setValue('| a | b |\n| --- | --- |\n| c | d |\n\nmiddle\n')
+			view.editor.setCursor({ line: 0, ch: 0 })
+		})
+		await browser.executeObsidianCommand('universal-cursor-hotkeys:cursor-down') // -> header/col1
+		await waitForInTableCell(true)
+		await browser.executeObsidianCommand('universal-cursor-hotkeys:table-cell-down') // -> row1/col1 ("c")
+		await waitForInTableCell(true)
+		await browser.executeObsidianCommand('universal-cursor-hotkeys:set-mark')
+		await browser.executeObsidianCommand('universal-cursor-hotkeys:cursor-top')
+
+		await browser.waitUntil(async () => {
+			return await browser.executeObsidian(({ app, obsidian }) => {
+				const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+				const sel = view.editor.listSelections()[0]
+				return !(view.editor as any).inTableCell &&
+					(sel.anchor.line !== sel.head.line || sel.anchor.ch !== sel.head.ch)
+			})
+		}, { timeout: 1000, interval: 20 })
+
+		const after = await browser.executeObsidian(({ app, obsidian }) => {
+			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+			return {
+				markActive: (app as any).plugins.plugins['universal-cursor-hotkeys'].markActive as boolean,
+				inTableCell: (view.editor as any).inTableCell as boolean,
+				selection: view.editor.listSelections(),
+			}
+		})
+		await expect(after.inTableCell).toBe(false)
+		await expect(after.markActive).toBe(true)
+		// Head reaches the true document start (line 0, ch 0 — the
+		// table's own literal first character, nothing before it at all).
+		await expect(after.selection[0].head).toEqual({ line: 0, ch: 0 })
+		// Anchor is the table's own last line (its real, Obsidian-padded
+		// width — Live Preview aligns column widths once a table is
+		// actually rendered/visited, so this isn't the literal "| c | d |"
+		// length).
+		await expect(after.selection[0].anchor.line).toBe(2)
+	})
+
+	it('a table at the literal end of the note (no trailing blank line) still exits and sweeps correctly', async function () {
+		await openFixtureAndGetContentStart('SetMarkBufferEdgeTableAtEnd.md')
+		await browser.executeObsidian(({ app, obsidian }) => {
+			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+			view.editor.setValue('middle\n\n| a | b |\n| --- | --- |\n| c | d |')
+			view.editor.setCursor({ line: 2, ch: 0 })
+		})
+		await browser.executeObsidianCommand('universal-cursor-hotkeys:cursor-down') // -> header/col1
+		await waitForInTableCell(true)
+		await browser.executeObsidianCommand('universal-cursor-hotkeys:table-cell-down') // -> row1/col1 ("c")
+		await waitForInTableCell(true)
+		await browser.executeObsidianCommand('universal-cursor-hotkeys:set-mark')
+		await browser.executeObsidianCommand('universal-cursor-hotkeys:cursor-bottom')
+
+		await browser.waitUntil(async () => {
+			return await browser.executeObsidian(({ app, obsidian }) => {
+				const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+				const sel = view.editor.listSelections()[0]
+				return !(view.editor as any).inTableCell &&
+					(sel.anchor.line !== sel.head.line || sel.anchor.ch !== sel.head.ch)
+			})
+		}, { timeout: 1000, interval: 20 })
+
+		const after = await browser.executeObsidian(({ app, obsidian }) => {
+			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+			return {
+				markActive: (app as any).plugins.plugins['universal-cursor-hotkeys'].markActive as boolean,
+				inTableCell: (view.editor as any).inTableCell as boolean,
+				selection: view.editor.listSelections(),
+				lastLine: view.editor.lastLine(),
+			}
+		})
+		await expect(after.inTableCell).toBe(false)
+		await expect(after.markActive).toBe(true)
+		// Anchor is the table's own first line (header row).
+		await expect(after.selection[0].anchor).toEqual({ line: 2, ch: 0 })
+		// Head reaches the true document end — the table's own last row,
+		// nothing after it at all.
+		await expect(after.selection[0].head.line).toBe(after.lastLine)
+	})
 })

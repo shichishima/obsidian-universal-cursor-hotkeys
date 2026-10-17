@@ -1600,7 +1600,26 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (editor.inTableCell && inner && inner !== cm) {
 			const edge = this.findTableOwnEdge(editor, editor.getCursor().line, !forward);
 			const anchor = editor.posToOffset(edge);
-			cm.dispatch({ selection: { anchor: targetPos, head: targetPos }, scrollIntoView: true, userEvent: 'move' });
+			// The throwaway collapse target below only exists to trigger a
+			// clean cell-exit focus transition — its value is otherwise
+			// discarded once the real selection is applied two frames
+			// later. Using targetPos (the real buffer edge) for it breaks
+			// the exit itself when that position is ALSO inside a table
+			// (confirmed live: a table sitting at the document's own
+			// start/end, with no buffering blank line — editor.inTableCell
+			// stays permanently stuck true even though the eventual
+			// selection's own anchor/head values end up numerically
+			// correct regardless). Landing one step past the table's own
+			// edge instead (same scan this plugin's own horizontal-extend
+			// table-skip already uses) is guaranteed to be a genuine
+			// non-table line, so the exit itself can never trip over a
+			// second table. Falls back to targetPos only in the
+			// degenerate case where even that scan can't find a
+			// non-table line (the whole document is this table and
+			// nothing else).
+			const safeExitPos = this.findOffsetPastWholeTableHorizontal(editor, edge.line, !forward);
+			const throwawayPos = safeExitPos ?? targetPos;
+			cm.dispatch({ selection: { anchor: throwawayPos, head: throwawayPos }, scrollIntoView: true, userEvent: 'move' });
 			this.focusAfterCursorMove(editor, cm, false);
 			requestAnimationFrameOnActiveWindow(() => {
 				requestAnimationFrameOnActiveWindow(() => {
