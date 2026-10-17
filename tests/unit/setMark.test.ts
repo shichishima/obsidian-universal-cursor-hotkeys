@@ -61,7 +61,7 @@ describe('Set-mark', () => {
 			expect(plugin.markActive).toBe(true)
 			expect(cm.dispatch).toHaveBeenCalledWith({
 				selection: EditorSelection.create([EditorSelection.cursor(10)], 0),
-				userEvent: 'select',
+				userEvent: 'select.uch',
 			})
 		})
 	})
@@ -77,7 +77,7 @@ describe('Set-mark', () => {
 			expect(plugin.markActive).toBe(false)
 			expect(cm.dispatch).toHaveBeenCalledWith({
 				selection: EditorSelection.create([EditorSelection.cursor(10)], 0),
-				userEvent: 'select',
+				userEvent: 'select.uch',
 			})
 		})
 
@@ -102,7 +102,7 @@ describe('Set-mark', () => {
 
 			expect(inner.dispatch).toHaveBeenCalledWith({
 				selection: EditorSelection.create([EditorSelection.cursor(8)], 0),
-				userEvent: 'select',
+				userEvent: 'select.uch',
 			})
 			expect(outerCm.dispatch).not.toHaveBeenCalled()
 		})
@@ -132,7 +132,7 @@ describe('Set-mark', () => {
 			expect(plugin.markActive).toBe(false)
 			expect(dispatch).toHaveBeenCalledWith({
 				selection: EditorSelection.create([EditorSelection.range(10, 15)]),
-				userEvent: 'select',
+				userEvent: 'select.uch',
 			})
 		})
 	})
@@ -198,7 +198,7 @@ describe('Set-mark', () => {
 					EditorSelection.range(0, 5, 3),
 					EditorSelection.range(20, 5, 3),
 				], 0),
-				userEvent: 'select',
+				userEvent: 'select.uch',
 				scrollIntoView: true,
 			})
 		})
@@ -224,7 +224,7 @@ describe('Set-mark', () => {
 
 			expect(inner.dispatch).toHaveBeenCalledWith({
 				selection: EditorSelection.create([EditorSelection.range(2, 6)], 0),
-				userEvent: 'select',
+				userEvent: 'select.uch',
 				scrollIntoView: true,
 			})
 		})
@@ -353,7 +353,7 @@ describe('Set-mark', () => {
 					EditorSelection.range(0, 5, undefined, undefined, 1),
 					EditorSelection.range(20, 5, undefined, undefined, 1),
 				], 0),
-				userEvent: 'select',
+				userEvent: 'select.uch',
 				scrollIntoView: true,
 			})
 		})
@@ -398,7 +398,7 @@ describe('Set-mark', () => {
 			expect(cm.moveByChar).not.toHaveBeenCalled()
 			expect(cm.dispatch).toHaveBeenCalledWith({
 				selection: EditorSelection.create([EditorSelection.range(0, 999)], 0),
-				userEvent: 'select',
+				userEvent: 'select.uch',
 				scrollIntoView: true,
 			})
 		})
@@ -423,7 +423,7 @@ describe('Set-mark', () => {
 
 			expect(cm.dispatch).toHaveBeenCalledWith({
 				selection: EditorSelection.create([EditorSelection.range(0, 10)], 0),
-				userEvent: 'select',
+				userEvent: 'select.uch',
 				scrollIntoView: true,
 			})
 		})
@@ -494,7 +494,7 @@ describe('Set-mark', () => {
 					EditorSelection.range(0, 0, undefined, undefined, 1),
 					EditorSelection.range(20, 0, undefined, undefined, 1),
 				], 0),
-				userEvent: 'select',
+				userEvent: 'select.uch',
 				scrollIntoView: true,
 			})
 		})
@@ -530,7 +530,7 @@ describe('Set-mark', () => {
 					EditorSelection.range(2, 2), // unchanged (clamped, not exited)
 					EditorSelection.range(2, 5),
 				], 1),
-				userEvent: 'select',
+				userEvent: 'select.uch',
 				scrollIntoView: true,
 			})
 			expect(outerCm.dispatch).not.toHaveBeenCalled()
@@ -582,7 +582,7 @@ describe('Set-mark', () => {
 					EditorSelection.range(0, 5),
 					EditorSelection.range(20, 5),
 				], 0),
-				userEvent: 'select',
+				userEvent: 'select.uch',
 				scrollIntoView: true,
 			})
 		})
@@ -599,7 +599,7 @@ describe('Set-mark', () => {
 
 			expect(cm.dispatch).toHaveBeenCalledWith({
 				selection: EditorSelection.create([EditorSelection.range(3, 7)], 0),
-				userEvent: 'select',
+				userEvent: 'select.uch',
 				scrollIntoView: true,
 			})
 		})
@@ -622,7 +622,7 @@ describe('Set-mark', () => {
 			expect(plugin.findOffsetPastWholeTableHorizontal).toHaveBeenCalledWith(editor, 4, true) // tableLine - 1
 			expect(cm.dispatch).toHaveBeenCalledWith({
 				selection: EditorSelection.create([EditorSelection.range(0, 999)], 0),
-				userEvent: 'select',
+				userEvent: 'select.uch',
 				scrollIntoView: true,
 			})
 		})
@@ -641,7 +641,7 @@ describe('Set-mark', () => {
 			expect(plugin.findOffsetPastWholeTableHorizontal).toHaveBeenCalledWith(editor, 6, false) // tableLine + 1
 			expect(cm.dispatch).toHaveBeenCalledWith({
 				selection: EditorSelection.create([EditorSelection.range(10, 42)], 0),
-				userEvent: 'select',
+				userEvent: 'select.uch',
 				scrollIntoView: true,
 			})
 		})
@@ -659,7 +659,7 @@ describe('Set-mark', () => {
 
 			expect(cm.dispatch).toHaveBeenCalledWith({
 				selection: EditorSelection.create([EditorSelection.range(0, 10)], 0),
-				userEvent: 'select',
+				userEvent: 'select.uch',
 				scrollIntoView: true,
 			})
 		})

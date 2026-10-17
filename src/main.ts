@@ -532,6 +532,47 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 					this.markActive = !update.state.selection.main.empty;
 				}
 
+				// Native physical cursor movement (bare arrow keys, Home/End,
+				// Page Up/Down, etc. — none of this plugin's own commands)
+				// collapses an active selection on the first press without
+				// extending it, same as Escape/cut/copy/paste/Backspace/Delete
+				// above, and the same gap applies: none of these reach a
+				// command callback that could clear markActive. Unlike those,
+				// there's no fixed key list to listen for — every one of
+				// @codemirror/commands' own plain-movement commands (arrows,
+				// Home/End, Page Up/Down, Ctrl-Home/End, ...) dispatches
+				// through the same shared `setSel` helper, tagged `userEvent:
+				// "select"` (confirmed by reading that source directly), so
+				// one check here covers all of them without enumerating keys.
+				//
+				// This plugin's own extend/collapse dispatches (the 5
+				// extendMark* functions plus collapseActiveSelectionToHead,
+				// shared by Set-mark's own re-press and Ctrl-G) use the more
+				// specific `"select.uch"` tag instead of bare `"select"` —
+				// confirmed via scratch diagnostic logging that plain `tr.
+				// isUserEvent('select')` cannot tell these apart from a
+				// native collapse by tag alone, since CM6 tags both
+				// identically. The distinction matters for two real,
+				// traced-through cases that would otherwise misfire: Set-
+				// mark's own re-press (markActive is set true *before*
+				// collapseActiveSelectionToHead's own dispatch collapses the
+				// prior selection to empty) and extending one way then back
+				// to the exact anchor (a legitimate non-empty -> empty
+				// transition that is this plugin's own doing, not a native
+				// collapse). Requiring an actual non-empty -> empty
+				// transition (not just "ended up empty") also leaves
+				// Set-mark's own still-empty state (armed but not yet
+				// extended) alone — deliberately out of scope, see the
+				// 2026-10-17 planning note.
+				if (update.selectionSet && this.markActive &&
+					!update.startState.selection.main.empty && update.state.selection.main.empty &&
+					update.transactions.some(tr =>
+						tr.isUserEvent('select') && !tr.isUserEvent('select.pointer') && !tr.isUserEvent('select.uch')
+					)
+				) {
+					this.markActive = false;
+				}
+
 				if (!this.isKillChaining && this._recenterStep === 0) return;
 				if (!update.docChanged && !update.selectionSet) return;
 				// Only reset on genuine user actions (keystrokes, arrow keys, etc.).
@@ -1240,7 +1281,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			const head = view.moveVertically(startRange, forward);
 			return EditorSelection.range(range.anchor, head.head, head.goalColumn, head.bidiLevel ?? undefined, head.assoc);
 		});
-		view.dispatch({ selection: EditorSelection.create(ranges, sel.mainIndex), userEvent: 'select', scrollIntoView: true });
+		view.dispatch({ selection: EditorSelection.create(ranges, sel.mainIndex), userEvent: 'select.uch', scrollIntoView: true });
 	}
 
 	// Generic extend-dispatch helper for HOME/End's *outer* (non-table) case:
@@ -1264,7 +1305,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return EditorSelection.range(range.anchor, target.pos, undefined, undefined, target.assoc);
 		});
 		if (!changed) return;
-		cm.dispatch({ selection: EditorSelection.create(ranges, sel.mainIndex), userEvent: 'select', scrollIntoView: true });
+		cm.dispatch({ selection: EditorSelection.create(ranges, sel.mainIndex), userEvent: 'select.uch', scrollIntoView: true });
 	}
 
 	// Generic extend-dispatch helper for HOME/End's *in-cell* case: calls
@@ -1285,7 +1326,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return EditorSelection.range(range.anchor, result.pos, undefined, undefined, result.assoc);
 		});
 		if (!changed) return;
-		inner.dispatch({ selection: EditorSelection.create(ranges, sel.mainIndex), userEvent: 'select', scrollIntoView: true });
+		inner.dispatch({ selection: EditorSelection.create(ranges, sel.mainIndex), userEvent: 'select.uch', scrollIntoView: true });
 	}
 
 	// Ctrl-A (Set-mark candidate): extends every range to its own Home
@@ -1375,7 +1416,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			const head = view.moveByChar(range, forward);
 			return EditorSelection.range(range.anchor, head.head, undefined, head.bidiLevel ?? undefined, head.assoc);
 		});
-		view.dispatch({ selection: EditorSelection.create(ranges, sel.mainIndex), userEvent: 'select', scrollIntoView: true });
+		view.dispatch({ selection: EditorSelection.create(ranges, sel.mainIndex), userEvent: 'select.uch', scrollIntoView: true });
 	}
 
 	// Alt-F/Alt-B (Set-mark candidate): extends every range to its own
@@ -1424,7 +1465,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			}
 			return EditorSelection.range(range.anchor, result.pos);
 		});
-		cm.dispatch({ selection: EditorSelection.create(ranges, sel.mainIndex), userEvent: 'select', scrollIntoView: true });
+		cm.dispatch({ selection: EditorSelection.create(ranges, sel.mainIndex), userEvent: 'select.uch', scrollIntoView: true });
 	}
 
 	// Shared by Set-mark's own re-set semantics (pressing Ctrl-Space again
@@ -1438,7 +1479,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const sel = view.state.selection;
 		if (sel.ranges.every(r => r.empty)) return;
 		const ranges = sel.ranges.map(r => EditorSelection.cursor(r.head));
-		view.dispatch({ selection: EditorSelection.create(ranges, sel.mainIndex), userEvent: 'select' });
+		view.dispatch({ selection: EditorSelection.create(ranges, sel.mainIndex), userEvent: 'select.uch' });
 	}
 
 	// Ctrl-Space (set-mark candidate): re-anchors at the current position —
@@ -1464,7 +1505,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const view = editor.activeCM ?? editor.cm;
 		const sel = view.state.selection;
 		if (sel.ranges.length > 1) {
-			view.dispatch({ selection: EditorSelection.create([sel.main]), userEvent: 'select' });
+			view.dispatch({ selection: EditorSelection.create([sel.main]), userEvent: 'select.uch' });
 			return;
 		}
 		this.collapseActiveSelectionToHead(editor);

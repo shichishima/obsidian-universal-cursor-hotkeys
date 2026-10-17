@@ -193,6 +193,39 @@ plugin's own commands, so none would otherwise reach a command callback.
   one even if it persists across `openFixtureAndGetContentStart`'s
   fresh-leaf reopen.
 
+#### `setMarkNativeCollapseClearing.e2e.ts`
+
+Native physical cursor movement (bare arrow keys, Home/End, Page Up/Down,
+...) clears `markActive` when it collapses an active selection — same
+gap/fix shape as the two specs above, but with no fixed key list: every
+one of `@codemirror/commands`' own plain-movement commands dispatches
+through the same shared `setSel` helper, tagged `userEvent: "select"`
+(confirmed by reading that source directly), so one check in the
+`EditorView.updateListener` in `main.ts` covers all of them.
+
+- This plugin's own extend/collapse dispatches (the 5 `extendMark*`
+  functions, plus `collapseActiveSelectionToHead` shared by Set-mark's own
+  re-press and Ctrl-G) use a more specific `"select.uch"` tag instead of
+  bare `"select"`, specifically so the new rule can't misfire on them.
+  Confirmed via scratch diagnostic logging that CM6 tags a native collapse
+  and this plugin's own extend identically (both bare `"select"`) when
+  they weren't yet distinguished by tag.
+- Two of this plugin's own legitimate actions would otherwise have been
+  wrongly caught by a plain "selection went non-empty -> empty" check, and
+  are covered as explicit regression cases here: Set-mark's own re-press
+  (`markActive` is set `true` *before* its own collapse-to-head dispatch
+  collapses the prior selection to empty) and extending one way then back
+  to the exact anchor (a real non-empty -> empty transition that's this
+  plugin's own doing, not a native collapse). Confirmed both would
+  genuinely fail without the `"select.uch"` tag distinction (temporarily
+  reverted just the tag rename, kept the new rule active — both failed as
+  expected; restored).
+- Requiring an actual non-empty -> empty transition (not just "ended up
+  empty") also deliberately leaves Set-mark's own still-empty state (armed
+  right after Ctrl-Space but not yet extended) alone if a native key moves
+  the bare cursor at that point — out of scope, not the gap that was
+  reported.
+
 ## Planned, in priority order
 
 1. Popout window support
