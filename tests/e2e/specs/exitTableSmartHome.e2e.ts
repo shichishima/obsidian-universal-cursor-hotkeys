@@ -31,16 +31,6 @@ import { openFixtureAndGetContentStart, waitForInTableCell } from '../helpers'
 describe('Exit table below — Smart Home landing', function () {
 	it('lands after the checkbox marker, not at raw ch=0', async function () {
 		const l = await openFixtureAndGetContentStart('ExitTableSmartHome.md')
-		// Confirmed live (visually, with the person watching the actual
-		// window): without a real settle pause here, the exit command can
-		// land on the right line but at raw ch=0 anyway, or not move at all
-		// — waitForInTableCell(true) below isn't enough on its own, this
-		// needed a much larger fixed pause (500ms/1500ms both still flaked;
-		// 3000ms was stable across 8+ runs). Exact mechanism not pinned down
-		// further than "the editor needs real time to settle after opening
-		// a fresh file with a table in it," beyond what any single poll
-		// condition tried so far captures.
-		await browser.pause(3000)
 
 		// A plain editor.setCursor() from outside the table doesn't reliably
 		// flip inTableCell to true (same caveat exitTable's own code already
@@ -52,7 +42,20 @@ describe('Exit table below — Smart Home landing', function () {
 		}, l)
 		await browser.executeObsidianCommand('universal-cursor-hotkeys:cursor-down')
 		await waitForInTableCell(true)
-		await browser.pause(3000) // see the comment above — same settle requirement
+		// waitForInTableCell(true) above confirms the inTableCell flag has
+		// flipped, but table-exit-down's own landing dispatch (see
+		// setCursorAcrossTableBoundary in main.ts) still raced ahead of
+		// Obsidian's table-widget rendering often enough to flake with no
+		// wait at all here (confirmed: 50%+ failure rate across two
+		// independent batches). A plain blind browser.pause(...) worked
+		// (even 10ms was enough across repeated isolated runs) but a
+		// double requestAnimationFrame wait is the deterministic
+		// equivalent — confirmed just as reliable (20/20 isolated runs) and
+		// still genuinely catches the underlying fix being disabled
+		// (red/green-verified).
+		await browser.executeObsidian(() => new Promise<void>(resolve => {
+			requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+		}))
 
 		await browser.executeObsidianCommand('universal-cursor-hotkeys:table-exit-down')
 

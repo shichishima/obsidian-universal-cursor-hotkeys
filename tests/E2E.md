@@ -45,6 +45,19 @@ primary-crosses → collapses to one ("primary defines the view" policy).
 
 - Covers landing position only; the gj/gk flash fix is frame-level timing,
   left to manual verification.
+- Originally shipped with two `browser.pause(3000)` calls. Retuned
+  (2026-10-17): the first one (before entering the table) turned out
+  unnecessary — removing it entirely passed 18/19 isolated runs, the one
+  failure traced to the test machine itself losing focus mid-run (switching
+  virtual desktops), not the spec. The second one (after
+  `waitForInTableCell(true)`, before `table-exit-down`) IS genuinely
+  load-bearing — zero pause there flaked in two independent batches (roughly
+  half failures each) — but didn't need 3000ms: 10ms/100ms/1500ms all
+  passed 6/6 in isolation. Replaced with a deterministic double
+  `requestAnimationFrame` wait instead of a magic-number pause (confirmed
+  just as reliable, 20/20 isolated runs, still red/green-catches the
+  underlying fix). Unlike `undoInCellVLStale.e2e.ts` below, one of this
+  spec's two waits is genuinely necessary — just not as a blind timeout.
 
 #### `undoInCellVLStale.e2e.ts`
 
