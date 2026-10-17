@@ -46,6 +46,38 @@ primary-crosses → collapses to one ("primary defines the view" policy).
 - Covers landing position only; the gj/gk flash fix is frame-level timing,
   left to manual verification.
 
+#### `undoInCellVLStale.e2e.ts`
+
+In a word-wrapped (long, single hard-line) table cell, double-click a
+word on the first visual line → Ctrl-W → Cmd-Z → Ctrl-N stays in the same
+cell instead of exiting to the (empty) cell below.
+
+- Real bug, found by investigating a user report — reproduced first with
+  the exact content copied from their own repro note (not kept as the
+  fixture; later replaced with a minimal built-for-this-test table). An
+  even earlier, `<br>`-created-sub-lines fixture did *not* reproduce it —
+  plain soft-wrap within one hard line is the specific condition.
+- Root cause: native `goDown`'s own convention, independent of this
+  plugin — a selection collapses in place on the first Down press without
+  also moving (confirmed with the plugin disabled entirely: Cmd-X, Cmd-Z,
+  bare physical Down arrow, same result). Undo restores the original
+  (non-empty) selection, so the immediately-following `goDown` just
+  collapses it, which `moveCursorDownInTable`'s own "no visible movement
+  = nothing below" fallback misread as hitting content end.
+- `coordsAtPos` on a not-yet-focused table row resolves to wherever the
+  table's own first row starts (same "whole unfocused table is one
+  collapsed visual block" behavior already confirmed for `moveVertically`
+  during Set-mark's own table-skip work) — reach a specific cell via real
+  `table-cell-down`/`table-cell-right` navigation, not a direct coordinate
+  click.
+- Unlike most other table-entry-dependent specs here, this one needs no
+  `browser.pause(...)` settle time at all — confirmed with 13+ isolated
+  runs and repeated full-suite runs, zero flakes either way, roughly
+  halving the suite's own total E2E time. Every step here acts on a
+  position this plugin's own commands just produced synchronously,
+  unlike specs that click/navigate into a freshly-opened file's table
+  before anything has had a chance to render yet.
+
 ### IME
 
 #### `imeComposition.e2e.ts`

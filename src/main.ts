@@ -1702,6 +1702,23 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			}
 		}
 
+		// Native goDown's own standard behavior, independent of this plugin
+		// entirely, is "an active selection collapses in place on this press
+		// without also moving" (confirmed live: identical with this plugin
+		// disabled entirely — Cmd-X, Cmd-Z, then a bare physical Down arrow).
+		// So a no-op `ch` reading right after goDown below can mean either
+		// "genuinely nothing below" or "a selection — e.g. one an Undo just
+		// restored — simply collapsed in place," and those must not be
+		// treated the same way. Captured as plain from/to, not an inner-view
+		// check, matching every other in-cell selection read in this file
+		// (e.g. getValidatedRegionText) — editor.getCursor('from'/'to')
+		// already proxies to whichever view is active.
+		const hadSelectionBeforeGoDown = (() => {
+			const from = editor.getCursor('from');
+			const to = editor.getCursor('to');
+			return from.line !== to.line || from.ch !== to.ch;
+		})();
+
 		// Call goDown once and inspect where the cursor lands.
 		editor.exec('goDown');
 		const after = editor.getCursor();
@@ -1718,6 +1735,13 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}
 
 		if (after.ch === cursor.ch) {
+			if (hadSelectionBeforeGoDown) {
+				// Just collapsed the selection in place — stay in the cell,
+				// matching native convention (collapse-only, no move, on
+				// this press) rather than reading "no visible movement" as
+				// "nothing below."
+				return;
+			}
 			// Complete no-op: nothing below (file-end).
 			this.setCursorToNextRow(editor, cellIndex);
 			this.applyRowCrossGoalColumn(editor, pixelGoal);
