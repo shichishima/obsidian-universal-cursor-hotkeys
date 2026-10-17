@@ -41,6 +41,7 @@ export const config: WebdriverIO.Config = {
 		'./specs/setMarkNativeCollapseClearing.e2e.ts',
 		'./specs/setMarkShiftArrowUnification.e2e.ts',
 		'./specs/setMarkBufferEdge.e2e.ts',
+		'./specs/setMarkPageUpDown.e2e.ts',
 		'./specs/undoInCellVLStale.e2e.ts',
 	]],
 

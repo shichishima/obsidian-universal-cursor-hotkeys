@@ -1592,6 +1592,53 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// async cell-focus reconciliation to settle" spot in this
 	// codebase — see nudgeInnerViewVisible's own identical reasoning)
 	// avoids the race entirely, confirmed via 8+ repeated live runs.
+	// Exits the current cell to the outer view, ending with {anchor, head}
+	// applied as the real final selection two frames later. Shared by
+	// extendMarkBufferEdge's own in-cell branch and extendMarkPage's own
+	// "landed inside a table" branch — both need to leave a cell while
+	// applying a selection that spans past it, not just collapse to a
+	// point inside it.
+	//
+	// A direct dispatch-then-focus races against Obsidian's own async
+	// cell-exit reconciliation: confirmed live (repeatable both ways
+	// depending on exact timing) that actually moving DOM focus off a
+	// cell always eventually collapses whatever selection was in place
+	// back to a point, regardless of dispatch ordering relative to the
+	// focus() call. Letting that collapse happen and settle FIRST (via a
+	// throwaway dispatch to some genuinely safe position), then applying
+	// the real anchor/head in a SECOND, later dispatch (two frames of
+	// deferral, matching every other "wait for Obsidian's async
+	// cell-focus reconciliation to settle" spot in this codebase — see
+	// nudgeInnerViewVisible's own identical reasoning) avoids the race
+	// entirely.
+	//
+	// The throwaway target's own value only exists to trigger a clean
+	// exit — it's discarded once the real selection is applied. Using
+	// `head` directly for it breaks the exit itself when that position
+	// is ALSO inside a table (confirmed live: a table sitting at the
+	// document's own start/end, with no buffering blank line —
+	// editor.inTableCell stays permanently stuck true even though the
+	// eventual selection's own anchor/head values end up numerically
+	// correct regardless). Landing one step past awayFromLine in
+	// awayDirection instead (same scan this plugin's own
+	// horizontal-extend table-skip already uses) is guaranteed to be a
+	// genuine non-table line; falls back to the opposite direction, and
+	// finally to `head` itself, only in the degenerate case where even
+	// neither scan can find one (the whole document is one table).
+	private exitCellWithSelection(editor: Editor, awayFromLine: number, awayDirection: boolean, anchor: number, head: number) {
+		const cm = editor.cm;
+		const safeExitPos = this.findOffsetPastWholeTableHorizontal(editor, awayFromLine, awayDirection)
+			?? this.findOffsetPastWholeTableHorizontal(editor, awayFromLine, !awayDirection)
+			?? head;
+		cm.dispatch({ selection: { anchor: safeExitPos, head: safeExitPos }, scrollIntoView: true, userEvent: 'move' });
+		this.focusAfterCursorMove(editor, cm, false);
+		requestAnimationFrameOnActiveWindow(() => {
+			requestAnimationFrameOnActiveWindow(() => {
+				cm.dispatch({ selection: { anchor, head }, userEvent: 'select.uch', scrollIntoView: true });
+			});
+		});
+	}
+
 	private extendMarkBufferEdge(editor: Editor, forward: boolean) {
 		const cm = editor.cm;
 		const inner = editor.activeCM;
@@ -1600,32 +1647,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (editor.inTableCell && inner && inner !== cm) {
 			const edge = this.findTableOwnEdge(editor, editor.getCursor().line, !forward);
 			const anchor = editor.posToOffset(edge);
-			// The throwaway collapse target below only exists to trigger a
-			// clean cell-exit focus transition — its value is otherwise
-			// discarded once the real selection is applied two frames
-			// later. Using targetPos (the real buffer edge) for it breaks
-			// the exit itself when that position is ALSO inside a table
-			// (confirmed live: a table sitting at the document's own
-			// start/end, with no buffering blank line — editor.inTableCell
-			// stays permanently stuck true even though the eventual
-			// selection's own anchor/head values end up numerically
-			// correct regardless). Landing one step past the table's own
-			// edge instead (same scan this plugin's own horizontal-extend
-			// table-skip already uses) is guaranteed to be a genuine
-			// non-table line, so the exit itself can never trip over a
-			// second table. Falls back to targetPos only in the
-			// degenerate case where even that scan can't find a
-			// non-table line (the whole document is this table and
-			// nothing else).
-			const safeExitPos = this.findOffsetPastWholeTableHorizontal(editor, edge.line, !forward);
-			const throwawayPos = safeExitPos ?? targetPos;
-			cm.dispatch({ selection: { anchor: throwawayPos, head: throwawayPos }, scrollIntoView: true, userEvent: 'move' });
-			this.focusAfterCursorMove(editor, cm, false);
-			requestAnimationFrameOnActiveWindow(() => {
-				requestAnimationFrameOnActiveWindow(() => {
-					cm.dispatch({ selection: { anchor, head: targetPos }, userEvent: 'select.uch', scrollIntoView: true });
-				});
-			});
+			this.exitCellWithSelection(editor, edge.line, !forward, anchor, targetPos);
 			return;
 		}
 
@@ -2824,8 +2846,77 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Page down / Page up
 	//===========================================================================
 
-	private pageDown(editor: Editor) { this.scrollPage(editor,  1); }
-	private pageUp  (editor: Editor) { this.scrollPage(editor, -1); }
+	private pageDown(editor: Editor) {
+		if (this.markActive) { this.extendMarkPage(editor, true); return; }
+		this.scrollPage(editor, 1);
+	}
+	private pageUp(editor: Editor) {
+		if (this.markActive) { this.extendMarkPage(editor, false); return; }
+		this.scrollPage(editor, -1);
+	}
+
+	// Page Up/Down (Set-mark candidate): rather than reimplementing
+	// scrollPage's own pixel-measurement/table-callout-embed-aware
+	// step logic (real coordinate reads against the actually-rendered
+	// page, not something crunchable as a pure function), this computes
+	// the real target by temporarily disabling the mark and letting
+	// scrollPage run its own already-proven PLAIN-cursor logic
+	// unchanged, then reads back wherever the plain cursor actually
+	// landed once it's genuinely settled (scrollPage's own onSettled
+	// hook — reading any earlier risks Obsidian's own LP normalizer
+	// still being mid-correction). The real extend is applied as a
+	// separate, final dispatch on top of that reading, matching every
+	// other extendMark* command's own "this plugin's own dispatch,
+	// never scrollPage's internal ones" convention.
+	//
+	// Anchor: unchanged if starting outside a table. If starting inside
+	// one, snapped to that table's own edge BEHIND the extend direction
+	// (findTableOwnEdge, same convention as extendMarkBufferEdge) so the
+	// whole table you started in is swept into the selection as one
+	// block, not just the exact cell Set-mark happened to be pressed in
+	// — confirmed by the user this is required, not optional.
+	//
+	// Head: if the plain landing settles outside any table, used as-is.
+	// If it settles inside one, snapped to that table's own edge AHEAD
+	// of the extend direction (the one actually being passed through) —
+	// same "whole table, atomic" policy, now applied to the landing
+	// side instead of the starting side — which means exiting that cell
+	// via exitCellWithSelection rather than ending with DOM focus parked
+	// inside it.
+	//
+	// Multi-cursor is deliberately out of scope here, same simplification
+	// extendMarkBufferEdge's own in-cell branch already makes: only
+	// cm.state.selection.main is read/written throughout. The user's own
+	// ruling (2026-10-17): multi-cursor + Set-mark + table-crossing
+	// Page Up/Down is a separate, accepted limitation, not blocking this.
+	private extendMarkPage(editor: Editor, forward: boolean) {
+		const cm = editor.cm;
+		const inner = editor.activeCM;
+		const startedInCell = !!(editor.inTableCell && inner && inner !== cm);
+
+		const anchor = startedInCell
+			? editor.posToOffset(this.findTableOwnEdge(editor, editor.getCursor().line, !forward))
+			: cm.state.selection.main.anchor;
+
+		const wasActive = this.markActive;
+		this.markActive = false;
+		this.scrollPage(editor, forward ? 1 : -1, () => {
+			this.markActive = wasActive;
+
+			const landedInner = editor.activeCM;
+			const landedInCell = !!(editor.inTableCell && landedInner && landedInner !== editor.cm);
+			if (!landedInCell) {
+				const head = editor.cm.state.selection.main.head;
+				editor.cm.dispatch({ selection: { anchor, head }, userEvent: 'select.uch', scrollIntoView: true });
+				return;
+			}
+
+			const landedLine = editor.getCursor().line;
+			const farEdge = this.findTableOwnEdge(editor, landedLine, forward);
+			const head = editor.posToOffset(farEdge);
+			this.exitCellWithSelection(editor, farEdge.line, forward, anchor, head);
+		});
+	}
 
 	// Returns the viewport-relative Y coordinate of the current browser cursor.
 	// Works inside LP table cells (unlike cm.coordsAtPos). Returns null when off-screen.
@@ -2871,9 +2962,17 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	//   2. Loop — advance cursor one page via moveCursorDown/Up, measuring real pixel progress.
 	//   3. Scroll — call scrollToCursorAtY to restore the cursor to prevScreenY on screen.
 	//   4. Watch — detect LP cursor normalization and re-run scrollToCursorAtY after it settles.
-	private scrollPage(editor: Editor, direction: 1 | -1) {
+	// onSettled (optional, default none, no behavior change for every
+	// existing caller): fires once Phase 4 below has genuinely finished —
+	// either no LP-normalizer correction was needed (5 clean RAF frames),
+	// or one was and its own 100ms-later fixup has already run. Added for
+	// extendMarkPage, which needs to read the real, final landing position
+	// before applying its own extend dispatch — reading it any earlier
+	// risks capturing a position LP's normalizer is about to move out
+	// from under it.
+	private scrollPage(editor: Editor, direction: 1 | -1, onSettled?: () => void) {
 		const cm = editor.cm;
-		if (!cm) return;
+		if (!cm) { onSettled?.(); return; }
 
 		const target = cm.scrollDOM.clientHeight;
 
@@ -3003,16 +3102,18 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// genId cancels a stale watcher when a new scrollPage call arrives first.
 		let frames = 0;
 		const watchNormalization = () => {
-			if (this._scrollPageGenId !== genId) return;
+			if (this._scrollPageGenId !== genId) return; // superseded by a newer call — no onSettled, that call owns it now
 			if (cm.state.selection.main.head !== savedHead) {
 				setTimeoutOnActiveWindow(() => {
 					if (this._scrollPageGenId !== genId) return;
 					cm.dispatch({ selection: { anchor: savedHead, head: savedHead } });
 					this.scrollToCursorAtY(editor, prevScreenY);
+					onSettled?.();
 				}, 100);
 				return;
 			}
-			if (++frames < 5) requestAnimationFrameOnActiveWindow(watchNormalization);
+			if (++frames < 5) { requestAnimationFrameOnActiveWindow(watchNormalization); return; }
+			onSettled?.();
 		};
 		requestAnimationFrameOnActiveWindow(watchNormalization);
 	}

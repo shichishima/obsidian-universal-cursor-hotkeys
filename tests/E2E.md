@@ -379,7 +379,73 @@ while jumping the selection to an unrelated position.
     surfacing as a `"no --- separator found"` error in a totally
     unrelated, later-running spec).
 
-## Planned, in priority order
+#### `setMarkPageUpDown.e2e.ts`
+
+Page Up/Down now extends the mark instead of collapsing/clearing it (see
+`setMarkBufferEdge.e2e.ts`'s own note above — this was the "separate,
+still-open design question" deferred from that increment).
+
+- Policy, per the user's own breakdown: (1) outer source, outer landing —
+  any table crossed along the way is swept in atomically, free via the
+  same pixel-block mechanism Ctrl-N/P's own vertical extend already
+  relies on; (2) outer source, landing inside a table — snaps past that
+  table's own far edge (the one actually being passed through) instead of
+  ending up focused inside a cell; (3) inner source (starting inside a
+  cell) — the current table is swept in as a whole block (anchor snaps to
+  its own back edge, same `findTableOwnEdge` convention as
+  `setMarkBufferEdge.e2e.ts`), and the head still reaches the exact same
+  spot a plain Page Down/Up from that same cell would (escaping a table
+  consumes part of the page budget rather than adding extra distance on
+  top of a full page — confirmed as the intended interpretation, not the
+  alternative where exiting the table would restart a fresh page's worth
+  of travel beyond it).
+- Implementation reuses `scrollPage`'s own already-proven pixel-measurement/
+  table-aware step logic unchanged, rather than reimplementing it as a
+  pure function (not feasible — it depends on real rendered coordinates).
+  `extendMarkPage` temporarily sets `markActive = false`, calls `scrollPage`
+  to let it run its own plain-cursor branch, reads back the real settled
+  landing via a new `onSettled` callback parameter added to `scrollPage`
+  (reading any earlier risks catching a position Obsidian's own Live
+  Preview normalizer is still mid-correcting), restores `markActive`, then
+  applies the real extend as a separate, final dispatch — matching every
+  other `extendMark*` command's own "this plugin's own dispatch, never
+  `scrollPage`'s internal ones" convention.
+- The "exit a cell while applying a selection that spans past it" mechanism
+  from `setMarkBufferEdge.e2e.ts` (collapse to a safe throwaway position,
+  `focusAfterCursorMove`, wait two RAF frames, then dispatch the real
+  final selection) was extracted into a shared helper,
+  `exitCellWithSelection`, now used by both that command's own in-cell
+  branch and this one's "landed inside a table" branch. Verified as a
+  pure, non-regressing refactor (`setMarkBufferEdge.e2e.ts` still 5/5
+  before and after).
+- **Multi-cursor is deliberately out of scope**, same simplification
+  `setMarkBufferEdge.e2e.ts`'s own in-cell branch already makes. Checking
+  the *plain* (non-mark) multi-cursor behavior first turned out to matter:
+  the fast path (native `cursorPageUp`/`cursorPageDown`, no tables/
+  callouts in view) already preserves multi-cursor correctly, but the
+  slow path (`scrollPage`'s own step loop, used whenever a table/callout/
+  embed is in view) collapses it — a real, pre-existing bug in that step
+  loop's own Phase 4 LP-normalizer-correction dispatch (a single-range
+  `{anchor, head}` object, not one range per cursor). The user ruled
+  multi-cursor + Set-mark + table-crossing Page Up/Down a separate,
+  accepted limitation rather than blocking this increment on fixing that
+  pre-existing bug too.
+- **Testing methodology**: Page Up/Down's landing position is a real pixel
+  measurement against whatever height the viewport happens to be — not
+  something to hardcode a line number for reliably across environments.
+  Every test that cares where it actually landed measures a *plain*
+  (non-mark) Page Down/Up from the same starting point first, on a freshly
+  rebuilt identical document, then compares the marked version's own head
+  against that measurement, rather than a fixed expected value.
+- **An intermittent `waitUntil condition timed out after 2000ms` failure
+  in the "inner source" test (roughly 1 in 10 runs) turned out not to be a
+  bug**: instrumenting the failure to dump the actual live state at the
+  moment of timeout showed the selection and `inTableCell` had *already*
+  reached the exact correct final values — the settle itself was correct,
+  just occasionally running past the 2000ms budget under load (dozens of
+  isolated instrumented runs never exceeded ~500ms). Fixed by raising the
+  budget to 5000ms for this test's own two `waitUntil` calls, not by
+  changing any implementation code.
 
 1. Popout window support
 2. Vim mode commands
