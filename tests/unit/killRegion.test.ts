@@ -177,6 +177,17 @@ describe('killRegion', () => {
 			plugin.killRegion(editor)
 			expect(plugin.isKillChaining).toBe(false)
 		})
+
+		// Set-mark category A: an operation that consumes/destroys the
+		// active selection deactivates the mark.
+		it('deactivates Set-mark (markActive)', () => {
+			plugin.markActive = true
+			const from = { line: 0, ch: 0 }
+			const to   = { line: 0, ch: 5 }
+			const editor = makeEditor(['hello world'], from, to)
+			plugin.killRegion(editor)
+			expect(plugin.markActive).toBe(false)
+		})
 	})
 
 

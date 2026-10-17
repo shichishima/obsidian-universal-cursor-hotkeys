@@ -34,6 +34,15 @@ export const config: WebdriverIO.Config = {
 		'./specs/keyUpgradesToggle.e2e.ts',
 		'./specs/multiCursorTableCrossing.e2e.ts',
 		'./specs/exitTableSmartHome.e2e.ts',
+		'./specs/setMarkTableSkip.e2e.ts',
+		'./specs/setMarkMouseAndLeafChange.e2e.ts',
+		'./specs/setMarkEscapeKeydown.e2e.ts',
+		'./specs/setMarkNativeClipboardAndDelete.e2e.ts',
+		'./specs/setMarkNativeCollapseClearing.e2e.ts',
+		'./specs/setMarkShiftArrowUnification.e2e.ts',
+		'./specs/setMarkBufferEdge.e2e.ts',
+		'./specs/setMarkPageUpDown.e2e.ts',
+		'./specs/undoInCellVLStale.e2e.ts',
 	]],
 
 	// Serial by default — confirmed live that running multiple Obsidian/

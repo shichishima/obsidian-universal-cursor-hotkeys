@@ -99,6 +99,11 @@ const WIN_MOD:  Record<string, string> = { Ctrl: 'Ctrl', Shift: 'Shift', Alt: 'A
 const KEY_DISP: Record<string, string> = {
 	PageDown: 'Page Down', PageUp: 'Page Up',
 	ArrowLeft: '←', ArrowRight: '→', ArrowUp: '↑', ArrowDown: '↓',
+	// The actual key string for the space bar is a literal ' ' (matching
+	// Obsidian's own stored hotkey format — confirmed live against a real
+	// Ctrl+Space binding in hotkeys.json) — rendered as-is, a key chip
+	// showing e.g. "⌃ " is indistinguishable from "⌃" alone.
+	' ': 'Space',
 };
 // Emacs QSA table's Command column: names wrap now (see .uch-cell-name-wrap),
 // but wrapping at every word boundary looked bad — most command names read
@@ -373,6 +378,16 @@ const KEY_UPGRADE_DEFS: readonly KeyUpgradeDef[] = [
 		mac: { modifiers: ['Meta'], key: 'ArrowDown' }, win: { modifiers: ['Ctrl'], key: 'End' } },
 	{ group: 'navBasics', label: 'Table-aware',       commandId: 'page-up',     ...bare('PageUp')   },
 	{ group: 'navBasics', label: 'Table-aware',       commandId: 'page-down',   ...bare('PageDown') },
+	// A bare-Escape Key Upgrade (routing it to keyboardQuit) was tried and
+	// reverted 2026-10-17: confirmed live that binding it globally via
+	// app.hotkeyManager.setHotkeys breaks Escape in non-CM6 contexts that
+	// rely on it heavily — Excalidraw's own Escape handling, and the note
+	// title field's native "Escape deselects" behavior both stopped
+	// working. Exactly the risk already flagged before this was ever
+	// attempted (see the 0.12.0 planning note) — don't re-add this without
+	// solving that conflict first (e.g. scoping the override to only fire
+	// when a CM6 editor actually has focus, if that's even possible through
+	// this mechanism).
 	{ group: 'wordCommands', label: 'Word left — table & CJK aware',
 		commandId: 'word-left',
 		mac: { modifiers: ['Alt'], key: 'ArrowLeft' }, win: { modifiers: ['Ctrl'], key: 'ArrowLeft' } },
@@ -423,6 +438,7 @@ const COMMAND_DEFS: readonly CommandDef[] = [
 	{ block: 'cursor',  id: 'word-left',            name: 'Word left',           recommended: null },
 	{ block: 'cursor',  id: 'word-right',           name: 'Word right',          recommended: null },
 	{ block: 'editing', id: 'kill-line',            name: 'Kill line',           recommended: ctrl('K') },
+	{ block: 'editing', id: 'set-mark',             name: 'Set-mark',            recommended: ctrl(' ') },
 	{ block: 'editing', id: 'kill-region',          name: 'Kill region',         recommended: ctrl('W') },
 	{ block: 'editing', id: 'copy-region',          name: 'Copy region',         recommended: null },
 	{ block: 'editing', id: 'yank',                 name: 'Yank',                recommended: ctrl('Y') },
@@ -436,6 +452,22 @@ const COMMAND_DEFS: readonly CommandDef[] = [
 	{ block: 'editing', id: 'capitalize-word',      name: 'Capitalize word',     recommended: null },
 	{ block: 'editing', id: 'transpose-chars',      name: 'Transpose chars',     recommended: null },
 	{ block: 'editing', id: 'select-all',           name: 'Select all',          recommended: null },
+	// Command id is still keyboard-quit (real Emacs keyboard-quit is its
+	// closest analogue), but the real command name (main.ts's own
+	// addCommand) and this row's name are both "Deselect" — "keyboard-quit"
+	// is Emacs jargon users without that background wouldn't recognize,
+	// and "Escape" was tried first but doesn't fit now that the bare-Escape
+	// Key Upgrade for it was reverted (see the navBasics comment above):
+	// the command isn't actually bound to Escape, so naming it that way
+	// would be misleading. "Deselect all" was also considered and rejected
+	// — misleading in the opposite direction, since a multi-range
+	// selection's first press only drops to the main range, keeping
+	// whatever that one range's own selection still is; a second press is
+	// what actually clears it. Placed right after Select all, its own
+	// natural counterpart (expand selection / collapse selection), rather
+	// than in 'other' (which today is just viewport/scroll commands —
+	// Recenter* — with no selection-related entries at all).
+	{ block: 'editing', id: 'keyboard-quit',        name: 'Deselect',            recommended: ctrl('G') },
 	{ block: 'other',   id: 'recenter-top-bottom',  name: 'Recenter-top-bottom', recommended: ctrl('L') },
 	{ block: 'other',   id: 'recenter',             name: 'Recenter',            recommended: null },
 

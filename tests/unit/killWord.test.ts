@@ -109,6 +109,16 @@ describe('killWord', () => {
 		vi.unstubAllGlobals()
 	})
 
+	// Set-mark category A: an operation that consumes/destroys the active
+	// selection deactivates the mark — unconditional at the top of the
+	// dispatcher, before routing to any of the sub-variants below.
+	it('deactivates Set-mark (markActive)', () => {
+		plugin.markActive = true
+		const editor = makePlainEditor(['foo bar'], 0, 1)
+		plugin.killWord(editor, true)
+		expect(plugin.markActive).toBe(false)
+	})
+
 
 	// ===========================================================================
 	// killWordNonTable

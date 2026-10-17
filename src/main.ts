@@ -133,6 +133,13 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private killCache: string = '';
 	private _recenterStep = 0; // 0=center, 1=top, 2=bottom
 
+	// Emacs-style Set-mark: session-only, not persisted to settings (real
+	// Emacs's own mark is per-buffer, non-persistent too). The mark position
+	// itself is never stored separately — it's just whichever range's
+	// anchor is already sitting at the point Set mark was pressed; motion
+	// commands extend the selection from there while this is true.
+	private markActive: boolean = false;
+
 	// Guards every editorCallback below against firing mid-IME-composition.
 	// Confirmed live (2026-09-26): during active composition, CM6's own
 	// `composing` flag stays true even once the IME itself stops consuming
@@ -283,6 +290,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
 				if (this.isComposing(editor)) return;
+				this.markActive = false;
 				editor.undo();
 			}
 		});
@@ -293,6 +301,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
 				if (this.isComposing(editor)) return;
+				this.markActive = false;
 				editor.redo();
 			}
 		});
@@ -493,8 +502,136 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			}
 		});
 
+		this.addCommand({
+			id: 'set-mark',
+			name: 'Set mark',
+			editorCallback: (editor: Editor) => {
+				if (this.isComposing(editor)) return;
+				this.setMark(editor);
+			}
+		});
+
+		this.addCommand({
+			id: 'keyboard-quit',
+			name: 'Deselect',
+			editorCallback: (editor: Editor) => {
+				if (this.isComposing(editor)) return;
+				this.keyboardQuit(editor);
+			}
+		});
+
 		this.registerEditorExtension(
 			EditorView.updateListener.of((update) => {
+				// Mouse click/drag: the "select.pointer" tag covers both (CM6
+				// tags them identically); a click collapses to an empty
+				// selection and clears the mark, a drag leaves a real
+				// selection in place and that selection itself becomes the
+				// new region (no anchor-setting code needed beyond flipping
+				// the flag — the drag's own anchor/head already are it).
+				if (update.selectionSet && update.transactions.some(tr => tr.isUserEvent('select.pointer'))) {
+					this.markActive = !update.state.selection.main.empty;
+				}
+
+				// Shift+Arrow (and anything else sharing CM6's own
+				// extendSel/"select" tag while preserving the anchor) arms
+				// the mark exactly like mouse drag just above — same
+				// proactive precedent, same reasoning: the anchor staying
+				// put while the head moves, ending non-empty, means
+				// something other than this plugin just extended a
+				// selection from a fixed anchor. Confirmed live (scratch
+				// diagnostic, not kept) that Shift+ArrowRight dispatches
+				// with the bare "select" tag and leaves the anchor
+				// untouched — unlike a plain arrow key collapsing an
+				// existing selection, which actually *moves* the anchor to
+				// meet the new head (confirmed via the same diagnostic),
+				// so that case can't accidentally satisfy this check too.
+				// Once armed this way, this plugin's own Ctrl-B/F/N/P/A/E
+				// extend from the exact same anchor/head CM6 already
+				// tracks — no separate anchor-setting code needed, unifying
+				// Shift+cursor range-selection with this plugin's own
+				// Set-mark under one shared selection model (something
+				// emacs-text-editor, a competing plugin, doesn't offer).
+				// Confirmed by reading @codemirror/commands directly that
+				// every Shift-bound selection command this plugin doesn't
+				// already own (char/line/page/line-boundary/doc-boundary)
+				// goes through this same anchor-preserving shape, so this
+				// one check covers all of them without enumerating keys —
+				// Shift+Ctrl+Home/End (selectDocStart/End) don't call the
+				// shared extendSel helper the others do, but still pass the
+				// *same* prior anchor through explicitly, so they still
+				// satisfy this check.
+				//
+				// Native selectAll (Ctrl-A/Cmd-A, if bound outside this
+				// plugin's own "Select all" command) is a real, confirmed
+				// false-positive risk this anchor check alone doesn't
+				// catch: it always dispatches anchor 0/head doc.length
+				// under the same bare "select" tag, and if the cursor
+				// already happened to sit at position 0, the "anchor
+				// unchanged" check above passes purely by coincidence
+				// (confirmed live: simulating that exact dispatch armed
+				// the mark). selectAll's own resulting range is
+				// state-identical to a genuine Shift-Ctrl-End extend made
+				// from position 0 in a short document — nothing in the
+				// transaction or resulting state can tell those two apart,
+				// so excluding "the whole buffer, start to end" is a
+				// deliberate, narrow trade: it only sacrifices arming for
+				// that one indistinguishable case, falling back to the
+				// older (still correct, just non-proactive) collapse-first
+				// behavior there, while fixing the much more commonly hit
+				// selectAll collision.
+				const mainRange = update.state.selection.main;
+				const spansWholeBuffer = mainRange.from === 0 && mainRange.to === update.state.doc.length;
+				if (update.selectionSet && !this.markActive &&
+					update.startState.selection.main.anchor === mainRange.anchor &&
+					!mainRange.empty && !spansWholeBuffer &&
+					update.transactions.some(tr =>
+						tr.isUserEvent('select') && !tr.isUserEvent('select.pointer') && !tr.isUserEvent('select.uch')
+					)
+				) {
+					this.markActive = true;
+				}
+
+				// Native physical cursor movement (bare arrow keys, Home/End,
+				// Page Up/Down, etc. — none of this plugin's own commands)
+				// collapses an active selection on the first press without
+				// extending it, same as Escape/cut/copy/paste/Backspace/Delete
+				// above, and the same gap applies: none of these reach a
+				// command callback that could clear markActive. Unlike those,
+				// there's no fixed key list to listen for — every one of
+				// @codemirror/commands' own plain-movement commands (arrows,
+				// Home/End, Page Up/Down, Ctrl-Home/End, ...) dispatches
+				// through the same shared `setSel` helper, tagged `userEvent:
+				// "select"` (confirmed by reading that source directly), so
+				// one check here covers all of them without enumerating keys.
+				//
+				// This plugin's own extend/collapse dispatches (the 5
+				// extendMark* functions plus collapseActiveSelectionToHead,
+				// shared by Set-mark's own re-press and Ctrl-G) use the more
+				// specific `"select.uch"` tag instead of bare `"select"` —
+				// confirmed via scratch diagnostic logging that plain `tr.
+				// isUserEvent('select')` cannot tell these apart from a
+				// native collapse by tag alone, since CM6 tags both
+				// identically. The distinction matters for two real,
+				// traced-through cases that would otherwise misfire: Set-
+				// mark's own re-press (markActive is set true *before*
+				// collapseActiveSelectionToHead's own dispatch collapses the
+				// prior selection to empty) and extending one way then back
+				// to the exact anchor (a legitimate non-empty -> empty
+				// transition that is this plugin's own doing, not a native
+				// collapse). Requiring an actual non-empty -> empty
+				// transition (not just "ended up empty") also leaves
+				// Set-mark's own still-empty state (armed but not yet
+				// extended) alone — deliberately out of scope, see the
+				// 2026-10-17 planning note.
+				if (update.selectionSet && this.markActive &&
+					!update.startState.selection.main.empty && update.state.selection.main.empty &&
+					update.transactions.some(tr =>
+						tr.isUserEvent('select') && !tr.isUserEvent('select.pointer') && !tr.isUserEvent('select.uch')
+					)
+				) {
+					this.markActive = false;
+				}
+
 				if (!this.isKillChaining && this._recenterStep === 0) return;
 				if (!update.docChanged && !update.selectionSet) return;
 				// Only reset on genuine user actions (keystrokes, arrow keys, etc.).
@@ -521,12 +658,65 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			this._recenterStep = 0;
 		});
 
+		this.registerEvent(this.app.workspace.on('active-leaf-change', () => {
+			this.markActive = false;
+		}));
+
+		// A bare-ESC Key Upgrade (app.hotkeyManager.setHotkeys claiming the
+		// key globally) was tried and reverted (2026-10-17): it broke
+		// Escape in non-CM6 contexts that rely on it natively (Excalidraw,
+		// the note title field's own deselect). This listener is purely
+		// passive instead — no preventDefault/stopPropagation, so native
+		// Escape handling everywhere (CM6's own simplifySelection included)
+		// proceeds completely untouched. It only solves the mark-active
+		// desync this was meant to fix: without it, pressing Escape to
+		// collapse a Set-mark selection leaves markActive true (this
+		// keydown never reaches any of this plugin's own commands), so the
+		// very next Ctrl-B/F/N/P/A/E would silently re-arm a new region
+		// from wherever the cursor ended up.
+		//
+		// Backspace/Delete joined the same listener for the identical
+		// reason (2026-10-17): consuming a Set-mark selection via a native
+		// Backspace/Delete press, instead of this plugin's own Kill
+		// region/Delete char commands, never reaches any command callback
+		// either. Cleared unconditionally — same precedent as Delete
+		// char's own existing unconditional clear — rather than only when
+		// a selection was actually present: a Backspace/Delete pressed
+		// right after Set-mark but before any extension (empty selection,
+		// anchor armed) is already an unrelated edit, and keeping the mark
+		// armed for a later extend command to silently re-arm from would
+		// be the more surprising behavior. (A selection-only-when
+		// condition was considered and found technically possible — the
+		// confirming check would need this listener registered on the
+		// capture phase, since CM6's own contentDOM-level Backspace/Delete
+		// keymap handling runs before any bubble-phase document listener
+		// — but it added real complexity for no behavioral upside, so
+		// dropped in favor of this simpler unconditional clear.)
+		this.registerDomEvent(activeDocument, 'keydown', (e: KeyboardEvent) => {
+			if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'Delete') this.markActive = false;
+		});
+
+		// copy/cut/paste: same rationale as Backspace/Delete above — these
+		// are native actions, not this plugin's own Copy region/Kill
+		// region/Yank commands, so they never reach any command callback
+		// to clear markActive themselves. Confirmed live that CM6's own
+		// copy/cut/paste handling (on the editor's contentDOM) never calls
+		// stopPropagation, so a plain bubble-phase document listener sees
+		// every one of these after CM6's own handling completes — unlike
+		// Backspace/Delete above, no capture-phase trick is needed here,
+		// since this clear is unconditional regardless of ordering.
 		this.registerDomEvent(activeDocument, 'copy', () => {
 			this.killCache = '';
+			this.markActive = false;
 		});
 
 		this.registerDomEvent(activeDocument, 'cut', () => {
 			this.killCache = '';
+			this.markActive = false;
+		});
+
+		this.registerDomEvent(activeDocument, 'paste', () => {
+			this.markActive = false;
 		});
 
 		this.vimSupport.setup();
@@ -551,6 +741,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	//===========================================================================
 
 	private moveCursorHome(editor: Editor) {
+		if (this.markActive) {
+			this.extendMarkHome(editor);
+			return;
+		}
 		const cursor = editor.getCursor();
 
 		if (editor.inTableCell) {
@@ -568,6 +762,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 
 	private moveCursorEnd(editor: Editor) {
+		if (this.markActive) {
+			this.extendMarkEnd(editor);
+			return;
+		}
 		if (editor.inTableCell) {
 			this.moveCursorEndInTable(editor);
 			return;
@@ -587,6 +785,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// current position starts outside a table cell (multi-cursor + table
 	// boundary policy).
 	private moveCursorLeft(editor: Editor) {
+		if (this.markActive) {
+			this.extendMarkHorizontalChar(editor, false);
+			return;
+		}
 		const startedInTable = editor.inTableCell;
 		this.moveCursorLeftImpl(editor);
 		if (!startedInTable) this.reconcileSecondaryRangesAfterTableCrossing(editor);
@@ -621,6 +823,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 
 	private moveCursorRight(editor: Editor) {
+		if (this.markActive) {
+			this.extendMarkHorizontalChar(editor, true);
+			return;
+		}
 		const startedInTable = editor.inTableCell;
 		this.moveCursorRightImpl(editor);
 		if (!startedInTable) this.reconcileSecondaryRangesAfterTableCrossing(editor);
@@ -656,6 +862,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// moveCursorWordInTable/moveCursorWordPlainText further below for the two
 	// underlying search strategies (table cell vs. everything else).
 	private moveCursorWord(editor: Editor, forward: boolean) {
+		if (this.markActive) {
+			this.extendMarkWord(editor, forward);
+			return;
+		}
 		if (editor.inTableCell) {
 			this.moveCursorWordInTable(editor, forward);
 			return;
@@ -776,28 +986,37 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			editor.setCursor({ line: cursor.line, ch: position });
 			return;
 		}
-		this.setCursorsViaCm(editor, (range) => {
-			const pos = editor.offsetToPos(range.head);
-			const lineText = editor.getLine(pos.line);
-			if (this.settings.visualLineMovement) {
-				const lineFrom = editor.posToOffset({ line: pos.line, ch: 0 });
-				const vlStart = cm.moveToLineBoundary(range, false, true);
-				const vlCh = vlStart.head - lineFrom;
-				// Only treat as VL2+ if vlCh is past the smart home position.
-				// Prevents widget decorations (e.g. footnote [^1]: ) from causing a false VL dispatch.
-				const lineSmartHomePos = this.getBeginningOfLinePosition(lineText, lineText.length || 1);
+		this.setCursorsViaCm(editor, (range) => this.computeHomeTargetNonTable(editor, cm, range));
+	}
 
-				if (vlStart.head !== range.head && vlCh > lineSmartHomePos) {
-					// Case (1a): VL2+, not at VL left edge -> move to VL left edge.
-					return { pos: vlStart.head, assoc: vlStart.assoc as -1 | 1 };
-				}
-				// Case (1b): VL2+ at left edge, or Case (2): VL1 -> fall through to smart home.
+	// Pure (no dispatch) per-range Home target outside a table — same VL-step
+	// then Smart-Home logic moveCursorHomeNonTable always used inline, pulled
+	// out so extendMarkHome (Set-mark) can reuse it unchanged: the target is
+	// already a pure function of (line text, current ch), not separate
+	// mutable step-counter state, so extending under Set-mark needs no
+	// different Smart-Home behavior at all — just a different dispatch shape
+	// (range extend instead of cursor collapse) built from the same target.
+	private computeHomeTargetNonTable(editor: Editor, cm: EditorView, range: SelectionRange): { pos: number; assoc?: -1 | 1 } {
+		const pos = editor.offsetToPos(range.head);
+		const lineText = editor.getLine(pos.line);
+		if (this.settings.visualLineMovement) {
+			const lineFrom = editor.posToOffset({ line: pos.line, ch: 0 });
+			const vlStart = cm.moveToLineBoundary(range, false, true);
+			const vlCh = vlStart.head - lineFrom;
+			// Only treat as VL2+ if vlCh is past the smart home position.
+			// Prevents widget decorations (e.g. footnote [^1]: ) from causing a false VL dispatch.
+			const lineSmartHomePos = this.getBeginningOfLinePosition(lineText, lineText.length || 1);
+
+			if (vlStart.head !== range.head && vlCh > lineSmartHomePos) {
+				// Case (1a): VL2+, not at VL left edge -> move to VL left edge.
+				return { pos: vlStart.head, assoc: vlStart.assoc as -1 | 1 };
 			}
+			// Case (1b): VL2+ at left edge, or Case (2): VL1 -> fall through to smart home.
+		}
 
-			// Smart home: content start -> ch=0.
-			const position = this.getBeginningOfLinePosition(lineText, pos.ch);
-			return { pos: editor.posToOffset({ line: pos.line, ch: position }) };
-		});
+		// Smart home: content start -> ch=0.
+		const position = this.getBeginningOfLinePosition(lineText, pos.ch);
+		return { pos: editor.posToOffset({ line: pos.line, ch: position }) };
 	}
 
 
@@ -897,21 +1116,29 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			}
 			return;
 		}
-		this.setCursorsViaCm(editor, (range) => {
-			if (this.settings.visualLineMovement) {
-				const vlEnd = cm.moveToLineBoundary(range, true, true);
-				if (vlEnd.head !== range.head) {
-					// Not yet at VL end: move to VL end.
-					return { pos: vlEnd.head, assoc: vlEnd.assoc as -1 | 1 };
-				}
-				// Fell through: already at VL end.
+		this.setCursorsViaCm(editor, (range) => this.computeEndTargetNonTable(editor, cm, range));
+	}
+
+	// Pure (no dispatch) per-range End target outside a table — see
+	// computeHomeTargetNonTable's identical note on why this is pulled out
+	// (reused unchanged by extendMarkEnd). Returning null means "already at
+	// the logical line end, nothing to move" — the collapsing caller
+	// (setCursorsViaCm) skips the dispatch for that range; the extending
+	// caller leaves that range's head untouched.
+	private computeEndTargetNonTable(editor: Editor, cm: EditorView, range: SelectionRange): { pos: number; assoc?: -1 | 1 } | null {
+		if (this.settings.visualLineMovement) {
+			const vlEnd = cm.moveToLineBoundary(range, true, true);
+			if (vlEnd.head !== range.head) {
+				// Not yet at VL end: move to VL end.
+				return { pos: vlEnd.head, assoc: vlEnd.assoc as -1 | 1 };
 			}
-			// visualLineMovement OFF, or already at VL end -> move to logical line end.
-			const pos = editor.offsetToPos(range.head);
-			const lineText = editor.getLine(pos.line);
-			if (pos.ch === lineText.length) return null;
-			return { pos: editor.posToOffset({ line: pos.line, ch: lineText.length }) };
-		});
+			// Fell through: already at VL end.
+		}
+		// visualLineMovement OFF, or already at VL end -> move to logical line end.
+		const pos = editor.offsetToPos(range.head);
+		const lineText = editor.getLine(pos.line);
+		if (pos.ch === lineText.length) return null;
+		return { pos: editor.posToOffset({ line: pos.line, ch: lineText.length }) };
 	}
 
 
@@ -998,8 +1225,14 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Wrapper: see reconcileSecondaryRangesAfterTableCrossing's own doc
 	// comment for why this runs after every LEFT/RIGHT/UP/DOWN whose
 	// current position starts outside a table cell (multi-cursor + table
-	// boundary policy).
+	// boundary policy). Set-mark extension bypasses all of this entirely —
+	// see extendMarkVertically's own doc comment for why it needs none of
+	// the drop/collapse machinery below.
 	private moveCursorUp(editor: Editor) {
+		if (this.markActive) {
+			this.extendMarkVertically(editor, false);
+			return;
+		}
 		const startedInTable = editor.inTableCell;
 		this.moveCursorUpImpl(editor);
 		if (!startedInTable) this.reconcileSecondaryRangesAfterTableCrossing(editor);
@@ -1052,9 +1285,418 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 
 	private moveCursorDown(editor: Editor) {
+		if (this.markActive) {
+			this.extendMarkVertically(editor, true);
+			return;
+		}
 		const startedInTable = editor.inTableCell;
 		this.moveCursorDownImpl(editor);
 		if (!startedInTable) this.reconcileSecondaryRangesAfterTableCrossing(editor);
+	}
+
+	//===========================================================================
+	// Set-mark (Ctrl-Space / Ctrl-G) — Ctrl-N/P (first increment),
+	// Ctrl-B/F/A/E (second increment)
+	//===========================================================================
+
+	// Extends every range's own selection one line up/down instead of just
+	// moving a collapsed cursor — real Emacs's own Set-mark semantics, via
+	// CM6's own anchor/head (no separate mark position is ever stored; see
+	// markActive's own doc comment). No primary/secondary distinction is
+	// needed anywhere here, unlike plain (non-mark) multi-cursor table
+	// crossing: a range extending from inside a cell can only ever be
+	// sharing that cell with other ranges also confined to it (the
+	// pre-existing "all ranges share one view" invariant), so each range's
+	// own crossing is independent of every other range's.
+	//
+	// No table-aware logic needed at all for the outer-view case, which was
+	// NOT expected going in — confirmed live: an un-focused table in Live
+	// Preview renders as one collapsed visual block for the outer view's
+	// own purposes, so EditorView.moveVertically already treats the whole
+	// table as a single visual line and skips straight past it in one
+	// call — the table's own rows end up inside the region exactly like a
+	// mouse-drag selection already renders it, which native Shift+cursor
+	// cannot do. A hand-rolled "scan past the whole table" fallback was
+	// built and tested first (an isPositionInTable-driven version mirroring
+	// table-navigation.ts's own exitTable scan) but turned out to be
+	// entirely redundant once this was discovered, so it was removed
+	// rather than kept as unreachable insurance.
+	private extendMarkVertically(editor: Editor, forward: boolean) {
+		const inner = editor.activeCM;
+		const view = (editor.inTableCell && inner && inner !== editor.cm) ? inner : editor.cm;
+		const sel = view.state.selection;
+		const ranges = sel.ranges.map(range => {
+			// A range's own goalColumn is only meaningful as "the column to
+			// preserve" when it's the product of a previous vertical move —
+			// a genuine pixel offset from the content area's left edge can
+			// never be negative. Confirmed live: a real mouse-drag selection's
+			// resulting range carries goalColumn = -1 natively (not
+			// undefined/no-goal), which moveVertically otherwise trusts
+			// as-is, making every first extend after a drag land at column 0
+			// regardless of where the drag's own head actually was.
+			const startRange = (range.goalColumn ?? 0) < 0
+				? EditorSelection.range(range.anchor, range.head)
+				: range;
+			const head = view.moveVertically(startRange, forward);
+			return EditorSelection.range(range.anchor, head.head, head.goalColumn, head.bidiLevel ?? undefined, head.assoc);
+		});
+		view.dispatch({ selection: EditorSelection.create(ranges, sel.mainIndex), userEvent: 'select.uch', scrollIntoView: true });
+	}
+
+	// Generic extend-dispatch helper for HOME/End's *outer* (non-table) case:
+	// calls computeTarget once per existing range (computeHomeTargetNonTable/
+	// computeEndTargetNonTable — the exact same pure functions the plain,
+	// collapsing path already uses, since Smart-Home's target is a pure
+	// function of (line text, current ch), not separate step-counter state,
+	// so there's nothing different to compute here under Set-mark), and
+	// extends range.anchor -> target.pos instead of collapsing to a cursor.
+	// A null target leaves that one range untouched ("already there");
+	// skips the dispatch entirely if no range changed, mirroring
+	// setCursorsViaCm's own no-op guard.
+	private extendMarkHorizontalLine(editor: Editor, computeTarget: (range: SelectionRange) => { pos: number; assoc?: -1 | 1 } | null) {
+		const cm = editor.cm;
+		const sel = cm.state.selection;
+		let changed = false;
+		const ranges = sel.ranges.map(range => {
+			const target = computeTarget(range);
+			if (!target) return range;
+			changed = true;
+			return EditorSelection.range(range.anchor, target.pos, undefined, undefined, target.assoc);
+		});
+		if (!changed) return;
+		cm.dispatch({ selection: EditorSelection.create(ranges, sel.mainIndex), userEvent: 'select.uch', scrollIntoView: true });
+	}
+
+	// Generic extend-dispatch helper for HOME/End's *in-cell* case: calls
+	// computeResult once per existing inner-view range (computeHomeTargetInCell/
+	// computeEndTargetInCell, unmodified) and extends to its 'stay' target.
+	// 'exit' (the cell's own first/last sub-line boundary) clamps instead of
+	// delegating to the plain path's onPrimaryExit — a single CM6 range
+	// can't span this cell's own inner EditorState and the outer one, so
+	// extending to an adjacent cell is structurally impossible (same
+	// reasoning as extendMarkVertically's own in-cell clamp).
+	private extendMarkInCell(inner: EditorView, computeResult: (range: SelectionRange) => { kind: 'exit' } | { kind: 'stay'; pos: number; assoc?: -1 | 1 }) {
+		const sel = inner.state.selection;
+		let changed = false;
+		const ranges = sel.ranges.map(range => {
+			const result = computeResult(range);
+			if (result.kind === 'exit' || result.pos === range.head) return range;
+			changed = true;
+			return EditorSelection.range(range.anchor, result.pos, undefined, undefined, result.assoc);
+		});
+		if (!changed) return;
+		inner.dispatch({ selection: EditorSelection.create(ranges, sel.mainIndex), userEvent: 'select.uch', scrollIntoView: true });
+	}
+
+	// Ctrl-A (Set-mark candidate): extends every range to its own Home
+	// target, same Smart-Home/VL-step behavior as the plain command.
+	private extendMarkHome(editor: Editor) {
+		if (editor.inTableCell) {
+			const inner = editor.activeCM;
+			if (!inner || inner === editor.cm) return;
+			this.extendMarkInCell(inner, range => this.computeHomeTargetInCell(inner, range));
+			return;
+		}
+		const cm = editor.cm;
+		this.extendMarkHorizontalLine(editor, range => this.computeHomeTargetNonTable(editor, cm, range));
+	}
+
+	// Ctrl-E (Set-mark candidate): extends every range to its own End
+	// target, same VL-step behavior as the plain command.
+	private extendMarkEnd(editor: Editor) {
+		if (editor.inTableCell) {
+			const inner = editor.activeCM;
+			if (!inner || inner === editor.cm) return;
+			this.extendMarkInCell(inner, range => this.computeEndTargetInCell(inner, range));
+			return;
+		}
+		const cm = editor.cm;
+		this.extendMarkHorizontalLine(editor, range => this.computeEndTargetNonTable(editor, cm, range));
+	}
+
+	// Pure (no dispatch, no document mutation — Set-mark extension must
+	// never mutate the document, unlike exitTable's own forward
+	// EOF-blank-line-append case): scans past a whole contiguous table
+	// block when extending LEFT/RIGHT crosses into one, mirroring
+	// extendMarkVertically's own "treat the whole table as one atomic
+	// unit" policy. moveVertically gets this for free via pixel-based
+	// visual-line geometry (an unfocused table renders as one visual
+	// block); EditorView.moveByChar operates on raw logical lines instead
+	// (confirmed by reading @codemirror/view's own source: it steps
+	// straight into doc.line(line.number ± 1), no visual-block awareness),
+	// so this needs its own scan — same trimStart().startsWith('|')
+	// pre-filter + isPositionInTable confirm convention as
+	// table-navigation.ts's own exitTable. No Smart-Home landing
+	// refinement either, unlike exitTable — matches extendMarkVertically's
+	// own plain, un-refined landing precedent (confirmed by
+	// setMarkTableSkip.e2e.ts's own assertion landing at raw ch: 0).
+	// Returns null if the table runs all the way to that edge of the
+	// document — the caller clamps instead of landing anywhere.
+	private findOffsetPastWholeTableHorizontal(editor: Editor, fromLine: number, forward: boolean): number | null {
+		const lastLine = editor.lastLine();
+		let line = fromLine;
+		while (forward ? line < lastLine : line > 0) {
+			line += forward ? 1 : -1;
+			const text = editor.getLine(line);
+			if (text.trimStart().startsWith('|')) continue;
+			if (this.isPositionInTable(editor, line, 1)) continue;
+			return editor.posToOffset({ line, ch: forward ? 0 : text.length });
+		}
+		return null;
+	}
+
+	// Ctrl-B/F (Set-mark candidate): extends every range one character
+	// left/right. No goalColumn concept here at all (that's vertical-
+	// movement-only) and no primary/secondary distinction needed (same
+	// reasoning as extendMarkVertically). In-cell ranges clamp for free —
+	// inner.moveByChar can't go past the inner EditorState's own document,
+	// which is just this cell's own content.
+	private extendMarkHorizontalChar(editor: Editor, forward: boolean) {
+		const inner = editor.activeCM;
+		const isInCell = !!(editor.inTableCell && inner && inner !== editor.cm);
+		const view = isInCell ? inner! : editor.cm;
+		const sel = view.state.selection;
+		const ranges = sel.ranges.map(range => {
+			if (!isInCell && this.isLivePreviewMode()) {
+				const pos = editor.offsetToPos(range.head);
+				const lineLen = editor.getLine(pos.line).length;
+				const atLineEdge = forward
+					? pos.ch >= lineLen && pos.line < editor.lastLine()
+					: pos.ch === 0 && pos.line > 0;
+				if (atLineEdge) {
+					const adjacentLine = pos.line + (forward ? 1 : -1);
+					if (this.isPositionInTable(editor, adjacentLine, 1)) {
+						const target = this.findOffsetPastWholeTableHorizontal(editor, pos.line, forward);
+						if (target === null) return range; // table runs to the document's edge: clamp
+						return EditorSelection.range(range.anchor, target);
+					}
+				}
+			}
+			const head = view.moveByChar(range, forward);
+			return EditorSelection.range(range.anchor, head.head, undefined, head.bidiLevel ?? undefined, head.assoc);
+		});
+		view.dispatch({ selection: EditorSelection.create(ranges, sel.mainIndex), userEvent: 'select.uch', scrollIntoView: true });
+	}
+
+	// Alt-F/Alt-B (Set-mark candidate): extends every range to its own
+	// word-search target. Self-contained like extendMarkHorizontalChar
+	// above (not routed through extendMarkHorizontalLine's generic
+	// 2-outcome contract, since the outer case here has a third outcome —
+	// "search reached a table row" — that needs its own handling), but
+	// otherwise reuses the plain (non-mark) implementation's own per-range
+	// pure functions unchanged: findWordTargetPlainText (outer) and
+	// findWordTargetInCellForRange (in-cell, via the shared extendMarkInCell
+	// helper already built for Home/End) were already structured as pure,
+	// multi-cursor-safe searches, so no new search logic was needed here at
+	// all.
+	//
+	// Table-crossing policy matches extendMarkHorizontalChar's own: skip
+	// the whole table atomically via findOffsetPastWholeTableHorizontal,
+	// rather than entering it the way the plain (non-mark) path's own
+	// enterTableWithWordFromPlainText does — a selection can't span the
+	// outer view and a table cell's own inner view at once. fromLine is
+	// the line just *before* the table (tableLine ∓ 1), matching
+	// extendMarkHorizontalChar's own calling convention for the same
+	// function.
+	private extendMarkWord(editor: Editor, forward: boolean) {
+		const inner = editor.activeCM;
+		if (editor.inTableCell && inner && inner !== editor.cm) {
+			const lineText = editor.getLine(editor.getCursor().line);
+			const cellIndex = getCellIndex(lineText, editor.getCursor().ch);
+			const cellStartCh = getChByCellIndex(lineText, cellIndex);
+			const firstSegInfo = getInCellLineInfo(lineText, cellStartCh);
+			if (!firstSegInfo) return;
+			this.extendMarkInCell(inner, range =>
+				this.findWordTargetInCellForRange(inner, range, lineText, firstSegInfo, forward));
+			return;
+		}
+
+		const cm = editor.cm;
+		const sel = cm.state.selection;
+		const ranges = sel.ranges.map(range => {
+			const result = this.findWordTargetPlainText(editor, editor.offsetToPos(range.head), forward);
+			if (result.kind === 'noMove') return range;
+			if (result.kind === 'table') {
+				const fromLine = forward ? result.tableLine - 1 : result.tableLine + 1;
+				const target = this.findOffsetPastWholeTableHorizontal(editor, fromLine, forward);
+				if (target === null) return range; // table runs to the document's edge: clamp
+				return EditorSelection.range(range.anchor, target);
+			}
+			return EditorSelection.range(range.anchor, result.pos);
+		});
+		cm.dispatch({ selection: EditorSelection.create(ranges, sel.mainIndex), userEvent: 'select.uch', scrollIntoView: true });
+	}
+
+	// Shared by extendMarkBufferEdge's own in-cell branch below (see its
+	// own comment for why): scans from fromLine in scanForward's own
+	// direction, as long as the next line is still part of the same
+	// table (same trimStart().startsWith('|') + isPositionInTable
+	// convention as findOffsetPastWholeTableHorizontal), stopping at the
+	// table's own last line still inside it — then returns that line's
+	// own far edge (ch 0 scanning backward toward the table's start, ch
+	// length scanning forward toward its end). Pure, no dispatch.
+	private findTableOwnEdge(editor: Editor, fromLine: number, scanForward: boolean): { line: number; ch: number } {
+		const lastLine = editor.lastLine();
+		let line = fromLine;
+		while (scanForward ? line < lastLine : line > 0) {
+			const nextLine = line + (scanForward ? 1 : -1);
+			const text = editor.getLine(nextLine);
+			if (!text.trimStart().startsWith('|') && !this.isPositionInTable(editor, nextLine, 1)) break;
+			line = nextLine;
+		}
+		return { line, ch: scanForward ? editor.getLine(line).length : 0 };
+	}
+
+	// Alt-< / Alt-> (Set-mark candidate, TOP/BOTTOM): extends to the real
+	// buffer edge — a common real Emacs idiom (set mark at a note's own
+	// start, then jump to its end, selecting the whole note). Previously
+	// mark-unaware entirely (jumpToBufferEdge below had no markActive
+	// check at all, and its own dispatch is tagged "move", not "select"
+	// — invisible to the generic native-collapse-clearing rule too), so
+	// pressing this while marked silently left markActive stuck true
+	// while the selection jumped to an unrelated position, risking a
+	// wildly wrong extend on the next Ctrl-B/F/N/P/A/E.
+	//
+	// User intent is always the real document edge, even from inside a
+	// table cell — unlike HOME/END/Word-left-right's own in-cell clamp,
+	// TOP/BOTTOM should reach past the cell, including the whole
+	// containing table in the result (same "unfocused table = one
+	// atomic block" rendering Ctrl-N/P's own moveVertically-based
+	// extend already relies on when crossing INTO a table from
+	// outside this is the mirror case, extending back OUT).
+	//
+	// That "whole table, atomic" policy means the anchor itself can't
+	// stay at the exact character position Set-mark was pressed at
+	// in-cell — e.g. marking inside a table's own last row, then BOTTOM,
+	// must still sweep in the table's earlier rows (header, delimiter,
+	// any rows above the one the mark was set in), not just extend
+	// forward from that one exact spot and leave them out. Snaps the
+	// anchor to the table's own far edge in the direction OPPOSITE the
+	// extend instead — BOTTOM (forward) snaps to the table's own first
+	// line (its start is "behind" the extend, toward the anchor side);
+	// TOP (backward) snaps to the table's own last line — via
+	// findTableOwnEdge above.
+	//
+	// Reaching the real boundary from inside a cell requires actually
+	// exiting the cell to the outer view first — a single CM6 range
+	// can't span the cell's own inner EditorState and the outer one at
+	// once. A direct "dispatch the final anchor/head, then focus the
+	// outer view" races against Obsidian's own async cell-exit
+	// reconciliation: confirmed live (repeatable both ways depending on
+	// exact timing) that actually moving DOM focus off a cell always
+	// eventually collapses whatever selection was in place back to a
+	// point, regardless of dispatch ordering relative to the focus()
+	// call. Letting that collapse happen and settle FIRST, then
+	// applying the real anchor/head in a SECOND, later dispatch (two
+	// frames of deferral, matching every other "wait for Obsidian's
+	// async cell-focus reconciliation to settle" spot in this
+	// codebase — see nudgeInnerViewVisible's own identical reasoning)
+	// avoids the race entirely, confirmed via 8+ repeated live runs.
+	// Exits the current cell to the outer view, ending with {anchor, head}
+	// applied as the real final selection two frames later. Shared by
+	// extendMarkBufferEdge's own in-cell branch and extendMarkPage's own
+	// "landed inside a table" branch — both need to leave a cell while
+	// applying a selection that spans past it, not just collapse to a
+	// point inside it.
+	//
+	// A direct dispatch-then-focus races against Obsidian's own async
+	// cell-exit reconciliation: confirmed live (repeatable both ways
+	// depending on exact timing) that actually moving DOM focus off a
+	// cell always eventually collapses whatever selection was in place
+	// back to a point, regardless of dispatch ordering relative to the
+	// focus() call. Letting that collapse happen and settle FIRST (via a
+	// throwaway dispatch to some genuinely safe position), then applying
+	// the real anchor/head in a SECOND, later dispatch (two frames of
+	// deferral, matching every other "wait for Obsidian's async
+	// cell-focus reconciliation to settle" spot in this codebase — see
+	// nudgeInnerViewVisible's own identical reasoning) avoids the race
+	// entirely.
+	//
+	// The throwaway target's own value only exists to trigger a clean
+	// exit — it's discarded once the real selection is applied. Using
+	// `head` directly for it breaks the exit itself when that position
+	// is ALSO inside a table (confirmed live: a table sitting at the
+	// document's own start/end, with no buffering blank line —
+	// editor.inTableCell stays permanently stuck true even though the
+	// eventual selection's own anchor/head values end up numerically
+	// correct regardless). Landing one step past awayFromLine in
+	// awayDirection instead (same scan this plugin's own
+	// horizontal-extend table-skip already uses) is guaranteed to be a
+	// genuine non-table line; falls back to the opposite direction, and
+	// finally to `head` itself, only in the degenerate case where even
+	// neither scan can find one (the whole document is one table).
+	private exitCellWithSelection(editor: Editor, awayFromLine: number, awayDirection: boolean, anchor: number, head: number) {
+		const cm = editor.cm;
+		const safeExitPos = this.findOffsetPastWholeTableHorizontal(editor, awayFromLine, awayDirection)
+			?? this.findOffsetPastWholeTableHorizontal(editor, awayFromLine, !awayDirection)
+			?? head;
+		cm.dispatch({ selection: { anchor: safeExitPos, head: safeExitPos }, scrollIntoView: true, userEvent: 'move' });
+		this.focusAfterCursorMove(editor, cm, false);
+		requestAnimationFrameOnActiveWindow(() => {
+			requestAnimationFrameOnActiveWindow(() => {
+				cm.dispatch({ selection: { anchor, head }, userEvent: 'select.uch', scrollIntoView: true });
+			});
+		});
+	}
+
+	private extendMarkBufferEdge(editor: Editor, forward: boolean) {
+		const cm = editor.cm;
+		const inner = editor.activeCM;
+		const targetPos = forward ? cm.state.doc.length : 0;
+
+		if (editor.inTableCell && inner && inner !== cm) {
+			const edge = this.findTableOwnEdge(editor, editor.getCursor().line, !forward);
+			const anchor = editor.posToOffset(edge);
+			this.exitCellWithSelection(editor, edge.line, !forward, anchor, targetPos);
+			return;
+		}
+
+		const sel = cm.state.selection;
+		const ranges = sel.ranges.map(range => EditorSelection.range(range.anchor, targetPos));
+		cm.dispatch({ selection: EditorSelection.create(ranges, sel.mainIndex), userEvent: 'select.uch', scrollIntoView: true });
+	}
+
+	// Shared by Set-mark's own re-set semantics (pressing Ctrl-Space again
+	// while already active abandons whatever's currently selected and
+	// re-anchors fresh from the current head — explicit, not just "already
+	// active, leave it alone") and Ctrl-G's mark-clear: collapses whichever
+	// view currently holds the selection (outer or one inner cell) to a
+	// plain cursor at each range's own head.
+	private collapseActiveSelectionToHead(editor: Editor) {
+		const view = editor.activeCM ?? editor.cm;
+		const sel = view.state.selection;
+		if (sel.ranges.every(r => r.empty)) return;
+		const ranges = sel.ranges.map(r => EditorSelection.cursor(r.head));
+		view.dispatch({ selection: EditorSelection.create(ranges, sel.mainIndex), userEvent: 'select.uch' });
+	}
+
+	// Ctrl-Space (set-mark candidate): re-anchors at the current position —
+	// a no-op the first time (nothing selected yet to abandon), but an
+	// explicit re-set when pressed again while a region is already active.
+	private setMark(editor: Editor) {
+		this.markActive = true;
+		this.collapseActiveSelectionToHead(editor);
+	}
+
+	// Ctrl-G (keyboard-quit candidate): deactivates the mark, then performs
+	// one step of CM6's own simplifySelection cascade (bound to bare Escape
+	// by default: multiple ranges -> collapse to the main range only;
+	// otherwise a non-empty single range -> collapse to a cursor at its
+	// head). This command is the planned target of a future bare-ESC Key
+	// Upgrade — without mirroring simplifySelection here, remapping ESC to
+	// it would quietly take away the "Escape clears multi-cursor" capability
+	// users already have today (confirmed live: bare ESC already does this
+	// natively), and would also leave Ctrl-G with nothing useful to offer a
+	// user who never touches Set-mark at all.
+	private keyboardQuit(editor: Editor) {
+		this.markActive = false;
+		const view = editor.activeCM ?? editor.cm;
+		const sel = view.state.selection;
+		if (sel.ranges.length > 1) {
+			view.dispatch({ selection: EditorSelection.create([sel.main]), userEvent: 'select.uch' });
+			return;
+		}
+		this.collapseActiveSelectionToHead(editor);
 	}
 
 	private moveCursorDownImpl(editor: Editor) {
@@ -1322,6 +1964,23 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			}
 		}
 
+		// Native goDown's own standard behavior, independent of this plugin
+		// entirely, is "an active selection collapses in place on this press
+		// without also moving" (confirmed live: identical with this plugin
+		// disabled entirely — Cmd-X, Cmd-Z, then a bare physical Down arrow).
+		// So a no-op `ch` reading right after goDown below can mean either
+		// "genuinely nothing below" or "a selection — e.g. one an Undo just
+		// restored — simply collapsed in place," and those must not be
+		// treated the same way. Captured as plain from/to, not an inner-view
+		// check, matching every other in-cell selection read in this file
+		// (e.g. getValidatedRegionText) — editor.getCursor('from'/'to')
+		// already proxies to whichever view is active.
+		const hadSelectionBeforeGoDown = (() => {
+			const from = editor.getCursor('from');
+			const to = editor.getCursor('to');
+			return from.line !== to.line || from.ch !== to.ch;
+		})();
+
 		// Call goDown once and inspect where the cursor lands.
 		editor.exec('goDown');
 		const after = editor.getCursor();
@@ -1338,6 +1997,13 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}
 
 		if (after.ch === cursor.ch) {
+			if (hadSelectionBeforeGoDown) {
+				// Just collapsed the selection in place — stay in the cell,
+				// matching native convention (collapse-only, no move, on
+				// this press) rather than reading "no visible movement" as
+				// "nothing below."
+				return;
+			}
 			// Complete no-op: nothing below (file-end).
 			this.setCursorToNextRow(editor, cellIndex);
 			this.applyRowCrossGoalColumn(editor, pixelGoal);
@@ -2180,8 +2846,77 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Page down / Page up
 	//===========================================================================
 
-	private pageDown(editor: Editor) { this.scrollPage(editor,  1); }
-	private pageUp  (editor: Editor) { this.scrollPage(editor, -1); }
+	private pageDown(editor: Editor) {
+		if (this.markActive) { this.extendMarkPage(editor, true); return; }
+		this.scrollPage(editor, 1);
+	}
+	private pageUp(editor: Editor) {
+		if (this.markActive) { this.extendMarkPage(editor, false); return; }
+		this.scrollPage(editor, -1);
+	}
+
+	// Page Up/Down (Set-mark candidate): rather than reimplementing
+	// scrollPage's own pixel-measurement/table-callout-embed-aware
+	// step logic (real coordinate reads against the actually-rendered
+	// page, not something crunchable as a pure function), this computes
+	// the real target by temporarily disabling the mark and letting
+	// scrollPage run its own already-proven PLAIN-cursor logic
+	// unchanged, then reads back wherever the plain cursor actually
+	// landed once it's genuinely settled (scrollPage's own onSettled
+	// hook — reading any earlier risks Obsidian's own LP normalizer
+	// still being mid-correction). The real extend is applied as a
+	// separate, final dispatch on top of that reading, matching every
+	// other extendMark* command's own "this plugin's own dispatch,
+	// never scrollPage's internal ones" convention.
+	//
+	// Anchor: unchanged if starting outside a table. If starting inside
+	// one, snapped to that table's own edge BEHIND the extend direction
+	// (findTableOwnEdge, same convention as extendMarkBufferEdge) so the
+	// whole table you started in is swept into the selection as one
+	// block, not just the exact cell Set-mark happened to be pressed in
+	// — confirmed by the user this is required, not optional.
+	//
+	// Head: if the plain landing settles outside any table, used as-is.
+	// If it settles inside one, snapped to that table's own edge AHEAD
+	// of the extend direction (the one actually being passed through) —
+	// same "whole table, atomic" policy, now applied to the landing
+	// side instead of the starting side — which means exiting that cell
+	// via exitCellWithSelection rather than ending with DOM focus parked
+	// inside it.
+	//
+	// Multi-cursor is deliberately out of scope here, same simplification
+	// extendMarkBufferEdge's own in-cell branch already makes: only
+	// cm.state.selection.main is read/written throughout. The user's own
+	// ruling (2026-10-17): multi-cursor + Set-mark + table-crossing
+	// Page Up/Down is a separate, accepted limitation, not blocking this.
+	private extendMarkPage(editor: Editor, forward: boolean) {
+		const cm = editor.cm;
+		const inner = editor.activeCM;
+		const startedInCell = !!(editor.inTableCell && inner && inner !== cm);
+
+		const anchor = startedInCell
+			? editor.posToOffset(this.findTableOwnEdge(editor, editor.getCursor().line, !forward))
+			: cm.state.selection.main.anchor;
+
+		const wasActive = this.markActive;
+		this.markActive = false;
+		this.scrollPage(editor, forward ? 1 : -1, () => {
+			this.markActive = wasActive;
+
+			const landedInner = editor.activeCM;
+			const landedInCell = !!(editor.inTableCell && landedInner && landedInner !== editor.cm);
+			if (!landedInCell) {
+				const head = editor.cm.state.selection.main.head;
+				editor.cm.dispatch({ selection: { anchor, head }, userEvent: 'select.uch', scrollIntoView: true });
+				return;
+			}
+
+			const landedLine = editor.getCursor().line;
+			const farEdge = this.findTableOwnEdge(editor, landedLine, forward);
+			const head = editor.posToOffset(farEdge);
+			this.exitCellWithSelection(editor, farEdge.line, forward, anchor, head);
+		});
+	}
 
 	// Returns the viewport-relative Y coordinate of the current browser cursor.
 	// Works inside LP table cells (unlike cm.coordsAtPos). Returns null when off-screen.
@@ -2227,9 +2962,17 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	//   2. Loop — advance cursor one page via moveCursorDown/Up, measuring real pixel progress.
 	//   3. Scroll — call scrollToCursorAtY to restore the cursor to prevScreenY on screen.
 	//   4. Watch — detect LP cursor normalization and re-run scrollToCursorAtY after it settles.
-	private scrollPage(editor: Editor, direction: 1 | -1) {
+	// onSettled (optional, default none, no behavior change for every
+	// existing caller): fires once Phase 4 below has genuinely finished —
+	// either no LP-normalizer correction was needed (5 clean RAF frames),
+	// or one was and its own 100ms-later fixup has already run. Added for
+	// extendMarkPage, which needs to read the real, final landing position
+	// before applying its own extend dispatch — reading it any earlier
+	// risks capturing a position LP's normalizer is about to move out
+	// from under it.
+	private scrollPage(editor: Editor, direction: 1 | -1, onSettled?: () => void) {
 		const cm = editor.cm;
-		if (!cm) return;
+		if (!cm) { onSettled?.(); return; }
 
 		const target = cm.scrollDOM.clientHeight;
 
@@ -2359,16 +3102,18 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// genId cancels a stale watcher when a new scrollPage call arrives first.
 		let frames = 0;
 		const watchNormalization = () => {
-			if (this._scrollPageGenId !== genId) return;
+			if (this._scrollPageGenId !== genId) return; // superseded by a newer call — no onSettled, that call owns it now
 			if (cm.state.selection.main.head !== savedHead) {
 				setTimeoutOnActiveWindow(() => {
 					if (this._scrollPageGenId !== genId) return;
 					cm.dispatch({ selection: { anchor: savedHead, head: savedHead } });
 					this.scrollToCursorAtY(editor, prevScreenY);
+					onSettled?.();
 				}, 100);
 				return;
 			}
-			if (++frames < 5) requestAnimationFrameOnActiveWindow(watchNormalization);
+			if (++frames < 5) { requestAnimationFrameOnActiveWindow(watchNormalization); return; }
+			onSettled?.();
 		};
 		requestAnimationFrameOnActiveWindow(watchNormalization);
 	}
@@ -2715,6 +3460,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	//===========================================================================
 
 	private deleteChar(editor: Editor) {
+		this.markActive = false;
 		if (editor.inTableCell) {
 			this.deleteCharInTableLP(editor);
 			return;
@@ -2816,6 +3562,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// end, falls back to swapLastTwoInRange instead of a plain no-op, matching
 	// real Emacs's end-of-line special case.
 	private transposeChars(editor: Editor) {
+		this.markActive = false;
 		if (editor.inTableCell) {
 			this.transposeCharsInTableLP(editor);
 			return;
@@ -3106,6 +3853,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// boundary lookup reuses the same findWordSpanOnLine primitive Word
 	// right/left (moveCursorWord) already use.
 	private killWord(editor: Editor, forward: boolean) {
+		this.markActive = false;
 		const lineText = editor.getLine(editor.getCursor().line);
 		const inSourceTable = !this.isLivePreviewMode() && this.isTableLineSourceMode(lineText);
 
@@ -3314,6 +4062,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const to = editor.getCursor('to');
 		if (this.getValidatedRegionText(editor) === null) return;
 
+		this.markActive = false;
 		if (editor.inTableCell) {
 			const inner = editor.activeCM;
 			if (!inner || inner === editor.cm) return;
@@ -3624,6 +4373,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const text = this.getValidatedRegionText(editor);
 		if (text === null) return;
 
+		this.markActive = false;
 		this.isKillChaining = false;
 		this.updateKillCache(text);
 		navigator.clipboard.writeText(this.killCache).catch(() => {});
@@ -3643,6 +4393,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const inLPTable = editor.inTableCell;
 		const fromLine  = editor.getLine(from.line);
 
+		this.markActive = false;
 		this.isKillChaining = false;
 		this.updateKillCache(text);
 		navigator.clipboard.writeText(this.killCache).catch(() => {});
@@ -3699,6 +4450,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	//===========================================================================
 
 	private async yank(editor: Editor) {
+		this.markActive = false;
 		this.isKillChaining = false;
 		let raw: string;
 		try {
@@ -4197,6 +4949,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// always targets the leftmost cell regardless of direction.
 	jumpToBufferEdge(editor: unknown, forward: boolean): { line: number; ch: number } | null {
 		const e = editor as Editor;
+		if (this.markActive) {
+			this.extendMarkBufferEdge(e, forward);
+			return null;
+		}
 		const targetLine = forward ? e.lineCount() - 1 : 0;
 
 		let result: { line: number; ch: number } | null;

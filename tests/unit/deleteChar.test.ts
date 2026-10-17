@@ -64,6 +64,25 @@ function makeEditorWithInnerView(innerText: string, head: number) {
 }
 
 
+describe('deleteChar', () => {
+	// Set-mark category A: an operation that consumes/destroys the active
+	// selection deactivates the mark. deleteChar always deletes something
+	// (the selection if one exists, else the next char), so this clears
+	// unconditionally at the top of the dispatcher, before routing to the
+	// table/non-table sub-paths below.
+	it('deactivates Set-mark (markActive)', () => {
+		const plugin: any = Object.create(UniversalCursorHotkeysPlugin.prototype)
+		plugin.markActive = true
+		plugin.isLivePreviewMode = vi.fn().mockReturnValue(true)
+		const editor = makeEditor(['hello world'], 0, 2)
+		editor.cm = {} as any
+		plugin.deleteChar(editor)
+		expect(plugin.markActive).toBe(false)
+		expect(deleteCharForward).toHaveBeenCalledWith(editor.cm)
+	})
+})
+
+
 describe('deleteCharInTableLP', () => {
 	let plugin: any
 

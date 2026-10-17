@@ -478,5 +478,14 @@ describe('transformWord', () => {
 			plugin.transformSelection(editor, upper)
 			expect(editor.replaceRange).not.toHaveBeenCalled()
 		})
+
+		// Set-mark category A: an operation that consumes/destroys the
+		// active selection deactivates the mark.
+		it('deactivates Set-mark (markActive)', () => {
+			plugin.markActive = true
+			const editor = makePlainEditor(['hello world'], { line: 0, ch: 0 }, { line: 0, ch: 11 })
+			plugin.transformSelection(editor, upper)
+			expect(plugin.markActive).toBe(false)
+		})
 	})
 })

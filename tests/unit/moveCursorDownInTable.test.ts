@@ -309,6 +309,31 @@ describe('moveCursorDownInTable', () => {
 		expect(plugin.setCursorToNextRow).toHaveBeenCalled()
 	})
 
+	// Native goDown's own real convention, independent of this plugin
+	// entirely: an active selection collapses in place on this press
+	// without also moving (confirmed live — Cmd-X, Cmd-Z, then a bare
+	// physical Down arrow, with this plugin disabled). So a no-op `ch`
+	// reading right after goDown can mean either "genuinely nothing
+	// below" or "a selection — e.g. one an Undo just restored — simply
+	// collapsed in place," and conflating the two incorrectly exits to
+	// the row below even when not actually on the cell's own last visual
+	// line. Root-caused live via a real repro (double-click a word on a
+	// word-wrapped single-hard-line cell, Ctrl-W, Cmd-Z, Ctrl-N).
+	it('1st goDown no-op but a selection was active beforehand (e.g. one Undo just restored) → stays in the cell, setCursorToNextRow NOT called', () => {
+		const editor: any = {
+			getCursor: vi.fn((which?: string) => {
+				if (which === 'from') return { line: 1, ch: 3 }
+				if (which === 'to')   return { line: 1, ch: 8 } // non-empty selection, 3-8
+				return { line: 1, ch: 8 } // bare (head) — identical before and after goDown
+			}),
+			getLine: vi.fn().mockReturnValue(LINE_SINGLE),
+			exec: vi.fn(),
+		}
+		plugin.moveCursorDownInTable(editor)
+		expect(editor.exec).toHaveBeenCalledWith('goDown')
+		expect(plugin.setCursorToNextRow).not.toHaveBeenCalled()
+	})
+
 	// ===========================================================================
 	// 1st goDown: same line, ch moves within cell (< eoc) → soft-wrap VL advance
 	// ===========================================================================
