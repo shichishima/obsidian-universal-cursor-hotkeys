@@ -1527,6 +1527,94 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		cm.dispatch({ selection: EditorSelection.create(ranges, sel.mainIndex), userEvent: 'select.uch', scrollIntoView: true });
 	}
 
+	// Shared by extendMarkBufferEdge's own in-cell branch below (see its
+	// own comment for why): scans from fromLine in scanForward's own
+	// direction, as long as the next line is still part of the same
+	// table (same trimStart().startsWith('|') + isPositionInTable
+	// convention as findOffsetPastWholeTableHorizontal), stopping at the
+	// table's own last line still inside it — then returns that line's
+	// own far edge (ch 0 scanning backward toward the table's start, ch
+	// length scanning forward toward its end). Pure, no dispatch.
+	private findTableOwnEdge(editor: Editor, fromLine: number, scanForward: boolean): { line: number; ch: number } {
+		const lastLine = editor.lastLine();
+		let line = fromLine;
+		while (scanForward ? line < lastLine : line > 0) {
+			const nextLine = line + (scanForward ? 1 : -1);
+			const text = editor.getLine(nextLine);
+			if (!text.trimStart().startsWith('|') && !this.isPositionInTable(editor, nextLine, 1)) break;
+			line = nextLine;
+		}
+		return { line, ch: scanForward ? editor.getLine(line).length : 0 };
+	}
+
+	// Alt-< / Alt-> (Set-mark candidate, TOP/BOTTOM): extends to the real
+	// buffer edge — a common real Emacs idiom (set mark at a note's own
+	// start, then jump to its end, selecting the whole note). Previously
+	// mark-unaware entirely (jumpToBufferEdge below had no markActive
+	// check at all, and its own dispatch is tagged "move", not "select"
+	// — invisible to the generic native-collapse-clearing rule too), so
+	// pressing this while marked silently left markActive stuck true
+	// while the selection jumped to an unrelated position, risking a
+	// wildly wrong extend on the next Ctrl-B/F/N/P/A/E.
+	//
+	// User intent is always the real document edge, even from inside a
+	// table cell — unlike HOME/END/Word-left-right's own in-cell clamp,
+	// TOP/BOTTOM should reach past the cell, including the whole
+	// containing table in the result (same "unfocused table = one
+	// atomic block" rendering Ctrl-N/P's own moveVertically-based
+	// extend already relies on when crossing INTO a table from
+	// outside this is the mirror case, extending back OUT).
+	//
+	// That "whole table, atomic" policy means the anchor itself can't
+	// stay at the exact character position Set-mark was pressed at
+	// in-cell — e.g. marking inside a table's own last row, then BOTTOM,
+	// must still sweep in the table's earlier rows (header, delimiter,
+	// any rows above the one the mark was set in), not just extend
+	// forward from that one exact spot and leave them out. Snaps the
+	// anchor to the table's own far edge in the direction OPPOSITE the
+	// extend instead — BOTTOM (forward) snaps to the table's own first
+	// line (its start is "behind" the extend, toward the anchor side);
+	// TOP (backward) snaps to the table's own last line — via
+	// findTableOwnEdge above.
+	//
+	// Reaching the real boundary from inside a cell requires actually
+	// exiting the cell to the outer view first — a single CM6 range
+	// can't span the cell's own inner EditorState and the outer one at
+	// once. A direct "dispatch the final anchor/head, then focus the
+	// outer view" races against Obsidian's own async cell-exit
+	// reconciliation: confirmed live (repeatable both ways depending on
+	// exact timing) that actually moving DOM focus off a cell always
+	// eventually collapses whatever selection was in place back to a
+	// point, regardless of dispatch ordering relative to the focus()
+	// call. Letting that collapse happen and settle FIRST, then
+	// applying the real anchor/head in a SECOND, later dispatch (two
+	// frames of deferral, matching every other "wait for Obsidian's
+	// async cell-focus reconciliation to settle" spot in this
+	// codebase — see nudgeInnerViewVisible's own identical reasoning)
+	// avoids the race entirely, confirmed via 8+ repeated live runs.
+	private extendMarkBufferEdge(editor: Editor, forward: boolean) {
+		const cm = editor.cm;
+		const inner = editor.activeCM;
+		const targetPos = forward ? cm.state.doc.length : 0;
+
+		if (editor.inTableCell && inner && inner !== cm) {
+			const edge = this.findTableOwnEdge(editor, editor.getCursor().line, !forward);
+			const anchor = editor.posToOffset(edge);
+			cm.dispatch({ selection: { anchor: targetPos, head: targetPos }, scrollIntoView: true, userEvent: 'move' });
+			this.focusAfterCursorMove(editor, cm, false);
+			requestAnimationFrameOnActiveWindow(() => {
+				requestAnimationFrameOnActiveWindow(() => {
+					cm.dispatch({ selection: { anchor, head: targetPos }, userEvent: 'select.uch', scrollIntoView: true });
+				});
+			});
+			return;
+		}
+
+		const sel = cm.state.selection;
+		const ranges = sel.ranges.map(range => EditorSelection.range(range.anchor, targetPos));
+		cm.dispatch({ selection: EditorSelection.create(ranges, sel.mainIndex), userEvent: 'select.uch', scrollIntoView: true });
+	}
+
 	// Shared by Set-mark's own re-set semantics (pressing Ctrl-Space again
 	// while already active abandons whatever's currently selected and
 	// re-anchors fresh from the current head — explicit, not just "already
@@ -4741,6 +4829,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// always targets the leftmost cell regardless of direction.
 	jumpToBufferEdge(editor: unknown, forward: boolean): { line: number; ch: number } | null {
 		const e = editor as Editor;
+		if (this.markActive) {
+			this.extendMarkBufferEdge(e, forward);
+			return null;
+		}
 		const targetLine = forward ? e.lineCount() - 1 : 0;
 
 		let result: { line: number; ch: number } | null;

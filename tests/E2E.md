@@ -274,6 +274,78 @@ convention); only the second press moved, plainly.
   but still pass the *prior* anchor through explicitly, so they still
   satisfy the same check). `selectAll` was the one exception that needed
   the explicit exclusion above.
+- That audit covered native/mouse mechanisms reacting to this plugin's
+  Set-mark; a follow-up question (does this plugin's *own* TOP/BOTTOM
+  command correctly interact with an active mark) found one more real
+  gap, fixed separately — see `setMarkBufferEdge.e2e.ts` below.
+
+#### `setMarkBufferEdge.e2e.ts`
+
+TOP/BOTTOM (`jumpToBufferEdge`) now extends to the buffer edge when the
+mark is active, instead of silently leaving `markActive` stuck `true`
+while jumping the selection to an unrelated position.
+
+- Unlike every other command this plugin's own Set-mark extends, TOP/
+  BOTTOM had no `markActive` check *at all*, and its own dispatch is
+  tagged `"move"`, not `"select"` — invisible to the generic
+  native-collapse-clearing rule too (that rule only watches `"select"`-
+  tagged transactions). This was originally assumed safe ("just collapses
+  harmlessly," per the 2026-10-16 planning note's own category B), but
+  that assumption was wrong specifically for TOP/BOTTOM, since the
+  resulting stuck-`true` `markActive` could cause a wildly wrong extend
+  on the next Ctrl-B/F/N/P/A/E.
+- Fixing it properly (extend, not just clear) was motivated by a real
+  Emacs idiom: Set-mark at a note's own start, then BOTTOM, selects the
+  whole note in two keystrokes.
+- **User intent is always the real document edge, even from inside a
+  table cell** — corrected after an initial implementation clamped to
+  the cell's own content edge instead (reasoning that "buffer edge" has
+  no meaning inside a cell's separate `EditorState`, same as every other
+  in-cell extend command's own clamp policy). The user pointed out this
+  doesn't match real usage: extending from inside a cell should exit the
+  cell and reach the true document boundary, including the whole
+  containing table in the result — the mirror case of Ctrl-N/P's own
+  `moveVertically`-based extend, which already treats an unfocused table
+  as one atomic block when crossing INTO it from outside.
+- **The "whole table, atomic" policy also means the anchor can't stay at
+  the exact character position Set-mark was pressed at in-cell** —
+  spotted by the user after the first version of this fix shipped:
+  marking inside a table's own last row, then BOTTOM, left the header
+  and delimiter rows *above* the marked row out of the selection, only
+  extending forward from that one exact spot. Fixed by snapping the
+  anchor to the table's own far edge in the direction *opposite* the
+  extend (`findTableOwnEdge` in `main.ts`) — BOTTOM snaps to the table's
+  own first line, TOP to its own last line — so the whole table is swept
+  in regardless of which row/cell inside it the mark was originally set.
+- Reaching the real boundary from inside a cell requires actually exiting
+  the cell to the outer view — a single CM6 range can't span the cell's
+  own inner `EditorState` and the outer one at once. A direct
+  dispatch-then-focus races against Obsidian's own async cell-exit
+  reconciliation (confirmed live: moving DOM focus off a cell always
+  eventually collapses whatever selection was in place back to a point,
+  regardless of dispatch ordering). Fixed with the same "two frames of
+  deferral" convention already used elsewhere in this codebase for
+  cell-focus reconciliation (see `nudgeInnerViewVisible`'s own identical
+  reasoning in `main.ts`): collapse to the target first, let that
+  settle, then apply the real anchor/head in a second, later dispatch.
+- **A macOS sleep/display-off state while running this suite produces
+  misleading, deterministic-looking failures that are not a real bug**:
+  this spec's in-cell test failed 100% of the time (not intermittently)
+  with a *wrong anchor value* (not just a collapsed one) while the Mac
+  was asleep/the display was off, and passed 100% of the time (14/14
+  across two batches) once re-run with the machine actively awake.
+  Electron's `requestAnimationFrame` throttling while not visible is the
+  suspected mechanism — the two-frame deferral above assumes real frames
+  actually fire promptly. If this test ever fails during unattended/
+  overnight runs, check the machine's power state before assuming a
+  regression.
+- Page Up/Down's own interaction with an active mark was investigated at
+  the same time and found to already work correctly via the existing
+  generic native-collapse rule (confirmed live: a page-down while marked
+  collapses and clears the mark, same as a bare arrow key) — no fix
+  needed there. Whether Page Up/Down should instead *extend* the mark
+  (and how to handle landing mid-table if so) is a separate, still-open
+  design question, deliberately deferred.
 
 ## Planned, in priority order
 

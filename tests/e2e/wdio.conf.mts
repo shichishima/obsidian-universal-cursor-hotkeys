@@ -40,6 +40,7 @@ export const config: WebdriverIO.Config = {
 		'./specs/setMarkNativeClipboardAndDelete.e2e.ts',
 		'./specs/setMarkNativeCollapseClearing.e2e.ts',
 		'./specs/setMarkShiftArrowUnification.e2e.ts',
+		'./specs/setMarkBufferEdge.e2e.ts',
 		'./specs/undoInCellVLStale.e2e.ts',
 	]],
 
