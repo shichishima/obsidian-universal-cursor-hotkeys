@@ -574,16 +574,49 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// keydown never reaches any of this plugin's own commands), so the
 		// very next Ctrl-B/F/N/P/A/E would silently re-arm a new region
 		// from wherever the cursor ended up.
+		//
+		// Backspace/Delete joined the same listener for the identical
+		// reason (2026-10-17): consuming a Set-mark selection via a native
+		// Backspace/Delete press, instead of this plugin's own Kill
+		// region/Delete char commands, never reaches any command callback
+		// either. Cleared unconditionally — same precedent as Delete
+		// char's own existing unconditional clear — rather than only when
+		// a selection was actually present: a Backspace/Delete pressed
+		// right after Set-mark but before any extension (empty selection,
+		// anchor armed) is already an unrelated edit, and keeping the mark
+		// armed for a later extend command to silently re-arm from would
+		// be the more surprising behavior. (A selection-only-when
+		// condition was considered and found technically possible — the
+		// confirming check would need this listener registered on the
+		// capture phase, since CM6's own contentDOM-level Backspace/Delete
+		// keymap handling runs before any bubble-phase document listener
+		// — but it added real complexity for no behavioral upside, so
+		// dropped in favor of this simpler unconditional clear.)
 		this.registerDomEvent(activeDocument, 'keydown', (e: KeyboardEvent) => {
-			if (e.key === 'Escape') this.markActive = false;
+			if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'Delete') this.markActive = false;
 		});
 
+		// copy/cut/paste: same rationale as Backspace/Delete above — these
+		// are native actions, not this plugin's own Copy region/Kill
+		// region/Yank commands, so they never reach any command callback
+		// to clear markActive themselves. Confirmed live that CM6's own
+		// copy/cut/paste handling (on the editor's contentDOM) never calls
+		// stopPropagation, so a plain bubble-phase document listener sees
+		// every one of these after CM6's own handling completes — unlike
+		// Backspace/Delete above, no capture-phase trick is needed here,
+		// since this clear is unconditional regardless of ordering.
 		this.registerDomEvent(activeDocument, 'copy', () => {
 			this.killCache = '';
+			this.markActive = false;
 		});
 
 		this.registerDomEvent(activeDocument, 'cut', () => {
 			this.killCache = '';
+			this.markActive = false;
+		});
+
+		this.registerDomEvent(activeDocument, 'paste', () => {
+			this.markActive = false;
 		});
 
 		this.vimSupport.setup();

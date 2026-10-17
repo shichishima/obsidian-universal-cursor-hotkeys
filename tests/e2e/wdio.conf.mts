@@ -37,6 +37,7 @@ export const config: WebdriverIO.Config = {
 		'./specs/setMarkTableSkip.e2e.ts',
 		'./specs/setMarkMouseAndLeafChange.e2e.ts',
 		'./specs/setMarkEscapeKeydown.e2e.ts',
+		'./specs/setMarkNativeClipboardAndDelete.e2e.ts',
 		'./specs/undoInCellVLStale.e2e.ts',
 	]],
 

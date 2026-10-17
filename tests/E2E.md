@@ -167,6 +167,32 @@ silently re-arming a new region.
   command call — confirms the event actually bubbles to this plugin's
   `document`-level listener.
 
+#### `setMarkNativeClipboardAndDelete.e2e.ts`
+
+Native copy/cut/paste/Backspace/Delete each clear `markActive` as a side
+effect, same gap/fix shape as bare Escape above — none of these are this
+plugin's own commands, so none would otherwise reach a command callback.
+
+- Backspace/Delete clear unconditionally (same precedent as this plugin's
+  own Delete char command), not only when a selection was actually
+  present — confirmed via scratch testing that CM6's own contentDOM-level
+  keymap handling for these two keys runs *before* any bubble-phase
+  `document` listener, so a conditional check there would already see the
+  post-deletion, collapsed selection. A capture-phase listener could read
+  the pre-deletion state instead, but was judged not worth the extra
+  complexity once the unconditional clear was confirmed to have no real
+  downside.
+- copy/cut/paste don't have that ordering problem — confirmed via scratch
+  testing that CM6's own contentDOM-level handling for these three never
+  calls `stopPropagation`, so a plain bubble-phase `document` listener
+  reliably sees all of them after CM6's own handling completes, same as
+  Escape.
+- One line per case in the fixture
+  (`SetMarkNativeClipboardAndDelete.md`), since cut/paste/Backspace/Delete
+  are destructive — keeps an earlier test's edit from affecting a later
+  one even if it persists across `openFixtureAndGetContentStart`'s
+  fresh-leaf reopen.
+
 ## Planned, in priority order
 
 1. Popout window support
