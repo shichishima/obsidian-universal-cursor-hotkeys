@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Set-mark (Ctrl+Space in macOS-style keybindings), an Emacs-style mark/region-selection command:** press Set-mark, then move the cursor to extend a real selection from the marked position instead of just moving it.
+  - Works with UP/DOWN (Ctrl-P/N), LEFT/RIGHT (Ctrl-B/F), HOME/END (Ctrl-A/E), Word left/right (Alt-F/B), TOP/BOTTOM, and Page up/down.
+  - Pressing Set-mark again resets the mark to wherever the cursor currently is, instead of extending further.
+  - Every one of these commands keeps its own table-aware behavior while extending: a table crossed along the way is swept into the selection as one whole block, matching how plain UP/DOWN already treats an unfocused table as one atomic unit when crossing it.
+  - UP/DOWN, LEFT/RIGHT, HOME/END, and Word left/right extend every cursor in a multi-cursor selection independently; TOP/BOTTOM and Page up/down currently only extend the primary cursor.
+  - Unified with Obsidian's own Shift+Arrow-key selection and its related Shift-extend shortcuts (Shift+Home/End, Shift+Page Up/Down, and so on), rather than treating them as two separate, conflicting mechanisms: starting a selection with one of these and continuing it with Set-mark's own extend commands (or the other way around) keeps the same selection anchor throughout.
+  - Also arms automatically on a mouse drag: dragging out a selection sets the mark the same way, so Set-mark's own extend commands can continue extending it right afterward.
+  - The mark clears automatically whenever its selection would otherwise be silently lost: native cursor movement that collapses a selection (arrow keys, Home/End, Page Up/Down, a mouse click), editing commands that consume the selection (Kill region, Copy region, Yank, Uppercase/Lowercase/Capitalize word, Delete char, Transpose chars, Kill word left/right, Undo/Redo), and switching to a different note or pane.
+- **Deselect (Ctrl+G, command id `keyboard-quit`), matching real Emacs's `keyboard-quit`:** clears an active selection — including one extended via Set-mark — and also collapses a multi-cursor selection down to the primary cursor.
+
 ### Fixed
 
 - **Multi-cursor selections no longer collapse down to a single cursor when running cursor-movement commands:**
