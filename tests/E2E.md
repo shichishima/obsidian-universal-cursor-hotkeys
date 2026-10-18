@@ -37,6 +37,52 @@ primary-crosses → collapses to one ("primary defines the view" policy).
 - A table needs a blank line before it to be recognized as a table at all
   (confirmed via the CM6 syntax tree).
 
+#### `uppercaseWordMultiCursor.e2e.ts`
+
+Uppercase/Lowercase/Capitalize word's own multi-cursor rewrite
+(`transformWordOrSelectionNonTable`/`InTableLP`, replacing the old
+`transformWordNonTable`/`transformWordInTableLP`/`transformSelection`):
+each range resolves its own selection-vs-word mode independently, rather
+than the whole command deciding once based on primary alone.
+
+- **(1) Mixed mode**: a range with a real selection and a range with a
+  plain cursor both transform in the same dispatch — the core scenario
+  this rewrite was for.
+- **(2) Primary invalid, secondary still runs**: primary's own selection
+  crossing a Source Mode table's cell boundary no longer blocks a valid
+  secondary range — a real behavior change from the old single-cursor
+  implementation (previously, an invalid primary made the whole command
+  no-op). Requires genuine Source Mode, not just Live Preview's own
+  `isTableLineSourceMode` heuristic skip — switched via
+  `view.setState({...state, source: true}, {history: false})`, no prior
+  precedent in this suite for forcing Source Mode, confirmed live via a
+  scratch check before relying on it.
+- **(3) Multiple selections in one cell**: dispatches two real ranges
+  directly to the cell's own inner `EditorView` (`editor.activeCM`) via
+  `require('@codemirror/state')`'s `EditorSelection` — no native command
+  can add a second cursor inside a table cell yet (a separate, tracked
+  idea), so this is the only way to drive a genuine multi-range selection
+  there. **Confirmed live via `require` inside `executeObsidian`'s
+  callback** — works because Obsidian's renderer has Node integration.
+- **Found a real timing race, not just flakiness**: dispatching the
+  cell's own multi-range selection immediately after `inTableCell`
+  becomes `true` raced against Obsidian's own async cell-focus
+  reconciliation, which can silently collapse the freshly-dispatched
+  selection back down to one range before the following command reads
+  it — confirmed via an instrumented poll (12/12 reproductions without a
+  wait, 0/12 with one). Fixed with the same two-`requestAnimationFrame`
+  settle wait this plugin's own code already uses elsewhere for the
+  identical race (e.g. `exitCellWithSelection`).
+- Full-suite runs this landed in also surfaced a batch of 9 unrelated
+  failures (TOP/BOTTOM, Page Up/Down, checkbox landing, kill-region+undo)
+  the first time it ran as part of the full suite — traced to the Mac
+  having been idle long enough for the display to sleep (confirmed via
+  `ioreg`'s `HIDIdleTime`, ~13.6 minutes with no physical input), not a
+  real regression; all green once the machine was confirmed awake. Same
+  class of false failure already documented above for other specs in
+  this suite — check the machine's power state first for any sudden,
+  broad batch of failures spanning unrelated commands.
+
 ### Table navigation
 
 #### `exitTableSmartHome.e2e.ts`
