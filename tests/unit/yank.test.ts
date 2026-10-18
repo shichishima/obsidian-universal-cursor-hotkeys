@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { EditorSelection, ChangeSet } from '@codemirror/state'
 
 vi.mock('@codemirror/language', () => ({
 	syntaxTree: vi.fn(),
@@ -6,19 +7,79 @@ vi.mock('@codemirror/language', () => ({
 
 import UniversalCursorHotkeysPlugin from '../../src/main.ts'
 
-// ---------------------------------------------------------------------------
-// Minimal editor mock
-// ---------------------------------------------------------------------------
+// Multi-cursor-safe: splitYankTextForCursors decides, once per call, how
+// the clipboard's own line count maps onto the current cursor count — if
+// they match, one line is distributed per cursor (document order, VS
+// Code/Sublime-style); otherwise the whole clipboard string is duplicated
+// at every cursor (today's single-cursor-equivalent behavior, matching
+// native Obsidian's own observed Cmd-V fallback). Which cursor count
+// originally produced a kill is never tracked anywhere.
+//
+// The old single-cursor implementation's own setLine + deferred
+// setCursorViaCm path (for inserting text containing <br> into an LP
+// cell) was dead code even before this rewrite: editor.inTableCell===true
+// always implies a real distinct activeCM (this plugin's own Editor type
+// augmentation), so that branch could never actually be reached — the
+// genuinely-reachable LP path always went through activeCM directly,
+// which already uses real '\n' for in-cell line breaks (no <br> at all).
+//
+// cm.state.changes uses the REAL ChangeSet.of (not a stub), since an
+// insertion's own length is never guaranteed to match what it replaces —
+// see killRegion.test.ts's own identical note on why this matters for
+// multi-range dispatches.
 
-function makeEditor(lineText: string, cursorCh: number, inTableCell = false) {
-	const cursor = { line: 0, ch: cursorCh }
+function makeMultiSelectionPlainEditor(
+	lines: string[],
+	ranges: { from: { line: number; ch: number }; to: { line: number; ch: number } }[],
+	mainIndex: number,
+) {
+	const buf = [...lines]
+	const lineStarts: number[] = []
+	let acc = 0
+	for (const line of lines) { lineStarts.push(acc); acc += line.length + 1 }
+	const totalLength = acc > 0 ? acc - 1 : 0
+	const posToOffset = (pos: { line: number; ch: number }) => lineStarts[pos.line] + pos.ch
+	const offsetToPos = (offset: number) => {
+		let line = 0
+		while (line + 1 < lineStarts.length && lineStarts[line + 1] <= offset) line++
+		return { line, ch: offset - lineStarts[line] }
+	}
+	const selection = EditorSelection.create(
+		ranges.map(r => EditorSelection.range(posToOffset(r.from), posToOffset(r.to))),
+		mainIndex,
+	)
 	return {
-		getCursor:        vi.fn((_sel?: string) => ({ ...cursor })),
-		getLine:          vi.fn(() => lineText),
-		lineCount:        vi.fn(() => 1),
-		replaceSelection: vi.fn(),
-		setLine:          vi.fn(),
-		inTableCell,
+		getLine: vi.fn((line: number) => buf[line] ?? ''),
+		lineCount: vi.fn(() => buf.length),
+		posToOffset: vi.fn(posToOffset),
+		offsetToPos: vi.fn(offsetToPos),
+		inTableCell: false,
+		cm: {
+			state: {
+				selection,
+				changes: (spec: any) => ChangeSet.of(spec, totalLength),
+			},
+			dispatch: vi.fn(),
+			scrollDOM: { scrollTop: 0 },
+		},
+		activeCM: undefined,
+	}
+}
+
+function makeMultiSelectionLPEditor(innerText: string, ranges: { from: number; to: number }[], mainIndex: number) {
+	const dispatch = vi.fn()
+	const inner = {
+		state: {
+			selection: EditorSelection.create(ranges.map(r => EditorSelection.range(r.from, r.to)), mainIndex),
+			changes: (spec: any) => ChangeSet.of(spec, innerText.length),
+		},
+		dispatch,
+	}
+	return {
+		activeCM: inner,
+		cm: { scrollDOM: { scrollTop: 0 } },
+		inTableCell: true,
+		_innerDispatch: dispatch,
 	}
 }
 
@@ -30,18 +91,13 @@ describe('yank', () => {
 		plugin = Object.create(UniversalCursorHotkeysPlugin.prototype)
 		plugin.CELL_SEPARATOR_REGEX  = /(?<!\\)\|/g
 		plugin.TABLE_DELIMITER_REGEX = /^\s*\|?[:\s]*?-+[:\s-]*\|[:\s-|]*$/
-		plugin.settings = { smartHomeStandard: true, smartHomeAdvanced: true, visualLineMovement: true, crossRowNavigation: true }
 		plugin.killCache = ''
-
-		plugin.setCursorViaCm = vi.fn()
 	})
 
 	afterEach(() => {
-		vi.useRealTimers()
 		vi.unstubAllGlobals()
 	})
 
-	// Helper: set up clipboard with a given value (or throw to simulate denial)
 	function mockClipboard(value: string | null) {
 		vi.stubGlobal('navigator', {
 			clipboard: {
@@ -52,184 +108,233 @@ describe('yank', () => {
 		})
 	}
 
-	// ===========================================================================
-	// Outside table — plain paste
-	// ===========================================================================
 
-	describe('outside table', () => {
-		const cases: [string, string][] = [
-			// [clipboard, expectedPasted]
-			['hello',          'hello'],
-			['line1\nline2',   'line1\nline2'],
-			['a | b',          'a | b'],          // pipes not escaped outside table
-		]
-
-		for (const [clipboard, expected] of cases) {
-			it(`pastes "${clipboard}" as-is`, async () => {
-				mockClipboard(clipboard)
-				const editor = makeEditor('some text', 4)
-				await plugin.yank(editor)
-				expect(editor.replaceSelection).toHaveBeenCalledWith(expected)
-			})
-		}
-
-		it('does nothing when clipboard is empty', async () => {
-			mockClipboard('')
-			const editor = makeEditor('some text', 4)
-			await plugin.yank(editor)
-			expect(editor.replaceSelection).not.toHaveBeenCalled()
+	describe('splitYankTextForCursors', () => {
+		it('cursor count matches line count: splits one line per cursor', () => {
+			expect(plugin.splitYankTextForCursors('a\nb\nc', 3)).toEqual(['a', 'b', 'c'])
 		})
 
-		// Set-mark category A: an operation that consumes/destroys the
-		// active selection deactivates the mark.
+		it('cursor count does not match: duplicates the whole string at every cursor', () => {
+			expect(plugin.splitYankTextForCursors('a\nb', 3)).toEqual(['a\nb', 'a\nb', 'a\nb'])
+			expect(plugin.splitYankTextForCursors('a\nb\nc', 2)).toEqual(['a\nb\nc', 'a\nb\nc'])
+		})
+
+		it('single cursor, single-line clipboard: trivially one piece, unchanged', () => {
+			expect(plugin.splitYankTextForCursors('hello', 1)).toEqual(['hello'])
+		})
+	})
+
+
+	describe('outer (plain text / Source Mode)', () => {
+		it('does nothing when clipboard is empty', async () => {
+			mockClipboard('')
+			const editor = makeMultiSelectionPlainEditor(['some text'], [{ from: { line: 0, ch: 4 }, to: { line: 0, ch: 4 } }], 0)
+			await plugin.yank(editor)
+			expect(editor.cm.dispatch).not.toHaveBeenCalled()
+		})
+
 		it('deactivates Set-mark (markActive)', async () => {
 			plugin.markActive = true
 			mockClipboard('hello')
-			const editor = makeEditor('some text', 4)
+			const editor = makeMultiSelectionPlainEditor(['some text'], [{ from: { line: 0, ch: 4 }, to: { line: 0, ch: 4 } }], 0)
 			await plugin.yank(editor)
 			expect(plugin.markActive).toBe(false)
 		})
-	})
 
-	// ===========================================================================
-	// Source mode table — conversion applied
-	// ===========================================================================
-
-	describe('source mode table (isTableLineSourceMode)', () => {
-		const cases: [string, string][] = [
-			// [clipboard, expectedPasted]
-			['hello',           'hello'],
-			['line1\nline2',    'line1<br>line2'],   // \n → <br>
-			['a | b',           'a \\| b'],           // | → \|
-			['a | b\nc | d',    'a \\| b<br>c \\| d'],
-		]
-
-		for (const [clipboard, expected] of cases) {
-			it(`pastes "${clipboard}" → "${expected}"`, async () => {
-				mockClipboard(clipboard)
-				// isTableLineSourceMode is a real method — it reads getLine result
-				// ('| cell |' starts and ends with |, so table-mode applies)
-				const editor = makeEditor('| cell |', 3)
-				await plugin.yank(editor)
-				expect(editor.replaceSelection).toHaveBeenCalledWith(expected)
-			})
-		}
-	})
-
-	// ===========================================================================
-	// Live Preview table — conversion applied, simple (no <br> in result)
-	// ===========================================================================
-
-	describe('LP table — no <br> in pasted text', () => {
-		it('pastes plain text without setTimeout path', async () => {
+		it('resets isKillChaining', async () => {
+			plugin.isKillChaining = true
 			mockClipboard('hello')
-			const editor = makeEditor('| cell |', 3, true)
+			const editor = makeMultiSelectionPlainEditor(['some text'], [{ from: { line: 0, ch: 4 }, to: { line: 0, ch: 4 } }], 0)
 			await plugin.yank(editor)
-			expect(editor.replaceSelection).toHaveBeenCalledWith('hello')
-			expect(plugin.setCursorViaCm).not.toHaveBeenCalled()
+			expect(plugin.isKillChaining).toBe(false)
 		})
 
-		it('escapes pipe but no <br> → uses replaceSelection directly', async () => {
+		it('pastes plain text as-is, cursor lands after the inserted text', async () => {
+			mockClipboard('hello')
+			const editor = makeMultiSelectionPlainEditor(['some text'], [{ from: { line: 0, ch: 4 }, to: { line: 0, ch: 4 } }], 0)
+			await plugin.yank(editor)
+			expect(editor.cm.dispatch).toHaveBeenCalledWith({
+				changes: [{ from: 4, to: 4, insert: 'hello' }],
+				selection: EditorSelection.create([EditorSelection.cursor(9)], 0),
+				userEvent: 'input',
+			})
+		})
+
+		it('pipes not escaped outside a table', async () => {
 			mockClipboard('a | b')
-			const editor = makeEditor('| cell |', 3, true)
+			const editor = makeMultiSelectionPlainEditor(['xx'], [{ from: { line: 0, ch: 2 }, to: { line: 0, ch: 2 } }], 0)
 			await plugin.yank(editor)
-			expect(editor.replaceSelection).toHaveBeenCalledWith('a \\| b')
-			expect(plugin.setCursorViaCm).not.toHaveBeenCalled()
+			expect(editor.cm.dispatch).toHaveBeenCalledWith({
+				changes: [{ from: 2, to: 2, insert: 'a | b' }],
+				selection: EditorSelection.create([EditorSelection.cursor(7)], 0),
+				userEvent: 'input',
+			})
+		})
+
+		it('Source Mode table row: escapes | and converts \\n to <br>', async () => {
+			mockClipboard('a | b\nc | d')
+			// isTableLineSourceMode reads getLine() for that range's own line.
+			const editor = makeMultiSelectionPlainEditor(['| cell |'], [{ from: { line: 0, ch: 3 }, to: { line: 0, ch: 3 } }], 0)
+			await plugin.yank(editor)
+			const expectedText = 'a \\| b<br>c \\| d'
+			expect(editor.cm.dispatch).toHaveBeenCalledWith({
+				changes: [{ from: 3, to: 3, insert: expectedText }],
+				selection: EditorSelection.create([EditorSelection.cursor(3 + expectedText.length)], 0),
+				userEvent: 'input',
+			})
+		})
+
+		it('replaces a non-empty selection, cursor lands right after the inserted text', async () => {
+			mockClipboard('X')
+			const editor = makeMultiSelectionPlainEditor(['hello world'], [{ from: { line: 0, ch: 0 }, to: { line: 0, ch: 5 } }], 0)
+			await plugin.yank(editor)
+			expect(editor.cm.dispatch).toHaveBeenCalledWith({
+				changes: [{ from: 0, to: 5, insert: 'X' }],
+				selection: EditorSelection.create([EditorSelection.cursor(1)], 0),
+				userEvent: 'input',
+			})
+		})
+
+		describe('clipboard fallback to killCache', () => {
+			it('uses killCache when clipboard read throws', async () => {
+				mockClipboard(null)
+				plugin.killCache = 'cached'
+				const editor = makeMultiSelectionPlainEditor(['xx'], [{ from: { line: 0, ch: 0 }, to: { line: 0, ch: 0 } }], 0)
+				await plugin.yank(editor)
+				expect(editor.cm.dispatch).toHaveBeenCalledWith({
+					changes: [{ from: 0, to: 0, insert: 'cached' }],
+					selection: EditorSelection.create([EditorSelection.cursor(6)], 0),
+					userEvent: 'input',
+				})
+			})
+
+			it('does nothing when clipboard throws and killCache is empty', async () => {
+				mockClipboard(null)
+				plugin.killCache = ''
+				const editor = makeMultiSelectionPlainEditor(['xx'], [{ from: { line: 0, ch: 0 }, to: { line: 0, ch: 0 } }], 0)
+				await plugin.yank(editor)
+				expect(editor.cm.dispatch).not.toHaveBeenCalled()
+			})
+		})
+
+		describe('multi-cursor', () => {
+			it('line count matches cursor count: distributes one line per cursor, in document order', async () => {
+				// 'foo\nbar' (length 7). Cursors at 0 and 4 (line starts).
+				mockClipboard('X\nY')
+				const editor = makeMultiSelectionPlainEditor(
+					['foo', 'bar'],
+					[
+						{ from: { line: 0, ch: 0 }, to: { line: 0, ch: 0 } },
+						{ from: { line: 1, ch: 0 }, to: { line: 1, ch: 0 } },
+					],
+					0,
+				)
+				await plugin.yank(editor)
+				// Insert 'X' at 0 (len 1, was 0 -> +1 shift); second range's
+				// original offset 4 shifts to 5 before its own insert of 'Y'.
+				expect(editor.cm.dispatch).toHaveBeenCalledWith({
+					changes: [{ from: 0, to: 0, insert: 'X' }, { from: 4, to: 4, insert: 'Y' }],
+					selection: EditorSelection.create([EditorSelection.cursor(1), EditorSelection.cursor(6)], 0),
+					userEvent: 'input',
+				})
+			})
+
+			it('line count does not match cursor count: duplicates the whole clipboard text at every cursor', async () => {
+				mockClipboard('X\nY\nZ') // 3 lines, but only 2 cursors
+				const editor = makeMultiSelectionPlainEditor(
+					['foo', 'bar'],
+					[
+						{ from: { line: 0, ch: 0 }, to: { line: 0, ch: 0 } },
+						{ from: { line: 1, ch: 0 }, to: { line: 1, ch: 0 } },
+					],
+					0,
+				)
+				await plugin.yank(editor)
+				const whole = 'X\nY\nZ'
+				expect(editor.cm.dispatch).toHaveBeenCalledWith({
+					changes: [{ from: 0, to: 0, insert: whole }, { from: 4, to: 4, insert: whole }],
+					selection: EditorSelection.create([EditorSelection.cursor(whole.length), EditorSelection.cursor(4 + whole.length * 2)], 0),
+					userEvent: 'input',
+				})
+			})
+
+			it('each range escapes for its own line independently (mixed table/non-table)', async () => {
+				mockClipboard('a|b') // single line -> no split, duplicated per cursor
+				const editor = makeMultiSelectionPlainEditor(
+					['foo', '| cell |'],
+					[
+						{ from: { line: 0, ch: 0 }, to: { line: 0, ch: 0 } },
+						{ from: { line: 1, ch: 3 }, to: { line: 1, ch: 3 } },
+					],
+					0,
+				)
+				await plugin.yank(editor)
+				expect(editor.cm.dispatch).toHaveBeenCalledWith({
+					changes: [{ from: 0, to: 0, insert: 'a|b' }, { from: 7, to: 7, insert: 'a\\|b' }],
+					selection: expect.anything(),
+					userEvent: 'input',
+				})
+			})
 		})
 	})
 
-	// ===========================================================================
-	// Live Preview table — <br> in pasted text → setLine + deferred cursor restore
-	// ===========================================================================
 
-	describe('LP table — <br> in pasted text (deferred cursor)', () => {
-		beforeEach(() => {
-			vi.useFakeTimers()
-			vi.stubGlobal('window', globalThis)
-			vi.stubGlobal('activeWindow', globalThis)
+	describe('LP table cell', () => {
+		it('no-op when not inside a table cell (activeCM === cm)', async () => {
+			mockClipboard('hello')
+			const editor = { activeCM: {}, cm: {}, inTableCell: true } as any
+			editor.activeCM = editor.cm
+			await expect(plugin.yank(editor)).resolves.not.toThrow()
 		})
 
-		it('calls setLine then defers setCursorViaCm after insert', async () => {
-			// clipboard: 'line1\nline2' → 'line1<br>line2' (14 chars, no trailing <br>)
-			// lineText='| cell |' ch=3 → prefix='| c', suffix='ell |'
-			// newLine = '| c' + 'line1<br>line2' + 'ell |'
-			// targetCh = 3 + 14 = 17
+		it('inserts raw text directly (no <br> conversion), cursor after inserted text', async () => {
 			mockClipboard('line1\nline2')
-			const editor = makeEditor('| cell |', 3, true)
+			const editor = makeMultiSelectionLPEditor('hello', [{ from: 2, to: 2 }], 0)
 			await plugin.yank(editor)
-
-			expect(editor.setLine).toHaveBeenCalledWith(0, '| cline1<br>line2ell |')
-			expect(plugin.setCursorViaCm).not.toHaveBeenCalled()
-
-			vi.runAllTimers()
-			expect(plugin.setCursorViaCm).toHaveBeenCalledWith(editor, 0, 17)
+			expect(editor._innerDispatch).toHaveBeenCalledWith({
+				changes: [{ from: 2, to: 2, insert: 'line1\nline2' }],
+				selection: EditorSelection.create([EditorSelection.cursor(2 + 'line1\nline2'.length)], 0),
+				userEvent: 'input',
+			})
 		})
 
-		it('combined pipe escape + newline: correct deferred position', async () => {
-			// clipboard: 'a | b\nc' → 'a \\| b<br>c' (11 chars, no trailing <br>)
-			// lineText='| cell |' ch=2 → prefix='| ', suffix='cell |'
-			// newLine = '| ' + 'a \\| b<br>c' + 'cell |'
-			// targetCh = 2 + 11 = 13
-			mockClipboard('a | b\nc')
-			const editor = makeEditor('| cell |', 2, true)
+		it('escapes pipe but keeps real \\n (inner view has no <br> concept)', async () => {
+			mockClipboard('a | b')
+			const editor = makeMultiSelectionLPEditor('hello', [{ from: 0, to: 0 }], 0)
 			await plugin.yank(editor)
-
-			expect(editor.setLine).toHaveBeenCalledWith(0, '| a \\| b<br>ccell |')
-
-			vi.runAllTimers()
-			expect(plugin.setCursorViaCm).toHaveBeenCalledWith(editor, 0, 13)
+			// Inner view coordinates are never Source-Mode-escaped — only the
+			// outer/Source-Mode branch does \| escaping; the LP cell's own
+			// inner document already stores pipes and newlines literally.
+			expect(editor._innerDispatch).toHaveBeenCalledWith({
+				changes: [{ from: 0, to: 0, insert: 'a | b' }],
+				selection: EditorSelection.create([EditorSelection.cursor(5)], 0),
+				userEvent: 'input',
+			})
 		})
 
-		it('trailing <br>: cursor placed at brStart, not past close pipe', async () => {
-			// clipboard: 'text\n' → 'text<br>' (8 chars, ends with <br>)
-			// lineText='| |' ch=1 → prefix='|', suffix=' |'
-			// newLine = '|' + 'text<br>' + ' |' = '|text<br> |'
-			// textForCursor = 'text' (4 chars) → targetCh = 1 + 4 = 5 (brStart, inside cell)
-			mockClipboard('text\n')
-			const editor = makeEditor('| |', 1, true)
-			await plugin.yank(editor)
+		describe('multi-cursor', () => {
+			it('line count matches cursor count: distributes one line per cursor', async () => {
+				mockClipboard('X\nY')
+				// 'foo bar': cursors at 0 and 4.
+				const editor = makeMultiSelectionLPEditor('foo bar', [{ from: 0, to: 0 }, { from: 4, to: 4 }], 0)
+				await plugin.yank(editor)
+				expect(editor._innerDispatch).toHaveBeenCalledWith({
+					changes: [{ from: 0, to: 0, insert: 'X' }, { from: 4, to: 4, insert: 'Y' }],
+					selection: EditorSelection.create([EditorSelection.cursor(1), EditorSelection.cursor(6)], 0),
+					userEvent: 'input',
+				})
+			})
 
-			expect(editor.setLine).toHaveBeenCalledWith(0, '|text<br> |')
-
-			vi.runAllTimers()
-			expect(plugin.setCursorViaCm).toHaveBeenCalledWith(editor, 0, 5)
-		})
-
-		it('trailing <br> in cell with no trailing space: cursor stays inside cell', async () => {
-			// clipboard: 'abc\n' → 'abc<br>' (7 chars, ends with <br>)
-			// lineText='||' ch=1 → prefix='|', suffix='|'
-			// newLine = '|' + 'abc<br>' + '|' = '|abc<br>|'
-			// textForCursor = 'abc' (3 chars) → targetCh = 1 + 3 = 4 (= brStart, not the close pipe at 8)
-			mockClipboard('abc\n')
-			const editor = makeEditor('||', 1, true)
-			await plugin.yank(editor)
-
-			expect(editor.setLine).toHaveBeenCalledWith(0, '|abc<br>|')
-
-			vi.runAllTimers()
-			expect(plugin.setCursorViaCm).toHaveBeenCalledWith(editor, 0, 4)
-		})
-	})
-
-	// ===========================================================================
-	// Clipboard read failure → falls back to killCache
-	// ===========================================================================
-
-	describe('clipboard fallback to killCache', () => {
-		it('uses killCache when clipboard read throws', async () => {
-			mockClipboard(null)
-			plugin.killCache = 'cached text'
-			const editor = makeEditor('normal line', 0)
-			await plugin.yank(editor)
-			expect(editor.replaceSelection).toHaveBeenCalledWith('cached text')
-		})
-
-		it('does nothing when clipboard throws and killCache is empty', async () => {
-			mockClipboard(null)
-			plugin.killCache = ''
-			const editor = makeEditor('normal line', 0)
-			await plugin.yank(editor)
-			expect(editor.replaceSelection).not.toHaveBeenCalled()
+			it('line count does not match: duplicates the whole text at every cursor', async () => {
+				mockClipboard('XY')
+				const editor = makeMultiSelectionLPEditor('foo bar', [{ from: 0, to: 0 }, { from: 4, to: 4 }], 0)
+				await plugin.yank(editor)
+				expect(editor._innerDispatch).toHaveBeenCalledWith({
+					changes: [{ from: 0, to: 0, insert: 'XY' }, { from: 4, to: 4, insert: 'XY' }],
+					selection: EditorSelection.create([EditorSelection.cursor(2), EditorSelection.cursor(8)], 0),
+					userEvent: 'input',
+				})
+			})
 		})
 	})
 })

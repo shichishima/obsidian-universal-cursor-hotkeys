@@ -1,39 +1,73 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { EditorSelection, ChangeSet } from '@codemirror/state'
 
 vi.mock('@codemirror/language', () => ({
 	syntaxTree: vi.fn(),
 }))
 
 import UniversalCursorHotkeysPlugin from '../../src/main.ts'
-import { getInCellLineInfo } from '../../src/table-cell-utils.ts'
 
-// ---------------------------------------------------------------------------
-// Minimal editor mock helpers
-// ---------------------------------------------------------------------------
+// Multi-cursor-safe: each range kills from its own head independently,
+// joined with '\n' into one kill-cache entry (same convention as Kill
+// Region/Yank). The selection-vs-table-row choice (resolveKillLineRangeOuter)
+// is made per range, not once for the whole command based on primary
+// alone — a Source Mode table row and a plain-text line can coexist in
+// the same multi-cursor dispatch.
+//
+// The old single-cursor killLineInTableSourceMode's own setLine +
+// setTimeoutOnActiveWindow-deferred setCursorViaCm mechanism is gone:
+// the new implementation dispatches changes and the resulting selection
+// together in one synchronous cm.dispatch, same as every other
+// multi-range command in this file — no fake timers needed here anymore.
+//
+// cm.state.changes uses the REAL ChangeSet.of (not a stub) — see
+// killRegion.test.ts's own identical note on why this matters for
+// multi-range dispatches with non-length-preserving changes.
 
-function makeEditor(lines: string[], cursorLine: number, cursorCh: number) {
+function makeMultiSelectionPlainEditor(
+	lines: string[],
+	ranges: { from: { line: number; ch: number }; to: { line: number; ch: number } }[],
+	mainIndex: number,
+) {
 	const buf = [...lines]
-
+	const lineStarts: number[] = []
+	let acc = 0
+	for (const line of lines) { lineStarts.push(acc); acc += line.length + 1 }
+	const totalLength = acc > 0 ? acc - 1 : 0
+	const posToOffset = (pos: { line: number; ch: number }) => lineStarts[pos.line] + pos.ch
+	const offsetToPos = (offset: number) => {
+		let line = 0
+		while (line + 1 < lineStarts.length && lineStarts[line + 1] <= offset) line++
+		return { line, ch: offset - lineStarts[line] }
+	}
+	const selection = EditorSelection.create(
+		ranges.map(r => EditorSelection.range(posToOffset(r.from), posToOffset(r.to))),
+		mainIndex,
+	)
 	return {
-		getCursor: vi.fn((_sel?: string) => ({ line: cursorLine, ch: cursorCh })),
-		// getLine reads from the (possibly mutated) buf
-		getLine:  vi.fn((line: number) => buf[line] ?? ''),
+		getLine: vi.fn((line: number) => buf[line] ?? ''),
 		lineCount: vi.fn(() => buf.length),
-		replaceRange: vi.fn((replacement: string, from: any, to: any) => {
-			if (from.line === to.line) {
-				buf[from.line] = buf[from.line].slice(0, from.ch) + replacement + buf[from.line].slice(to.ch)
-			} else {
-				// Cross-line: merge from.line..to.line into one line
-				const merged = buf[from.line].slice(0, from.ch) + replacement + buf[to.line].slice(to.ch)
-				buf.splice(from.line, to.line - from.line + 1, merged)
-			}
-		}),
-		setLine: vi.fn((line: number, text: string) => {
-			buf[line] = text
-		}),
-		replaceSelection: vi.fn(),
+		posToOffset: vi.fn(posToOffset),
+		offsetToPos: vi.fn(offsetToPos),
+		inTableCell: false,
+		cm: {
+			state: {
+				selection,
+				changes: (spec: any) => ChangeSet.of(spec, totalLength),
+			},
+			dispatch: vi.fn(),
+			scrollDOM: { scrollTop: 0 },
+		},
+		activeCM: undefined,
 		_buf: buf,
 	}
+}
+
+// Single-cursor convenience wrapper: builds a one-range editor at
+// {line, ch} and returns both the editor and that range's own starting
+// offset (for computing expected post-change positions by hand).
+function makeSingleCursorEditor(lines: string[], line: number, ch: number) {
+	return makeMultiSelectionPlainEditor(lines, [{ from: { line, ch }, to: { line, ch } }], 0)
 }
 
 
@@ -42,69 +76,66 @@ describe('killLine', () => {
 
 	beforeEach(() => {
 		plugin = Object.create(UniversalCursorHotkeysPlugin.prototype)
+		plugin.CELL_SEPARATOR_REGEX  = /(?<!\\)\|/g
 		plugin.TABLE_DELIMITER_REGEX = /^\s*\|?[:\s]*?-+[:\s-]*\|[:\s-|]*$/
 		plugin.settings = { smartHomeStandard: true, smartHomeAdvanced: true, smartJoin: false, visualLineMovement: true, crossRowNavigation: true }
-		plugin.isKillChaining = false
+		plugin.isKillChaining    = false
 		plugin.isDispatchingKill = false
-		plugin.killCache = ''
+		plugin.killCache         = ''
 
 		plugin.isLivePreviewMode = vi.fn().mockReturnValue(false)
-		plugin.isPositionInTable = vi.fn().mockReturnValue(false)
-		plugin.setCursorViaCm    = vi.fn()
 
 		vi.stubGlobal('navigator', {
 			clipboard: { writeText: vi.fn().mockResolvedValue(undefined) },
 		})
-		vi.stubGlobal('window', globalThis)
-		vi.stubGlobal('activeWindow', globalThis)
 	})
 
 	afterEach(() => {
-		vi.useRealTimers()
 		vi.unstubAllGlobals()
 	})
 
-	// ===========================================================================
-	// killLineNonTable — cursor not at line end
-	// ===========================================================================
 
-	describe('killLineNonTable — cursor before line end', () => {
-		// [lineText, cursorCh, expectedLineAfter, expectedKillCache]
-		const cases: [string, number, string, string][] = [
-			['hello world', 6,  'hello ',  'world'],
-			['hello world', 0,  '',        'hello world'],
-			['hello',       2,  'he',      'llo'],
+	describe('plain text — cursor before line end', () => {
+		// [lineText, cursorCh, expectedKillCache]
+		const cases: [string, number, string][] = [
+			['hello world', 6, 'world'],
+			['hello world', 0, 'hello world'],
+			['hello',       2, 'llo'],
 		]
 
-		for (const [lineText, ch, expectedLine, expectedCache] of cases) {
-			it(`"${lineText}" ch=${ch} → kills "${expectedCache}"`, () => {
-				const editor = makeEditor([lineText], 0, ch)
-				plugin.killLineNonTable(editor)
-				expect(editor._buf[0]).toBe(expectedLine)
+		for (const [lineText, ch, expectedCache] of cases) {
+			it(`"${lineText}" ch=${ch} -> kills "${expectedCache}"`, () => {
+				const editor = makeSingleCursorEditor([lineText], 0, ch)
+				plugin.killLineOuter(editor)
+				expect(editor.cm.dispatch).toHaveBeenCalledWith({
+					changes: [{ from: ch, to: lineText.length, insert: '' }],
+					selection: EditorSelection.create([EditorSelection.cursor(ch)], 0),
+					userEvent: 'delete',
+				})
 				expect(plugin.killCache).toBe(expectedCache)
 				expect(plugin.isKillChaining).toBe(true)
 			})
 		}
 	})
 
-	// ===========================================================================
-	// killLineNonTable — cursor at line end (join next line)
-	// ===========================================================================
 
-	describe('killLineNonTable — cursor at line end', () => {
+	describe('plain text — cursor at line end (join next line)', () => {
 		describe('smartJoin: OFF (default) — preserves leading syntax', () => {
 			it('joins next line without trimming', () => {
-				const editor = makeEditor(['hello', '  world'], 0, 5)
-				plugin.killLineNonTable(editor)
-				expect(editor._buf[0]).toBe('hello  world')
+				const editor = makeSingleCursorEditor(['hello', '  world'], 0, 5)
+				plugin.killLineOuter(editor)
+				expect(editor.cm.dispatch).toHaveBeenCalledWith({
+					changes: [{ from: 5, to: 6, insert: '' }],
+					selection: EditorSelection.create([EditorSelection.cursor(5)], 0),
+					userEvent: 'delete',
+				})
 				expect(plugin.killCache).toBe('\n')
 				expect(plugin.isKillChaining).toBe(true)
 			})
 
 			it('joins next line with no leading whitespace', () => {
-				const editor = makeEditor(['hello', 'world'], 0, 5)
-				plugin.killLineNonTable(editor)
-				expect(editor._buf[0]).toBe('helloworld')
+				const editor = makeSingleCursorEditor(['hello', 'world'], 0, 5)
+				plugin.killLineOuter(editor)
 				expect(plugin.killCache).toBe('\n')
 			})
 		})
@@ -115,208 +146,203 @@ describe('killLine', () => {
 			})
 
 			it('joins next line, stripping leading whitespace to content start', () => {
-				const editor = makeEditor(['hello', '  world'], 0, 5)
-				plugin.killLineNonTable(editor)
-				expect(editor._buf[0]).toBe('helloworld')
+				const editor = makeSingleCursorEditor(['hello', '  world'], 0, 5)
+				plugin.killLineOuter(editor)
+				// 'hello'.length=5, next line '  world' trims 2 leading spaces -> to=6+2=8
+				expect(editor.cm.dispatch).toHaveBeenCalledWith({
+					changes: [{ from: 5, to: 8, insert: '' }],
+					selection: EditorSelection.create([EditorSelection.cursor(5)], 0),
+					userEvent: 'delete',
+				})
 				// The stripped leading whitespace is deleted from the document
-				// too, so it must be in the kill cache alongside the newline —
-				// otherwise Yank could never restore it.
+				// too, so it must be in the kill cache alongside the newline.
 				expect(plugin.killCache).toBe('\n  ')
-				expect(plugin.isKillChaining).toBe(true)
 			})
 
 			it('joins next line with list marker stripped', () => {
-				const editor = makeEditor(['hello', '- item'], 0, 5)
-				plugin.killLineNonTable(editor)
-				expect(editor._buf[0]).toBe('helloitem')
-				// Same as above — the stripped "- " marker must be in the kill
-				// cache, not silently discarded.
+				const editor = makeSingleCursorEditor(['hello', '- item'], 0, 5)
+				plugin.killLineOuter(editor)
 				expect(plugin.killCache).toBe('\n- ')
 			})
 
-			it('joins next line with no leading syntax — unchanged', () => {
-				const editor = makeEditor(['hello', 'world'], 0, 5)
-				plugin.killLineNonTable(editor)
-				expect(editor._buf[0]).toBe('helloworld')
+			it('joins next line with no leading syntax -- unchanged', () => {
+				const editor = makeSingleCursorEditor(['hello', 'world'], 0, 5)
+				plugin.killLineOuter(editor)
 				expect(plugin.killCache).toBe('\n')
 			})
 		})
 
 		it('does nothing at last line', () => {
-			const editor = makeEditor(['only line'], 0, 9)
-			plugin.killLineNonTable(editor)
-			expect(editor._buf[0]).toBe('only line')
+			const editor = makeSingleCursorEditor(['only line'], 0, 9)
+			plugin.killLineOuter(editor)
+			expect(editor.cm.dispatch).not.toHaveBeenCalled()
 			expect(plugin.killCache).toBe('')
 			expect(plugin.isKillChaining).toBe(false)
 		})
 	})
 
-	// ===========================================================================
-	// killLineNonTable — consecutive kills accumulate in killCache
-	// ===========================================================================
 
-	it('consecutive kills accumulate killCache', () => {
-		// First kill: kills 'world' from 'hello world', cache = 'world', chaining = true
-		const editor = makeEditor(['hello world'], 0, 6)
-		plugin.killLineNonTable(editor)
+	it('consecutive kills accumulate killCache (chaining is never reset by this command itself)', () => {
+		const editor = makeSingleCursorEditor(['hello world'], 0, 6)
+		plugin.killLineOuter(editor)
 		expect(plugin.killCache).toBe('world')
 		expect(plugin.isKillChaining).toBe(true)
 
-		// Second kill with chaining=true: cursor is now at ch=6 of the shortened line 'hello '
-		// 'hello '[6] is at end → joins next line, but there is none → no-op
-		// Use a fresh editor at new position to simulate second kill
-		const editor2 = makeEditor(['first ', 'second'], 0, 6)
-		editor2.getCursor.mockReturnValue({ line: 0, ch: 6 })
-		// plugin.isKillChaining is still true from first kill
-		plugin.killLineNonTable(editor2)
-		// Should append to cache
+		// Second kill: cursor now at end of a different line -> joins with
+		// nothing (no next line) in THIS mock, but isKillChaining being
+		// true from the first kill still makes it append via updateKillCache.
+		const editor2 = makeSingleCursorEditor(['first ', 'second'], 0, 6)
+		plugin.killLineOuter(editor2)
 		expect(plugin.killCache).toBe('world\n')
 	})
 
-	// ===========================================================================
-	// killLineInTableSourceMode — cursor before in-cell line end
-	// ===========================================================================
 
-	describe('killLineInTableSourceMode — cursor before in-cell line end', () => {
+	describe('Source Mode table row — cursor before in-cell line end', () => {
 		// Line: '| hello |'  pipes at 0, 8  cellStart=1, cellEnd=8
 		// startOfInCellLine=2  endOfInCellLine=7
-		// [lineText, cursorCh, expectedLineAfter, expectedKillCacheNormalized]
 		const cases: [string, number, string, string][] = [
-			// kill from content start
-			['| hello |',       2, '|  |',   'hello'],
-			// kill from middle of content
-			['| hello |',       4, '| he |', 'llo'],
-			// single char cell
-			['| x |',           2, '|  |',   'x'],
-			// escaped pipe: \| normalized to | in cache
-			['| a \\| b |',     2, '|  |',   'a | b'],
+			['| hello |',   2, '| |',   'hello'],
+			['| hello |',   4, '| he |', 'llo'],
+			['| x |',       2, '| |',   'x'],
+			['| a \\| b |', 2, '| |',   'a | b'],
 		]
 
-		for (const [lineText, ch, expectedLine, expectedNormCache] of cases) {
-			it(`"${lineText}" ch=${ch} → "${expectedLine}", normalized cache="${expectedNormCache}"`, () => {
-				const editor = makeEditor([lineText], 0, ch)
-				const info = getInCellLineInfo(lineText, ch)
-				plugin.killLineInTableSourceMode(editor, info)
-				expect(editor._buf[0]).toBe(expectedLine)
-				expect(plugin.normalizeKillText(plugin.killCache)).toBe(expectedNormCache)
+		for (const [lineText, ch, _unused, expectedNormCache] of cases) {
+			it(`"${lineText}" ch=${ch} -> normalized cache="${expectedNormCache}"`, () => {
+				const editor = makeSingleCursorEditor([lineText], 0, ch)
+				plugin.killLineOuter(editor)
+				expect(editor.cm.dispatch).toHaveBeenCalled()
+				expect(plugin.killCache).toBe(expectedNormCache)
 				expect(plugin.isKillChaining).toBe(true)
 			})
 		}
 	})
 
-	// ===========================================================================
-	// killLineInTableSourceMode — cursor at in-cell line end (kill <br>)
-	// ===========================================================================
 
-	describe('killLineInTableSourceMode — kill <br> at in-cell line end', () => {
-		it('removes <br> synchronously and defers cursor restore', () => {
-			vi.useFakeTimers()
-			// '| line1<br>line2 |'
-			// pipes at 0 and 17; cellStart=1, cellEnd=17
-			// first segment: ' line1' (1..7), <br> at 7, endOfSeg0=7
-			// ch=7 = endOfInCellLine of 'first' segment
+	describe('Source Mode table row — kill <br> at in-cell line end', () => {
+		it('removes <br> in one dispatch', () => {
+			// '| line1<br>line2 |' -- pipes at 0 and 17; first segment ' line1'
+			// (1..7), <br> at 7, endOfSeg0=7 (lineType 'first').
 			const lineText = '| line1<br>line2 |'
-			const editor = makeEditor([lineText], 0, 7)
-			const info = getInCellLineInfo(lineText, 7)
-			expect(info?.lineType).toBe('first')
-
-			plugin.killLineInTableSourceMode(editor, info)
-
-			// setLine called synchronously with <br> removed
-			expect(editor.setLine).toHaveBeenCalledWith(0, '| line1line2 |')
-			// isKillChaining not set yet
-			expect(plugin.isKillChaining).toBe(false)
+			const editor = makeSingleCursorEditor([lineText], 0, 7)
+			plugin.killLineOuter(editor)
+			expect(editor.cm.dispatch).toHaveBeenCalledWith({
+				changes: [{ from: 7, to: 11, insert: '' }], // '<br>' is 4 chars
+				selection: EditorSelection.create([EditorSelection.cursor(7)], 0),
+				userEvent: 'delete',
+			})
 			expect(plugin.killCache).toBe('\n')
-
-			vi.runAllTimers()
-			expect(plugin.setCursorViaCm).toHaveBeenCalledWith(editor, 0, 7)
 			expect(plugin.isKillChaining).toBe(true)
 		})
 
 		it('removes <br> but keeps trailing spaces when smartJoin is OFF', () => {
-			vi.useFakeTimers()
 			// '| a<br>   b |'
 			const lineText = '| a<br>   b |'
-			const editor = makeEditor([lineText], 0, 3)
-			const info = getInCellLineInfo(lineText, 3)
-			expect(info?.lineType).toBe('first')
-
-			plugin.killLineInTableSourceMode(editor, info)
-			// only <br> removed, trailing spaces preserved
-			expect(editor.setLine).toHaveBeenCalledWith(0, '| a   b |')
-
-			vi.runAllTimers()
-			expect(plugin.isKillChaining).toBe(true)
+			const editor = makeSingleCursorEditor([lineText], 0, 3)
+			plugin.killLineOuter(editor)
+			expect(editor.cm.dispatch).toHaveBeenCalledWith({
+				changes: [{ from: 3, to: 7, insert: '' }],
+				selection: EditorSelection.create([EditorSelection.cursor(3)], 0),
+				userEvent: 'delete',
+			})
+			expect(plugin.killCache).toBe('\n')
 		})
 
 		it('removes <br> with trailing spaces when smartJoin is ON', () => {
-			vi.useFakeTimers()
 			plugin.settings = { ...plugin.settings, smartJoin: true }
-			// '| a<br>   b |'
 			const lineText = '| a<br>   b |'
-			const editor = makeEditor([lineText], 0, 3)
-			const info = getInCellLineInfo(lineText, 3)
-			expect(info?.lineType).toBe('first')
-
-			plugin.killLineInTableSourceMode(editor, info)
-			// <br> + '   ' (3 spaces) removed
-			expect(editor.setLine).toHaveBeenCalledWith(0, '| ab |')
+			const editor = makeSingleCursorEditor([lineText], 0, 3)
+			plugin.killLineOuter(editor)
+			// <br>(4) + '   '(3 spaces) removed: to = 3+4+3 = 10
+			expect(editor.cm.dispatch).toHaveBeenCalledWith({
+				changes: [{ from: 3, to: 10, insert: '' }],
+				selection: EditorSelection.create([EditorSelection.cursor(3)], 0),
+				userEvent: 'delete',
+			})
 			// The trimmed spaces are deleted from the cell too, so they must
 			// be in the kill cache alongside the newline.
 			expect(plugin.killCache).toBe('\n   ')
-
-			vi.runAllTimers()
-			expect(plugin.isKillChaining).toBe(true)
 		})
 
 		it('removes <br> with list marker when smartJoin is ON', () => {
-			vi.useFakeTimers()
 			plugin.settings = { ...plugin.settings, smartJoin: true }
 			// '| a<br>   - item |'
 			const lineText = '| a<br>   - item |'
-			const editor = makeEditor([lineText], 0, 3)
-			const info = getInCellLineInfo(lineText, 3)
-			expect(info?.lineType).toBe('first')
-
-			plugin.killLineInTableSourceMode(editor, info)
-			// <br> + '   - ' removed, content 'item' remains
-			expect(editor.setLine).toHaveBeenCalledWith(0, '| aitem |')
-			// The trimmed list marker is deleted from the cell too, so it
-			// must be in the kill cache alongside the newline.
+			const editor = makeSingleCursorEditor([lineText], 0, 3)
+			plugin.killLineOuter(editor)
 			expect(plugin.killCache).toBe('\n   - ')
-
-			vi.runAllTimers()
-			expect(plugin.isKillChaining).toBe(true)
 		})
 	})
 
-	// ===========================================================================
-	// killLineInTableSourceMode — no-op at cell/in-cell-line boundary
-	// ===========================================================================
 
-	describe('killLineInTableSourceMode — no-op cases', () => {
+	describe('Source Mode table row — no-op cases', () => {
 		it('no-op at last in-cell line end (cell boundary, lineType last)', () => {
-			// cursor at endOfInCellLine of 'last' segment → no matching branch
 			const lineText = '| line1<br>line2 |'
-			const editor = makeEditor([lineText], 0, 16)
-			const info = getInCellLineInfo(lineText, 16)
-			expect(info?.lineType).toBe('last')
-
-			plugin.killLineInTableSourceMode(editor, info)
-			expect(editor.replaceRange).not.toHaveBeenCalled()
-			expect(editor.setLine).not.toHaveBeenCalled()
+			const editor = makeSingleCursorEditor([lineText], 0, 16)
+			plugin.killLineOuter(editor)
+			expect(editor.cm.dispatch).not.toHaveBeenCalled()
 			expect(plugin.isKillChaining).toBe(false)
 		})
 
 		it('no-op at end of single in-cell line', () => {
 			const lineText = '| hello |'
-			const editor = makeEditor([lineText], 0, 7)
-			const info = getInCellLineInfo(lineText, 7)
-			expect(info?.lineType).toBe('single')
+			const editor = makeSingleCursorEditor([lineText], 0, 7)
+			plugin.killLineOuter(editor)
+			expect(editor.cm.dispatch).not.toHaveBeenCalled()
+		})
+	})
 
-			plugin.killLineInTableSourceMode(editor, info)
-			expect(editor.replaceRange).not.toHaveBeenCalled()
-			expect(editor.setLine).not.toHaveBeenCalled()
+
+	describe('multi-cursor', () => {
+		it("each range kills its own line-end independently, joined with \\n -- secondary's resulting cursor is shifted by the primary's earlier deletion", () => {
+			// 'foo bar\nbaz qux' (length 15). range1's own deletion start
+			// (11) comes after range0's own 4-char deletion [3,7), so its
+			// post-change position is 11-4=7, not the stale pre-change 11.
+			const editor = makeMultiSelectionPlainEditor(
+				['foo bar', 'baz qux'],
+				[
+					{ from: { line: 0, ch: 3 }, to: { line: 0, ch: 3 } },
+					{ from: { line: 1, ch: 3 }, to: { line: 1, ch: 3 } },
+				],
+				0,
+			)
+			plugin.killLineOuter(editor)
+			expect(editor.cm.dispatch).toHaveBeenCalledWith({
+				changes: [{ from: 3, to: 7, insert: '' }, { from: 11, to: 15, insert: '' }],
+				selection: EditorSelection.create([EditorSelection.cursor(3), EditorSelection.cursor(7)], 0),
+				userEvent: 'delete',
+			})
+			expect(plugin.killCache).toBe(' bar\n qux')
+		})
+
+		it('a no-op secondary (at the very last line) is left in place (shifted by the earlier deletion, not removed); primary still kills', () => {
+			const editor = makeMultiSelectionPlainEditor(
+				['foo bar', 'baz'],
+				[
+					{ from: { line: 0, ch: 3 }, to: { line: 0, ch: 3 } },
+					{ from: { line: 1, ch: 3 }, to: { line: 1, ch: 3 } }, // last line, already at its own end
+				],
+				0,
+			)
+			plugin.killLineOuter(editor)
+			expect(editor.cm.dispatch).toHaveBeenCalledWith({
+				changes: [{ from: 3, to: 7, insert: '' }],
+				selection: EditorSelection.create([EditorSelection.cursor(3), EditorSelection.cursor(7)], 0),
+				userEvent: 'delete',
+			})
+		})
+
+		it('a Source Mode table row and a plain-text line coexist in the same dispatch', () => {
+			const editor = makeMultiSelectionPlainEditor(
+				['foo bar', '| hello |'],
+				[
+					{ from: { line: 0, ch: 3 }, to: { line: 0, ch: 3 } },
+					{ from: { line: 1, ch: 2 }, to: { line: 1, ch: 2 } },
+				],
+				0,
+			)
+			plugin.killLineOuter(editor)
+			expect(plugin.killCache).toBe(' bar\nhello')
 		})
 	})
 })

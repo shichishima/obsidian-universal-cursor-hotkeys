@@ -83,6 +83,48 @@ than the whole command deciding once based on primary alone.
   this suite — check the machine's power state first for any sudden,
   broad batch of failures spanning unrelated commands.
 
+#### `killYankMultiCursor.e2e.ts`
+
+Kill Line/Kill Region/Kill Word/Copy Region/Yank's own multi-cursor
+rewrite (`killLineOuter`/`killLineInTableLP`, `killRegion`/
+`killRegionInTableLP`, `killWordOuter`/`killWordInTableLP`, `copyRegion`/
+`copyRegionInTableLP`, `yankOuter`/`yankInTableLP`): each range
+kills/copies/yanks independently, joined with `\n` into one shared
+kill-cache entry (matching native Obsidian's own observed multi-cut
+behavior), with Yank distributing one piece per cursor when the
+clipboard's own line count matches the current cursor count. 5 scenarios
+drive the real commands through the real system clipboard and real CM6
+dispatch — something the unit test suite's own mocked clipboard/dispatch
+can't truly verify.
+
+- **(1)/(2) Kill region / Kill line round-trip (outer)**: two selections
+  (or two points) killed together, then two other cursors Yank — each
+  gets its own piece back, confirming the real clipboard write/read
+  round-trip, not just the pure per-range logic.
+- **(3) Cell word round-trip**: inside one table cell, Kill word at two
+  positions, then Yank at the (position-shifted) same two spots —
+  reconstructs the original cell text exactly byte-for-byte, the
+  strongest possible confirmation that position remapping through a real
+  `ChangeSet` behaves correctly end-to-end.
+- **(4) Yank count mismatch**: clipboard line count doesn't match cursor
+  count — duplicates the whole text at every cursor, confirming the
+  fallback path (not just the common-case match).
+- **(5) Outer kill → inner yank**: a multi-cursor Kill Region outside a
+  table, then a multi-cursor Yank inside a table cell — confirms the
+  kill-cache/clipboard contract actually bridges the outer/inner boundary
+  (`yankOuter` and `yankInTableLP` are separate code paths; this is the
+  one scenario that exercises both together).
+- **Found the same class of flaky-test issue as `setMarkPageUpDown.e2e.ts`,
+  not a dispatch-timing race**: scenarios (3)/(5) intermittently failed
+  with `activeCM` reading back as the *outer* view entirely (not just a
+  stale dispatch) — an instrumented 12-run batch traced this to
+  `waitForInTableCell`'s own 2000ms default timeout occasionally being
+  too tight under load (its own timeout is silently swallowed), not a
+  race around the dispatch itself. Fixed by passing a longer timeout
+  (`waitForInTableCell(true, 5000)`) to this helper for these two
+  scenarios, matching the earlier `setMarkPageUpDown.e2e.ts` fix exactly
+  — confirmed via log evidence before changing anything, per usual.
+
 ### Table navigation
 
 #### `exitTableSmartHome.e2e.ts`
