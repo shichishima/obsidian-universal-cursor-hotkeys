@@ -535,5 +535,79 @@ still-open design question" deferred from that increment).
   budget to 5000ms for this test's own two `waitUntil` calls, not by
   changing any implementation code.
 
+### Add cursor
+
+#### `addCursorAboveBelow.e2e.ts`
+
+`addCursorVertically` (Add cursor above/below): a from-scratch
+reimplementation, not a delegation to native Obsidian — `editor:add-cursor-below`/
+`-above` were confirmed (live, via a throwaway diagnostic, not kept) to
+mis-step vertically: skipping a whole document line on `below`, and failing
+to leave the current line at all on `above`, reproducible identically with
+a settle wait and in Source Mode (not a rendering-timing or Live-Preview-margin
+artifact). Reuses CM6's own `view.moveVertically` instead — the same
+primitive `extendMarkVertically` already uses for Set-mark's Ctrl-N/P
+extend — which sidesteps the bug entirely and gives correct goal-column
+clamping and document-edge clamping for free.
+
+- **(1) Outer: column clamp + stacking, both directions**: through lines
+  of alternating length, confirming no line-skip and that a clamped
+  pixel-goal column correctly un-clamps back to its original value once a
+  long-enough line is reached again (CM6's own goal-column semantics,
+  the same as plain arrow-key Up/Down).
+- **(2) Inner: table cell sub-line above/below + stacking + boundary**:
+  the cell's own first/last sub-line no-ops; otherwise stacks correctly up
+  to the cell's own content end. **Found a real race, fixed in production
+  code**: a bare `userEvent: 'select'`-tagged dispatch into a table cell's
+  own inner view silently lost the *oldest* range on the second+ press
+  inside that cell (confirmed via a monkey-patched `dispatch` to inspect the
+  real transaction a genuine Option/Alt-click sends when adding a cursor —
+  it tags itself `select.pointer` and never loses a range; rewriting only
+  the tag on an otherwise-identical dispatch reproduced the fix in
+  isolation). `select.pointer` itself can't be reused (this file's own
+  `updateListener` unconditionally forces `markActive` to the new main
+  range's emptiness for that tag), but `select.uch` — this plugin's own
+  existing tag for a programmatic selection-shape change — fixes the same
+  loss and is already exempted from every `markActive` side effect that
+  listener has. A *second*, separate race: any preceding command run
+  against a table cell's own inner view (even a no-op `add-cursor-above`)
+  can leave an async Obsidian-internal resync pending that clobbers
+  whatever we dispatch next if it lands first — fixed by deferring the
+  in-cell branch's whole body by 2 animation frames (same category as
+  `exitCellWithSelection`'s own deferral elsewhere in this file), confirmed
+  via instrumented diagnostic logging before implementing (dispatching
+  immediately reproduced the loss on the very first add-cursor press after
+  *any* preceding in-cell command, not just a prior add-cursor one).
+  Because of this defer, the test itself must also wait 2 animation frames
+  before reading the result after every in-cell add-cursor command.
+- **(3) Set-mark interaction**: a newly added cursor joins a non-empty
+  mark-extended selection as a fresh, not-yet-extended mark point
+  (`anchor === head`) without touching the existing selection or
+  `markActive` — the next Ctrl-N/P then extends *both* ranges in one
+  dispatch, confirmed end-to-end (not just unit-mocked), since
+  `extendMarkVertically` already treats every range in the selection
+  uniformly and needed no new code for this to work.
+- **(4) Outer: buffer end boundary**: lands at the end of the buffer's own
+  last line, no-ops on a second press. Only the END direction is tested at
+  a real buffer edge — every fixture in this suite carries a heading +
+  description block above its own `---` separator, so "the first line
+  after `---`" is never genuinely the whole document's own first line, and
+  a true "nothing above at all" case can't be built from the shared
+  `openFixtureAndGetContentStart` helper. The START direction's own no-op
+  guard is the identical code path regardless of direction, already
+  covered by the unit test suite.
+- **A trailing newline at the fixture's own end mattered**: with one, CM6
+  sees an extra, empty final line past "last line of this document",
+  so `add-cursor-below` correctly moves into *that* line instead of
+  no-opping — confirmed live, fixed by saving the fixture without a
+  trailing newline.
+- **Intermittent table-entry flakiness, same class already documented
+  above for `setMarkPageUpDown.e2e.ts`**: `waitForInTableCell(true)`
+  confirms the flag flipped, but the landing dispatch itself can still race
+  ahead of Obsidian's own table-widget rendering settling — fixed with the
+  same double-rAF wait `exitTableSmartHome.e2e.ts` already established for
+  this exact race, applied once right after `waitForInTableCell` in this
+  spec's scenario (2).
+
 1. Popout window support
 2. Vim mode commands

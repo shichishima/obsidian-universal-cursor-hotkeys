@@ -44,6 +44,7 @@ export const config: WebdriverIO.Config = {
 		'./specs/setMarkShiftArrowUnification.e2e.ts',
 		'./specs/setMarkBufferEdge.e2e.ts',
 		'./specs/setMarkPageUpDown.e2e.ts',
+		'./specs/addCursorAboveBelow.e2e.ts',
 		'./specs/undoInCellVLStale.e2e.ts',
 	]],
 

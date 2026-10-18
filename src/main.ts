@@ -520,6 +520,28 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			}
 		});
 
+		// No recommended hotkey yet — undecided (candidates: Option-↓/↑ on
+		// macOS, Alt-↓/↑ on Windows). Opt-in via Settings → Hotkeys for now.
+		this.addCommand({
+			id: 'add-cursor-below',
+			name: 'Add cursor below',
+			repeatable: true,
+			editorCallback: (editor: Editor) => {
+				if (this.isComposing(editor)) return;
+				this.addCursorVertically(editor, true);
+			}
+		});
+
+		this.addCommand({
+			id: 'add-cursor-above',
+			name: 'Add cursor above',
+			repeatable: true,
+			editorCallback: (editor: Editor) => {
+				if (this.isComposing(editor)) return;
+				this.addCursorVertically(editor, false);
+			}
+		});
+
 		this.registerEditorExtension(
 			EditorView.updateListener.of((update) => {
 				// Mouse click/drag: the "select.pointer" tag covers both (CM6
@@ -1386,6 +1408,93 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		});
 		if (!changed) return;
 		inner.dispatch({ selection: EditorSelection.create(ranges, sel.mainIndex), userEvent: 'select.uch', scrollIntoView: true });
+	}
+
+	//===========================================================================
+	// Add cursor above/below (Option/Alt-↑/↓ candidate)
+	//===========================================================================
+
+	// Native Obsidian's own 'editor:add-cursor-below'/'-above' were confirmed
+	// (live, via E2E) to mis-step vertically — e.g. skipping a whole document
+	// line on 'below' and failing to leave the current line at all on
+	// 'above' — reproducible even with a settle wait and identical in Source
+	// Mode, so it's not a rendering-timing or Live-Preview-margin artifact.
+	// Reusing CM6's own view.moveVertically (the same primitive
+	// extendMarkVertically already uses for Set-mark's Ctrl-N/P extend) sidesteps
+	// that bug entirely and gives correct goal-column clamping and document-edge
+	// clamping for free — confirmed live that moveVertically itself already
+	// lands at the end/start of the buffer when there's no further line, same
+	// as a plain Ctrl-N/P press would.
+	//
+	// Only ever adds ONE new cursor relative to the current primary (every
+	// other range in the selection is left untouched) and makes the new
+	// cursor primary — pressing again stacks one more line further in the
+	// same direction. markActive is left exactly as it was: if a mark was
+	// already active, the new cursor is added as a fresh, not-yet-extended
+	// mark point (anchor === head, ready to grow on the next Ctrl-N/P), since
+	// extendMarkVertically already treats every range in the selection
+	// uniformly — no special-casing needed here for that to work.
+	//
+	// userEvent is 'select.uch' (this plugin's own standard tag for a
+	// programmatic selection-shape change, same as extendMarkVertically etc.)
+	// rather than bare 'select' — confirmed live this isn't just cosmetic:
+	// a bare-'select'-tagged dispatch into a table cell's own inner view
+	// silently lost the OLDEST range on the second+ add-cursor press inside
+	// that cell (e.g. [0,74] -> [0,74,93] regressed to just [74,93]), while
+	// a real Option/Alt-click adding a cursor the same way (confirmed via a
+	// monkey-patched dispatch to inspect its actual transaction) tags
+	// itself 'select.pointer' and never loses a range. Rewriting only the
+	// userEvent tag (nothing else) on an otherwise-identical dispatch
+	// reproduced the fix, isolating the tag itself as the cause — some
+	// Obsidian-internal table-cell-widget resync evidently keys off it.
+	// 'select.pointer' itself can't be reused here (main.ts's own
+	// updateListener unconditionally forces markActive to the new main
+	// range's emptiness for that exact tag), but 'select.uch' fixes the
+	// same loss and is already exempted from every markActive side effect
+	// this file's updateListener has, by design.
+	private addCursorVertically(editor: Editor, forward: boolean) {
+		const inner = editor.activeCM;
+		if (editor.inTableCell && inner && inner !== editor.cm) {
+			// A second, separate race from the tag issue above: any
+			// preceding command run against a table cell's own inner view —
+			// even a no-op one, confirmed live with add-cursor-above itself
+			// right before add-cursor-below — can leave an async
+			// Obsidian-internal resync pending. If our own dispatch below
+			// lands before that resync fires, it silently clobbers our
+			// freshly-added range back down to just the newest one, even
+			// though the dispatch we actually sent (confirmed via a
+			// monkey-patched dispatch) was already correct. Same race
+			// category as exitCellWithSelection's own 2-RAF-frame deferral
+			// elsewhere in this file; waiting it out first — then reading,
+			// computing and dispatching only once fully settled — confirmed
+			// stable (dispatching immediately without this wait reproduced
+			// the loss on the very first add-cursor press after ANY
+			// preceding in-cell command, not just a prior add-cursor one).
+			requestAnimationFrameOnActiveWindow(() => {
+				requestAnimationFrameOnActiveWindow(() => {
+					this.addCursorOnView(inner, forward);
+				});
+			});
+			return;
+		}
+		this.addCursorOnView(editor.cm, forward);
+	}
+
+	private addCursorOnView(view: EditorView, forward: boolean) {
+		const sel = view.state.selection;
+		const primary = sel.main;
+
+		// Same mouse-drag-artifact guard as extendMarkVertically — see its own
+		// doc comment (a genuine pixel goalColumn is never negative).
+		const startRange = (primary.goalColumn ?? 0) < 0
+			? EditorSelection.range(primary.anchor, primary.head)
+			: primary;
+
+		const stepped = view.moveVertically(startRange, forward);
+		if (stepped.head === primary.head) return; // already at the buffer start/end in that direction
+
+		const newCursor = EditorSelection.cursor(stepped.head, stepped.assoc, stepped.bidiLevel ?? undefined, stepped.goalColumn);
+		view.dispatch({ selection: sel.addRange(newCursor, true), userEvent: 'select.uch', scrollIntoView: true });
 	}
 
 	// Ctrl-A (Set-mark candidate): extends every range to its own Home
