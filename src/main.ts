@@ -4013,9 +4013,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	//===========================================================================
 
 	// DWIM (do-what-i-mean): a non-empty selection transforms the whole
-	// selection (same validation as Copy/Kill Region — table-aware,
-	// single-cell only); otherwise transforms the WHOLE word at the cursor.
-	// Deliberately diverges from real Emacs's own upcase-word/downcase-word/
+	// selection (same table-awareness as Copy/Kill Region — Source Mode
+	// table rows stay single-cell only, see isValidTransformRangeOuter);
+	// otherwise transforms the WHOLE word at the cursor. Deliberately
+	// diverges from real Emacs's own upcase-word/downcase-word/
 	// capitalize-word, which only transform from point to the word's own end
 	// (e.g. "he|llo" -> "heLLO", leaving "he" untouched) — mid-word partial
 	// transforms are unintuitive, and the divergence matters most visibly
@@ -4026,73 +4027,105 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// characters, so there's no `|`/`<br>` corruption risk the way a kill
 	// has, and the design principle established for Kill word ("cell is a
 	// document boundary") only exists to guard against that risk.
+	//
+	// The selection-vs-word choice is made per RANGE, not once for the
+	// whole command based on primary alone — see
+	// transformWordOrSelectionNonTable/InTableLP below, which each decide
+	// independently per range. Only two things are still structurally
+	// primary-only, both because they collapse the whole selection by
+	// their very nature: entering a table row (reaching a hand-off to
+	// Word right/left's own crossing logic), and Source Mode table-row
+	// word search (transformWordInTableSourceMode, unchanged, out of
+	// scope — Source Mode has no inner view to loop ranges over the way
+	// Live Preview cells do).
 	private transformWord(editor: Editor, transform: (s: string) => string) {
+		if (editor.inTableCell) {
+			this.transformWordOrSelectionInTableLP(editor, transform);
+			return;
+		}
+
 		const from = editor.getCursor('from');
 		const to = editor.getCursor('to');
-		if (from.line !== to.line || from.ch !== to.ch) {
-			this.transformSelection(editor, transform);
-			return;
-		}
-
-		if (editor.inTableCell) {
-			this.transformWordInTableLP(editor, transform);
-			return;
-		}
-
-		const lineText = editor.getLine(from.line);
-		const inSourceTable = !this.isLivePreviewMode() && this.isTableLineSourceMode(lineText);
-		if (inSourceTable) {
-			const info = getInCellLineInfo(lineText, from.ch);
-			if (info) {
-				this.transformWordInTableSourceMode(editor, transform, info);
-				return;
+		if (from.line === to.line && from.ch === to.ch) {
+			const lineText = editor.getLine(from.line);
+			const inSourceTable = !this.isLivePreviewMode() && this.isTableLineSourceMode(lineText);
+			if (inSourceTable) {
+				const info = getInCellLineInfo(lineText, from.ch);
+				if (info) {
+					this.transformWordInTableSourceMode(editor, transform, info);
+					return;
+				}
 			}
 		}
 
-		this.transformWordNonTable(editor, transform);
+		this.transformWordOrSelectionNonTable(editor, transform);
 	}
 
-	// Reuses Copy/Kill Region's own selection validation (getValidatedRegionText)
-	// purely as a validity check here — its own return value is the
-	// kill-cache-normalized text (<br> -> \n, \| -> |), which is exactly
-	// what must NOT be written back into the document, so the actual
-	// transform works off the raw, unnormalized selection text instead.
-	private transformSelection(editor: Editor, transform: (s: string) => string) {
-		const from = editor.getCursor('from');
-		const to = editor.getCursor('to');
-		if (this.getValidatedRegionText(editor) === null) return;
+	// Pure (no dispatch) per-range validity check for a non-empty range in
+	// transformWordOrSelectionNonTable's own loop below — same Source Mode
+	// table-row rule getValidatedRegionText already applies to Kill/Copy
+	// Region's own primary-only selection (single-line/single-cell only),
+	// reimplemented as a separate, per-range check rather than reusing
+	// getValidatedRegionText itself: Kill Region/Copy Region/Yank
+	// intentionally stay single-cursor-only (a separate, not-yet-started
+	// item), so that function is deliberately left untouched.
+	private isValidTransformRangeOuter(editor: Editor, from: { line: number; ch: number }, to: { line: number; ch: number }): boolean {
+		const fromLine = editor.getLine(from.line);
+		const toLine   = editor.getLine(to.line);
+		const inSourceTable = !this.isLivePreviewMode() && (
+			this.isTableLineSourceMode(fromLine) ||
+			this.isTableLineSourceMode(toLine)
+		);
+		if (!inSourceTable) return true;
 
-		this.markActive = false;
-		if (editor.inTableCell) {
-			const inner = editor.activeCM;
-			if (!inner || inner === editor.cm) return;
-			const innerSel = inner.state.selection.main;
-			const original = inner.state.doc.sliceString(innerSel.from, innerSel.to);
-			inner.dispatch({ changes: { from: innerSel.from, to: innerSel.to, insert: transform(original) }, selection: { anchor: innerSel.to }, userEvent: 'input' });
-			return;
+		if (from.line !== to.line) return false;
+		const fromBounds = getCellBounds(fromLine, from.ch);
+		const toBounds   = getCellBounds(fromLine, to.ch);
+		return !!fromBounds && !!toBounds && fromBounds.open === toBounds.open;
+	}
+
+	// Pure (no dispatch) per-range mode resolution for
+	// transformWordOrSelectionNonTable's own loop: a non-empty range
+	// transforms its own selection span (DWIM); an empty range falls back
+	// to a forward word search from point, reusing the existing
+	// findWordTargetPlainTextForTransform walk unchanged.
+	private resolveWordOrSelectionRangeOuter(editor: Editor, range: SelectionRange):
+			{ kind: 'selection'; from: number; to: number }
+			| { kind: 'invalid' }
+			| { kind: 'word-found'; from: number; to: number }
+			| { kind: 'word-noMove' }
+			| { kind: 'table'; tableLine: number } {
+		if (range.from !== range.to) {
+			const from = editor.offsetToPos(range.from);
+			const to = editor.offsetToPos(range.to);
+			if (!this.isValidTransformRangeOuter(editor, from, to)) return { kind: 'invalid' };
+			return { kind: 'selection', from: range.from, to: range.to };
 		}
-
-		const original = editor.getRange(from, to);
-		editor.replaceRange(transform(original), from, to);
-		// See transformWordNonTable's identical comment: replaceRange has no
-		// cursor-positioning parameter, defaults to the replaced range's own
-		// start rather than its end.
-		this.setCursorViaCm(editor, to.line, to.ch);
+		const wordResult = this.findWordTargetPlainTextForTransform(editor, editor.offsetToPos(range.head));
+		if (wordResult.kind === 'table') return { kind: 'table', tableLine: wordResult.tableLine };
+		if (wordResult.kind === 'noMove') return { kind: 'word-noMove' };
+		return { kind: 'word-found', from: wordResult.from, to: wordResult.to };
 	}
 
-	// Multi-cursor-safe: same shape as moveCursorWordPlainText's own
-	// multi-cursor loop, but each range's own result is a text SPAN to
-	// transform rather than just a landing position. Uppercase/Lowercase/
+	// Multi-cursor-safe: each range independently either transforms its own
+	// non-empty selection, or searches forward for a word from point —
+	// see resolveWordOrSelectionRangeOuter above. Uppercase/Lowercase/
 	// Capitalize never change a span's own length (only character case), so
 	// each range's resulting cursor is simply its own unchanged `to` offset
 	// — no position-remapping through the changeset is needed.
-	private transformWordNonTable(editor: Editor, transform: (s: string) => string) {
+	private transformWordOrSelectionNonTable(editor: Editor, transform: (s: string) => string) {
+		// Unconditional, same simplification as Delete char/Transpose
+		// chars/Kill word (c79622c): a precise "did a selection actually
+		// get consumed" guard would need to be per-range, and markActive
+		// is a single global flag — clearing it here is harmless even when
+		// every range turns out to be in word-search mode (no selection
+		// existed to begin with, so the mark was never active).
+		this.markActive = false;
 		const cm = editor.cm;
 		const sel = cm.state.selection;
 		const main = sel.main;
 		const mainIndex = sel.ranges.indexOf(main);
-		const results = sel.ranges.map(range =>
-			this.findWordTargetPlainTextForTransform(editor, editor.offsetToPos(range.head)));
+		const results = sel.ranges.map(range => this.resolveWordOrSelectionRangeOuter(editor, range));
 		const mainResult = results[mainIndex];
 
 		if (mainResult.kind === 'table') {
@@ -4100,7 +4133,9 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			// the existing single-cursor entry+continuation path, which
 			// already collapses the whole selection down to primary on its
 			// own (setCursorViaCm inside landInRowEdgeCellForWord) — same as
-			// moveCursorWordPlainText's own primary-crosses case.
+			// moveCursorWordPlainText's own primary-crosses case. A real
+			// selection on primary can never reach this branch (only an
+			// empty range's own word search returns 'table').
 			this.continueWordTransformAfterLanding(editor, this.landInRowEdgeCellForWord(editor, mainResult.tableLine, true, false, false), transform);
 			return;
 		}
@@ -4113,32 +4148,39 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			const result = results[i];
 			const isMain = range === main;
 			if (!isMain && result.kind === 'table') {
-				// Would cross into a table the primary isn't — dropped.
+				// Would cross into a table the primary isn't — dropped entirely
+				// (no sensible position to keep it at once collapsed).
 				changed = true;
 				return;
 			}
-			if (result.kind === 'found') {
-				changed = true;
-				const original = editor.getRange(editor.offsetToPos(result.from), editor.offsetToPos(result.to));
-				changes.push({ from: result.from, to: result.to, insert: transform(original) });
+			if (result.kind === 'table') return; // unreachable: mainResult.kind !== 'table' was already checked above.
+			if (result.kind === 'invalid' || result.kind === 'word-noMove') {
+				// Left untouched: an invalid selection (e.g. crosses a Source
+				// Mode table-row boundary) or a word search that found nothing
+				// further on this range's own line — primary's own
+				// invalidity no longer blocks the whole command; other valid
+				// ranges still proceed.
 				if (isMain) newMainIndex = kept.length;
-				kept.push(EditorSelection.cursor(result.to));
+				kept.push(range);
 				return;
 			}
-			// 'noMove' — document edge, nothing further on this range's own line.
+			changed = true;
+			const original = editor.getRange(editor.offsetToPos(result.from), editor.offsetToPos(result.to));
+			changes.push({ from: result.from, to: result.to, insert: transform(original) });
 			if (isMain) newMainIndex = kept.length;
-			kept.push(range);
+			kept.push(EditorSelection.cursor(result.to));
 		});
 		if (!changed) return;
 		cm.dispatch({ changes, selection: EditorSelection.create(kept, newMainIndex), userEvent: 'input' });
 	}
 
-	// Pure (no dispatch) per-range word search for transformWordNonTable's
-	// multi-cursor loop above — same walk as findWordTargetPlainText, but
-	// forward-only (Uppercase/Lowercase/Capitalize always search forward
-	// from point, unlike Word left/right) and returns the found word's own
-	// {from, to} span rather than just a landing ch, since the caller needs
-	// to read and replace that span's text.
+	// Pure (no dispatch) per-range word search for
+	// transformWordOrSelectionNonTable's own loop above — same walk as
+	// findWordTargetPlainText, but forward-only (Uppercase/Lowercase/
+	// Capitalize always search forward from point, unlike Word left/right)
+	// and returns the found word's own {from, to} span rather than just a
+	// landing ch, since the caller needs to read and replace that span's
+	// text.
 	private findWordTargetPlainTextForTransform(editor: Editor, from: { line: number; ch: number }):
 			{ kind: 'noMove' }
 			| { kind: 'found'; from: number; to: number }
@@ -4165,18 +4207,39 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}
 	}
 
-	// Multi-cursor-safe — same shape as transformWordNonTable above, but
-	// this cell's own word search is already expressed in the INNER view's
-	// own coordinates (unlike moveCursorWordInTable's OUTER-raw-line
-	// search), so no inner/outer bridging is needed here at all.
-	private transformWordInTableLP(editor: Editor, transform: (s: string) => string) {
+	// Pure (no dispatch) per-range mode resolution for
+	// transformWordOrSelectionInTableLP's own loop: a non-empty range
+	// transforms its own selection span (DWIM) — always valid here, since
+	// a single cell's own inner view can't span multiple cells/rows to
+	// begin with, unlike the outer case above. An empty range falls back
+	// to a forward word search within the cell, reusing the existing
+	// findWordTargetInCellForTransform walk unchanged.
+	private resolveWordOrSelectionRangeInCell(inner: EditorView, range: SelectionRange):
+			{ kind: 'selection'; from: number; to: number }
+			| { kind: 'word-found'; from: number; to: number }
+			| { kind: 'exit' } {
+		if (range.from !== range.to) return { kind: 'selection', from: range.from, to: range.to };
+		const wordResult = this.findWordTargetInCellForTransform(inner, range);
+		if (wordResult.kind === 'exit') return { kind: 'exit' };
+		return { kind: 'word-found', from: wordResult.from, to: wordResult.to };
+	}
+
+	// Multi-cursor-safe — same shape as transformWordOrSelectionNonTable
+	// above, but this cell's own word search is already expressed in the
+	// INNER view's own coordinates (unlike moveCursorWordInTable's
+	// OUTER-raw-line search), so no inner/outer bridging is needed here at
+	// all.
+	private transformWordOrSelectionInTableLP(editor: Editor, transform: (s: string) => string) {
 		const inner = editor.activeCM;
 		if (!inner || inner === editor.cm) return;
+		// Unconditional — see transformWordOrSelectionNonTable's identical
+		// comment above.
+		this.markActive = false;
 
 		const sel = inner.state.selection;
 		const main = sel.main;
 		const mainIndex = sel.ranges.indexOf(main);
-		const results = sel.ranges.map(range => this.findWordTargetInCellForTransform(inner, range));
+		const results = sel.ranges.map(range => this.resolveWordOrSelectionRangeInCell(inner, range));
 		const mainResult = results[mainIndex];
 
 		if (mainResult.kind === 'exit') {
@@ -4184,6 +4247,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			// the existing single-cursor cross-row/cell continuation path,
 			// which already collapses to one range on its own (setCursorViaCm
 			// inside crossTableRowForWord) — same policy as everywhere else.
+			// A real selection on primary can never reach this branch (only
+			// an empty range's own word search returns 'exit').
 			const outerCursor = editor.getCursor();
 			const outerLineText = editor.getLine(outerCursor.line);
 			const cellIndex = getCellIndex(outerLineText, outerCursor.ch);
@@ -4199,7 +4264,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			const result = results[i];
 			const isMain = range === main;
 			if (!isMain && result.kind === 'exit') {
-				// Would leave this cell while the primary isn't — dropped.
+				// Would leave this cell while the primary isn't — dropped
+				// entirely (no sensible position to keep it at once collapsed).
 				changed = true;
 				return;
 			}
@@ -4215,7 +4281,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 	// Pure (no dispatch) per-range word search within the current cell, for
-	// transformWordInTableLP's multi-cursor loop above.
+	// transformWordOrSelectionInTableLP's multi-cursor loop above.
 	private findWordTargetInCellForTransform(inner: EditorView, range: SelectionRange):
 			{ kind: 'exit' } | { kind: 'found'; from: number; to: number } {
 		let subLine = inner.state.doc.lineAt(range.head);
@@ -4250,9 +4316,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				const to = { line: cursor.line, ch: segInfo.startOfInCellLine + span.to };
 				const original = editor.getRange(from, to);
 				editor.replaceRange(transform(original), from, to);
-				// See transformWordNonTable's identical comment: replaceRange
-				// has no cursor-positioning parameter, defaults to the
-				// replaced range's own start.
+				// replaceRange has no cursor-positioning parameter, defaults
+				// to the replaced range's own start rather than its end.
 				this.setCursorViaCm(editor, cursor.line, to.ch);
 				return;
 			}
@@ -4266,20 +4331,21 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		this.continueWordTransformAfterLanding(editor, this.crossTableRowForWord(editor, cellIndex, true, false, false, true), transform);
 	}
 
-	// Shared tail for transformWordNonTable's table-entry case and
-	// transformWordInTableLP/SourceMode's own cell-exhausted case: landed is
-	// already sitting exactly at the target word's own start (forward=true,
-	// wordEnd=false — the crossing functions' own word-START convention, no
-	// +1 caret correction needed since there's no word-END involved here
-	// the way Word right/left needs). Hands off to whichever branch matches
-	// where the crossing actually landed — including handing back to
-	// transformWordNonTable if it exited the table entirely, so a wordless
-	// exit line doesn't just strand the search the way it used to for Word
-	// right/left before that was fixed.
+	// Shared tail for transformWordOrSelectionNonTable's table-entry case
+	// and transformWordOrSelectionInTableLP/SourceMode's own
+	// cell-exhausted case: landed is already sitting exactly at the target
+	// word's own start (forward=true, wordEnd=false — the crossing
+	// functions' own word-START convention, no +1 caret correction needed
+	// since there's no word-END involved here the way Word right/left
+	// needs). Hands off to whichever branch matches where the crossing
+	// actually landed — including handing back to
+	// transformWordOrSelectionNonTable if it exited the table entirely, so
+	// a wordless exit line doesn't just strand the search the way it used
+	// to for Word right/left before that was fixed.
 	private continueWordTransformAfterLanding(editor: Editor, landed: { line: number; ch: number } | null, transform: (s: string) => string) {
 		if (!landed) return;
 		if (editor.inTableCell) {
-			this.transformWordInTableLP(editor, transform);
+			this.transformWordOrSelectionInTableLP(editor, transform);
 			return;
 		}
 		const lineText = editor.getLine(landed.line);
@@ -4287,7 +4353,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (info) {
 			this.transformWordInTableSourceMode(editor, transform, info);
 		} else {
-			this.transformWordNonTable(editor, transform);
+			this.transformWordOrSelectionNonTable(editor, transform);
 		}
 	}
 
