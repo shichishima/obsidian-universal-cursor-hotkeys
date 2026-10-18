@@ -34,6 +34,7 @@ export const config: WebdriverIO.Config = {
 		'./specs/keyUpgradesToggle.e2e.ts',
 		'./specs/multiCursorTableCrossing.e2e.ts',
 		'./specs/uppercaseWordMultiCursor.e2e.ts',
+		'./specs/killYankMultiCursor.e2e.ts',
 		'./specs/exitTableSmartHome.e2e.ts',
 		'./specs/setMarkTableSkip.e2e.ts',
 		'./specs/setMarkMouseAndLeafChange.e2e.ts',

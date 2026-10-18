@@ -13,6 +13,7 @@
   - Also arms automatically on a mouse drag: dragging out a selection sets the mark the same way, so Set-mark's own extend commands can continue extending it right afterward.
   - The mark clears automatically whenever its selection would otherwise be silently lost: native cursor movement that collapses a selection (arrow keys, Home/End, Page Up/Down, a mouse click), editing commands that consume the selection (Kill region, Copy region, Yank, Uppercase/Lowercase/Capitalize word, Delete char, Transpose chars, Kill word left/right, Undo/Redo), and switching to a different note or pane.
 - **Deselect (Ctrl+G, command id `keyboard-quit`), matching real Emacs's `keyboard-quit`:** clears an active selection — including one extended via Set-mark — and also collapses a multi-cursor selection down to the primary cursor.
+- **Kill line, Kill region, Kill word left/right, Copy region, and Yank now support multiple cursors:** each range kills/copies/yanks independently instead of only the primary cursor; killed or copied text from multiple ranges is joined with newlines into one shared clipboard entry, and Yank distributes one line back to each cursor when the line count matches the current cursor count, otherwise pasting the whole text at every cursor.
 
 ### Fixed
 

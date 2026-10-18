@@ -3661,36 +3661,28 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Kill line (Ctrl-K)
 	//===========================================================================
 
+	// The selection-vs-table-row choice is made per range (resolveKillLineRangeOuter
+	// below), not once for the whole command based on primary alone — same
+	// philosophy as transformWordOrSelectionNonTable's own per-range mode
+	// resolution. Only the LP-cell case is still gated at this top level,
+	// since a focused cell is a structurally distinct inner EditorView,
+	// not something any range can independently "be in."
 	private killLine(editor: Editor) {
-		const lineText = editor.getLine(editor.getCursor().line);
-		const inSourceTable = !this.isLivePreviewMode() && this.isTableLineSourceMode(lineText);
-
 		if (editor.inTableCell) {
 			this.killLineInTableLP(editor);
 			return;
 		}
-
-		if (inSourceTable) {
-			const info = getInCellLineInfo(lineText, editor.getCursor().ch);
-			if (info) {
-				this.killLineInTableSourceMode(editor, info);
-				return;
-			}
-		}
-
-		this.killLineNonTable(editor);
+		this.killLineOuter(editor);
 	}
 
 
-	private killLineInTableLP(editor: Editor) {
-		const inner = editor.activeCM;
-		if (!inner || inner === editor.cm) {
-			// Fallback: no-op if inner view is unavailable (cursor not in LP table cell).
-			return;
-		}
-
-		// Inner view path: use sub-line boundaries directly.
-		const head          = inner.state.selection.main.head;
+	// Pure (no dispatch) per-range resolution for killLineInTableLP's own
+	// multi-range loop below — mirrors the single-cursor logic exactly:
+	// kill to end of the current sub-line, or (already there) join with
+	// the next sub-line via Smart join; a no-op only at the cell's own
+	// last sub-line's own end.
+	private resolveKillLineRangeInCell(inner: EditorView, head: number):
+			{ kind: 'noop' } | { kind: 'found'; from: number; to: number; killText: string } {
 		const subLine       = inner.state.doc.lineAt(head);
 		const isLastSubLine = subLine.number === inner.state.doc.lines;
 		const endOfSubLine  = isLastSubLine
@@ -3698,14 +3690,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			: subLine.to;
 
 		if (head < endOfSubLine) {
-			const text = inner.state.doc.sliceString(head, endOfSubLine);
-			this.updateKillCache(text);
-			navigator.clipboard.writeText(this.killCache).catch(() => {});
-			this.isDispatchingKill = true;
-			inner.dispatch({ changes: { from: head, to: endOfSubLine, insert: '' }, selection: { anchor: head }, userEvent: 'delete' });
-			this.isDispatchingKill = false;
-			this.isKillChaining = true;
-			return;
+			return { kind: 'found', from: head, to: endOfSubLine, killText: inner.state.doc.sliceString(head, endOfSubLine) };
 		}
 
 		if (!isLastSubLine) {
@@ -3726,113 +3711,198 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			// The trimmed leading Markdown (trimLen chars) is deleted from the
 			// cell right alongside the newline below — it must go into the
 			// kill cache too, or Yank can never restore it.
-			this.updateKillCache('\n' + afterNl.slice(0, trimLen));
-			navigator.clipboard.writeText(this.killCache).catch(() => {});
-			this.isDispatchingKill = true;
-			inner.dispatch({ changes: { from: subLine.to, to: subLine.to + 1 + trimLen, insert: '' }, selection: { anchor: subLine.to }, userEvent: 'delete' });
-			this.isDispatchingKill = false;
-			this.isKillChaining = true;
-			return;
+			return { kind: 'found', from: subLine.to, to: subLine.to + 1 + trimLen, killText: '\n' + afterNl.slice(0, trimLen) };
 		}
+
+		return { kind: 'noop' };
+	}
+
+	// Multi-cursor-safe — same shape as killLineNonTable above, operating
+	// on the cell's own inner view coordinates directly.
+	private killLineInTableLP(editor: Editor) {
+		const inner = editor.activeCM;
+		if (!inner || inner === editor.cm) return;
+
+		const sel = inner.state.selection;
+		const main = sel.main;
+		const changes: { from: number; to: number; insert: string }[] = [];
+		const entries: ({ kind: 'cursor'; pos: number })[] = [];
+		let newMainIndex = -1;
+		const killedTexts: string[] = [];
+
+		sel.ranges.forEach(range => {
+			const isMain = range === main;
+			const result = this.resolveKillLineRangeInCell(inner, range.head);
+			if (result.kind === 'noop') {
+				if (isMain) newMainIndex = entries.length;
+				entries.push({ kind: 'cursor', pos: range.head });
+				return;
+			}
+			changes.push({ from: result.from, to: result.to, insert: '' });
+			killedTexts.push(result.killText);
+			if (isMain) newMainIndex = entries.length;
+			entries.push({ kind: 'cursor', pos: result.from });
+		});
+		if (killedTexts.length === 0) return;
+
+		this.updateKillCache(killedTexts.join('\n'));
+		navigator.clipboard.writeText(this.killCache).catch(() => {});
+		const selection = EditorSelection.create(this.mapSelectionAfterChanges(inner, changes, entries), newMainIndex);
+		this.isDispatchingKill = true;
+		inner.dispatch({ changes, selection, userEvent: 'delete' });
+		this.isDispatchingKill = false;
+		this.isKillChaining = true;
 	}
 
 
-	private killLineInTableSourceMode(editor: Editor, info: InCellLineInfo) {
-		const cursor = editor.getCursor();
-		const lineText = editor.getLine(cursor.line);
-
-		if (cursor.ch < info.endOfInCellLine) {
-			const text = lineText.slice(cursor.ch, info.endOfInCellLine);
-			this.updateKillCache(this.normalizeKillText(text));
-			navigator.clipboard.writeText(this.killCache).catch(() => {});
-			this.isDispatchingKill = true;
-			editor.replaceRange('', cursor, { line: cursor.line, ch: info.endOfInCellLine });
-			this.isDispatchingKill = false;
-			this.isKillChaining = true;
-			return;
+	// Pure (no dispatch) per-range resolution for a Source Mode table row —
+	// mirrors the single-cursor logic exactly: kill to the end of the
+	// current in-cell line; or (already there) kill a following <br>
+	// forward (only possible when lineType is 'first'/'middle'), honoring
+	// Smart join the same way killLineNonTable's own "current line must be
+	// non-empty" guard does; or (cursor snapped to a <br>'s own end) kill
+	// that <br> backward. A no-op (not every one of these three forms
+	// applies at every position) falls through to resolveKillLineRangeOuter's
+	// own plain-text fallback — matches isValidRegionRangeOuter's own "not
+	// actually in a table row" fallback philosophy.
+	private resolveKillLineRangeSourceMode(editor: Editor, pos: { line: number; ch: number }, lineText: string, info: InCellLineInfo):
+			{ kind: 'noop' } | { kind: 'found'; from: number; to: number; killText: string } {
+		if (pos.ch < info.endOfInCellLine) {
+			const text = lineText.slice(pos.ch, info.endOfInCellLine);
+			return {
+				kind: 'found',
+				from: editor.posToOffset(pos),
+				to: editor.posToOffset({ line: pos.line, ch: info.endOfInCellLine }),
+				killText: this.normalizeKillText(text),
+			};
 		}
 
 		// kill <br> forward from endOfInCellLine (only possible when lineType is 'first'/'middle')
 		const brMatch = lineText.slice(info.endOfInCellLine).match(/^<[bB][rR]>([ \t]*)/);
 		if (brMatch) {
-			const brLen      = '<br>'.length;
-			const afterBr    = lineText.slice(info.endOfInCellLine + brLen);
-			// Matches killLineNonTable's own "current line must be non-empty"
-			// guard — Smart join shouldn't trim the next in-cell line's
-			// leading Markdown when killing from a genuinely blank one.
-			const trimLen    = (this.settings.smartJoin && !info.isEmpty)
+			const brLen   = '<br>'.length;
+			const afterBr = lineText.slice(info.endOfInCellLine + brLen);
+			const trimLen = (this.settings.smartJoin && !info.isEmpty)
 				? this.getBeginningOfLinePosition(afterBr, afterBr.length || 1)
 				: 0;
-			const toCh       = info.endOfInCellLine + brLen + trimLen;
-			const targetCh   = info.endOfInCellLine;
-			const targetLine = cursor.line;
+			const toCh     = info.endOfInCellLine + brLen + trimLen;
+			const targetCh = info.endOfInCellLine;
 			// The trimmed leading Markdown (trimLen chars) is deleted from the
 			// cell right alongside the <br> below — it must go into the kill
 			// cache too, or Yank can never restore it.
-			this.updateKillCache('\n' + afterBr.slice(0, trimLen));
-			navigator.clipboard.writeText(this.killCache).catch(() => {});
-			this.isDispatchingKill = true;
-			editor.setLine(targetLine, lineText.slice(0, targetCh) + lineText.slice(toCh));
-			this.isDispatchingKill = false;
-			setTimeoutOnActiveWindow(() => {
-				this.isDispatchingKill = true;
-				this.setCursorViaCm(editor, targetLine, targetCh);
-				this.isDispatchingKill = false;
-				this.isKillChaining = true;
-			}, 0);
-			return;
+			return {
+				kind: 'found',
+				from: editor.posToOffset({ line: pos.line, ch: targetCh }),
+				to: editor.posToOffset({ line: pos.line, ch: toCh }),
+				killText: '\n' + afterBr.slice(0, trimLen),
+			};
 		}
 
 		// cursor snap: cursor may land at br.end (= startOfInCellLine of 'middle'/'last')
 		// rather than br.start. Kill the <br> that ends at cursor.ch.
-		const brSnapMatch = lineText.slice(0, cursor.ch).match(/<[bB][rR]>([ \t]*)$/);
-		if (brSnapMatch && cursor.ch === info.startOfInCellLine) {
-			const brStart    = cursor.ch - brSnapMatch[0].length;
-			const targetLine = cursor.line;
-			this.updateKillCache('\n');
-			navigator.clipboard.writeText(this.killCache).catch(() => {});
-			this.isDispatchingKill = true;
-			editor.setLine(targetLine, lineText.slice(0, brStart) + lineText.slice(cursor.ch));
-			this.isDispatchingKill = false;
-			setTimeoutOnActiveWindow(() => {
-				this.isDispatchingKill = true;
-				this.setCursorViaCm(editor, targetLine, brStart);
-				this.isDispatchingKill = false;
-				this.isKillChaining = true;
-			}, 0);
-			return;
+		const brSnapMatch = lineText.slice(0, pos.ch).match(/<[bB][rR]>([ \t]*)$/);
+		if (brSnapMatch && pos.ch === info.startOfInCellLine) {
+			const brStart = pos.ch - brSnapMatch[0].length;
+			return {
+				kind: 'found',
+				from: editor.posToOffset({ line: pos.line, ch: brStart }),
+				to: editor.posToOffset(pos),
+				killText: '\n',
+			};
 		}
+
+		return { kind: 'noop' };
 	}
 
 
-	private killLineNonTable(editor: Editor) {
-		const cursor = editor.getCursor();
-		const lineText = editor.getLine(cursor.line);
-
-		if (cursor.ch < lineText.length) {
-			const text = lineText.slice(cursor.ch);
-			this.updateKillCache(text);
-			navigator.clipboard.writeText(this.killCache).catch(() => {});
-			this.isDispatchingKill = true;
-			editor.replaceRange('', cursor, { line: cursor.line, ch: lineText.length });
-			this.isDispatchingKill = false;
-			this.isKillChaining = true;
-			return;
+	// Pure (no dispatch) per-range mode resolution for killLineOuter's own
+	// multi-range loop below: a Source Mode table row gets its own
+	// <br>-aware handling (resolveKillLineRangeSourceMode); everything else
+	// falls back to plain-text line/Smart-join handling
+	// (resolveKillLineRangeNonTable) — decided independently per range,
+	// not once for the whole command based on primary alone.
+	private resolveKillLineRangeOuter(editor: Editor, pos: { line: number; ch: number }):
+			{ kind: 'noop' } | { kind: 'found'; from: number; to: number; killText: string } {
+		const lineText = editor.getLine(pos.line);
+		const inSourceTable = !this.isLivePreviewMode() && this.isTableLineSourceMode(lineText);
+		if (inSourceTable) {
+			const info = getInCellLineInfo(lineText, pos.ch);
+			if (info) return this.resolveKillLineRangeSourceMode(editor, pos, lineText, info);
 		}
+		return this.resolveKillLineRangeNonTable(editor, pos);
+	}
 
-		if (cursor.line >= editor.lineCount() - 1) return;
+	// Pure (no dispatch) per-range resolution for the plain-text case —
+	// operates from `pos` (a given range's own head, ignoring any
+	// selection that range might have, same as the single-cursor version's
+	// own `editor.getCursor()` convention), mirrors the single-cursor
+	// logic exactly: kill to end of line, or (at the line's own end
+	// already) join with the next line via Smart join.
+	private resolveKillLineRangeNonTable(editor: Editor, pos: { line: number; ch: number }):
+			{ kind: 'noop' } | { kind: 'found'; from: number; to: number; killText: string } {
+		const lineText = editor.getLine(pos.line);
+		if (pos.ch < lineText.length) {
+			return {
+				kind: 'found',
+				from: editor.posToOffset(pos),
+				to: editor.posToOffset({ line: pos.line, ch: lineText.length }),
+				killText: lineText.slice(pos.ch),
+			};
+		}
+		if (pos.line >= editor.lineCount() - 1) return { kind: 'noop' };
 
-		const nextLineText = editor.getLine(cursor.line + 1);
+		const nextLineText = editor.getLine(pos.line + 1);
 		const joinTrimLen = (this.settings.smartJoin && lineText.length > 0)
 			? this.getBeginningOfLinePosition(nextLineText, nextLineText.length || 1)
 			: 0;
 		// Smart join's own trimmed leading Markdown (joinTrimLen chars) is
 		// deleted from the document right alongside the newline below — it
 		// must go into the kill cache too, or Yank can never restore it.
-		this.updateKillCache('\n' + nextLineText.slice(0, joinTrimLen));
+		return {
+			kind: 'found',
+			from: editor.posToOffset({ line: pos.line, ch: lineText.length }),
+			to: editor.posToOffset({ line: pos.line + 1, ch: joinTrimLen }),
+			killText: '\n' + nextLineText.slice(0, joinTrimLen),
+		};
+	}
+
+	// Multi-cursor-safe: each range kills from its own head independently
+	// (ignoring any selection that range might have — Kill Line has no
+	// selection-DWIM, matching the single-cursor version), joined with
+	// '\n' into one kill-cache entry (same convention as Kill Region).
+	// isKillChaining is deliberately never reset to false here — chaining
+	// across consecutive Kill Line presses is this command's whole point,
+	// controlled externally (any other selection-consuming command resets
+	// it elsewhere), so a 'noop' range is simply left in place.
+	private killLineOuter(editor: Editor) {
+		const cm = editor.cm;
+		const sel = cm.state.selection;
+		const main = sel.main;
+		const changes: { from: number; to: number; insert: string }[] = [];
+		const entries: ({ kind: 'cursor'; pos: number })[] = [];
+		let newMainIndex = -1;
+		const killedTexts: string[] = [];
+
+		sel.ranges.forEach(range => {
+			const isMain = range === main;
+			const result = this.resolveKillLineRangeOuter(editor, editor.offsetToPos(range.head));
+			if (result.kind === 'noop') {
+				if (isMain) newMainIndex = entries.length;
+				entries.push({ kind: 'cursor', pos: range.head });
+				return;
+			}
+			changes.push({ from: result.from, to: result.to, insert: '' });
+			killedTexts.push(result.killText);
+			if (isMain) newMainIndex = entries.length;
+			entries.push({ kind: 'cursor', pos: result.from });
+		});
+		if (killedTexts.length === 0) return;
+
+		this.updateKillCache(killedTexts.join('\n'));
 		navigator.clipboard.writeText(this.killCache).catch(() => {});
+		const selection = EditorSelection.create(this.mapSelectionAfterChanges(cm, changes, entries), newMainIndex);
 		this.isDispatchingKill = true;
-		editor.replaceRange('', { line: cursor.line, ch: lineText.length }, { line: cursor.line + 1, ch: joinTrimLen });
+		cm.dispatch({ changes, selection, userEvent: 'delete' });
 		this.isDispatchingKill = false;
 		this.isKillChaining = true;
 	}
@@ -3852,42 +3922,51 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// no-op once genuinely at the cell's own first/last segment edge. Word-
 	// boundary lookup reuses the same findWordSpanOnLine primitive Word
 	// right/left (moveCursorWord) already use.
+	// The selection-vs-table-row choice is made per range (resolveKillWordRangeOuter
+	// below), not once for the whole command based on primary alone — same
+	// philosophy as Kill Line's own killLineOuter. Only the LP-cell case is
+	// still gated here, since a focused cell is a structurally distinct
+	// inner EditorView, not something any range can independently "be in."
 	private killWord(editor: Editor, forward: boolean) {
 		this.markActive = false;
-		const lineText = editor.getLine(editor.getCursor().line);
-		const inSourceTable = !this.isLivePreviewMode() && this.isTableLineSourceMode(lineText);
-
 		if (editor.inTableCell) {
 			this.killWordInTableLP(editor, forward);
 			return;
 		}
-
-		if (inSourceTable) {
-			const info = getInCellLineInfo(lineText, editor.getCursor().ch);
-			if (info) {
-				this.killWordInTableSourceMode(editor, forward, info);
-				return;
-			}
-		}
-
-		this.killWordNonTable(editor, forward);
+		this.killWordOuter(editor, forward);
 	}
 
-	// Plain text: unlike the table branches below, free to cross line
-	// boundaries (mirroring moveCursorWordPlainText's own plain-text search)
-	// — a plain-text document has no structural segment boundary to respect,
-	// and real Emacs's own kill-word/backward-kill-word don't stop at line
-	// breaks either. Bug fixed here: the search itself doesn't know what a
-	// table is, so without the isPositionInTable guard below it would happily
+	// Pure (no dispatch) per-range mode resolution for killWordOuter's own
+	// multi-range loop below: a Source Mode table row gets its own
+	// walkSegments-based handling (resolveKillWordRangeSourceMode);
+	// everything else falls back to plain-text line-crossing word search
+	// (resolveKillWordRangeNonTable) — decided independently per range.
+	private resolveKillWordRangeOuter(editor: Editor, pos: { line: number; ch: number }, forward: boolean):
+			{ kind: 'noop' } | { kind: 'found'; from: number; to: number; killText: string } {
+		const lineText = editor.getLine(pos.line);
+		const inSourceTable = !this.isLivePreviewMode() && this.isTableLineSourceMode(lineText);
+		if (inSourceTable) {
+			const info = getInCellLineInfo(lineText, pos.ch);
+			if (info) return this.resolveKillWordRangeSourceMode(editor, pos, lineText, info, forward);
+		}
+		return this.resolveKillWordRangeNonTable(editor, pos, forward);
+	}
+
+	// Pure (no dispatch) per-range resolution for the plain-text case —
+	// free to cross line boundaries (mirroring moveCursorWordPlainText's
+	// own plain-text search), since a plain-text document has no
+	// structural segment boundary to respect, and real Emacs's own
+	// kill-word/backward-kill-word don't stop at line breaks either.
+	// Stops at a table boundary instead of searching into it (same
+	// "isPositionInTable(..., 1)" check moveCursorRight/Left already use
+	// for the identical plain-text-to-table edge) — the search itself
+	// doesn't know what a table is, so without this guard it would happily
 	// treat an adjacent table row's raw Markdown (e.g. a leading `|`) as
-	// ordinary word/punctuation text — corrupting the table by killing into
-	// it. Stop at the boundary instead, matching every other kill command in
-	// this file (same "isPositionInTable(..., 1)" check moveCursorRight/Left
-	// already use for the identical plain-text-to-table edge).
-	private killWordNonTable(editor: Editor, forward: boolean) {
-		const cursor = editor.getCursor();
-		let lineNum = cursor.line;
-		let ch = cursor.ch;
+	// ordinary word/punctuation text, corrupting the table by killing into it.
+	private resolveKillWordRangeNonTable(editor: Editor, pos: { line: number; ch: number }, forward: boolean):
+			{ kind: 'noop' } | { kind: 'found'; from: number; to: number; killText: string } {
+		let lineNum = pos.line;
+		let ch = pos.ch;
 		let target: { line: number; ch: number } | null = null;
 		for (;;) {
 			const lt = editor.getLine(lineNum);
@@ -3902,16 +3981,57 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			lineNum = nextLine;
 			ch = forward ? 0 : editor.getLine(lineNum).length;
 		}
-		if (!target) return;
+		if (!target) return { kind: 'noop' };
 
-		const from = forward ? cursor : target;
-		const to   = forward ? target : cursor;
-		const text = editor.getRange(from, to);
+		const from = forward ? pos : target;
+		const to   = forward ? target : pos;
+		return {
+			kind: 'found',
+			from: editor.posToOffset(from),
+			to: editor.posToOffset(to),
+			killText: editor.getRange(from, to),
+		};
+	}
 
-		this.updateKillCache(text, !forward);
+	// Multi-cursor-safe: each range kills its own word independently
+	// (forward or backward from its own head), joined with '\n' into one
+	// kill-cache entry (same convention as Kill Region/Kill Line). The
+	// resulting cursor always lands at each range's own `from` (the word's
+	// own start either way — forward kill's `from` is the original head
+	// unmoved; backward kill's `from` is the found target, behind the
+	// original head). `prepend` (backward kill builds the cache in buffer
+	// order across consecutive kills) applies to the whole joined text,
+	// same as the single-cursor version's own updateKillCache(text, !forward)
+	// — range order within one press is always document order regardless.
+	private killWordOuter(editor: Editor, forward: boolean) {
+		const cm = editor.cm;
+		const sel = cm.state.selection;
+		const main = sel.main;
+		const changes: { from: number; to: number; insert: string }[] = [];
+		const entries: ({ kind: 'cursor'; pos: number })[] = [];
+		let newMainIndex = -1;
+		const killedTexts: string[] = [];
+
+		sel.ranges.forEach(range => {
+			const isMain = range === main;
+			const result = this.resolveKillWordRangeOuter(editor, editor.offsetToPos(range.head), forward);
+			if (result.kind === 'noop') {
+				if (isMain) newMainIndex = entries.length;
+				entries.push({ kind: 'cursor', pos: range.head });
+				return;
+			}
+			changes.push({ from: result.from, to: result.to, insert: '' });
+			killedTexts.push(result.killText);
+			if (isMain) newMainIndex = entries.length;
+			entries.push({ kind: 'cursor', pos: result.from });
+		});
+		if (killedTexts.length === 0) return;
+
+		this.updateKillCache(killedTexts.join('\n'), !forward);
 		navigator.clipboard.writeText(this.killCache).catch(() => {});
+		const selection = EditorSelection.create(this.mapSelectionAfterChanges(cm, changes, entries), newMainIndex);
 		this.isDispatchingKill = true;
-		editor.replaceRange('', from, to);
+		cm.dispatch({ changes, selection, userEvent: 'delete' });
 		this.isDispatchingKill = false;
 		this.isKillChaining = true;
 	}
@@ -3928,11 +4048,18 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// representation — see moveByWords' identical comment elsewhere in this
 	// codebase), so no separate <br>-stripping step is needed here the way
 	// Kill Line's own <br>-removal branch requires.
-	private killWordInTableLP(editor: Editor, forward: boolean) {
-		const inner = editor.activeCM;
-		if (!inner || inner === editor.cm) return;
-
-		const head = inner.state.selection.main.head;
+	// Pure (no dispatch) per-range resolution for killWordInTableLP's own
+	// multi-range loop below — mirrors the single-cursor logic exactly:
+	// walks further in-cell doc lines (the inner-view equivalent of
+	// resolveKillWordRangeNonTable's own editor.getLine walk) whenever the
+	// current segment has no word left, only stopping once nextLineNum
+	// falls outside [1, inner.state.doc.lines] — i.e. genuinely at the
+	// cell's own first/last segment, not just any segment edge. The final
+	// deletion range can span the \n between segments (the inner view's
+	// own <br> representation), so no separate <br>-stripping step is
+	// needed here the way Kill Line's own <br>-removal branch requires.
+	private resolveKillWordRangeInCell(inner: EditorView, head: number, forward: boolean):
+			{ kind: 'noop' } | { kind: 'found'; from: number; to: number; killText: string } {
 		let subLine = inner.state.doc.lineAt(head);
 		let localHead = head - subLine.from;
 		let target: number | null = null;
@@ -3948,37 +4075,65 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			subLine = inner.state.doc.line(nextLineNum);
 			localHead = forward ? 0 : subLine.text.length;
 		}
-		if (target === null) return;
+		if (target === null) return { kind: 'noop' };
 
 		const from = forward ? head : target;
 		const to   = forward ? target : head;
-		const text = inner.state.doc.sliceString(from, to);
+		return { kind: 'found', from, to, killText: inner.state.doc.sliceString(from, to) };
+	}
 
-		this.updateKillCache(text, !forward);
+	// Multi-cursor-safe — same shape as killWordOuter above, operating on
+	// the cell's own inner view coordinates directly.
+	private killWordInTableLP(editor: Editor, forward: boolean) {
+		const inner = editor.activeCM;
+		if (!inner || inner === editor.cm) return;
+
+		const sel = inner.state.selection;
+		const main = sel.main;
+		const changes: { from: number; to: number; insert: string }[] = [];
+		const entries: ({ kind: 'cursor'; pos: number })[] = [];
+		let newMainIndex = -1;
+		const killedTexts: string[] = [];
+
+		sel.ranges.forEach(range => {
+			const isMain = range === main;
+			const result = this.resolveKillWordRangeInCell(inner, range.head, forward);
+			if (result.kind === 'noop') {
+				if (isMain) newMainIndex = entries.length;
+				entries.push({ kind: 'cursor', pos: range.head });
+				return;
+			}
+			changes.push({ from: result.from, to: result.to, insert: '' });
+			killedTexts.push(result.killText);
+			if (isMain) newMainIndex = entries.length;
+			entries.push({ kind: 'cursor', pos: result.from });
+		});
+		if (killedTexts.length === 0) return;
+
+		this.updateKillCache(killedTexts.join('\n'), !forward);
 		navigator.clipboard.writeText(this.killCache).catch(() => {});
+		const selection = EditorSelection.create(this.mapSelectionAfterChanges(inner, changes, entries), newMainIndex);
 		this.isDispatchingKill = true;
-		inner.dispatch({ changes: { from, to, insert: '' }, selection: { anchor: from }, userEvent: 'delete' });
+		inner.dispatch({ changes, selection, userEvent: 'delete' });
 		this.isDispatchingKill = false;
 		this.isKillChaining = true;
 	}
 
-	// Source Mode table cell: mirrors killLineInTableSourceMode's own
-	// getInCellLineInfo-scoped approach, but — like the LP branch above —
-	// walks further in-cell lines via walkSegments (the same primitive
-	// moveCursorWordInTable already uses for its own in-cell walk) whenever
-	// the current segment has no word left, stopping only once walkSegments
-	// reports steps===0 (genuinely the cell's own first/last segment).
-	// Reads/writes outer (raw markdown) coordinates, so — unlike the LP
-	// branch above — normalizeKillText is needed (escaped \| in the raw
-	// source); a crossed <br> tag is included in the raw slice and
-	// normalized to \n the same way a crossed-segment kill already handles
-	// it elsewhere in this file.
-	private killWordInTableSourceMode(editor: Editor, forward: boolean, info: InCellLineInfo) {
-		const cursor = editor.getCursor();
-		const lineText = editor.getLine(cursor.line);
-
+	// Pure (no dispatch) per-range resolution for a Source Mode table row —
+	// mirrors the single-cursor logic exactly: walks further in-cell lines
+	// via walkSegments (the same primitive moveCursorWordInTable already
+	// uses for its own in-cell walk) whenever the current segment has no
+	// word left, stopping only once walkSegments reports steps===0
+	// (genuinely the cell's own first/last segment). Reads/writes outer
+	// (raw markdown) coordinates, so — unlike the LP branch above —
+	// normalizeKillText is needed (escaped \| in the raw source); a
+	// crossed <br> tag is included in the raw slice and normalized to \n
+	// the same way a crossed-segment kill already handles it elsewhere in
+	// this file.
+	private resolveKillWordRangeSourceMode(editor: Editor, pos: { line: number; ch: number }, lineText: string, info: InCellLineInfo, forward: boolean):
+			{ kind: 'noop' } | { kind: 'found'; from: number; to: number; killText: string } {
 		let segInfo = info;
-		let localCh = cursor.ch - segInfo.startOfInCellLine;
+		let localCh = pos.ch - segInfo.startOfInCellLine;
 		let target: number | null = null;
 
 		for (;;) {
@@ -3993,18 +4148,16 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			segInfo = nextSeg;
 			localCh = forward ? 0 : segInfo.endOfInCellLine - segInfo.startOfInCellLine;
 		}
-		if (target === null) return;
+		if (target === null) return { kind: 'noop' };
 
-		const from = forward ? cursor.ch : target;
-		const to   = forward ? target : cursor.ch;
-		const text = this.normalizeKillText(lineText.slice(from, to));
-
-		this.updateKillCache(text, !forward);
-		navigator.clipboard.writeText(this.killCache).catch(() => {});
-		this.isDispatchingKill = true;
-		editor.replaceRange('', { line: cursor.line, ch: from }, { line: cursor.line, ch: to });
-		this.isDispatchingKill = false;
-		this.isKillChaining = true;
+		const from = forward ? pos.ch : target;
+		const to   = forward ? target : pos.ch;
+		return {
+			kind: 'found',
+			from: editor.posToOffset({ line: pos.line, ch: from }),
+			to: editor.posToOffset({ line: pos.line, ch: to }),
+			killText: this.normalizeKillText(lineText.slice(from, to)),
+		};
 	}
 
 
@@ -4014,7 +4167,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	// DWIM (do-what-i-mean): a non-empty selection transforms the whole
 	// selection (same table-awareness as Copy/Kill Region — Source Mode
-	// table rows stay single-cell only, see isValidTransformRangeOuter);
+	// table rows stay single-cell only, see isValidRegionRangeOuter);
 	// otherwise transforms the WHOLE word at the cursor. Deliberately
 	// diverges from real Emacs's own upcase-word/downcase-word/
 	// capitalize-word, which only transform from point to the word's own end
@@ -4061,15 +4214,14 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		this.transformWordOrSelectionNonTable(editor, transform);
 	}
 
-	// Pure (no dispatch) per-range validity check for a non-empty range in
-	// transformWordOrSelectionNonTable's own loop below — same Source Mode
-	// table-row rule getValidatedRegionText already applies to Kill/Copy
-	// Region's own primary-only selection (single-line/single-cell only),
-	// reimplemented as a separate, per-range check rather than reusing
-	// getValidatedRegionText itself: Kill Region/Copy Region/Yank
-	// intentionally stay single-cursor-only (a separate, not-yet-started
-	// item), so that function is deliberately left untouched.
-	private isValidTransformRangeOuter(editor: Editor, from: { line: number; ch: number }, to: { line: number; ch: number }): boolean {
+	// Pure (no dispatch) per-range validity check for a non-empty range:
+	// inside a Source Mode table row, the range must stay on one line and
+	// within a single cell's own bounds (same constraint
+	// getValidatedRegionText used to enforce for Kill Region/Copy Region's
+	// own primary-only selection, now shared by all three of those commands
+	// plus Uppercase/Lowercase/Capitalize word's own selection-mode, each
+	// looping this per range instead of checking primary alone).
+	private isValidRegionRangeOuter(editor: Editor, from: { line: number; ch: number }, to: { line: number; ch: number }): boolean {
 		const fromLine = editor.getLine(from.line);
 		const toLine   = editor.getLine(to.line);
 		const inSourceTable = !this.isLivePreviewMode() && (
@@ -4098,7 +4250,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (range.from !== range.to) {
 			const from = editor.offsetToPos(range.from);
 			const to = editor.offsetToPos(range.to);
-			if (!this.isValidTransformRangeOuter(editor, from, to)) return { kind: 'invalid' };
+			if (!this.isValidRegionRangeOuter(editor, from, to)) return { kind: 'invalid' };
 			return { kind: 'selection', from: range.from, to: range.to };
 		}
 		const wordResult = this.findWordTargetPlainTextForTransform(editor, editor.offsetToPos(range.head));
@@ -4393,36 +4545,56 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 
-	// Shared by Kill Region (Ctrl-W) and Copy Region: validates the current
-	// selection (non-empty; inside a table, single-cell/single-line only —
-	// same constraint both commands share, see their own README docs) and
-	// returns its table-normalized text, or null if the selection is empty
-	// or spans something invalid (multi-row/cross-cell).
-	private getValidatedRegionText(editor: Editor): string | null {
-		const from = editor.getCursor('from');
-		const to   = editor.getCursor('to');
-		if (from.line === to.line && from.ch === to.ch) return null;
+	// CM6's own TransactionSpec.selection contract: "offsets in this
+	// selection should refer to the document as it is AFTER the
+	// transaction" — unlike Uppercase/Lowercase/Capitalize word's own
+	// multi-range dispatches (safe to use pre-change offsets directly,
+	// since every one of those changes preserves its own span's length
+	// exactly, making old and new offsets always identical), a kill's own
+	// changes shrink the document, a yank's own changes can grow or shrink
+	// it — so every "kept"/"cursor" entry computed from PRE-change offsets
+	// must be re-expressed in POST-change coordinates before being handed
+	// to dispatch, or every range after an earlier, differently-sized
+	// change ends up silently pointing at the wrong place. `entries` is
+	// built with pre-change offsets throughout the caller's own loop, then
+	// mapped through the real ChangeSet in one pass here, once `changes`
+	// is final.
+	//
+	// `assoc=1` for the 'cursor' case specifically: a zero-width position
+	// sitting exactly at a change's own boundary is ambiguous about which
+	// side it should stick to, and mapPos's own default resolves to
+	// BEFORE the change — confirmed live (a cursor placed via an empty
+	// range, e.g. Yank's own common case, mapped back to its pre-insert
+	// position instead of landing after the just-inserted text). assoc=1
+	// forces "stick to the content after," which is always what every
+	// caller here wants (both Yank's own insertion-end placement and Kill
+	// Region's own deletion-collapse, confirmed safe for the latter too —
+	// a NON-zero-width original span has no such ambiguity to begin with,
+	// so assoc is a no-op there regardless of its value).
+	private mapSelectionAfterChanges(
+		cm: EditorView,
+		changes: { from: number; to: number; insert: string }[],
+		entries: ({ kind: 'cursor'; pos: number } | { kind: 'range'; from: number; to: number })[],
+	): SelectionRange[] {
+		const changeSet = cm.state.changes(changes);
+		return entries.map(e => e.kind === 'cursor'
+			? EditorSelection.cursor(changeSet.mapPos(e.pos, 1))
+			: EditorSelection.range(changeSet.mapPos(e.from), changeSet.mapPos(e.to)));
+	}
 
+	// Pure (no dispatch) per-range text extractor for Copy/Kill Region's own
+	// multi-range loops below — empty or invalid (isValidRegionRangeOuter)
+	// ranges return null, same "nothing to do with this one" signal as
+	// resolveWordOrSelectionRangeOuter's own 'invalid' kind.
+	private extractRegionRangeTextOuter(editor: Editor, range: SelectionRange): string | null {
+		if (range.from === range.to) return null;
+		const from = editor.offsetToPos(range.from);
+		const to = editor.offsetToPos(range.to);
+		if (!this.isValidRegionRangeOuter(editor, from, to)) return null;
+		const rawText = editor.getRange(from, to);
 		const fromLine = editor.getLine(from.line);
-		const toLine   = editor.getLine(to.line);
-
-		const inLPTable = editor.inTableCell;
-		const inSourceTable = !this.isLivePreviewMode() && (
-			this.isTableLineSourceMode(fromLine) ||
-			this.isTableLineSourceMode(toLine)
-		);
-
-		if (inLPTable || inSourceTable) {
-			if (from.line !== to.line) return null;
-
-			const line        = fromLine;
-			const fromBounds  = getCellBounds(line, from.ch);
-			const toBounds    = getCellBounds(line, to.ch);
-			if (!fromBounds || !toBounds || fromBounds.open !== toBounds.open) return null;
-		}
-
-		const rawText = editor.getSelection();
-		return (inLPTable || inSourceTable) ? this.normalizeKillText(rawText) : rawText;
+		const inSourceTable = !this.isLivePreviewMode() && this.isTableLineSourceMode(fromLine);
+		return inSourceTable ? this.normalizeKillText(rawText) : rawText;
 	}
 
 
@@ -4430,18 +4602,52 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Copy region (Alt-W)
 	//===========================================================================
 
-	// Non-destructive kill-ring-save: same validation/normalization as Kill
-	// Region, breaks any in-progress Kill Line chain the same way Kill Region
-	// does (a copy is not a "kill", so it shouldn't silently append to a
-	// pending kill-line sequence), but never mutates the editor — the
-	// selection stays exactly as the user left it, matching a plain Copy.
+	// Non-destructive kill-ring-save: same per-range validation/normalization
+	// as Kill Region, breaks any in-progress Kill Line chain the same way
+	// Kill Region does (a copy is not a "kill", so it shouldn't silently
+	// append to a pending kill-line sequence, nor become chainable itself —
+	// unlike every kill command below, this never sets isKillChaining back
+	// to true), but never mutates the editor — every selection stays exactly
+	// as the user left it, matching a plain Copy.
 	private copyRegion(editor: Editor) {
-		const text = this.getValidatedRegionText(editor);
-		if (text === null) return;
+		if (editor.inTableCell) {
+			this.copyRegionInTableLP(editor);
+			return;
+		}
+
+		const sel = editor.cm.state.selection;
+		const texts: string[] = [];
+		sel.ranges.forEach(range => {
+			const text = this.extractRegionRangeTextOuter(editor, range);
+			if (text !== null) texts.push(text);
+		});
+		if (texts.length === 0) return;
 
 		this.markActive = false;
 		this.isKillChaining = false;
-		this.updateKillCache(text);
+		this.updateKillCache(texts.join('\n'));
+		navigator.clipboard.writeText(this.killCache).catch(() => {});
+	}
+
+	// Multi-cursor-safe: every non-empty range within the active cell's own
+	// inner view is a valid selection (a single cell's own inner view can't
+	// span multiple cells/rows to begin with — same reasoning
+	// transformWordOrSelectionInTableLP's own selection-mode branch uses).
+	private copyRegionInTableLP(editor: Editor) {
+		const inner = editor.activeCM;
+		if (!inner || inner === editor.cm) return;
+
+		const sel = inner.state.selection;
+		const texts: string[] = [];
+		sel.ranges.forEach(range => {
+			if (range.from === range.to) return;
+			texts.push(inner.state.doc.sliceString(range.from, range.to));
+		});
+		if (texts.length === 0) return;
+
+		this.markActive = false;
+		this.isKillChaining = false;
+		this.updateKillCache(texts.join('\n'));
 		navigator.clipboard.writeText(this.killCache).catch(() => {});
 	}
 
@@ -4450,70 +4656,122 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Kill region (Ctrl-W)
 	//===========================================================================
 
+	// Multi-cursor-safe: every range independently kills its own selection
+	// (or is left untouched — not removed, same as Uppercase/Lowercase/
+	// Capitalize word's own invalid-selection policy — if it's empty or its
+	// own selection is invalid), joining all killed texts with '\n' into one
+	// kill-cache entry (matching native Obsidian's own observed multi-cut
+	// behavior) rather than tracking a separate entry per cursor — Yank's
+	// own multi-cursor distribution reconstructs per-cursor pieces from this
+	// single joined string by matching line count to cursor count at paste
+	// time, not from any memory of how many cursors produced it.
 	private killRegion(editor: Editor) {
-		const from = editor.getCursor('from');
-		const to   = editor.getCursor('to');
-		const text = this.getValidatedRegionText(editor);
-		if (text === null) return;
-
-		const inLPTable = editor.inTableCell;
-		const fromLine  = editor.getLine(from.line);
-
-		this.markActive = false;
-		this.isKillChaining = false;
-		this.updateKillCache(text);
-		navigator.clipboard.writeText(this.killCache).catch(() => {});
-
-		if (!inLPTable) {
-			editor.replaceRange('', from, to);
+		if (editor.inTableCell) {
+			this.killRegionInTableLP(editor);
 			return;
 		}
 
-		const line = fromLine;
-		let prefix = line.slice(0, from.ch);
-		let suffix = line.slice(to.ch);
-		const bounds = getCellBounds(line, from.ch);
-		if (bounds) {
-			if (/^<[bB][rR]>/.test(suffix)) {
-				const cellContentBefore = line.slice(bounds.open + 1, from.ch).trim();
-				if (!cellContentBefore) suffix = suffix.replace(/^<[bB][rR]>([ \t]*)/, '');
-			} else if (/<[bB][rR]>$/.test(prefix)) {
-				const cellContentAfter = line.slice(to.ch, bounds.close).trim();
-				if (!cellContentAfter) prefix = prefix.replace(/<[bB][rR]>$/, '');
+		const cm = editor.cm;
+		const sel = cm.state.selection;
+		const main = sel.main;
+		const changes: { from: number; to: number; insert: string }[] = [];
+		const entries: ({ kind: 'cursor'; pos: number } | { kind: 'range'; from: number; to: number })[] = [];
+		let newMainIndex = -1;
+		const killedTexts: string[] = [];
+
+		sel.ranges.forEach(range => {
+			const isMain = range === main;
+			const text = this.extractRegionRangeTextOuter(editor, range);
+			if (text === null) {
+				if (isMain) newMainIndex = entries.length;
+				entries.push({ kind: 'range', from: range.from, to: range.to });
+				return;
 			}
-		}
-		const targetLine  = from.line;
-		const cm          = editor.cm;
-		const lineObj     = cm.state.doc.line(targetLine + 1);
-		const savedScroll = cm.scrollDOM?.scrollTop;
+			killedTexts.push(text);
+			changes.push({ from: range.from, to: range.to, insert: '' });
+			if (isMain) newMainIndex = entries.length;
+			entries.push({ kind: 'cursor', pos: range.from });
+		});
+		if (killedTexts.length === 0) return;
+
+		this.markActive = false;
+		this.isKillChaining = false;
+		this.updateKillCache(killedTexts.join('\n'));
+		navigator.clipboard.writeText(this.killCache).catch(() => {});
+		const selection = EditorSelection.create(this.mapSelectionAfterChanges(cm, changes, entries), newMainIndex);
+		this.isDispatchingKill = true;
+		cm.dispatch({ changes, selection, userEvent: 'delete' });
+		this.isDispatchingKill = false;
+		this.isKillChaining = true;
+	}
+
+	// Multi-cursor-safe LP-cell counterpart — plain selection delete per
+	// range, matching real Emacs's own kill-region (only ever removes
+	// exactly what's selected; see project_kill_region_lp_cell_edge_newline_bug
+	// for why the single-cursor version of this once auto-consumed the
+	// following newline too, and why that was removed). savedScroll
+	// preserves the pre-existing single-cursor behavior of not letting the
+	// deletion itself cause a visible scroll jump.
+	private killRegionInTableLP(editor: Editor) {
 		const inner = editor.activeCM;
-		if (inner && inner !== cm) {
-			// Plain selection delete — matches real Emacs's own kill-region,
-			// which only ever removes exactly what's selected. Previously this
-			// branch also auto-consumed the following newline when the
-			// selection started at the cell's own start (removing the
-			// resulting blank sub-line); that "smart" behavior was removed
-			// since it silently overrode the user's own selection choice. See
-			// project_kill_region_lp_cell_edge_newline_bug for the full trace.
-			const innerSel = inner.state.selection.main;
-			inner.dispatch({
-				changes:   { from: innerSel.from, to: innerSel.to, insert: '' },
-				selection: { anchor: innerSel.from },
-			});
-		} else {
-			cm.dispatch({
-				changes:   { from: lineObj.from, to: lineObj.to, insert: prefix + suffix },
-				selection: { anchor: lineObj.from + prefix.length },
-			});
-			cm.focus();
-		}
-		if (savedScroll !== undefined) cm.scrollDOM.scrollTop = savedScroll;
+		if (!inner || inner === editor.cm) return;
+
+		const sel = inner.state.selection;
+		const main = sel.main;
+		const changes: { from: number; to: number; insert: string }[] = [];
+		const entries: ({ kind: 'cursor'; pos: number } | { kind: 'range'; from: number; to: number })[] = [];
+		let newMainIndex = -1;
+		const killedTexts: string[] = [];
+
+		sel.ranges.forEach(range => {
+			const isMain = range === main;
+			if (range.from === range.to) {
+				if (isMain) newMainIndex = entries.length;
+				entries.push({ kind: 'range', from: range.from, to: range.to });
+				return;
+			}
+			killedTexts.push(inner.state.doc.sliceString(range.from, range.to));
+			changes.push({ from: range.from, to: range.to, insert: '' });
+			if (isMain) newMainIndex = entries.length;
+			entries.push({ kind: 'cursor', pos: range.from });
+		});
+		if (killedTexts.length === 0) return;
+
+		this.markActive = false;
+		this.isKillChaining = false;
+		this.updateKillCache(killedTexts.join('\n'));
+		navigator.clipboard.writeText(this.killCache).catch(() => {});
+		const selection = EditorSelection.create(this.mapSelectionAfterChanges(inner, changes, entries), newMainIndex);
+		const savedScroll = editor.cm?.scrollDOM?.scrollTop;
+		this.isDispatchingKill = true;
+		inner.dispatch({ changes, selection });
+		this.isDispatchingKill = false;
+		this.isKillChaining = true;
+		if (savedScroll !== undefined) editor.cm.scrollDOM.scrollTop = savedScroll;
 	}
 
 
 	//===========================================================================
 	// Yank (Ctrl-Y)
 	//===========================================================================
+
+	// Pure: splits `raw` by '\n' into exactly `cursorCount` pieces if the
+	// line count matches: one piece per cursor, in document order — the
+	// VS Code/Sublime-style distribution the user asked to add on top of
+	// native Obsidian's own observed Cmd-V behavior. Otherwise returns
+	// `cursorCount` copies of the whole `raw` string (today's single-
+	// cursor-equivalent behavior, replicated at every cursor), matching
+	// that native fallback. Per the user's own confirmed spec: which
+	// cursor count originally produced a kill is never tracked anywhere —
+	// only whether the clipboard's CURRENT line count matches the CURRENT
+	// cursor count at paste time ("3-cursor kill -> 3-cursor yank" and
+	// "1-cursor 3-line kill -> 3-cursor yank" are indistinguishable, and
+	// that's fine).
+	private splitYankTextForCursors(raw: string, cursorCount: number): string[] {
+		const lines = raw.split('\n');
+		if (lines.length === cursorCount) return lines;
+		return new Array(cursorCount).fill(raw);
+	}
 
 	private async yank(editor: Editor) {
 		this.markActive = false;
@@ -4526,51 +4784,78 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}
 		if (!raw) return;
 
-		const lineText = editor.getLine(editor.getCursor().line);
-		const inLPTable = editor.inTableCell;
-		const inTable = inLPTable || this.isTableLineSourceMode(lineText);
-
-		// LP table with active inner view: insert raw text directly.
-		// The inner view uses \n for in-cell line breaks — no <br> conversion needed.
-		if (inLPTable) {
-			const inner = editor.activeCM;
-			if (inner && inner !== editor.cm) {
-				const scrollEl    = editor.cm?.scrollDOM;
-				const savedScroll = scrollEl?.scrollTop;
-				const innerSel    = inner.state.selection.main;
-				inner.dispatch({
-					changes:   { from: innerSel.from, to: innerSel.to, insert: raw },
-					selection: { anchor: innerSel.from + raw.length },
-					userEvent: 'input',
-				});
-				if (scrollEl && savedScroll !== undefined) scrollEl.scrollTop = savedScroll;
-				return;
-			}
+		if (editor.inTableCell) {
+			this.yankInTableLP(editor, raw);
+			return;
 		}
 
-		const text = inTable
-			? raw.replace(/\|/g, '\\|').replace(/\n/g, '<br>')
-			: raw;
+		this.yankOuter(editor, raw);
+	}
 
-		if (inLPTable && text.includes('<br>')) {
-			const from        = editor.getCursor('from');
-			const to          = editor.getCursor('to');
-			const currentLine = editor.getLine(from.line);
-			const prefix      = currentLine.slice(0, from.ch);
-			const suffix      = currentLine.slice(to.ch);
-			const targetLine  = from.line;
-			const textForCursor = text.replace(/<[bB][rR]>$/, '');
-			const targetCh      = prefix.length + textForCursor.length;
-			const scrollEl      = editor.cm?.scrollDOM;
-			const savedScroll   = scrollEl?.scrollTop;
-			editor.setLine(targetLine, prefix + text + suffix);
-			setTimeoutOnActiveWindow(() => {
-				if (scrollEl && savedScroll !== undefined) scrollEl.scrollTop = savedScroll;
-				this.setCursorViaCm(editor, targetLine, targetCh);
-			}, 0);
-		} else {
-			editor.replaceSelection(text);
-		}
+	// Multi-cursor-safe: each range independently receives its own piece
+	// (see splitYankTextForCursors), escaped for Source Mode table syntax
+	// per that range's own line — a range landing on a table row while
+	// another doesn't is handled per-range, same as every other multi-
+	// range command in this file. Resulting cursor positions are computed
+	// via mapSelectionAfterChanges (see its own doc comment): insertions
+	// have no length-preservation guarantee the way Uppercase/Lowercase/
+	// Capitalize word's own transforms do, so pre-change offsets can't be
+	// reused directly once more than one range is involved.
+	private yankOuter(editor: Editor, raw: string) {
+		const cm = editor.cm;
+		const sel = cm.state.selection;
+		const main = sel.main;
+		const pieces = this.splitYankTextForCursors(raw, sel.ranges.length);
+
+		const changes: { from: number; to: number; insert: string }[] = [];
+		const entries: { kind: 'cursor'; pos: number }[] = [];
+		let newMainIndex = -1;
+
+		sel.ranges.forEach((range, i) => {
+			const isMain = range === main;
+			const from = editor.offsetToPos(range.from);
+			const lineText = editor.getLine(from.line);
+			const inTable = this.isTableLineSourceMode(lineText);
+			const piece = pieces[i];
+			const text = inTable ? piece.replace(/\|/g, '\\|').replace(/\n/g, '<br>') : piece;
+			changes.push({ from: range.from, to: range.to, insert: text });
+			if (isMain) newMainIndex = entries.length;
+			entries.push({ kind: 'cursor', pos: range.to });
+		});
+
+		const selection = EditorSelection.create(this.mapSelectionAfterChanges(cm, changes, entries), newMainIndex);
+		cm.dispatch({ changes, selection, userEvent: 'input' });
+	}
+
+	// Multi-cursor-safe LP-cell counterpart. The inner view uses real '\n'
+	// for in-cell line breaks — no <br> conversion needed, matching every
+	// other in-cell branch in this file. savedScroll preserves the
+	// pre-existing single-cursor behavior of not letting the insertion
+	// itself cause a visible scroll jump.
+	private yankInTableLP(editor: Editor, raw: string) {
+		const inner = editor.activeCM;
+		if (!inner || inner === editor.cm) return;
+
+		const sel = inner.state.selection;
+		const main = sel.main;
+		const pieces = this.splitYankTextForCursors(raw, sel.ranges.length);
+
+		const changes: { from: number; to: number; insert: string }[] = [];
+		const entries: { kind: 'cursor'; pos: number }[] = [];
+		let newMainIndex = -1;
+
+		sel.ranges.forEach((range, i) => {
+			const isMain = range === main;
+			changes.push({ from: range.from, to: range.to, insert: pieces[i] });
+			if (isMain) newMainIndex = entries.length;
+			entries.push({ kind: 'cursor', pos: range.to });
+		});
+
+		const selection = EditorSelection.create(this.mapSelectionAfterChanges(inner, changes, entries), newMainIndex);
+		const scrollEl    = editor.cm?.scrollDOM;
+		const savedScroll = scrollEl?.scrollTop;
+		inner.dispatch({ changes, selection, userEvent: 'input' });
+		if (scrollEl && savedScroll !== undefined) scrollEl.scrollTop = savedScroll;
 	}
 
 

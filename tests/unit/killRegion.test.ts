@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { EditorSelection, ChangeSet } from '@codemirror/state'
 
 vi.mock('@codemirror/language', () => ({
 	syntaxTree: vi.fn(),
@@ -6,42 +7,82 @@ vi.mock('@codemirror/language', () => ({
 
 import UniversalCursorHotkeysPlugin from '../../src/main.ts'
 
-function makeEditor(
+// Multi-cursor-safe: every range independently kills its own selection, or
+// is left untouched (not removed) if empty or invalid. Joined with '\n'
+// into a single kill-cache entry, matching native Obsidian's own observed
+// multi-cut behavior (see Yank's own test file for the distribution side).
+//
+// The LP-table branch reads/writes the focused cell's own inner EditorView
+// directly (editor.activeCM), whose own document already represents
+// sub-lines as real '\n' characters — no <br>/\| escaping to undo there,
+// unlike the outer/Source-Mode branch's raw-markdown coordinates. The old
+// single-cursor implementation's own prefix/suffix <br>-stripping dead
+// branch (unreachable: editor.inTableCell===true always implies a real
+// distinct activeCM, per this plugin's own Editor type augmentation) is
+// gone along with it.
+//
+// cm.state.changes uses the REAL ChangeSet.of (not a stub) — a deletion
+// shrinks the document, so every kept/cursor position after an earlier
+// change in document order must be re-expressed in post-change
+// coordinates (mapSelectionAfterChanges's own job in main.ts). Using the
+// real ChangeSet here means these tests actually exercise that remapping,
+// not just echo back whatever pre-change offset main.ts happened to pass.
+
+function makeMultiSelectionPlainEditor(
 	lines: string[],
-	from: { line: number; ch: number },
-	to:   { line: number; ch: number },
-	inTableCell = false
+	ranges: { from: { line: number; ch: number }; to: { line: number; ch: number } }[],
+	mainIndex: number,
 ) {
 	const buf = [...lines]
-	const sel = (from.line === to.line)
-		? (buf[from.line] ?? '').slice(from.ch, to.ch)
-		: ''
-	const lineStarts = lines.reduce((acc, _, i) => {
-		acc.push(i === 0 ? 0 : acc[i - 1] + lines[i - 1].length + 1)
-		return acc
-	}, [] as number[])
+	const lineStarts: number[] = []
+	let acc = 0
+	for (const line of lines) { lineStarts.push(acc); acc += line.length + 1 }
+	const totalLength = acc > 0 ? acc - 1 : 0
+	const posToOffset = (pos: { line: number; ch: number }) => lineStarts[pos.line] + pos.ch
+	const offsetToPos = (offset: number) => {
+		let line = 0
+		while (line + 1 < lineStarts.length && lineStarts[line + 1] <= offset) line++
+		return { line, ch: offset - lineStarts[line] }
+	}
+	const selection = EditorSelection.create(
+		ranges.map(r => EditorSelection.range(posToOffset(r.from), posToOffset(r.to))),
+		mainIndex,
+	)
 	return {
-		getCursor:    vi.fn((s?: string) => s === 'to' ? { ...to } : { ...from }),
-		getLine:      vi.fn((n: number) => buf[n] ?? ''),
-		getSelection: vi.fn(() => sel),
-		replaceRange: vi.fn(),
-		setLine:      vi.fn(),
-		_buf: buf,
+		getLine: vi.fn((line: number) => buf[line] ?? ''),
+		lineCount: vi.fn(() => buf.length),
+		getRange: vi.fn((f: any, t: any) => buf[f.line].slice(f.ch, t.ch)),
+		posToOffset: vi.fn(posToOffset),
+		offsetToPos: vi.fn(offsetToPos),
+		inTableCell: false,
 		cm: {
 			state: {
-				doc: {
-					line: vi.fn((n: number) => {
-						const idx  = n - 1
-						const from = lineStarts[idx] ?? 0
-						return { from, to: from + (lines[idx]?.length ?? 0) }
-					}),
-				},
+				selection,
+				changes: (spec: any) => ChangeSet.of(spec, totalLength),
 			},
+			dispatch: vi.fn(),
 			scrollDOM: { scrollTop: 0 },
-			dispatch:  vi.fn(),
-			focus:     vi.fn(),
 		},
-		inTableCell,
+		activeCM: undefined,
+		_buf: buf,
+	}
+}
+
+function makeMultiSelectionLPEditor(innerText: string, ranges: { from: number; to: number }[], mainIndex: number) {
+	const dispatch = vi.fn()
+	const inner = {
+		state: {
+			doc: { sliceString: (from: number, to?: number) => innerText.slice(from, to) },
+			selection: EditorSelection.create(ranges.map(r => EditorSelection.range(r.from, r.to)), mainIndex),
+			changes: (spec: any) => ChangeSet.of(spec, innerText.length),
+		},
+		dispatch,
+	}
+	return {
+		activeCM: inner,
+		cm: { scrollDOM: { scrollTop: 0 } },
+		inTableCell: true,
+		_innerDispatch: dispatch,
 	}
 }
 
@@ -53,288 +94,205 @@ describe('killRegion', () => {
 		plugin = Object.create(UniversalCursorHotkeysPlugin.prototype)
 		plugin.CELL_SEPARATOR_REGEX  = /(?<!\\)\|/g
 		plugin.TABLE_DELIMITER_REGEX = /^\s*\|?[:\s]*?-+[:\s-]*\|[:\s-|]*$/
-		plugin.settings = { smartHomeStandard: true, smartHomeAdvanced: true, visualLineMovement: true, crossRowNavigation: true }
 		plugin.isKillChaining    = false
 		plugin.isDispatchingKill = false
 		plugin.killCache         = ''
 
 		plugin.isLivePreviewMode = vi.fn().mockReturnValue(false)
-		plugin.setCursorViaCm    = vi.fn()
 
 		vi.stubGlobal('navigator', {
 			clipboard: { writeText: vi.fn().mockResolvedValue(undefined) },
 		})
-		vi.stubGlobal('window', globalThis)
 	})
 
 	afterEach(() => {
-		vi.useRealTimers()
 		vi.unstubAllGlobals()
 	})
 
 
-	// ===========================================================================
-	// no-op guards
-	// ===========================================================================
-
-	describe('no-op', () => {
-		it('empty selection (from === to)', () => {
-			const pos = { line: 0, ch: 3 }
-			const editor = makeEditor(['hello world'], pos, pos)
+	describe('outer (plain text / Source Mode)', () => {
+		it('empty selection: no-op', () => {
+			const editor = makeMultiSelectionPlainEditor(['hello world'], [{ from: { line: 0, ch: 3 }, to: { line: 0, ch: 3 } }], 0)
 			plugin.killRegion(editor)
-			expect(editor.replaceRange).not.toHaveBeenCalled()
-			expect(editor.setLine).not.toHaveBeenCalled()
+			expect(editor.cm.dispatch).not.toHaveBeenCalled()
 		})
 
-		it('LP table — multi-line selection', () => {
-			plugin.isLivePreviewMode.mockReturnValue(true)
-			const editor = makeEditor(
-				['| a | b |', '| c | d |'],
-				{ line: 0, ch: 2 },
-				{ line: 1, ch: 2 },
-				true
-			)
+		it('Source table — cross-cell selection: no-op', () => {
+			// '| cell1 | cell2 |' — ch=2 in cell1 (open=0), ch=12 in cell2 (open=8)
+			const editor = makeMultiSelectionPlainEditor(['| cell1 | cell2 |'], [{ from: { line: 0, ch: 2 }, to: { line: 0, ch: 12 } }], 0)
 			plugin.killRegion(editor)
-			expect(editor.replaceRange).not.toHaveBeenCalled()
-			expect(editor.setLine).not.toHaveBeenCalled()
+			expect(editor.cm.dispatch).not.toHaveBeenCalled()
 		})
 
-		it('LP table — cross-cell selection (fromBounds.open !== toBounds.open)', () => {
-			plugin.isLivePreviewMode.mockReturnValue(true)
-			// | cell1 | cell2 | — ch=2 in cell1 (open=0), ch=12 in cell2 (open=8)
-			const editor = makeEditor(
-				['| cell1 | cell2 |'],
-				{ line: 0, ch: 2 },
-				{ line: 0, ch: 12 },
-				true
-			)
+		it('deletes the selected range via a single range in the dispatch', () => {
+			const editor = makeMultiSelectionPlainEditor(['hello world'], [{ from: { line: 0, ch: 2 }, to: { line: 0, ch: 7 } }], 0)
 			plugin.killRegion(editor)
-			expect(editor.replaceRange).not.toHaveBeenCalled()
-			expect(editor.setLine).not.toHaveBeenCalled()
+			expect(editor.cm.dispatch).toHaveBeenCalledWith({
+				changes: [{ from: 2, to: 7, insert: '' }],
+				selection: EditorSelection.create([EditorSelection.cursor(2)], 0),
+				userEvent: 'delete',
+			})
 		})
 
-		it('Source table — multi-line selection', () => {
-			const editor = makeEditor(
-				['| a | b |', '| c | d |'],
-				{ line: 0, ch: 2 },
-				{ line: 1, ch: 2 }
-			)
-			plugin.killRegion(editor)
-			expect(editor.replaceRange).not.toHaveBeenCalled()
-			expect(editor.setLine).not.toHaveBeenCalled()
-		})
-
-		it('Source table — cross-cell selection', () => {
-			// isTableLineSourceMode returns true for lines starting/ending with |
-			const editor = makeEditor(
-				['| cell1 | cell2 |'],
-				{ line: 0, ch: 2 },
-				{ line: 0, ch: 12 }
-			)
-			plugin.killRegion(editor)
-			expect(editor.replaceRange).not.toHaveBeenCalled()
-			expect(editor.setLine).not.toHaveBeenCalled()
-		})
-	})
-
-
-	// ===========================================================================
-	// Non-table deletion
-	// ===========================================================================
-
-	describe('non-table deletion', () => {
-		it('calls replaceRange with empty string for the selected range', () => {
-			const from = { line: 0, ch: 2 }
-			const to   = { line: 0, ch: 7 }
-			const editor = makeEditor(['hello world'], from, to)
-			plugin.killRegion(editor)
-			expect(editor.replaceRange).toHaveBeenCalledWith('', from, to)
-			expect(editor.setLine).not.toHaveBeenCalled()
-		})
-
-		it('stores raw selected text in killCache without normalization', () => {
-			// Pipes and <br> must NOT be escaped/normalized outside a table
-			const from = { line: 0, ch: 0 }
-			const to   = { line: 0, ch: 14 }
-			const editor = makeEditor(['a | b<br>c end'], from, to)
+		it('stores raw selected text in killCache without normalization (plain text)', () => {
+			const editor = makeMultiSelectionPlainEditor(['a | b<br>c end'], [{ from: { line: 0, ch: 0 }, to: { line: 0, ch: 14 } }], 0)
 			plugin.killRegion(editor)
 			expect(plugin.killCache).toBe('a | b<br>c end')
 		})
 
+		it('applies normalizeKillText in Source Mode: <br> -> \\n, \\| -> |', () => {
+			const editor = makeMultiSelectionPlainEditor(['| ab<br>cd |'], [{ from: { line: 0, ch: 2 }, to: { line: 0, ch: 10 } }], 0)
+			plugin.killRegion(editor)
+			expect(plugin.killCache).toBe('ab\ncd')
+		})
+
 		it('writes killCache to clipboard', () => {
-			const from = { line: 0, ch: 0 }
-			const to   = { line: 0, ch: 5 }
-			const editor = makeEditor(['hello world'], from, to)
+			const editor = makeMultiSelectionPlainEditor(['hello world'], [{ from: { line: 0, ch: 0 }, to: { line: 0, ch: 5 } }], 0)
 			plugin.killRegion(editor)
 			expect(navigator.clipboard.writeText).toHaveBeenCalledWith('hello')
 		})
 
-		it('resets isKillChaining to false', () => {
+		it('resets isKillChaining to false, then sets it true (chainable afterward)', () => {
 			plugin.isKillChaining = true
-			const from = { line: 0, ch: 0 }
-			const to   = { line: 0, ch: 5 }
-			const editor = makeEditor(['hello world'], from, to)
+			const editor = makeMultiSelectionPlainEditor(['hello world'], [{ from: { line: 0, ch: 0 }, to: { line: 0, ch: 5 } }], 0)
 			plugin.killRegion(editor)
-			expect(plugin.isKillChaining).toBe(false)
+			expect(plugin.isKillChaining).toBe(true)
 		})
 
 		// Set-mark category A: an operation that consumes/destroys the
 		// active selection deactivates the mark.
 		it('deactivates Set-mark (markActive)', () => {
 			plugin.markActive = true
-			const from = { line: 0, ch: 0 }
-			const to   = { line: 0, ch: 5 }
-			const editor = makeEditor(['hello world'], from, to)
+			const editor = makeMultiSelectionPlainEditor(['hello world'], [{ from: { line: 0, ch: 0 }, to: { line: 0, ch: 5 } }], 0)
 			plugin.killRegion(editor)
 			expect(plugin.markActive).toBe(false)
+		})
+
+		describe('multi-cursor', () => {
+			it('each non-empty range kills its own selection independently, joined with \\n -- resulting cursors are in POST-change coordinates', () => {
+				// 'foo bar\nbaz qux' (length 15): "foo" at [0,3), "baz" at [8,11).
+				// Deleting [0,3) first shifts the second range's own position
+				// left by 3 -- its resulting cursor must land at 11-3=8-3=5,
+				// not at the stale pre-change offset 8.
+				const editor = makeMultiSelectionPlainEditor(
+					['foo bar', 'baz qux'],
+					[
+						{ from: { line: 0, ch: 0 }, to: { line: 0, ch: 3 } },
+						{ from: { line: 1, ch: 0 }, to: { line: 1, ch: 3 } },
+					],
+					0,
+				)
+				plugin.killRegion(editor)
+				expect(editor.cm.dispatch).toHaveBeenCalledWith({
+					changes: [{ from: 0, to: 3, insert: '' }, { from: 8, to: 11, insert: '' }],
+					selection: EditorSelection.create([EditorSelection.cursor(0), EditorSelection.cursor(5)], 0),
+					userEvent: 'delete',
+				})
+				expect(plugin.killCache).toBe('foo\nbaz')
+			})
+
+			it('a secondary selection crossing a Source Mode table boundary is left untouched (shifted, not removed); primary still killed', () => {
+				// 'foo bar\n| cell1 | cell2 |' -- line 1 starts at offset 8.
+				// Secondary spans [10,20) pre-change; after deleting primary's
+				// [0,3), it must land at [7,17), not the stale [10,20).
+				const editor = makeMultiSelectionPlainEditor(
+					['foo bar', '| cell1 | cell2 |'],
+					[
+						{ from: { line: 0, ch: 0 }, to: { line: 0, ch: 3 } },
+						{ from: { line: 1, ch: 2 }, to: { line: 1, ch: 12 } },
+					],
+					0,
+				)
+				plugin.killRegion(editor)
+				expect(editor.cm.dispatch).toHaveBeenCalledWith({
+					changes: [{ from: 0, to: 3, insert: '' }],
+					selection: EditorSelection.create([EditorSelection.cursor(0), EditorSelection.range(7, 17)], 0),
+					userEvent: 'delete',
+				})
+				expect(plugin.killCache).toBe('foo')
+			})
+
+			it("primary's own invalid selection no longer blocks a valid secondary from being killed -- primary's own kept range is untouched (no shift, since it comes first)", () => {
+				const editor = makeMultiSelectionPlainEditor(
+					['| cell1 | cell2 |', 'foo bar'],
+					[
+						{ from: { line: 0, ch: 2 }, to: { line: 0, ch: 12 } }, // main — invalid
+						{ from: { line: 1, ch: 0 }, to: { line: 1, ch: 3 } },  // secondary — valid
+					],
+					0,
+				)
+				plugin.killRegion(editor)
+				expect(editor.cm.dispatch).toHaveBeenCalledWith({
+					changes: [{ from: 18, to: 21, insert: '' }],
+					selection: EditorSelection.create([EditorSelection.range(2, 12), EditorSelection.cursor(18)], 0),
+					userEvent: 'delete',
+				})
+				expect(plugin.killCache).toBe('foo')
+			})
 		})
 	})
 
 
-	// ===========================================================================
-	// LP table — single-cell deletion
-	// ===========================================================================
-
-	describe('LP table — single-cell deletion', () => {
-		beforeEach(() => {
-			plugin.isLivePreviewMode.mockReturnValue(true)
+	describe('LP table cell', () => {
+		it('no-op when not inside a table cell (activeCM === cm)', () => {
+			const editor = { activeCM: {}, cm: {}, inTableCell: true } as any
+			editor.activeCM = editor.cm
+			expect(() => plugin.killRegion(editor)).not.toThrow()
 		})
 
-		it('dispatches changes with prefix + suffix', () => {
-			// '| hello world |' — delete 'hello ' (ch=2..8) → '| world |'
-			const line = '| hello world |'
-			const editor = makeEditor([line], { line: 0, ch: 2 }, { line: 0, ch: 8 }, true)
+		it('deletes the selected range within the cell', () => {
+			const editor = makeMultiSelectionLPEditor('hello world', [{ from: 2, to: 7 }], 0)
 			plugin.killRegion(editor)
-			expect(editor.cm.dispatch).toHaveBeenCalledWith({
-				changes:   { from: 0, to: line.length, insert: '| world |' },
-				selection: { anchor: 2 },
+			expect(editor._innerDispatch).toHaveBeenCalledWith({
+				changes: [{ from: 2, to: 7, insert: '' }],
+				selection: EditorSelection.create([EditorSelection.cursor(2)], 0),
 			})
-			expect(editor.replaceRange).not.toHaveBeenCalled()
-		})
-
-		it('dispatches selection anchor at prefix.length', () => {
-			const line = '| hello world |'
-			const editor = makeEditor([line], { line: 0, ch: 2 }, { line: 0, ch: 8 }, true)
-			plugin.killRegion(editor)
-			const call = editor.cm.dispatch.mock.calls[0][0]
-			expect(call.selection.anchor).toBe(2)
-		})
-
-		it('applies normalizeKillText: <br> → \\n in killCache', () => {
-			// '| ab<br>cd |': from=2, to=10 → selection='ab<br>cd' → normalized='ab\ncd'
-			// |=0 ' '=1 a=2 b=3 <=4 b=5 r=6 >=7 c=8 d=9 ' '=10 |=11
-			const line = '| ab<br>cd |'
-			const editor = makeEditor([line], { line: 0, ch: 2 }, { line: 0, ch: 10 }, true)
-			plugin.killRegion(editor)
-			expect(plugin.killCache).toBe('ab\ncd')
-		})
-
-		it('applies normalizeKillText: \\| → | in killCache', () => {
-			// '| a\\|b |': from=2, to=6 → selection='a\\|b' → normalized='a|b'
-			const line = '| a\\|b |'
-			const editor = makeEditor([line], { line: 0, ch: 2 }, { line: 0, ch: 6 }, true)
-			plugin.killRegion(editor)
-			expect(plugin.killCache).toBe('a|b')
+			expect(plugin.killCache).toBe('llo w')
 		})
 
 		it('writes killCache to clipboard', () => {
-			const line = '| hello |'
-			const editor = makeEditor([line], { line: 0, ch: 2 }, { line: 0, ch: 7 }, true)
+			const editor = makeMultiSelectionLPEditor('hello', [{ from: 0, to: 5 }], 0)
 			plugin.killRegion(editor)
 			expect(navigator.clipboard.writeText).toHaveBeenCalledWith('hello')
 		})
 
-		it('resets isKillChaining to false', () => {
+		it('resets isKillChaining to false, then sets it true', () => {
 			plugin.isKillChaining = true
-			const line = '| hello |'
-			const editor = makeEditor([line], { line: 0, ch: 2 }, { line: 0, ch: 7 }, true)
+			const editor = makeMultiSelectionLPEditor('hello', [{ from: 0, to: 5 }], 0)
 			plugin.killRegion(editor)
-			expect(plugin.isKillChaining).toBe(false)
-		})
-	})
-
-
-	// ===========================================================================
-	// LP table — <br> handling
-	// ===========================================================================
-
-	describe('LP table — <br> handling', () => {
-		// '| first<br>second |'
-		// |=0 ' '=1 f=2 i=3 r=4 s=5 t=6 <=7 b=8 r=9 >=10 s=11 e=12 c=13 o=14 n=15 d=16 ' '=17 |=18
-		// brStart=7 (position of '<'), brEnd=11 (position of 's' in 'second')
-		const LINE = '| first<br>second |'
-
-		beforeEach(() => {
-			plugin.isLivePreviewMode.mockReturnValue(true)
+			expect(plugin.isKillChaining).toBe(true)
 		})
 
-		it('selection spanning <br>: <br> absent from dispatch result', () => {
-			// from=3 (within 'first'), to=14 (within 'second' past brEnd=11)
-			// prefix='| f', suffix='ond |' → '| fond |'
-			const editor = makeEditor([LINE], { line: 0, ch: 3 }, { line: 0, ch: 14 }, true)
+		it('deactivates Set-mark (markActive)', () => {
+			plugin.markActive = true
+			const editor = makeMultiSelectionLPEditor('hello', [{ from: 0, to: 5 }], 0)
 			plugin.killRegion(editor)
-			expect(editor.cm.dispatch.mock.calls[0][0].changes.insert).toBe('| fond |')
+			expect(plugin.markActive).toBe(false)
 		})
 
-		it('to.ch = brStart, prefix has no cell content → strip <br> from suffix', () => {
-			// from=2 (cell content start), to=7 (brStart)
-			// cellContentBefore = line.slice(1,2).trim() = '' → strip
-			// prefix='| ', suffix='second |' → '| second |'
-			const editor = makeEditor([LINE], { line: 0, ch: 2 }, { line: 0, ch: 7 }, true)
-			plugin.killRegion(editor)
-			expect(editor.cm.dispatch.mock.calls[0][0].changes.insert).toBe('| second |')
-		})
+		describe('multi-cursor', () => {
+			it('each non-empty range within the cell kills its own selection independently, joined with \\n -- resulting cursors are in POST-change coordinates', () => {
+				// 'foo bar': "foo" at [0,3), "bar" at [4,7). Deleting [0,3)
+				// first shifts the second range's own position left by 3 --
+				// its resulting cursor must land at 4-3=1, not the stale 4.
+				const editor = makeMultiSelectionLPEditor('foo bar', [{ from: 0, to: 3 }, { from: 4, to: 7 }], 0)
+				plugin.killRegion(editor)
+				expect(editor._innerDispatch).toHaveBeenCalledWith({
+					changes: [{ from: 0, to: 3, insert: '' }, { from: 4, to: 7, insert: '' }],
+					selection: EditorSelection.create([EditorSelection.cursor(0), EditorSelection.cursor(1)], 0),
+				})
+				expect(plugin.killCache).toBe('foo\nbar')
+			})
 
-		it('to.ch = brStart, prefix HAS cell content → keep <br> in suffix', () => {
-			// from=3 ('i'), to=7 (brStart)
-			// cellContentBefore = line.slice(1,3).trim() = 'f' → no strip
-			// prefix='| f', suffix='<br>second |' → '| f<br>second |'
-			const editor = makeEditor([LINE], { line: 0, ch: 3 }, { line: 0, ch: 7 }, true)
-			plugin.killRegion(editor)
-			expect(editor.cm.dispatch.mock.calls[0][0].changes.insert).toBe('| f<br>second |')
-		})
-
-		it('from.ch = brEnd, suffix has no cell content → strip <br> from prefix', () => {
-			// from=11 (brEnd), to=17 (space before '|')
-			// cellContentAfter = line.slice(17,18).trim() = '' → strip
-			// prefix='| first' (after strip), suffix=' |' → '| first |'
-			const editor = makeEditor([LINE], { line: 0, ch: 11 }, { line: 0, ch: 17 }, true)
-			plugin.killRegion(editor)
-			expect(editor.cm.dispatch.mock.calls[0][0].changes.insert).toBe('| first |')
-		})
-
-		it('from.ch = brEnd, suffix HAS cell content → keep <br> in prefix', () => {
-			// from=11 (brEnd), to=14 (after 'sec')
-			// cellContentAfter = line.slice(14,18).trim() = 'ond' → no strip
-			// prefix='| first<br>', suffix='ond |' → '| first<br>ond |'
-			const editor = makeEditor([LINE], { line: 0, ch: 11 }, { line: 0, ch: 14 }, true)
-			plugin.killRegion(editor)
-			expect(editor.cm.dispatch.mock.calls[0][0].changes.insert).toBe('| first<br>ond |')
-		})
-	})
-
-
-	// ===========================================================================
-	// Source table — single-cell deletion
-	// ===========================================================================
-
-	describe('Source table — single-cell deletion', () => {
-		it('calls replaceRange for single-cell selection', () => {
-			const line = '| hello world |'
-			const from = { line: 0, ch: 2 }
-			const to   = { line: 0, ch: 8 }
-			const editor = makeEditor([line], from, to)
-			plugin.killRegion(editor)
-			expect(editor.replaceRange).toHaveBeenCalledWith('', from, to)
-			expect(editor.setLine).not.toHaveBeenCalled()
-		})
-
-		it('applies normalizeKillText: <br> → \\n in killCache', () => {
-			// Source cell with literal <br> tag; from=2, to=10 → 'ab<br>cd' → 'ab\ncd'
-			const line = '| ab<br>cd |'
-			const editor = makeEditor([line], { line: 0, ch: 2 }, { line: 0, ch: 10 })
-			plugin.killRegion(editor)
-			expect(plugin.killCache).toBe('ab\ncd')
+			it('an empty secondary range is left untouched (shifted, not removed); non-empty primary still killed', () => {
+				// 'foo bar': primary [0,3) killed; secondary empty at 5 shifts to 5-3=2.
+				const editor = makeMultiSelectionLPEditor('foo bar', [{ from: 0, to: 3 }, { from: 5, to: 5 }], 0)
+				plugin.killRegion(editor)
+				expect(editor._innerDispatch).toHaveBeenCalledWith({
+					changes: [{ from: 0, to: 3, insert: '' }],
+					selection: EditorSelection.create([EditorSelection.cursor(0), EditorSelection.cursor(2)], 0),
+				})
+			})
 		})
 	})
 })
