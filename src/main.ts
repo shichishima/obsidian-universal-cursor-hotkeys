@@ -55,6 +55,11 @@ interface UniversalCursorHotkeysSettings {
 	qsaTableStructureVisible: boolean;
 	qsaTableNavVisible: boolean;
 	qsaDisplacedVisible: boolean;
+	// "Add cursor" block on the For everyone tab (settings.ts's
+	// renderKeyUpgradesTabContent) — a real Obsidian command block (unlike
+	// Key Upgrades above it), reusing the same QSA renderBlock machinery as
+	// the macOS tab's own 3 core blocks. Open by default, same as those.
+	qsaAddCursorVisible: boolean;
 	vimHlSupport: boolean;
 	vimJkSupport: boolean;
 	vimJoinSupport: boolean;
@@ -102,6 +107,7 @@ const DEFAULT_SETTINGS: UniversalCursorHotkeysSettings = {
 	qsaTableStructureVisible: false,
 	qsaTableNavVisible: false,
 	qsaDisplacedVisible: true,
+	qsaAddCursorVisible: true,
 	vimHlSupport: true,
 	vimJkSupport: true,
 	vimJoinSupport: true,

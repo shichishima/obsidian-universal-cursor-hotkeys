@@ -4,7 +4,11 @@ import type universalCursorHotkeysPlugin from './main';
 const PLUGIN_ID = 'universal-cursor-hotkeys';
 
 export interface CommandDef {
-	block: 'cursor' | 'editing' | 'other' | 'tableStructure' | 'tableNav';
+	// 'addCursor' is rendered only on the For everyone tab
+	// (renderKeyUpgradesTabContent) — a real Obsidian command, not a Key
+	// Upgrade, so it reuses this same QSA block machinery, just from a
+	// different tab than the macOS one.
+	block: 'cursor' | 'editing' | 'other' | 'tableStructure' | 'tableNav' | 'addCursor';
 	id: string;
 	name: string;
 	recommended: Hotkey | null;
@@ -423,6 +427,11 @@ const SPECIAL_KEY_EXCEPTION: Partial<Record<string, string>> = Object.fromEntrie
 );
 
 const ctrl = (...keys: string[]): Hotkey => ({ modifiers: ['Ctrl'], key: keys[0] });
+// 'Alt' is the same physical key as macOS's Option — unlike KeyUpgradeDef's
+// mac/win split (needed for bare-physical-key capture), a single Hotkey
+// here already renders correctly on both platforms via Obsidian's own
+// modifier handling, so no per-OS variant is needed.
+const alt = (key: string): Hotkey => ({ modifiers: ['Alt'], key });
 
 const COMMAND_DEFS: readonly CommandDef[] = [
 	{ block: 'cursor',  id: 'cursor-up',           name: 'UP',                  recommended: ctrl('P') },
@@ -506,6 +515,14 @@ const COMMAND_DEFS: readonly CommandDef[] = [
 	{ block: 'tableNav', id: 'table-cell-up',        name: 'Move to cell above',  recommended: null },
 	{ block: 'tableNav', id: 'table-exit-down',      name: 'Exit table below',    recommended: null },
 	{ block: 'tableNav', id: 'table-exit-up',        name: 'Exit table above',    recommended: null },
+
+	// For everyone tab only (see renderKeyUpgradesTabContent) — a real
+	// Obsidian command, works both outside tables and inside a table
+	// cell's own wrapped sub-lines (native Obsidian's own equivalent
+	// commands support neither reliably; see addCursorVertically's own
+	// doc comment in main.ts).
+	{ block: 'addCursor', id: 'add-cursor-below', name: 'Add cursor below', recommended: alt('ArrowDown') },
+	{ block: 'addCursor', id: 'add-cursor-above', name: 'Add cursor above', recommended: alt('ArrowUp') },
 ];
 
 export interface DisplacedCommand {
@@ -552,6 +569,8 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 	private set tableNavVisible(v: boolean) { this.plugin.settings.qsaTableNavVisible = v; void this.plugin.saveSettings(); }
 	private get displacedVisible() { return this.plugin.settings.qsaDisplacedVisible; }
 	private set displacedVisible(v: boolean) { this.plugin.settings.qsaDisplacedVisible = v; void this.plugin.saveSettings(); }
+	private get addCursorVisible() { return this.plugin.settings.qsaAddCursorVisible; }
+	private set addCursorVisible(v: boolean) { this.plugin.settings.qsaAddCursorVisible = v; void this.plugin.saveSettings(); }
 	private get activeTab() { return this.plugin.settings.activeSettingsTab; }
 	private set activeTab(v: 'general' | 'vim' | 'emacs') { this.plugin.settings.activeSettingsTab = v; void this.plugin.saveSettings(); }
 
@@ -1495,20 +1514,6 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			this.display();
 		};
 
-		const restoreDisplaced = (d: DisplacedCommand) => {
-			const dId = hotkeyId(d.hotkey);
-			const uchFullId = `${PLUGIN_ID}:${d.uchCommandId}`;
-			hm.setHotkeys(uchFullId,
-				effectiveHotkeys(uchFullId).filter(hk => hotkeyId(hk) !== dId).map(toHotkey));
-			hm.setHotkeys(d.commandId,
-				[...effectiveHotkeys(d.commandId).map(toHotkey), d.hotkey]);
-			this.plugin.settings.qsaDisplacedCommands = this.plugin.settings.qsaDisplacedCommands.filter(x => x !== d);
-			hm.save();
-			hm.bake();
-			void this.plugin.saveSettings();
-			this.display();
-		};
-
 		const allActionBtns: HTMLElement[]    = [];
 		const allActionHeaders: HTMLElement[] = [];
 		const allOverrideNotes: HTMLElement[] = [];
@@ -1549,8 +1554,50 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			{ get: () => this.tableNavVisible, set: v => { this.tableNavVisible = v; } });
 		syncToggle();
 
-		// Displaced commands table — collapsible like every other block under
-		// Hotkey settings (see renderBlock's own doc comment on why).
+		// Displaced commands table — this tab's own QSA blocks only (the
+		// For everyone tab's own Add cursor block gets its own, filtered the
+		// other way — see renderKeyUpgradesTabContent).
+		const addCursorCmdIds = new Set(COMMAND_DEFS.filter(d => d.block === 'addCursor').map(d => d.id));
+		const dispTable = this.renderDisplacedCommandsTable(
+			containerEl, d => !addCursorCmdIds.has(d.uchCommandId), hm, effectiveHotkeys, toHotkey,
+		);
+
+		const emacsBehaviorTbody = this.renderBehaviorOptionsTitle(dispTable, 5);
+		this.renderSmartHomeToggles(emacsBehaviorTbody, 4, true);
+		this.renderVisualLineMovementToggle(emacsBehaviorTbody, 4);
+		this.renderCrossRowNavigationToggle(emacsBehaviorTbody, 4);
+	}
+
+	// Shared by both tab-content renderers (macOS and For everyone) — a
+	// command's own Override action writes to the one shared
+	// qsaDisplacedCommands array regardless of which tab did it, so each
+	// tab's own table here only needs a filter predicate to show just its
+	// own share (see each call site for which half of the split that is).
+	// Collapsible like every other block under Hotkey settings (see
+	// renderBlock's own doc comment on why); the ▶/▼ open state
+	// (displacedVisible) is intentionally one shared flag, not per-tab —
+	// same precedent as individualVisible.
+	private renderDisplacedCommandsTable(
+		containerEl: HTMLElement,
+		filter: (d: DisplacedCommand) => boolean,
+		hm: HotkeyManager,
+		effectiveHotkeys: (id: string) => BakedHotkey[],
+		toHotkey: (hk: BakedHotkey) => Hotkey,
+	): HTMLTableElement {
+		const restoreDisplaced = (d: DisplacedCommand) => {
+			const dId = hotkeyId(d.hotkey);
+			const uchFullId = `${PLUGIN_ID}:${d.uchCommandId}`;
+			hm.setHotkeys(uchFullId,
+				effectiveHotkeys(uchFullId).filter(hk => hotkeyId(hk) !== dId).map(toHotkey));
+			hm.setHotkeys(d.commandId,
+				[...effectiveHotkeys(d.commandId).map(toHotkey), d.hotkey]);
+			this.plugin.settings.qsaDisplacedCommands = this.plugin.settings.qsaDisplacedCommands.filter(x => x !== d);
+			hm.save();
+			hm.bake();
+			void this.plugin.saveSettings();
+			this.display();
+		};
+
 		const dispTable = containerEl.createEl('table', { cls: 'uch-disp-table' });
 
 		const dispHeaderTbody = dispTable.createEl('tbody');
@@ -1591,7 +1638,8 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			if (i === 0) td.addClass('uch-col-header-first');
 		}
 
-		for (const d of this.plugin.settings.qsaDisplacedCommands) {
+		const shown = this.plugin.settings.qsaDisplacedCommands.filter(filter);
+		for (const d of shown) {
 			const tr = dispTbody.createEl('tr');
 			tr.addClass('uch-row-thin');
 			const dispName = tr.createEl('td', { cls: 'uch-cell-name uch-cell-name-wrap' })
@@ -1620,7 +1668,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			restoreBtn.addEventListener('click', () => { restoreDisplaced(d); });
 		}
 
-		if (this.plugin.settings.qsaDisplacedCommands.length === 0) {
+		if (shown.length === 0) {
 			const noDisp = dispTbody.createEl('tr', { cls: 'uch-row-thin' }).createEl('td', { text: 'No displaced commands.', cls: 'uch-no-displaced' });
 			noDisp.colSpan = 5;
 		}
@@ -1633,10 +1681,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		const dispSpacerTd = dispTbody.createEl('tr').createEl('td', { cls: 'uch-block-spacer' });
 		dispSpacerTd.colSpan = 5;
 
-		const emacsBehaviorTbody = this.renderBehaviorOptionsTitle(dispTable, 5);
-		this.renderSmartHomeToggles(emacsBehaviorTbody, 4, true);
-		this.renderVisualLineMovementToggle(emacsBehaviorTbody, 4);
-		this.renderCrossRowNavigationToggle(emacsBehaviorTbody, 4);
+		return dispTable;
 	}
 
 	// "for All users" tab — see computeKeyUpgradeRow's own doc comment for why
@@ -1656,12 +1701,110 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 
 		const keyUpgradeCtx: KeyUpgradeCtx = { hm, effectiveHotkeys, reverseMap, cmds, toHotkey };
 
-		const keyUpgradesEl = containerEl.createDiv({ cls: 'uch-tab-header-section' });
-		const keyUpgradesTitleFlex = keyUpgradesEl.createDiv('uch-title-flex');
-		keyUpgradesTitleFlex.createDiv({
-			text: "Give your everyday keys table-aware behavior and CJK-aware word splitting.",
+		// Hotkey settings — a real Obsidian command (unlike Key Upgrades
+		// below, which hijack bare physical keys Obsidian's own Hotkeys UI
+		// can't capture at all), so this reuses the exact same renderBlock/
+		// COMMAND_DEFS machinery the macOS tab's own 3 core blocks use,
+		// just for the one 'addCursor' block, scoped to this tab only (the
+		// macOS tab never calls renderBlock for it). applyEntry/applyBlock
+		// are duplicated from renderEmacsTabContent's own closures rather
+		// than shared — the two tabs' blocks never render in the same
+		// pass (only one tab is ever active), so there's no state to keep
+		// in sync between them beyond the already-shared
+		// qsaDisplacedCommands array itself, which both tabs' own override
+		// action already writes to; a displaced command made from here is
+		// still visible and restorable from the macOS tab's own Displaced
+		// commands table. Placed before Key upgrades: a real command
+		// assignment carries no more structural risk than any other
+		// hotkey, unlike some of the bare-physical-key upgrades below
+		// (e.g. other-plugin interaction, performance on slow machines),
+		// so the more broadly-safe mechanism leads.
+		const addCursorHeaderEl = containerEl.createDiv({ cls: 'uch-tab-header-section' });
+		addCursorHeaderEl.createDiv({ text: 'Hotkey settings', cls: 'uch-tab-row-title' });
+		addCursorHeaderEl.createDiv({
+			text: "Add a cursor to the line above/below, fixing a real bug in Obsidian's own native equivalent, and working more reliably inside table cells too (where native behavior was inconsistent).",
 			cls: 'uch-tab-row-desc',
 		});
+
+		const addCursorApplyEntry = (def: CommandDef, row: HotkeyRow) => {
+			const fullId = getFullId(def);
+			const recId  = hotkeyId(def.recommended!);
+			if (row.action === 'override') {
+				for (const conflictId of (reverseMap.get(recId) ?? []).filter(id => id !== fullId && cmds?.[id] !== undefined)) {
+					hm.setHotkeys(conflictId,
+						effectiveHotkeys(conflictId).filter(hk => hotkeyId(hk) !== recId).map(toHotkey));
+					if (!this.plugin.settings.qsaDisplacedCommands.some(d => d.commandId === conflictId && hotkeyId(d.hotkey) === recId)) {
+						this.plugin.settings.qsaDisplacedCommands.push({
+							commandId:      conflictId,
+							commandName:    cmds?.[conflictId]?.name ?? conflictId,
+							hotkey:         def.recommended!,
+							uchCommandId:   def.id,
+							uchCommandName: def.name,
+						});
+					}
+				}
+			}
+			hm.setHotkeys(fullId, [...effectiveHotkeys(fullId).map(toHotkey), def.recommended!]);
+		};
+		const addCursorApplyBlock = (entries: Array<{def: CommandDef; row: HotkeyRow}>) => {
+			for (const { def, row } of entries) {
+				if (row.action !== 'set' && row.action !== 'override') continue;
+				addCursorApplyEntry(def, row);
+			}
+			hm.save();
+			hm.bake();
+			void this.plugin.saveSettings();
+			this.display();
+		};
+		const addCursorActionBtns: HTMLElement[]    = [];
+		const addCursorActionHeaders: HTMLElement[] = [];
+		const addCursorOverrideNotes: HTMLElement[] = [];
+		const addCursorSyncToggle = () => {
+			for (const el of addCursorActionBtns)    el.toggleClass('uch-vis-hidden', !this.individualVisible);
+			for (const el of addCursorActionHeaders) el.textContent = this.individualVisible ? '▼ Individual' : '▶ Individual';
+			for (const el of addCursorOverrideNotes) el.toggleClass('uch-hidden', !this.individualVisible);
+		};
+		const addCursorCtx: RenderCtx = {
+			hm, effectiveHotkeys, cmds,
+			applyEntry: addCursorApplyEntry, applyBlock: addCursorApplyBlock,
+			allActionBtns: addCursorActionBtns, allActionHeaders: addCursorActionHeaders, allOverrideNotes: addCursorOverrideNotes,
+			syncToggle: addCursorSyncToggle,
+		};
+		const addCursorTable = containerEl.createEl('table');
+		addCursorTable.addClass('uch-table');
+		const addCursorDefs = COMMAND_DEFS.filter(d => d.block === 'addCursor');
+		const addCursorBlockIds = new Set(addCursorDefs.map(d => d.id));
+		const addCursorEntries = addCursorDefs
+			.map(def => ({ def, row: computeRow(def, effectiveHotkeys, reverseMap, cmds) }));
+		this.renderBlock(addCursorTable, 'Add cursor', addCursorEntries, addCursorCtx,
+			{ get: () => this.addCursorVisible, set: v => { this.addCursorVisible = v; } });
+		addCursorSyncToggle();
+
+		// Displaced commands — this tab's own Add cursor block only (the
+		// macOS tab's own blocks get their own, filtered the other way —
+		// see renderEmacsTabContent).
+		this.renderDisplacedCommandsTable(
+			containerEl, d => addCursorBlockIds.has(d.uchCommandId), hm, effectiveHotkeys, toHotkey,
+		);
+
+		// Key upgrades — hijacks bare physical keys Obsidian's own Hotkeys
+		// UI can't capture at all (unlike Hotkey settings above, a real
+		// command assignment), so some of its own entries below carry
+		// caveats a normal hotkey never would (other-plugin key
+		// interaction, performance on slow machines) — a structurally
+		// different, more unusual mechanism than Hotkey settings above,
+		// placed second for that reason.
+		const keyUpgradesHeaderEl = containerEl.createDiv({ cls: 'uch-tab-header-section' });
+		keyUpgradesHeaderEl.createDiv({ text: 'Key upgrades', cls: 'uch-tab-row-title' });
+		const keyUpgradesTitleFlex = keyUpgradesHeaderEl.createDiv('uch-title-flex');
+		const keyUpgradesDescEl = keyUpgradesTitleFlex.createDiv({ cls: 'uch-tab-row-desc' });
+		keyUpgradesDescEl.appendText("Give your everyday keys table-aware behavior and CJK-aware word splitting.");
+		keyUpgradesDescEl.createEl('br');
+		// Scope clarification for "Apply all" below, which spans more than
+		// this block's own rows (every Behavior option further down too)
+		// — continued on the same description, same styling, rather than
+		// its own distinctly-styled row.
+		keyUpgradesDescEl.appendText('Apply all also turns on every Behavior option below.');
 		const computeEligible = () => KEY_UPGRADE_DEFS.filter(def => {
 			const row = computeKeyUpgradeRow(def, keyUpgradeCtx.effectiveHotkeys, keyUpgradeCtx.reverseMap, keyUpgradeCtx.cmds);
 			return !row.assigned && row.conflictIds.length === 0;
@@ -1671,13 +1814,17 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			&& this.plugin.settings.visualLineMovement
 			&& this.plugin.settings.crossRowNavigation
 			&& this.plugin.settings.cjkDoubleClickWordSelect;
-		// "Apply all" is the only button on this whole tab (unlike Vim's own
-		// per-block "Apply both" or Emacs's own per-block "Apply recommended"
-		// — both scoped to just their own section) — sitting at the top of
-		// the entire page, it reads as "turn everything on this page on", so
-		// it also turns on every Behavior Option shown below, not just the
-		// key upgrades above. All 5 default true anyway; this only matters
-		// once the user has deliberately turned one off.
+		// "Apply all" (not "Apply recommended", unlike every per-block
+		// button on this page including Add cursor's own one right above)
+		// — this button spans two different layers at once (every eligible
+		// Key Upgrade AND every Behavior option below, not just one
+		// block's own rows), so reusing that single-block-scoped label
+		// would be misleading; "Apply upgrades" was tried and rejected too
+		// (reads as Key upgrades only, missing the Behavior options half).
+		// The desc text right above spells out the actual scope instead of
+		// trying to pack it into the button's own name. All 5 Behavior
+		// options default true anyway; this only matters once the user has
+		// deliberately turned one off.
 		const applyAllBtn = keyUpgradesTitleFlex.createEl('button', { text: 'Apply all' });
 		applyAllBtn.addClass('mod-cta', 'uch-apply-btn');
 		// Behavior Option toggles below deliberately don't trigger a full
@@ -1718,7 +1865,14 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			WORD_COMMAND_DEFS, keyUpgradeCtx,
 		);
 
-		const everyoneBehaviorTbody = this.renderBehaviorOptionsTitle(keyUpgradesTable, 4);
+		// Behavior options — its own table, same top-level treatment as the
+		// macOS tab's own Behavior options (a <table>'s own position in the
+		// DOM is fixed at creation time, so this has to be its own table
+		// created last, not a tbody appended to an earlier one, to land
+		// after Key upgrades rather than before it).
+		const behaviorTable = containerEl.createEl('table');
+		behaviorTable.addClass('uch-table');
+		const everyoneBehaviorTbody = this.renderBehaviorOptionsTitle(behaviorTable, 4);
 		this.renderSmartHomeToggles(everyoneBehaviorTbody, 3, false, updateApplyAllDisabled);
 		// cursor-home/cursor-end are the same shared command Emacs's Ctrl+A/E
 		// uses — these two settings affect this tab's own bare Home/End too,
