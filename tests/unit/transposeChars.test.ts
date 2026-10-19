@@ -81,6 +81,7 @@ describe('swapLastTwoInRange', () => {
 
 	beforeEach(() => {
 		plugin = Object.create(UniversalCursorHotkeysPlugin.prototype)
+		plugin.settings = { tableAwareSourceModeEditing: true }
 	})
 
 	it('swaps the last two ASCII characters', () => {
@@ -136,6 +137,7 @@ describe('transposeChars (plain text dispatcher)', () => {
 
 	beforeEach(() => {
 		plugin = Object.create(UniversalCursorHotkeysPlugin.prototype)
+		plugin.settings = { tableAwareSourceModeEditing: true }
 		plugin.CELL_SEPARATOR_REGEX  = /(?<!\\)\|/g
 		plugin.TABLE_DELIMITER_REGEX = /^\s*\|?[:\s]*?-+[:\s-]*\|[:\s-|]*$/
 		plugin.isLivePreviewMode = vi.fn().mockReturnValue(true)
@@ -212,6 +214,7 @@ describe('transposeCharsInTableLP', () => {
 
 	beforeEach(() => {
 		plugin = Object.create(UniversalCursorHotkeysPlugin.prototype)
+		plugin.settings = { tableAwareSourceModeEditing: true }
 		vi.mocked(cmTransposeChars).mockClear()
 	})
 
@@ -272,6 +275,7 @@ describe('transposeCharsInTableSource', () => {
 
 	beforeEach(() => {
 		plugin = Object.create(UniversalCursorHotkeysPlugin.prototype)
+		plugin.settings = { tableAwareSourceModeEditing: true }
 		plugin.CELL_SEPARATOR_REGEX  = /(?<!\\)\|/g
 		plugin.TABLE_DELIMITER_REGEX = /^\s*\|?[:\s]*?-+[:\s-]*\|[:\s-|]*$/
 		vi.mocked(cmTransposeChars).mockClear()

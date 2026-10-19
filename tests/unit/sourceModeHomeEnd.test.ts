@@ -34,6 +34,7 @@ describe('Source Mode HOME/END table navigation', () => {
 			smartHomeAdvanced: true,
 			visualLineMovement: true,
 			crossRowNavigation: true,
+			tableAwareSourceModeEditing: true,
 		}
 	})
 
@@ -243,5 +244,34 @@ describe('Source Mode HOME/END table navigation', () => {
 			plugin.moveToRightCellStartSourceMode(editor)
 			expect(editor.setCursor).toHaveBeenCalledWith({ line: 3, ch: 0 })
 		})
+	})
+})
+
+// Every Source-Mode-table-aware command (HOME/END, Select all, Delete char,
+// Transpose chars, Kill line, Kill word left/right, Uppercase/Lowercase/
+// Capitalize word, Kill region/Copy region, Yank, and Vim's own tx/tX) funnels
+// through this one function, so gating it here is sufficient to cover all of
+// them — no need to drive each command's own dispatch separately.
+describe('isTableLineSourceMode gated by tableAwareSourceModeEditing', () => {
+	let plugin: any
+
+	beforeEach(() => {
+		plugin = Object.create(UniversalCursorHotkeysPlugin.prototype)
+		plugin.isLivePreviewMode = vi.fn().mockReturnValue(false)
+	})
+
+	it('ON (default): a real table row is recognized as one', () => {
+		plugin.settings = { tableAwareSourceModeEditing: true }
+		expect(plugin.isTableLineSourceMode('| a | b |')).toBe(true)
+	})
+
+	it('OFF: a table row is treated as plain text instead', () => {
+		plugin.settings = { tableAwareSourceModeEditing: false }
+		expect(plugin.isTableLineSourceMode('| a | b |')).toBe(false)
+	})
+
+	it('OFF also reaches isSourceModeTableLine (the Vim-support-exposed wrapper, used by tx/tX)', () => {
+		plugin.settings = { tableAwareSourceModeEditing: false }
+		expect(plugin.isSourceModeTableLine('| a | b |')).toBe(false)
 	})
 })
