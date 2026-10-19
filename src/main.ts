@@ -41,6 +41,17 @@ interface UniversalCursorHotkeysSettings {
 	// it makes a markdown-aware judgment call). Latin-only text is
 	// unaffected either way.
 	cjkDoubleClickWordSelect: boolean;
+	// Gates isTableLineSourceMode()'s own return value — on by default
+	// (preserves existing behavior). OFF disables Source Mode table-row
+	// awareness entirely for every command that checks it (HOME/END, Select
+	// all, Delete char, Transpose chars, Kill line, Kill word left/right,
+	// Uppercase/Lowercase/Capitalize word, Kill region/Copy region, Yank,
+	// and Vim's own tx/tX), so a table row in Source Mode behaves exactly
+	// like any other line — e.g. HOME lands at the line's own literal ch=0
+	// instead of stopping at cell content start. Live Preview is completely
+	// unaffected either way (isTableLineSourceMode is only ever checked
+	// alongside !isLivePreviewMode()).
+	tableAwareSourceModeEditing: boolean;
 	qsaDisplacedCommands: DisplacedCommand[];
 	qsaIndividualVisible: boolean;
 	// Every block under Hotkey settings is collapsible now (uniform ▶/▼
@@ -99,6 +110,7 @@ const DEFAULT_SETTINGS: UniversalCursorHotkeysSettings = {
 	smartJoin: false,
 	crossRowNavigation: true,
 	cjkDoubleClickWordSelect: true,
+	tableAwareSourceModeEditing: true,
 	qsaDisplacedCommands: [],
 	qsaIndividualVisible: false,
 	qsaCursorMovementVisible: true,
@@ -3548,6 +3560,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 
 	private isTableLineSourceMode(line: string): boolean {
+		if (!this.settings.tableAwareSourceModeEditing) return false;
 		const trimmed = line.trimEnd();
 		return trimmed.startsWith('|') && trimmed.endsWith('|');
 	}

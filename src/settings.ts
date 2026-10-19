@@ -797,6 +797,26 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			});
 	}
 
+	// Gates isTableLineSourceMode()'s own return value (main.ts) — affects
+	// every command that checks it: HOME/END, Select all, Delete char,
+	// Transpose chars, Kill line, Kill word left/right, Uppercase/Lowercase/
+	// Capitalize word, Kill region/Copy region, Yank, and Vim's own tx/tX.
+	// Rendered on all three tabs, not just Emacs: HOME/END reach For
+	// everyone's own bare Home/End (same shared command as Emacs's Ctrl+A/E,
+	// same precedent as Visual line movement/Cross-row navigation above),
+	// and tx/tX reach the Vim tab.
+	private renderTableAwareSourceModeToggle(tbody: HTMLElement, colspan: number, onAnyChange?: () => void): void {
+		this.renderBehaviorToggleRow(tbody, colspan, 'Table-aware Source Mode editing', '' +
+			'<b>ON:</b> HOME/END, Kill/Yank, and other editing commands respect table structure (<code>|</code>/<code>&lt;br&gt;</code>) in Source Mode.<br>' +
+			'<b>OFF:</b> Table rows are treated as plain text, ignoring structure entirely.',
+			this.plugin.settings.tableAwareSourceModeEditing,
+			(value) => {
+				this.plugin.settings.tableAwareSourceModeEditing = value;
+				void this.plugin.saveSettings();
+				onAnyChange?.();
+			});
+	}
+
 	// One-time nudge: if the user opens settings with Obsidian's own "Vim key
 	// bindings" core setting on and has never seen this auto-switch fire
 	// before, switch to the Vim tab, since a Vim-mode user likely wants that
@@ -1006,6 +1026,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 
 		const vimBehaviorTbody = this.renderBehaviorOptionsTitle(vimTable, 3);
 		this.renderSmartHomeToggles(vimBehaviorTbody, 2, true);
+		this.renderTableAwareSourceModeToggle(vimBehaviorTbody, 2);
 
 		const limitationsEl = containerEl.createDiv({ cls: 'uch-vim-limitations' });
 		limitationsEl.createDiv({ text: 'Limitations', cls: 'uch-vim-limitations-title' });
@@ -1566,6 +1587,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		this.renderSmartHomeToggles(emacsBehaviorTbody, 4, true);
 		this.renderVisualLineMovementToggle(emacsBehaviorTbody, 4);
 		this.renderCrossRowNavigationToggle(emacsBehaviorTbody, 4);
+		this.renderTableAwareSourceModeToggle(emacsBehaviorTbody, 4);
 	}
 
 	// Shared by both tab-content renderers (macOS and For everyone) — a
@@ -1813,7 +1835,8 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			&& this.plugin.settings.smartHomeAdvanced
 			&& this.plugin.settings.visualLineMovement
 			&& this.plugin.settings.crossRowNavigation
-			&& this.plugin.settings.cjkDoubleClickWordSelect;
+			&& this.plugin.settings.cjkDoubleClickWordSelect
+			&& this.plugin.settings.tableAwareSourceModeEditing;
 		// "Apply all" (not "Apply recommended", unlike every per-block
 		// button on this page including Add cursor's own one right above)
 		// — this button spans two different layers at once (every eligible
@@ -1822,7 +1845,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		// would be misleading; "Apply upgrades" was tried and rejected too
 		// (reads as Key upgrades only, missing the Behavior options half).
 		// The desc text right above spells out the actual scope instead of
-		// trying to pack it into the button's own name. All 5 Behavior
+		// trying to pack it into the button's own name. All 6 Behavior
 		// options default true anyway; this only matters once the user has
 		// deliberately turned one off.
 		const applyAllBtn = keyUpgradesTitleFlex.createEl('button', { text: 'Apply all' });
@@ -1846,6 +1869,7 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			this.plugin.settings.visualLineMovement = true;
 			this.plugin.settings.crossRowNavigation = true;
 			this.plugin.settings.cjkDoubleClickWordSelect = true;
+			this.plugin.settings.tableAwareSourceModeEditing = true;
 			hm.save();
 			hm.bake();
 			void this.plugin.saveSettings();
@@ -1881,5 +1905,6 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		this.renderVisualLineMovementToggle(everyoneBehaviorTbody, 3, updateApplyAllDisabled);
 		this.renderCrossRowNavigationToggle(everyoneBehaviorTbody, 3, updateApplyAllDisabled);
 		this.renderDoubleClickWordSelectToggle(everyoneBehaviorTbody, 3, updateApplyAllDisabled);
+		this.renderTableAwareSourceModeToggle(everyoneBehaviorTbody, 3, updateApplyAllDisabled);
 	}
 }
