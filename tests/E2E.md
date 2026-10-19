@@ -539,41 +539,65 @@ still-open design question" deferred from that increment).
 
 #### `addCursorAboveBelow.e2e.ts`
 
-`addCursorVertically` (Add cursor above/below): a from-scratch
-reimplementation, not a delegation to native Obsidian — `editor:add-cursor-below`/
-`-above` were confirmed (live, via a throwaway diagnostic, not kept) to
-mis-step vertically: skipping a whole document line on `below`, and failing
-to leave the current line at all on `above`, reproducible identically with
-a settle wait and in Source Mode (not a rendering-timing or Live-Preview-margin
-artifact). Reuses CM6's own `view.moveVertically` instead — the same
-primitive `extendMarkVertically` already uses for Set-mark's Ctrl-N/P
-extend — which sidesteps the bug entirely and gives correct goal-column
-clamping and document-edge clamping for free.
+`addCursorOnView` (Add cursor above/below): a from-scratch reimplementation,
+not a delegation to native Obsidian. Two separate findings about native's
+own `editor:add-cursor-below`/`-above`, confirmed live via throwaway
+diagnostics (not kept): (1) native steps by **logical line + character
+column**, not visual (soft-wrapped) line/pixel goal-column — placing the
+cursor mid-way through a long word-wrapped line and pressing `below` jumps
+straight to the exact same character column on the *next logical line*,
+skipping every remaining visual sub-line of the current one, unlike plain
+arrow-key Down (and this plugin's own Ctrl-N/P), which are visual/pixel-
+based. This is the *intended*, use-case-appropriate design for "add a
+cursor per line to batch-edit several lines" (user-identified, not
+assumed) — not a bug. (2) despite that correct design, native's own
+line-index arithmetic has a genuine off-by-one bug, confirmed across
+several different line lengths, that skips an extra logical line every
+press (line 0 → 2 → 4, never landing on 1 or 3). This command
+re-implements the intended behavior directly via CM6's own
+`Text.lineAt`/`Text.line` (not `view.moveVertically` — an earlier
+pixel-goal-column-based version was built, shipped, then replaced once this
+distinction surfaced), with the target column clamped by **character
+count** against the target line's own length. No memory of any "original"
+column is kept across presses, by design — confirmed explicitly intended:
+repeated presses aren't guaranteed to be consecutive, so remembering an
+original intent across a clamp isn't a coherent idea the way a real
+pixel-based goalColumn is for vertical motion; each press just clamps
+whatever the current primary's own column actually is.
 
-- **(1) Outer: column clamp + stacking, both directions**: through lines
-  of alternating length, confirming no line-skip and that a clamped
-  pixel-goal column correctly un-clamps back to its original value once a
-  long-enough line is reached again (CM6's own goal-column semantics,
-  the same as plain arrow-key Up/Down).
-- **(2) Inner: table cell sub-line above/below + stacking + boundary**:
-  the cell's own first/last sub-line no-ops; otherwise stacks correctly up
-  to the cell's own content end. **Found a real race, fixed in production
-  code**: a bare `userEvent: 'select'`-tagged dispatch into a table cell's
-  own inner view silently lost the *oldest* range on the second+ press
-  inside that cell (confirmed via a monkey-patched `dispatch` to inspect the
-  real transaction a genuine Option/Alt-click sends when adding a cursor —
-  it tags itself `select.pointer` and never loses a range; rewriting only
-  the tag on an otherwise-identical dispatch reproduced the fix in
-  isolation). `select.pointer` itself can't be reused (this file's own
-  `updateListener` unconditionally forces `markActive` to the new main
-  range's emptiness for that tag), but `select.uch` — this plugin's own
-  existing tag for a programmatic selection-shape change — fixes the same
-  loss and is already exempted from every `markActive` side effect that
-  listener has. A *second*, separate race: any preceding command run
-  against a table cell's own inner view (even a no-op `add-cursor-above`)
-  can leave an async Obsidian-internal resync pending that clobbers
-  whatever we dispatch next if it lands first — fixed by deferring the
-  in-cell branch's whole body by 2 animation frames (same category as
+- **(1) Outer: character-column clamp + stacking, both directions**:
+  through lines of alternating length, confirming the clamped character
+  column from one press carries forward *as-is* into the next (no
+  un-clamping/memory) — e.g. clamped to column 5 on a short line, the
+  *next* press clamps that same 5 against the following line, not the
+  original column.
+- **(2) Inner: table cell real `<br>` sub-lines above/below + stacking +
+  boundary**: uses a cell with two literal `<br>` separators (three real
+  sub-lines) rather than a single word-wrapped line — under logical-line
+  semantics a word-wrapped-only cell has no "next line" to step to at all
+  (confirmed live: real multi-line table cells via `<br>` are a common
+  case, not a rare one, so this is the scenario that actually matters).
+  The cell's own first/last sub-line no-ops; otherwise stacks correctly up
+  to the cell's own content end. **Found two real races along the way,
+  both fixed in production code** (discovered during the earlier
+  pixel-goal-column-based version, still apply unchanged to the current
+  logical-line one since neither is about the step computation itself):
+  a bare `userEvent: 'select'`-tagged dispatch into a table cell's own
+  inner view silently lost the *oldest* range on the second+ press inside
+  that cell (confirmed via a monkey-patched `dispatch` to inspect the real
+  transaction a genuine Option/Alt-click sends when adding a cursor — it
+  tags itself `select.pointer` and never loses a range; rewriting only the
+  tag on an otherwise-identical dispatch reproduced the fix in isolation).
+  `select.pointer` itself can't be reused (this file's own `updateListener`
+  unconditionally forces `markActive` to the new main range's emptiness for
+  that tag), but `select.uch` — this plugin's own existing tag for a
+  programmatic selection-shape change — fixes the same loss and is already
+  exempted from every `markActive` side effect that listener has. A
+  *second*, separate race: any preceding command run against a table
+  cell's own inner view (even a no-op `add-cursor-above`) can leave an
+  async Obsidian-internal resync pending that clobbers whatever we
+  dispatch next if it lands first — fixed by deferring the in-cell
+  branch's whole body by 2 animation frames (same category as
   `exitCellWithSelection`'s own deferral elsewhere in this file), confirmed
   via instrumented diagnostic logging before implementing (dispatching
   immediately reproduced the loss on the very first add-cursor press after
@@ -586,7 +610,9 @@ clamping and document-edge clamping for free.
   `markActive` — the next Ctrl-N/P then extends *both* ranges in one
   dispatch, confirmed end-to-end (not just unit-mocked), since
   `extendMarkVertically` already treats every range in the selection
-  uniformly and needed no new code for this to work.
+  uniformly and needed no new code for this to work. (This scenario
+  doesn't exercise the logical-line-vs-visual distinction at all — Ctrl-N/P
+  itself stays visual/pixel-based, unchanged.)
 - **(4) Outer: buffer end boundary**: lands at the end of the buffer's own
   last line, no-ops on a second press. Only the END direction is tested at
   a real buffer edge — every fixture in this suite carries a heading +
@@ -597,10 +623,10 @@ clamping and document-edge clamping for free.
   guard is the identical code path regardless of direction, already
   covered by the unit test suite.
 - **A trailing newline at the fixture's own end mattered**: with one, CM6
-  sees an extra, empty final line past "last line of this document",
-  so `add-cursor-below` correctly moves into *that* line instead of
-  no-opping — confirmed live, fixed by saving the fixture without a
-  trailing newline.
+  sees an extra, empty final logical line past "last line of this
+  document", so `add-cursor-below` correctly moves into *that* line
+  instead of no-opping — confirmed live, fixed by saving the fixture
+  without a trailing newline.
 - **Intermittent table-entry flakiness, same class already documented
   above for `setMarkPageUpDown.e2e.ts`**: `waitForInTableCell(true)`
   confirms the flag flipped, but the landing dispatch itself can still race

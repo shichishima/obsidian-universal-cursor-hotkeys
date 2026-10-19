@@ -1421,16 +1421,34 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	//===========================================================================
 
 	// Native Obsidian's own 'editor:add-cursor-below'/'-above' were confirmed
-	// (live, via E2E) to mis-step vertically — e.g. skipping a whole document
-	// line on 'below' and failing to leave the current line at all on
-	// 'above' — reproducible even with a settle wait and identical in Source
-	// Mode, so it's not a rendering-timing or Live-Preview-margin artifact.
-	// Reusing CM6's own view.moveVertically (the same primitive
-	// extendMarkVertically already uses for Set-mark's Ctrl-N/P extend) sidesteps
-	// that bug entirely and gives correct goal-column clamping and document-edge
-	// clamping for free — confirmed live that moveVertically itself already
-	// lands at the end/start of the buffer when there's no further line, same
-	// as a plain Ctrl-N/P press would.
+	// (live, via E2E) to mis-step vertically. Two separate findings, not one:
+	// (1) native steps by LOGICAL line + character column, not by visual
+	// (soft-wrapped) line/pixel goal-column — confirmed by placing the cursor
+	// mid-way through a long word-wrapped line and pressing 'below': it jumps
+	// straight to the exact same character column on the NEXT LOGICAL line,
+	// skipping every remaining visual sub-line of the current one, rather
+	// than moving to the next visual line the way a plain arrow-key Down
+	// press (and this plugin's own Ctrl-N/P) would. This is a deliberate
+	// difference from ordinary vertical motion, not an accident, and matches
+	// the real use case for "add a cursor per line to batch-edit several
+	// lines" better than visual-line stepping would. (2) despite that
+	// correct design, native's own line-index arithmetic has a genuine
+	// off-by-one bug — confirmed live across multiple different line
+	// lengths — that skips an extra logical line every press (e.g. line 0 ->
+	// line 2 -> line 4, never landing on 1 or 3). This plugin re-implements
+	// the *intended* behavior directly instead of reusing any native
+	// primitive: next/previous logical line (CM6's own Text.lineAt/Text.line,
+	// not moveVertically), column clamped by character count against that
+	// line's own length (not a pixel goal-column) — no memory of any
+	// "original" column is kept across presses, by design (confirmed
+	// explicitly acceptable: repeated presses aren't guaranteed to be
+	// consecutive, so remembering an original intent across a clamp isn't a
+	// coherent idea here the way goalColumn is for real pixel-based vertical
+	// motion) — each press just clamps whatever the current primary's own
+	// column actually is against the next/previous line's own length. At a
+	// document boundary (no further logical line in that direction), clamps
+	// within the current line to its own start/end, matching native's own
+	// confirmed (non-buggy) behavior there.
 	//
 	// Only ever adds ONE new cursor relative to the current primary (every
 	// other range in the selection is left untouched) and makes the new
@@ -1489,18 +1507,25 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private addCursorOnView(view: EditorView, forward: boolean) {
 		const sel = view.state.selection;
 		const primary = sel.main;
+		const doc = view.state.doc;
+		const primaryLine = doc.lineAt(primary.head);
+		const col = primary.head - primaryLine.from;
 
-		// Same mouse-drag-artifact guard as extendMarkVertically — see its own
-		// doc comment (a genuine pixel goalColumn is never negative).
-		const startRange = (primary.goalColumn ?? 0) < 0
-			? EditorSelection.range(primary.anchor, primary.head)
-			: primary;
+		const targetLineNumber = primaryLine.number + (forward ? 1 : -1);
+		let targetPos: number;
+		if (targetLineNumber < 1 || targetLineNumber > doc.lines) {
+			targetPos = forward ? primaryLine.to : primaryLine.from;
+		} else {
+			const targetLine = doc.line(targetLineNumber);
+			targetPos = targetLine.from + Math.min(col, targetLine.length);
+		}
+		if (targetPos === primary.head) return; // already at the buffer start/end in that direction
 
-		const stepped = view.moveVertically(startRange, forward);
-		if (stepped.head === primary.head) return; // already at the buffer start/end in that direction
-
-		const newCursor = EditorSelection.cursor(stepped.head, stepped.assoc, stepped.bidiLevel ?? undefined, stepped.goalColumn);
-		view.dispatch({ selection: sel.addRange(newCursor, true), userEvent: 'select.uch', scrollIntoView: true });
+		view.dispatch({
+			selection: sel.addRange(EditorSelection.cursor(targetPos), true),
+			userEvent: 'select.uch',
+			scrollIntoView: true,
+		});
 	}
 
 	// Ctrl-A (Set-mark candidate): extends every range to its own Home
