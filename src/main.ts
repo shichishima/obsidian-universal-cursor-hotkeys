@@ -4926,6 +4926,46 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		return new Array(cursorCount).fill(raw);
 	}
 
+	// Pure: detects whether `text` begins with a list-marker token — bullet
+	// (`-`/`*`/`+`) or ordered (`N.`/`N)`), optionally followed by a task
+	// checkbox (`[ ]`/`[x]`/etc) — tolerating (and consuming) any leading
+	// whitespace before the marker itself. Confirmed live against native
+	// Obsidian's own paste dedup (1.14+): a leading space before the pasted
+	// marker doesn't block detection, but extra whitespace AFTER the marker
+	// beyond the single space this regex consumes is left untouched as
+	// ordinary content (see dedupListMarkerOnPaste below). Returns null if
+	// `text` has no list marker at all.
+	private parseListMarkerToken(text: string): { checkboxState: string | null; afterMarker: number } | null {
+		const m = text.match(/^\s*(?:[-*+]|\d+[.)])\s(?:\[(.)\]\s)?/);
+		if (!m) return null;
+		return { checkboxState: m[1] ?? null, afterMarker: m[0].length };
+	}
+
+	// Pure: the single point of control for Yank's own list-marker paste
+	// dedup (see the external 0.12.0 planning note's "Yankペースト重複排除"
+	// section for the full spec and decision matrix this implements).
+	// Deliberately not built on getBeginningOfLinePosition — that function's
+	// Smart-Home-advanced prefix stripping covers headings/footnotes/callouts
+	// too, which must never be in scope here regardless of that setting:
+	// dedup only applies where a construct both (1) auto-continues its own
+	// marker on Enter and (2) doubling that marker is meaningless, which
+	// lands exactly on list markers (never blockquote `>` — doubling it is a
+	// valid nested quote, not noise). `targetLineBeforeCursor` is the target
+	// line's own text from its start up to (not including) the insertion
+	// point; dedup only triggers when that text is itself nothing but an
+	// (optionally blockquote-prefixed) list marker — i.e. the cursor is
+	// sitting right where Enter just auto-continued one.
+	private dedupListMarkerOnPaste(targetLineBeforeCursor: string, pasteText: string): string {
+		if (!/^\s*(?:>\s?)*(?:[-*+]|\d+[.)])\s(?:\[.\]\s)?$/.test(targetLineBeforeCursor)) return pasteText;
+		const pasteMarker = this.parseListMarkerToken(pasteText);
+		if (!pasteMarker) return pasteText;
+		const rest = pasteText.slice(pasteMarker.afterMarker);
+		// Target's own list type (and existing checkbox, if any) is already
+		// on the line and left untouched here — only a checkbox the PASTE
+		// itself specifies gets re-inserted, overriding/adding on top of it.
+		return (pasteMarker.checkboxState !== null ? `[${pasteMarker.checkboxState}] ` : '') + rest;
+	}
+
 	private async yank(editor: Editor) {
 		this.markActive = false;
 		this.isKillChaining = false;
@@ -4969,7 +5009,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			const from = editor.offsetToPos(range.from);
 			const lineText = editor.getLine(from.line);
 			const inTable = this.isTableLineSourceMode(lineText);
-			const piece = pieces[i];
+			const piece = this.dedupListMarkerOnPaste(lineText.slice(0, from.ch), pieces[i]);
 			const text = inTable ? piece.replace(/\|/g, '\\|').replace(/\n/g, '<br>') : piece;
 			changes.push({ from: range.from, to: range.to, insert: text });
 			if (isMain) newMainIndex = entries.length;
@@ -4999,7 +5039,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 		sel.ranges.forEach((range, i) => {
 			const isMain = range === main;
-			changes.push({ from: range.from, to: range.to, insert: pieces[i] });
+			const subLine = inner.state.doc.lineAt(range.from);
+			const beforeCursor = subLine.text.slice(0, range.from - subLine.from);
+			const piece = this.dedupListMarkerOnPaste(beforeCursor, pieces[i]);
+			changes.push({ from: range.from, to: range.to, insert: piece });
 			if (isMain) newMainIndex = entries.length;
 			entries.push({ kind: 'cursor', pos: range.to });
 		});
