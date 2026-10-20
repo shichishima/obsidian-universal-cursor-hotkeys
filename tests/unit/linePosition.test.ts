@@ -56,6 +56,24 @@ const categories: { name: string; skipAutoStep2?: boolean; rows: TestRow[] }[] =
 		],
 	},
 	{
+		// Ordered-list + task checkbox combo (e.g. "1. [ ] item") — valid
+		// Markdown, renders as a numbered checkbox. getBeginningOfLinePosition's
+		// own ordered-list pattern never had the same optional checkbox
+		// suffix its unordered-list sibling already had, so Smart Home
+		// previously stopped at "1. " instead of past "1. [ ] " — surfaced
+		// 2026-10-19/20 while re-verifying native paste's own list-marker
+		// dedup (see project_smart_home_numbered_checkbox_gap memory).
+		// Standard-level (not Advanced-gated), matching plain ordered lists.
+		name: 'Ordered task lists',
+		rows: [ //       34567 9
+			['1. [ ] item',        9,    7,    7,     0],
+			['1) [x] item',        9,    7,    7,     0],
+			['10. [ ] item',      10,    8,    8,     0],
+			['  1. [ ] item',    11,    9,    9,     0],
+			['1. [ ] item',        5,    0,    0,     0],
+		],
+	},
+	{
 		name: 'Blockquotes',
 		rows: [ // 1234 6
 			['> text',             4,    2,    2,     0],
