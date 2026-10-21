@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { EditorSelection, ChangeSet } from '@codemirror/state'
+import { EditorSelection, ChangeSet, Text } from '@codemirror/state'
 
 vi.mock('@codemirror/language', () => ({
 	syntaxTree: vi.fn(),
@@ -72,6 +72,7 @@ function makeMultiSelectionLPEditor(innerText: string, ranges: { from: number; t
 		state: {
 			selection: EditorSelection.create(ranges.map(r => EditorSelection.range(r.from, r.to)), mainIndex),
 			changes: (spec: any) => ChangeSet.of(spec, innerText.length),
+			doc: Text.of(innerText.split('\n')),
 		},
 		dispatch,
 	}
@@ -125,6 +126,60 @@ describe('yank', () => {
 		})
 	})
 
+
+	// dedupListMarkerOnPaste: the pure function behind Yank's own list-marker
+	// paste dedup, matching native Obsidian's own Cmd/Ctrl+V dedup (confirmed
+	// live via E2E against Obsidian 1.14+; see the external 0.12.0 planning
+	// note's "Yankペースト重複排除" section for the full spec and decision
+	// matrix these cases are drawn from).
+	describe('dedupListMarkerOnPaste', () => {
+		it('target has no marker: pastes verbatim (no dedup)', () => {
+			expect(plugin.dedupListMarkerOnPaste('', '- item')).toBe('- item')
+			expect(plugin.dedupListMarkerOnPaste('some prose ', '- item')).toBe('- item')
+		})
+
+		it('paste has no marker: pastes verbatim regardless of target', () => {
+			expect(plugin.dedupListMarkerOnPaste('- ', 'plain text')).toBe('plain text')
+		})
+
+		it('bullet onto bullet, neither has a checkbox: dedups to target type', () => {
+			expect(plugin.dedupListMarkerOnPaste('- ', '* item')).toBe('item')
+		})
+
+		it('ordered onto bullet: target type wins, paste marker stripped', () => {
+			expect(plugin.dedupListMarkerOnPaste('- ', '1. item')).toBe('item')
+		})
+
+		it('paste has a checkbox, target does not: checkbox is added on top', () => {
+			expect(plugin.dedupListMarkerOnPaste('- ', '- [ ] item')).toBe('[ ] item')
+		})
+
+		it('target has a checkbox, paste does not: target\'s checkbox is left untouched (not duplicated)', () => {
+			expect(plugin.dedupListMarkerOnPaste('- [ ] ', '- item')).toBe('item')
+		})
+
+		it('both have a checkbox: paste\'s checkbox state overrides', () => {
+			expect(plugin.dedupListMarkerOnPaste('- [ ] ', '- [x] item')).toBe('[x] item')
+		})
+
+		it('blockquote-prefixed target: quote prefix is left alone, list type dedups', () => {
+			expect(plugin.dedupListMarkerOnPaste('> - ', '1. item')).toBe('item')
+			expect(plugin.dedupListMarkerOnPaste('> - ', '1. [ ] item')).toBe('[ ] item')
+		})
+
+		it('quote-only target (no list marker of its own): paste\'s own marker is kept verbatim', () => {
+			expect(plugin.dedupListMarkerOnPaste('> ', '- item')).toBe('- item')
+		})
+
+		it('leading space before the paste\'s own marker is tolerated and consumed', () => {
+			expect(plugin.dedupListMarkerOnPaste('- ', ' - item')).toBe('item')
+		})
+
+		it('extra space after the marker beyond the single space consumed survives into the content', () => {
+			expect(plugin.dedupListMarkerOnPaste('- ', '-  item')).toBe(' item')
+			expect(plugin.dedupListMarkerOnPaste('- ', '- [ ]  item')).toBe('[ ]  item')
+		})
+	})
 
 	describe('outer (plain text / Source Mode)', () => {
 		it('does nothing when clipboard is empty', async () => {
@@ -276,6 +331,24 @@ describe('yank', () => {
 					userEvent: 'input',
 				})
 			})
+
+			it('each range dedups independently against its own target line', async () => {
+				mockClipboard('- item') // single line -> no split, duplicated per cursor
+				const editor = makeMultiSelectionPlainEditor(
+					['- ', 'plain text'],
+					[
+						{ from: { line: 0, ch: 2 }, to: { line: 0, ch: 2 } }, // target has a matching marker: dedups
+						{ from: { line: 1, ch: 0 }, to: { line: 1, ch: 0 } }, // target has no marker: pastes verbatim
+					],
+					0,
+				)
+				await plugin.yank(editor)
+				expect(editor.cm.dispatch).toHaveBeenCalledWith({
+					changes: [{ from: 2, to: 2, insert: 'item' }, { from: 3, to: 3, insert: '- item' }],
+					selection: expect.anything(),
+					userEvent: 'input',
+				})
+			})
 		})
 	})
 
@@ -295,6 +368,17 @@ describe('yank', () => {
 			expect(editor._innerDispatch).toHaveBeenCalledWith({
 				changes: [{ from: 2, to: 2, insert: 'line1\nline2' }],
 				selection: EditorSelection.create([EditorSelection.cursor(2 + 'line1\nline2'.length)], 0),
+				userEvent: 'input',
+			})
+		})
+
+		it('dedups a pasted list marker against the cell\'s own target line', async () => {
+			mockClipboard('- item')
+			const editor = makeMultiSelectionLPEditor('- ', [{ from: 2, to: 2 }], 0)
+			await plugin.yank(editor)
+			expect(editor._innerDispatch).toHaveBeenCalledWith({
+				changes: [{ from: 2, to: 2, insert: 'item' }],
+				selection: EditorSelection.create([EditorSelection.cursor(2 + 'item'.length)], 0),
 				userEvent: 'input',
 			})
 		})
