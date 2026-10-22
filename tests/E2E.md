@@ -668,5 +668,47 @@ whatever the current primary's own column actually is.
   this exact race, applied once right after `waitForInTableCell` in this
   spec's scenario (2).
 
+### Vim motions
+
+#### `vimJkGgGjGk.e2e.ts`
+
+First real-Obsidian coverage for any Vim motion this plugin overrides —
+every existing unit test for these (`vimMoveByLinesInCell.test.ts`,
+`vimMoveByDisplayLinesInCell.test.ts`, etc.) mocks CM6 entirely. Covers the
+"Priority 1" slice of Vim motion upgrades: `j`/`k`, `gj`/`gk`, `gg`/`G`, `$`
+sticky goal — all scoped to table-crossing/table-cell behavior (outside
+tables these are vanilla codemirror-vim, unmodified).
+
+- **(1)** `j` crossing outer text → table header row → data row → outer
+  text again, column preserved throughout.
+- **(2)** `gj`/`gk` moving through a cell's own real `<br>`-separated
+  sub-lines, then crossing the row boundary (one more `gk` from the cell's
+  first sub-line lands in the row above — same convention as plain `k`).
+- **(3)** `gg`/`G` reaching the real document's first/last line.
+- **(4)** `$`'s sticky goal surviving a `j` that crosses a table row,
+  landing at each cell's own content end (not a fixed raw `ch`).
+- **A real gotcha hit while writing this suite, not a plugin bug**: every
+  table fixture here needs a blank line before it. Without one (even with
+  a heading, not just plain prose, directly above), Obsidian's Live Preview
+  table widget silently does not render at all — confirmed by querying for
+  `.cm-table-widget` elements in the live DOM. Skipping that blank line
+  looks exactly like "vim's own `j` can't enter a table" (cursor frozen,
+  zero movement, repeatable across longer pauses and repeated presses, not
+  a timing issue) when the real problem is "there's no table to enter."
+  Caught before writing any real assertions, not after.
+- **Column assertions read live content instead of hardcoding `ch`
+  numbers**: Obsidian's own table auto-formatter can rewrite a fixture's
+  column padding on disk the first time its table is rendered/touched —
+  confirmed live, the same table read back with different padding across
+  separate fresh-file-open runs within the same suite run. Assertions
+  either check cell *content* (`.toContain`) or compare a column position
+  against a value captured live at the start of that same test, never a
+  literal number.
+
+**Not yet covered** (deferred to later increments, see the user's own
+4-tier priority breakdown from 2026-10-22): word motions (`w`/`b`/`e`/
+`W`/`B`/`E`/`ge`/`gE`, CJK-aware); `h`/`l`/`x`, `^`/`I` (Smart home reuse),
+`J` (Smart join reuse); the leader-key table-structure/table-navigation
+commands (`<leader>t...`).
+
 1. Popout window support
-2. Vim mode commands

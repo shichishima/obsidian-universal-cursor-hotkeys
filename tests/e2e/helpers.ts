@@ -17,6 +17,19 @@ export async function waitForInTableCell(expected: boolean, timeout = 2000) {
 	}, { timeout, interval: 100, timeoutMsg: `inTableCell never reached ${expected}` }).catch(() => {})
 }
 
+// Turns on Obsidian's own core "Vim key bindings" setting (vault config key
+// 'vimMode', confirmed by reading settings.ts's own read of the same key —
+// undocumented but stable). Must be called BEFORE opening the fixture leaf
+// that will receive vim keystrokes: the Vim keymap extension is wired in
+// when a markdown view's editor is constructed, so toggling this after a
+// view already exists leaves that existing view's own CM6 instance
+// unaffected until it's reopened.
+export async function enableVimMode() {
+	await browser.executeObsidian(({ app }) => {
+		(app.vault as any).setConfig('vimMode', true)
+	})
+}
+
 // Each fixture note under vaults/smoke/ keeps a `# heading` + `- description`
 // block above a `---` separator, documenting what it's for — editable in
 // Obsidian without touching the actual test content below it. Specs
