@@ -3090,9 +3090,17 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			if (coords) return coords.top;
 		}
 		const sel = activeWindow.getSelection();
-		if (!sel || sel.rangeCount === 0) return null;
-		const range = sel.getRangeAt(0);
-		const rect  = range.getBoundingClientRect();
+		if (!sel || sel.rangeCount === 0 || !sel.focusNode) return null;
+		// Collapse to the focus (head/cursor) end specifically — sel.getRangeAt(0)'s
+		// own getBoundingClientRect() returns the UNION box of the whole anchor..head
+		// span whenever a real (non-empty) selection is active (e.g. Set-mark), not
+		// the caret/head's own position. Confirmed live 2026-10-22: with Set-mark
+		// active and the selection extended downward, Recenter centered on the mark
+		// (anchor, near the top of the union box) instead of the actual cursor.
+		const range = activeDocument.createRange();
+		range.setStart(sel.focusNode, sel.focusOffset);
+		range.collapse(true);
+		const rect = range.getBoundingClientRect();
 		if (rect.height > 0) return rect.top;
 		// Collapsed range with zero height: try coordsAtPos for accurate line top.
 		if (view) {

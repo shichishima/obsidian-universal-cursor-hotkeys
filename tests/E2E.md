@@ -535,6 +535,39 @@ still-open design question" deferred from that increment).
   budget to 5000ms for this test's own two `waitUntil` calls, not by
   changing any implementation code.
 
+### Recenter
+
+#### `recenterWithSetMark.e2e.ts`
+
+A real bug found right after 0.12.0 shipped (2026-10-22), reported by the user
+from real-machine usage: Recenter/Recenter top-bottom centered on the
+Set-mark anchor (mark) instead of the actual cursor (head) whenever a real
+selection was active.
+
+- **Root cause**: `getCursorScreenY()`'s main-window branch read the browser's
+  native `window.getSelection()` range via `sel.getRangeAt(0).getBoundingClientRect()`.
+  That's correct for an empty (collapsed) selection, but once a real,
+  non-empty selection exists, the native Range spans anchor..head — its
+  bounding rect is the *union* box of the whole selection, not the head's own
+  position. With a forward selection (anchor/mark above, head/cursor below on
+  screen), the union box's own `.top` lands at the mark, not the cursor.
+- Confirmed live before fixing (per this project's own "no implementation
+  without log evidence" convention): Set-mark → extend 20 lines down →
+  Recenter left `scrollTop` completely unchanged (the mark, already near the
+  top, was judged as "no scroll needed"), with the real cursor measured via
+  `coordsAtPos` sitting near the bottom of the viewport instead of centered.
+- **Fix**: collapse to `sel.focusNode`/`sel.focusOffset` (the Selection API's
+  own "where the caret end sits" properties, independent of anchor) before
+  building the Range, rather than using whatever `getRangeAt(0)` already
+  spans. The rest of the function's existing fallback chain (zero-height
+  rect → `coordsAtPos` → element rect) is unchanged and still applies,
+  since a collapsed-at-focus Range can hit the same zero-height case the
+  already-collapsed (no-selection) case always could.
+- Test measures a real scroll happened (`scrollTop` changes) and that the
+  actual head lands within half a line of the viewport's vertical center,
+  using `coordsAtPos` rather than a hardcoded expected pixel value (the exact
+  center depends on the real rendered `clientHeight`).
+
 ### Add cursor
 
 #### `addCursorAboveBelow.e2e.ts`
