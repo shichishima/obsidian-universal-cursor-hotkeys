@@ -63,7 +63,11 @@ describe('Vim motions: j/k, gj/gk, gg/G, $ sticky (table-crossing)', function ()
 		await browser.keys(['j']) // skip the blank line before the table
 		await browser.pause(250)
 		await browser.keys(['j']) // enter the table's header row
-		await browser.pause(300)
+		// Table-entry assertion race, same class already documented for
+		// setMarkPageUpDown.e2e.ts/addCursorAboveBelow.e2e.ts: a fixed pause
+		// here was flaky under the full suite's own load (cell-focus
+		// reconciliation not always settling within it) — poll instead.
+		await waitForInTableCell(true, 3000)
 		let state = await getState()
 		await expect(state.inTableCell).toBe(true)
 		await expect(state.line).toContain('short')
@@ -81,6 +85,19 @@ describe('Vim motions: j/k, gj/gk, gg/G, $ sticky (table-crossing)', function ()
 		state = await getState()
 		await expect(state.inTableCell).toBe(false)
 		await expect(state.line).toBe('delta echo foxtrot')
+		// KNOWN ISSUE (2026-10-23, not yet root-caused): this specific
+		// assertion passes reliably when this spec runs alone, but reads a
+		// wrong value (ch 4 instead of startCh, landing at the end of
+		// "delta" instead of the preserved column) deterministically when
+		// run as part of the full suite — some state from an earlier spec
+		// in the shared Obsidian instance leaks in and corrupts the goal
+		// column specifically on this exit-the-table step. Ruled out: stale
+		// vim.lastHPos at the START of the chain (confirmed startCh itself
+		// reads correctly even after a real j/k round trip first; a stray
+		// h/l pair that also doesn't touch lastHPos at all made no
+		// difference either way). Not yet identified: which state, from
+		// which spec, read where mid-chain. See the assistant's own memory
+		// (project_vim_e2e_cross_spec_column_leak) for the full writeup.
 		await expect(state.cursor.ch).toBe(startCh) // original column preserved throughout
 	})
 
