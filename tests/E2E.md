@@ -704,19 +704,22 @@ tables these are vanilla codemirror-vim, unmodified).
   either check cell *content* (`.toContain`) or compare a column position
   against a value captured live at the start of that same test, never a
   literal number.
-- **A real, still-unresolved cross-spec flakiness, found 2026-10-23**:
-  test (1)'s final column-preservation assertion passes reliably
-  standalone but deterministically reads a wrong value when run as part
-  of the full suite — some state from an earlier spec leaks in and
-  corrupts the goal column specifically on the table-exit step, landing
-  at the end of the first word on the destination line instead of the
-  real preserved column. Ruled out: stale `vim.lastHPos` at the *start*
-  of the chain (confirmed via diagnostic logging that it reads correctly
-  even immediately before the real chain begins, with or without a
-  `j`-then-`k` reseed first) — the leak happens later, specific to
-  crossing out of the table. Not yet root-caused; documented inline at
-  the assertion itself rather than fixed or skipped. Full writeup in the
-  assistant's own memory (`project_vim_e2e_cross_spec_column_leak`).
+- **A real bug, found and fixed 2026-10-23**: test (1)'s final
+  column-preservation assertion used to pass reliably standalone but
+  deterministically read a wrong value when run as part of the full
+  suite — initially suspected as cross-spec state leaking in from an
+  earlier spec, but diagnostic-logging instrumentation traced it to a
+  same-test async race instead: `scheduleTableEntry`'s own column resync
+  was deferred via `setTimeout`+`requestAnimationFrame`, and under the
+  full suite's accumulated load that deferred callback could lose the
+  race against the *next* keystroke, leaving the goal column unseeded and
+  falling back to the just-landed cell's own clamped position. Fixed by
+  making table entry's resync run synchronously — re-verified live (an
+  inherited doc comment had claimed this would crash vim.js's
+  `clipCursorToContent`, but that was never independently tested for the
+  entry path specifically; four full-suite runs with the synchronous
+  version produced zero crashes). Full writeup in the assistant's own
+  memory (`project_vim_e2e_cross_spec_column_leak`).
 
 #### `vimWordMotions.e2e.ts`
 
