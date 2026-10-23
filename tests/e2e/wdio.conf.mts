@@ -53,6 +53,9 @@ export const config: WebdriverIO.Config = {
 		'./specs/vimLeaderTableCommands.e2e.ts',
 		'./specs/vimTableUndoRedo.e2e.ts',
 		'./specs/vimSpaceLeakGuard.e2e.ts',
+		'./specs/deleteCharCellBr.e2e.ts',
+		'./specs/transposeCharsCellBr.e2e.ts',
+		'./specs/cjkDoubleClickWordSelect.e2e.ts',
 	]],
 
 	// Serial by default — confirmed live that running multiple Obsidian/
