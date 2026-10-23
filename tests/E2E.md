@@ -806,4 +806,48 @@ ones the Settings UI calls), restored to off in a `finally` block.
 This completes real-Obsidian E2E coverage for all 4 priority tiers of the
 Vim motion/command upgrades (started 2026-10-22, finished 2026-10-23).
 
+#### `vimTableUndoRedo.e2e.ts`
+
+Follow-up found by reviewing the whole Vim surface after the 4 tiers
+above: `u`/`Ctrl-r` inside a table cell delegate to `Editor.undo()`/
+`redo()` (real, outer-level CM6 undo/redo) instead of vim's own cell-
+scoped default — confirmed by reading `vim-support.ts` directly — because
+a per-cell inner view's own local history has no record of table-
+structure edits (row/column insert/delete), which are applied at the
+outer level. Only unit-tested (mocked) before this.
+
+- **(1)** A second, immediate `u` press still works. This is the
+  documented bug this delegation itself was built to avoid: Obsidian's own
+  `Editor.undo()`/`redo()` leaves the just-restored range *selected* (real
+  CM6 behavior), and vim.js's own default keymap routes a bare `u` to a
+  *different* (visual-mode) binding while a selection is live — so the
+  very next `u` could silently no-op instead of reaching undo again.
+  `tableUndo`'s own fix collapses that selection right after delegating;
+  this confirms it still holds.
+- **(2)** `u` correctly walks back through a structural edit (`tdd`, table-
+  structure) and an earlier plain-text edit, in the correct reverse order
+  — the "plain-text edit → table-structure edit → plain-text edit chain
+  seamlessly" claim from the same code comment, exercised for real.
+
+#### `vimSpaceLeakGuard.e2e.ts`
+
+Also found reviewing the whole surface: the 0.11.2 "bare Space inserts a
+literal space" fix, only ever covered as a unit test before this. Root
+cause, confirmed by reading `vim-support.ts` directly: turning on table-
+structure/navigation support removes Space's own native vim.js binding
+(a `keyToKey` synonym for `l`) to make room for `<Space>t...` leader
+sequences, via `unmap()` — which has no read-back API, so that native
+binding can never be restored, even after turning the feature back off.
+Without the leak-guard, an incomplete leader attempt (e.g. a stray Space
+press matching no full sequence) then falls through to CM6's default
+text-insertion handling, inserting a literal space.
+
+- Toggles table navigation on then off, then presses a single bare Space
+  — confirms the document is completely unchanged (no literal space
+  inserted). The leak-guard's own persistence (it deliberately stays
+  installed even after the feature is toggled back off, since the native
+  binding's removal is permanent for the session either way) is exactly
+  what this confirms actually holds up, not just the guard existing while
+  the feature is still nominally on.
+
 1. Popout window support
