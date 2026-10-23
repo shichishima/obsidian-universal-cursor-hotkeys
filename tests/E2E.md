@@ -779,8 +779,31 @@ clamped), `^`/`I` (Smart home reuse), `J` (Smart join reuse).
   restores it to off in a `finally` block regardless of outcome (shared
   Obsidian instance across the rest of the suite).
 
-**Not yet covered** (deferred to later increments, see the user's own
-4-tier priority breakdown from 2026-10-22): the leader-key table-structure/
-table-navigation commands (`<leader>t...`) — the last tier.
+#### `vimLeaderTableCommands.e2e.ts`
+
+Priority-4 (last tier) coverage: the leader-key table-structure/table-
+navigation commands, off by default — enabled per test via `vimSupport`'s
+own `setTableStructureEnabled`/`setTableNavigationEnabled` setters (same
+ones the Settings UI calls), restored to off in a `finally` block.
+
+- **(1)** `tj`/`tl`/`tk`/`th`: direct cell-to-cell jumps (down/right/up/
+  left), a full round trip back to the start, each landing at that cell's
+  own content start. Table navigation is "pure cursor movement, original
+  logic" per this plugin's own docs (not a wrapper around anything
+  native) — all 6 commands in this family get real coverage here plus
+  `tx` below, matching that real-Obsidian-coverage case.
+- **(2)** `tx` exits the table below, landing outside it (`tX`, exiting
+  above, shares the identical wiring, not separately re-tested).
+- **(3)** `tdd` (one representative sample of the 17 table-*structure**
+  commands) deletes the current row via Obsidian's own built-in command.
+  Confirmed by reading `vim-support.ts` directly that every one of those
+  17 shares a single factory (`tableCommandAction`) which just gates on
+  `inTableCell` and delegates to Obsidian's own built-in command by ID —
+  no mutation logic of this plugin's own — so this one sample confirms
+  the leader-key-to-native-command dispatch mechanism itself works live;
+  the other 16 aren't each individually re-verified.
+
+This completes real-Obsidian E2E coverage for all 4 priority tiers of the
+Vim motion/command upgrades (started 2026-10-22, finished 2026-10-23).
 
 1. Popout window support
