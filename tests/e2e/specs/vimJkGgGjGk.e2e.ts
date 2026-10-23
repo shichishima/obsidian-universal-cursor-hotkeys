@@ -85,19 +85,15 @@ describe('Vim motions: j/k, gj/gk, gg/G, $ sticky (table-crossing)', function ()
 		state = await getState()
 		await expect(state.inTableCell).toBe(false)
 		await expect(state.line).toBe('delta echo foxtrot')
-		// KNOWN ISSUE (2026-10-23, not yet root-caused): this specific
-		// assertion passes reliably when this spec runs alone, but reads a
-		// wrong value (ch 4 instead of startCh, landing at the end of
-		// "delta" instead of the preserved column) deterministically when
-		// run as part of the full suite — some state from an earlier spec
-		// in the shared Obsidian instance leaks in and corrupts the goal
-		// column specifically on this exit-the-table step. Ruled out: stale
-		// vim.lastHPos at the START of the chain (confirmed startCh itself
-		// reads correctly even after a real j/k round trip first; a stray
-		// h/l pair that also doesn't touch lastHPos at all made no
-		// difference either way). Not yet identified: which state, from
-		// which spec, read where mid-chain. See the assistant's own memory
-		// (project_vim_e2e_cross_spec_column_leak) for the full writeup.
+		// Previously flaky under the full suite (2026-10-23): this assertion
+		// used to read ch 4 (the clamped end of "short", the header cell's
+		// own content) instead of startCh, deterministically, only when this
+		// spec ran as part of the full suite. Root cause was an async race in
+		// scheduleTableEntry's deferred resync (setTimeout+RAF) losing to the
+		// very next keystroke under the suite's accumulated load, not a
+		// cross-spec state leak as first suspected — see
+		// project_vim_e2e_cross_spec_column_leak in the assistant's own
+		// memory. Fixed by making table entry's resync synchronous.
 		await expect(state.cursor.ch).toBe(startCh) // original column preserved throughout
 	})
 
