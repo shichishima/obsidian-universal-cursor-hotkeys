@@ -850,4 +850,75 @@ text-insertion handling, inserting a literal space.
   what this confirms actually holds up, not just the guard existing while
   the feature is still nominally on.
 
+### Character-level commands outside Vim mode
+
+Found by reviewing the whole E2E suite for the same "mock can't verify
+this" pattern the Vim work above kept surfacing — three more areas with
+zero real-Obsidian coverage, only ever unit-tested (mocked CM6).
+
+#### `deleteCharCellBr.e2e.ts`
+
+Delete char (Ctrl-D) inside a table cell's own `<br>`-separated sub-lines.
+Its grapheme-cluster-awareness is inherited for free from CM6's own
+`deleteCharForward` (not re-verified here) — the real plugin-specific risk
+is the `<br>` handling in `deleteCharInTableLP`.
+
+- At the end of a non-last sub-line, joins it with the next (deletes the
+  `<br>` as one unit, not partially).
+- At the true end of the cell (last sub-line's own end), no-ops rather
+  than crossing into the adjacent cell.
+- Needs two separate dedicated fixtures (`DeleteCharCellBrJoin.md`/
+  `DeleteCharCellBrEnd.md`) — the first test mutates the shared vault copy
+  of the fixture it opens, so the second test's own search-by-content
+  would otherwise silently match nothing (same gotcha already documented
+  for `vimWordMotions.e2e.ts` etc., but this is the first time it bit two
+  tests *within the same spec file* rather than across separate files).
+
+#### `transposeCharsCellBr.e2e.ts`
+
+Transpose chars (Alt-T, no default key) inside a table cell's own `<br>`-
+separated sub-lines. Confirmed by reading `main.ts` directly: only the
+true cell boundary (the opening `|`) is a hard stop — a `<br>` boundary is
+crossable and swapped as one atomic 4-character unit, never partially.
+
+- **(1)** Crossing a `<br>` swaps it as one unit — `"A<br>B<br>CD"` at the
+  start of `"B"` becomes `"AB<br><br>CD"`, exactly the worked example from
+  the code's own comment.
+- **(2)** At the true start of the cell, no-ops rather than reaching
+  outside it.
+- **(3)** At the end of the last sub-line, swaps the last two characters
+  there (real Emacs end-of-line special case) — needed widening the last
+  sub-line to 2 characters (`"CD"`, not `"C"`) to actually have two
+  characters to swap; the first attempt with a 1-character last sub-line
+  just exercised `swapLastTwoInRange`'s own "fewer than two clusters"
+  no-op guard instead, which looked identical to a bug at a glance.
+- Needs 3 separate dedicated fixtures, same reason as `deleteCharCellBr
+  .e2e.ts` above (test (1) mutates its own fixture's content).
+
+#### `cjkDoubleClickWordSelect.e2e.ts`
+
+CJK double-click word selection (`cjk-word-select.ts`) — CM6's own built-in
+double-click (`groupAt`) has no word boundary at all within a run of
+kanji/hiragana/katakana, so this plugin intercepts `EditorView
+.mouseSelectionStyle` to use the same `Intl.Segmenter`-based engine as
+Word left/right and Vim `w`/`b`/`e`. A scripted `setCursor`+command can't
+reach this code path at all — it needs a real mouse gesture (`detail: 2`,
+matching CM6's own `getClickType()` reading, same pitfall already
+documented in `setMarkMouseAndLeafChange.e2e.ts` for single-click).
+
+- **(1)** Double-clicking inside `"日本語"` selects just that word, not
+  the whole run including the following `"の"` particle.
+- **(2)** Double-clicking `"Emacs"` embedded in Japanese prose (`"日本語の
+  Emacsとは異なる扱いです"`) isolates just that word — reproduces a real,
+  previously-fixed bug (confirmed live 2026-08-22, per the source file's
+  own doc comment): an earlier version only checked whether the *clicked*
+  character itself was CJK, and `"Emacs"` itself has none, so it declined
+  to intervene and left CM6's native run (merged with the surrounding
+  Japanese) in place. The actual fix scans outward to the native word-
+  class run first, then checks whether *that run* contains a CJK
+  character anywhere — this test is what actually holds that fix in place
+  against a regression now.
+- **(3)** Double-clicking inside `"異なる"` (a verb+auxiliary morpheme)
+  selects the whole unit, not split further by the segmenter.
+
 1. Popout window support
