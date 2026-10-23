@@ -668,5 +668,186 @@ whatever the current primary's own column actually is.
   this exact race, applied once right after `waitForInTableCell` in this
   spec's scenario (2).
 
+### Vim motions
+
+#### `vimJkGgGjGk.e2e.ts`
+
+First real-Obsidian coverage for any Vim motion this plugin overrides —
+every existing unit test for these (`vimMoveByLinesInCell.test.ts`,
+`vimMoveByDisplayLinesInCell.test.ts`, etc.) mocks CM6 entirely. Covers the
+"Priority 1" slice of Vim motion upgrades: `j`/`k`, `gj`/`gk`, `gg`/`G`, `$`
+sticky goal — all scoped to table-crossing/table-cell behavior (outside
+tables these are vanilla codemirror-vim, unmodified).
+
+- **(1)** `j` crossing outer text → table header row → data row → outer
+  text again, column preserved throughout.
+- **(2)** `gj`/`gk` moving through a cell's own real `<br>`-separated
+  sub-lines, then crossing the row boundary (one more `gk` from the cell's
+  first sub-line lands in the row above — same convention as plain `k`).
+- **(3)** `gg`/`G` reaching the real document's first/last line.
+- **(4)** `$`'s sticky goal surviving a `j` that crosses a table row,
+  landing at each cell's own content end (not a fixed raw `ch`).
+- **A real gotcha hit while writing this suite, not a plugin bug**: every
+  table fixture here needs a blank line before it. Without one (even with
+  a heading, not just plain prose, directly above), Obsidian's Live Preview
+  table widget silently does not render at all — confirmed by querying for
+  `.cm-table-widget` elements in the live DOM. Skipping that blank line
+  looks exactly like "vim's own `j` can't enter a table" (cursor frozen,
+  zero movement, repeatable across longer pauses and repeated presses, not
+  a timing issue) when the real problem is "there's no table to enter."
+  Caught before writing any real assertions, not after.
+- **Column assertions read live content instead of hardcoding `ch`
+  numbers**: Obsidian's own table auto-formatter can rewrite a fixture's
+  column padding on disk the first time its table is rendered/touched —
+  confirmed live, the same table read back with different padding across
+  separate fresh-file-open runs within the same suite run. Assertions
+  either check cell *content* (`.toContain`) or compare a column position
+  against a value captured live at the start of that same test, never a
+  literal number.
+- **A real, still-unresolved cross-spec flakiness, found 2026-10-23**:
+  test (1)'s final column-preservation assertion passes reliably
+  standalone but deterministically reads a wrong value when run as part
+  of the full suite — some state from an earlier spec leaks in and
+  corrupts the goal column specifically on the table-exit step, landing
+  at the end of the first word on the destination line instead of the
+  real preserved column. Ruled out: stale `vim.lastHPos` at the *start*
+  of the chain (confirmed via diagnostic logging that it reads correctly
+  even immediately before the real chain begins, with or without a
+  `j`-then-`k` reseed first) — the leak happens later, specific to
+  crossing out of the table. Not yet root-caused; documented inline at
+  the assertion itself rather than fixed or skipped. Full writeup in the
+  assistant's own memory (`project_vim_e2e_cross_spec_column_leak`).
+
+#### `vimWordMotions.e2e.ts`
+
+Priority-2 Vim motion coverage: `w`/`b`/`e` (and by extension `W`/`B`/`E`/
+`ge`/`gE`, which share the exact same `moveByWords` override, distinguished
+only by `motionArgs`) — scoped to table-crossing/CJK behavior, the same
+"first real-Obsidian coverage" rationale as the Priority-1 suite above.
+
+- **(1)** `w` crossing a cell's own real `<br>`-separated sub-lines, then
+  the adjacent cell (same row), then the next row's first cell, then
+  exiting the table entirely from its last cell.
+- **(2)** `b` crossing the identical boundaries backward.
+- **(3)** `e` landing on a word's own *end* character, not its start.
+- **(4)** `w` through a CJK cell uses real dictionary-based segmentation
+  (`日本語の文章です` stops partway through, at `の` — a script-boundary-
+  only classifier would instead treat the whole run as one word and skip
+  straight past it).
+- Unlike Priority 1's own `moveByLines` override, `moveByWords` has **no
+  "entering a table from plain text" handling at all** — confirmed by
+  reading `vim-support.ts` directly: `scheduleWordCrossing` is only
+  triggered `if (... editorNow?.inTableCell)`, i.e. only when *already*
+  inside a cell and hitting its boundary (crossing to the adjacent cell/
+  row, or exiting the table). Every test here accordingly starts already
+  positioned inside a cell, rather than testing entry from outer text (not
+  a gap in this suite — it reflects a real, deliberate scope cut in the
+  implementation itself, matching this plugin's own documented "vim's
+  own word-motion behavior" framing, which only ever describes the *exit*
+  direction).
+- No table-rendering mistake this time (the Priority-1 lesson was applied
+  up front: every table fixture here has its blank line from the start) —
+  confirmed once via the same `.cm-table-widget` DOM query before writing
+  any real assertions, not caught after the fact a second time.
+
+#### `vimCaretJoinChar.e2e.ts`
+
+Priority-3 Vim motion coverage: `h`/`l`/`x` (grapheme-aware, cell-boundary
+clamped), `^`/`I` (Smart home reuse), `J` (Smart join reuse).
+
+- **(1)/(2)** `l`/`x` step over a whole emoji grapheme (2 UTF-16 surrogate
+  units) as one move/one deletion, never landing or leaving a leftover
+  mid-character — confirmed by checking the resulting character at the
+  cursor, not a hardcoded string length (this table's own column padding
+  can shift once an earlier test in the same spec file has touched it,
+  same gotcha as `vimJkGgGjGk.e2e.ts`). `l` also crosses the cell boundary
+  correctly at the cell's own true last character, then the row, then
+  exits the table — the same shape already confirmed for `w` above, now
+  confirmed for `l` too.
+- **(3)** `^` reuses Smart home's own content-start logic (skips a leading
+  checkbox marker). **A real WebDriverIO gap, not a plugin bug**: `browser
+  .keys(['^'])` does not reliably reach codemirror-vim's own keymap for
+  this specific shifted-digit character — confirmed live (stayed
+  completely motionless from an unambiguous starting position, tried
+  twice). A synthetic `keydown` with the correct `key`/`code`/`shiftKey`
+  triple (`key: '^', code: 'Digit6', shiftKey: true`) works correctly —
+  used instead.
+- **(4)** `J` with Smart join turned on strips the next line's list marker
+  (`- `) instead of vim's own default whitespace-only join, still
+  inserting the usual single space. Smart join defaults to **off** in
+  this plugin's own settings — the test flips it on, asserts, then
+  restores it to off in a `finally` block regardless of outcome (shared
+  Obsidian instance across the rest of the suite).
+
+#### `vimLeaderTableCommands.e2e.ts`
+
+Priority-4 (last tier) coverage: the leader-key table-structure/table-
+navigation commands, off by default — enabled per test via `vimSupport`'s
+own `setTableStructureEnabled`/`setTableNavigationEnabled` setters (same
+ones the Settings UI calls), restored to off in a `finally` block.
+
+- **(1)** `tj`/`tl`/`tk`/`th`: direct cell-to-cell jumps (down/right/up/
+  left), a full round trip back to the start, each landing at that cell's
+  own content start. Table navigation is "pure cursor movement, original
+  logic" per this plugin's own docs (not a wrapper around anything
+  native) — all 6 commands in this family get real coverage here plus
+  `tx` below, matching that real-Obsidian-coverage case.
+- **(2)** `tx` exits the table below, landing outside it (`tX`, exiting
+  above, shares the identical wiring, not separately re-tested).
+- **(3)** `tdd` (one representative sample of the 17 table-*structure**
+  commands) deletes the current row via Obsidian's own built-in command.
+  Confirmed by reading `vim-support.ts` directly that every one of those
+  17 shares a single factory (`tableCommandAction`) which just gates on
+  `inTableCell` and delegates to Obsidian's own built-in command by ID —
+  no mutation logic of this plugin's own — so this one sample confirms
+  the leader-key-to-native-command dispatch mechanism itself works live;
+  the other 16 aren't each individually re-verified.
+
+This completes real-Obsidian E2E coverage for all 4 priority tiers of the
+Vim motion/command upgrades (started 2026-10-22, finished 2026-10-23).
+
+#### `vimTableUndoRedo.e2e.ts`
+
+Follow-up found by reviewing the whole Vim surface after the 4 tiers
+above: `u`/`Ctrl-r` inside a table cell delegate to `Editor.undo()`/
+`redo()` (real, outer-level CM6 undo/redo) instead of vim's own cell-
+scoped default — confirmed by reading `vim-support.ts` directly — because
+a per-cell inner view's own local history has no record of table-
+structure edits (row/column insert/delete), which are applied at the
+outer level. Only unit-tested (mocked) before this.
+
+- **(1)** A second, immediate `u` press still works. This is the
+  documented bug this delegation itself was built to avoid: Obsidian's own
+  `Editor.undo()`/`redo()` leaves the just-restored range *selected* (real
+  CM6 behavior), and vim.js's own default keymap routes a bare `u` to a
+  *different* (visual-mode) binding while a selection is live — so the
+  very next `u` could silently no-op instead of reaching undo again.
+  `tableUndo`'s own fix collapses that selection right after delegating;
+  this confirms it still holds.
+- **(2)** `u` correctly walks back through a structural edit (`tdd`, table-
+  structure) and an earlier plain-text edit, in the correct reverse order
+  — the "plain-text edit → table-structure edit → plain-text edit chain
+  seamlessly" claim from the same code comment, exercised for real.
+
+#### `vimSpaceLeakGuard.e2e.ts`
+
+Also found reviewing the whole surface: the 0.11.2 "bare Space inserts a
+literal space" fix, only ever covered as a unit test before this. Root
+cause, confirmed by reading `vim-support.ts` directly: turning on table-
+structure/navigation support removes Space's own native vim.js binding
+(a `keyToKey` synonym for `l`) to make room for `<Space>t...` leader
+sequences, via `unmap()` — which has no read-back API, so that native
+binding can never be restored, even after turning the feature back off.
+Without the leak-guard, an incomplete leader attempt (e.g. a stray Space
+press matching no full sequence) then falls through to CM6's default
+text-insertion handling, inserting a literal space.
+
+- Toggles table navigation on then off, then presses a single bare Space
+  — confirms the document is completely unchanged (no literal space
+  inserted). The leak-guard's own persistence (it deliberately stays
+  installed even after the feature is toggled back off, since the native
+  binding's removal is permanent for the session either way) is exactly
+  what this confirms actually holds up, not just the guard existing while
+  the feature is still nominally on.
+
 1. Popout window support
-2. Vim mode commands
