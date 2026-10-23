@@ -718,10 +718,69 @@ tables these are vanilla codemirror-vim, unmodified).
   the assertion itself rather than fixed or skipped. Full writeup in the
   assistant's own memory (`project_vim_e2e_cross_spec_column_leak`).
 
+#### `vimWordMotions.e2e.ts`
+
+Priority-2 Vim motion coverage: `w`/`b`/`e` (and by extension `W`/`B`/`E`/
+`ge`/`gE`, which share the exact same `moveByWords` override, distinguished
+only by `motionArgs`) — scoped to table-crossing/CJK behavior, the same
+"first real-Obsidian coverage" rationale as the Priority-1 suite above.
+
+- **(1)** `w` crossing a cell's own real `<br>`-separated sub-lines, then
+  the adjacent cell (same row), then the next row's first cell, then
+  exiting the table entirely from its last cell.
+- **(2)** `b` crossing the identical boundaries backward.
+- **(3)** `e` landing on a word's own *end* character, not its start.
+- **(4)** `w` through a CJK cell uses real dictionary-based segmentation
+  (`日本語の文章です` stops partway through, at `の` — a script-boundary-
+  only classifier would instead treat the whole run as one word and skip
+  straight past it).
+- Unlike Priority 1's own `moveByLines` override, `moveByWords` has **no
+  "entering a table from plain text" handling at all** — confirmed by
+  reading `vim-support.ts` directly: `scheduleWordCrossing` is only
+  triggered `if (... editorNow?.inTableCell)`, i.e. only when *already*
+  inside a cell and hitting its boundary (crossing to the adjacent cell/
+  row, or exiting the table). Every test here accordingly starts already
+  positioned inside a cell, rather than testing entry from outer text (not
+  a gap in this suite — it reflects a real, deliberate scope cut in the
+  implementation itself, matching this plugin's own documented "vim's
+  own word-motion behavior" framing, which only ever describes the *exit*
+  direction).
+- No table-rendering mistake this time (the Priority-1 lesson was applied
+  up front: every table fixture here has its blank line from the start) —
+  confirmed once via the same `.cm-table-widget` DOM query before writing
+  any real assertions, not caught after the fact a second time.
+
+#### `vimCaretJoinChar.e2e.ts`
+
+Priority-3 Vim motion coverage: `h`/`l`/`x` (grapheme-aware, cell-boundary
+clamped), `^`/`I` (Smart home reuse), `J` (Smart join reuse).
+
+- **(1)/(2)** `l`/`x` step over a whole emoji grapheme (2 UTF-16 surrogate
+  units) as one move/one deletion, never landing or leaving a leftover
+  mid-character — confirmed by checking the resulting character at the
+  cursor, not a hardcoded string length (this table's own column padding
+  can shift once an earlier test in the same spec file has touched it,
+  same gotcha as `vimJkGgGjGk.e2e.ts`). `l` also crosses the cell boundary
+  correctly at the cell's own true last character, then the row, then
+  exits the table — the same shape already confirmed for `w` above, now
+  confirmed for `l` too.
+- **(3)** `^` reuses Smart home's own content-start logic (skips a leading
+  checkbox marker). **A real WebDriverIO gap, not a plugin bug**: `browser
+  .keys(['^'])` does not reliably reach codemirror-vim's own keymap for
+  this specific shifted-digit character — confirmed live (stayed
+  completely motionless from an unambiguous starting position, tried
+  twice). A synthetic `keydown` with the correct `key`/`code`/`shiftKey`
+  triple (`key: '^', code: 'Digit6', shiftKey: true`) works correctly —
+  used instead.
+- **(4)** `J` with Smart join turned on strips the next line's list marker
+  (`- `) instead of vim's own default whitespace-only join, still
+  inserting the usual single space. Smart join defaults to **off** in
+  this plugin's own settings — the test flips it on, asserts, then
+  restores it to off in a `finally` block regardless of outcome (shared
+  Obsidian instance across the rest of the suite).
+
 **Not yet covered** (deferred to later increments, see the user's own
-4-tier priority breakdown from 2026-10-22): word motions (`w`/`b`/`e`/
-`W`/`B`/`E`/`ge`/`gE`, CJK-aware); `h`/`l`/`x`, `^`/`I` (Smart home reuse),
-`J` (Smart join reuse); the leader-key table-structure/table-navigation
-commands (`<leader>t...`).
+4-tier priority breakdown from 2026-10-22): the leader-key table-structure/
+table-navigation commands (`<leader>t...`) — the last tier.
 
 1. Popout window support
