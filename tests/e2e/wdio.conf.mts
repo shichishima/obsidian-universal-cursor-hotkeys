@@ -48,6 +48,7 @@ export const config: WebdriverIO.Config = {
 		'./specs/addCursorAboveBelow.e2e.ts',
 		'./specs/undoInCellVLStale.e2e.ts',
 		'./specs/vimJkGgGjGk.e2e.ts',
+		'./specs/vimWordMotions.e2e.ts',
 	]],
 
 	// Serial by default — confirmed live that running multiple Obsidian/
