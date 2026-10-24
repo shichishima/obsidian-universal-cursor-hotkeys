@@ -1743,10 +1743,27 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		// so the more broadly-safe mechanism leads.
 		const addCursorHeaderEl = containerEl.createDiv({ cls: 'uch-tab-header-section' });
 		addCursorHeaderEl.createDiv({ text: 'Hotkey settings', cls: 'uch-tab-row-title' });
-		addCursorHeaderEl.createDiv({
-			text: "Add a cursor to the line above/below, fixing a real bug in Obsidian's own native equivalent, and working more reliably inside table cells too (where native behavior was inconsistent).",
-			cls: 'uch-tab-row-desc',
+		// Same "Individually" / "Obsidian's built-in hotkeys settings" link
+		// pair as the macOS tab's own Hotkey settings desc (renderEmacsTabContent)
+		// — addCursorSyncToggle is defined further below in this function, but
+		// only actually called from inside the click handler (after setup has
+		// finished), same as that tab's own syncToggle reference.
+		const addCursorDescEl = addCursorHeaderEl.createDiv({ cls: 'uch-tab-row-desc' });
+		addCursorDescEl.createSpan({ text: "Add a cursor to the line above/below, fixing a real bug in Obsidian's own native equivalent, and working more reliably inside table cells too (where native behavior was inconsistent). No hotkey assigned by default — set both at once, or " });
+		const addCursorIndivLink = addCursorDescEl.createEl('a', { text: 'Individually', cls: 'uch-inline-link' });
+		addCursorIndivLink.addEventListener('click', (e) => {
+			e.preventDefault();
+			this.individualVisible = true;
+			addCursorSyncToggle();
 		});
+		addCursorDescEl.createSpan({ text: '. To assign a command to a key other than the recommended, use ' });
+		const addCursorHotkeyLink = addCursorDescEl.createEl('a', { text: "Obsidian's built-in hotkeys settings" });
+		addCursorHotkeyLink.addClass('uch-inline-link');
+		addCursorHotkeyLink.addEventListener('click', (e) => {
+			e.preventDefault();
+			this.openHotkeysPanelFor('universal-cursor-hotkeys');
+		});
+		addCursorDescEl.createSpan({ text: '.' });
 
 		const addCursorApplyEntry = (def: CommandDef, row: HotkeyRow) => {
 			const fullId = getFullId(def);
