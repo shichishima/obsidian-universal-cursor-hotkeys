@@ -944,6 +944,45 @@ crossable and swapped as one atomic 4-character unit, never partially.
 - Needs 3 separate dedicated fixtures, same reason as `deleteCharCellBr
   .e2e.ts` above (test (1) mutates its own fixture's content).
 
+#### `transposeCharsMultiCursor.e2e.ts`
+
+fix/transpose-chars-multicursor: previously, only the mid-line case was
+multi-cursor-safe (delegating straight to CM6's own stock `transposeChars`,
+which handles every range on its own via `changeByRange`) — the at-line-end
+override (`swapLastTwoInRange`) and both table branches only ever looked at
+the PRIMARY cursor/range, silently ignoring every other one whenever the
+primary happened to land in one of those branches. Rewritten as pure
+per-range resolve functions (same shape as Kill line's own
+`resolveKillLineRangeOuter`/`InCell`/`SourceMode`) so every range resolves
+independently and all changes dispatch together in one transaction. The
+unit test suite covers the pure per-range logic (`resolveTransposeChars
+RangeInView`/`SourceMode`) directly, including a byte-for-byte replication
+of CM6's own stock `transposeChars` formula (read straight from
+`@codemirror/commands`' own source to confirm it); these two scenarios
+drive the real command through a real CM6 multi-range selection on real
+Obsidian instead.
+
+- **(1) outer:** one mid-line range and one at-line-end range both
+  transpose in the same command — the exact combination that previously
+  only transposed whichever one was primary.
+- **(2) inner (table cell):** two ranges in the same cell's own `<br>`
+  sub-lines (one mid-segment, one at a segment end crossing into the next
+  `<br>`) both transpose independently.
+- Needs 2 separate dedicated fixtures (same reason as `transposeCharsCellBr
+  .e2e.ts` above).
+- **A real, deterministic cold-start gotcha, not a bug in the fix itself**:
+  running test (2) standalone (as the very first command issued to a
+  freshly launched Obsidian instance) never transitions `inTableCell` to
+  `true` even after a 3-second poll, even though the table widget itself
+  is confirmed rendered (`.cm-table-widget` present) and the outer cursor
+  correctly lands on the table row's own line/ch — some part of the
+  cell-focus reconciliation genuinely needs more than a fresh instance's
+  very first interaction to settle. Confirmed harmless by running the full
+  suite three times in a row with this spec in its rightful position
+  (after 26 preceding specs' own warm-up): both tests pass every time.
+  Matches this suite's own established "smoke test first as a de-facto
+  warm-up" principle — just a sharper edge of it than usual.
+
 #### `cjkDoubleClickWordSelect.e2e.ts`
 
 CJK double-click word selection (`cjk-word-select.ts`) — CM6's own built-in
