@@ -56,6 +56,7 @@ export const config: WebdriverIO.Config = {
 		'./specs/vimSpaceLeakGuard.e2e.ts',
 		'./specs/deleteCharCellBr.e2e.ts',
 		'./specs/transposeCharsCellBr.e2e.ts',
+		'./specs/transposeCharsMultiCursor.e2e.ts',
 		'./specs/cjkDoubleClickWordSelect.e2e.ts',
 	]],
 

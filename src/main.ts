@@ -8,7 +8,7 @@ import { setTimeoutOnActiveWindow, requestAnimationFrameOnActiveWindow } from '.
 import { syntaxTree } from '@codemirror/language';
 import { EditorView } from "@codemirror/view";
 import { EditorSelection, SelectionRange, Transaction, findClusterBreak } from '@codemirror/state';
-import { deleteCharForward, cursorPageDown, cursorPageUp, transposeChars as cmTransposeChars } from '@codemirror/commands';
+import { deleteCharForward, cursorPageDown, cursorPageUp } from '@codemirror/commands';
 import { getWordSpans, getBigWordSpans, findWordSpanOnLine } from './word-segmentation';
 import { exitTable, jumpAdjacentCell } from './table-navigation';
 import { cjkWordSelectionStyle } from './cjk-word-select';
@@ -3722,130 +3722,184 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Transpose chars
 	//===========================================================================
 
-	// Swaps the two grapheme clusters immediately before [from, to). Cluster
-	// boundaries are found via findClusterBreak — the same primitive CM6's own
-	// transposeChars uses internally — so this stays surrogate-pair/grapheme
-	// safe without needing our own Unicode logic. No-op if fewer than two
-	// clusters are available. Cursor stays at `to` (unlike the mid-content
-	// case, there's nothing further right to advance into).
-	private swapLastTwoInRange(view: EditorView, from: number, to: number) {
-		const text = view.state.doc.sliceString(from, to);
-		const localEnd = text.length;
-		const localMid = findClusterBreak(text, localEnd, false);
-		const localFrom = findClusterBreak(text, localMid, false);
-		if (localFrom === localMid) return; // fewer than two clusters
-
-		const insert = text.slice(localMid, localEnd) + text.slice(localFrom, localMid);
-		view.dispatch({
-			changes: { from: from + localFrom, to: from + localEnd, insert },
-			selection: { anchor: from + localEnd },
-			userEvent: 'move.character',
-		});
+	// Pure (no dispatch) per-range resolution shared by the plain-text
+	// (outer) and Live Preview table-cell (inner) cases — both are a real,
+	// complete CM6 EditorView of their own, so the line-boundary math is
+	// identical either way (a <br>-separated in-cell line is represented as
+	// a real CM6 line inside the inner view, so crossing into it is no
+	// different from crossing a real line boundary in plain text).
+	//
+	// At a line's own end, swaps that line's own last two grapheme clusters
+	// (never crossing into the next line) — a deliberate override of CM6's
+	// own stock transposeChars, which instead swaps with the next line's
+	// own first character there; this plugin matches real Emacs's own
+	// end-of-line special case instead. Everywhere else (mid-line, or at a
+	// non-first line's own start, which swaps with the previous line's own
+	// line-break character) mirrors CM6's own stock transposeChars formula
+	// exactly (see @codemirror/commands' own source for the original) —
+	// cluster boundaries via findClusterBreak, the same primitive CM6 uses
+	// internally, so this stays surrogate-pair/grapheme safe without any
+	// custom Unicode logic of its own.
+	private resolveTransposeCharsRangeInView(view: EditorView, pos: number):
+			{ kind: 'noop' } | { kind: 'found'; from: number; to: number; insert: string; resultPos: number } {
+		const line = view.state.doc.lineAt(pos);
+		if (pos === line.to) {
+			const text = line.text;
+			const localMid = findClusterBreak(text, text.length, false);
+			const localFrom = findClusterBreak(text, localMid, false);
+			if (localFrom === localMid) return { kind: 'noop' }; // fewer than two clusters
+			const insert = text.slice(localMid) + text.slice(localFrom, localMid);
+			return { kind: 'found', from: line.from + localFrom, to: line.to, insert, resultPos: line.to };
+		}
+		if (pos === 0) return { kind: 'noop' }; // absolute document/cell start, nothing before
+		const from = pos === line.from ? pos - 1 : findClusterBreak(line.text, pos - line.from, false) + line.from;
+		const to = findClusterBreak(line.text, pos - line.from, true) + line.from;
+		const insert = view.state.sliceDoc(pos, to) + view.state.sliceDoc(from, pos);
+		return { kind: 'found', from, to, insert, resultPos: to };
 	}
 
-	// Table-aware wrapper around CM6's own transposeChars: only the true cell
-	// boundary (`|`) is a hard stop — a `<br>` (in-cell line) boundary is
-	// crossable, same as every other command's convention that <br>-separated
-	// in-cell lines behave like plain-text lines within the same cell. `<br>`
-	// itself is swapped as one atomic 4-character unit (never partially), the
-	// same way a real `\n` is treated as one atomic unit when transposeChars
-	// crosses a line boundary outside a table — e.g. "A<br>B<br>C" with the
-	// cursor at the start of "B" becomes "AB<br><br>C". At a segment's own
-	// end, falls back to swapLastTwoInRange instead of a plain no-op, matching
-	// real Emacs's end-of-line special case.
+	// Pure (no dispatch) per-range resolution for a Source Mode table row.
+	// Only the true cell boundary (`|`) is a hard stop; a `<br>` (in-cell
+	// line) boundary is crossable backward, swapped as one atomic
+	// 4-character unit (never partially) with the following grapheme
+	// cluster — e.g. "A<br>B<br>C" with the cursor at the start of "B"
+	// becomes "AB<br><br>C". At the in-cell line's own end, swaps its own
+	// last two clusters (same rationale as resolveTransposeCharsRangeInView's
+	// own identical case) rather than crossing a following `<br>` forward.
+	private resolveTransposeCharsRangeSourceMode(editor: Editor, pos: { line: number; ch: number }, lineText: string, info: InCellLineInfo):
+			{ kind: 'noop' } | { kind: 'found'; from: number; to: number; insert: string; resultPos: number } {
+		if (info.isEmpty) return { kind: 'noop' }; // matches the plain-text empty-line case
+
+		const lineStart = editor.posToOffset({ line: pos.line, ch: 0 });
+
+		if (pos.ch <= info.startOfInCellLine) {
+			// 'single'/'first': nothing precedes this in-cell line but the
+			// cell's own opening `|` — a genuine hard wall, matching Kill
+			// word's/multi-cell selection's established cell-scoping rule.
+			if (info.lineType === 'single' || info.lineType === 'first') return { kind: 'noop' };
+
+			// 'middle'/'last': a <br> tag immediately precedes this in-cell
+			// line. Swap the whole 4-character tag with the following
+			// grapheme cluster.
+			const brStart = info.startOfInCellLine - 4; // '<br>' (any case) is always exactly 4 chars
+			const brTag = lineText.slice(brStart, info.startOfInCellLine);
+			const after = lineText.slice(info.startOfInCellLine);
+			const clusterEnd = findClusterBreak(after, 0);
+			const firstCluster = after.slice(0, clusterEnd);
+			return {
+				kind: 'found',
+				from: lineStart + brStart,
+				to: lineStart + info.startOfInCellLine + clusterEnd,
+				insert: firstCluster + brTag,
+				resultPos: lineStart + brStart + firstCluster.length + brTag.length,
+			};
+		}
+
+		if (pos.ch >= info.endOfInCellLine) {
+			const text = lineText.slice(info.startOfInCellLine, info.endOfInCellLine);
+			const localMid = findClusterBreak(text, text.length, false);
+			const localFrom = findClusterBreak(text, localMid, false);
+			if (localFrom === localMid) return { kind: 'noop' }; // fewer than two clusters
+			const insert = text.slice(localMid) + text.slice(localFrom, localMid);
+			return {
+				kind: 'found',
+				from: lineStart + info.startOfInCellLine + localFrom,
+				to: lineStart + info.endOfInCellLine,
+				insert,
+				resultPos: lineStart + info.endOfInCellLine,
+			};
+		}
+
+		// Mid-line: same CM6-stock-mirroring math as
+		// resolveTransposeCharsRangeInView's own identical case, scoped to
+		// [startOfInCellLine, endOfInCellLine) instead of the whole raw line.
+		const chFrom = findClusterBreak(lineText, pos.ch, false);
+		const chTo = findClusterBreak(lineText, pos.ch, true);
+		const insert = lineText.slice(pos.ch, chTo) + lineText.slice(chFrom, pos.ch);
+		return { kind: 'found', from: lineStart + chFrom, to: lineStart + chTo, insert, resultPos: lineStart + chTo };
+	}
+
+	// Pure (no dispatch) per-range mode resolution for transposeCharsOuter's
+	// own multi-range loop below: a Source Mode table row gets its own
+	// <br>-aware handling, decided independently per range — same pattern as
+	// resolveKillLineRangeOuter.
+	private resolveTransposeCharsRangeOuter(editor: Editor, pos: { line: number; ch: number }):
+			{ kind: 'noop' } | { kind: 'found'; from: number; to: number; insert: string; resultPos: number } {
+		const lineText = editor.getLine(pos.line);
+		const inSourceTable = !this.isLivePreviewMode() && this.isTableLineSourceMode(lineText);
+		if (inSourceTable) {
+			const info = getInCellLineInfo(lineText, pos.ch);
+			if (info) return this.resolveTransposeCharsRangeSourceMode(editor, pos, lineText, info);
+		}
+		return this.resolveTransposeCharsRangeInView(editor.cm, editor.posToOffset(pos));
+	}
+
+	// Table-aware, multi-cursor-safe: each range resolves independently
+	// (plain text, or a Source Mode table row) and all changes/selections
+	// are dispatched together in one transaction.
 	private transposeChars(editor: Editor) {
 		this.markActive = false;
 		if (editor.inTableCell) {
 			this.transposeCharsInTableLP(editor);
 			return;
 		}
-
-		const cursor = editor.getCursor();
-		const lineText = editor.getLine(cursor.line);
-		const inSourceTable = !this.isLivePreviewMode() && this.isTableLineSourceMode(lineText);
-		if (inSourceTable) {
-			const info = getInCellLineInfo(lineText, cursor.ch);
-			if (info) {
-				this.transposeCharsInTableSource(editor, info);
-				return;
-			}
-		}
-
-		const cm = editor.cm;
-		if (!cm) return;
-		if (cursor.ch === lineText.length) {
-			const cmLine = cm.state.doc.line(cursor.line + 1);
-			this.swapLastTwoInRange(cm, cmLine.from, cmLine.to);
-			return;
-		}
-		cmTransposeChars(cm);
+		this.transposeCharsOuter(editor);
 	}
 
+	private transposeCharsOuter(editor: Editor) {
+		const cm = editor.cm;
+		const sel = cm.state.selection;
+		const main = sel.main;
+		const changes: { from: number; to: number; insert: string }[] = [];
+		const entries: ({ kind: 'cursor'; pos: number })[] = [];
+		let newMainIndex = -1;
+
+		sel.ranges.forEach(range => {
+			const isMain = range === main;
+			const result = this.resolveTransposeCharsRangeOuter(editor, editor.offsetToPos(range.head));
+			if (result.kind === 'noop') {
+				if (isMain) newMainIndex = entries.length;
+				entries.push({ kind: 'cursor', pos: range.head });
+				return;
+			}
+			changes.push({ from: result.from, to: result.to, insert: result.insert });
+			if (isMain) newMainIndex = entries.length;
+			entries.push({ kind: 'cursor', pos: result.resultPos });
+		});
+		if (changes.length === 0) return;
+
+		const selection = EditorSelection.create(this.mapSelectionAfterChanges(cm, changes, entries), newMainIndex);
+		cm.dispatch({ changes, selection, userEvent: 'move.character' });
+	}
+
+	// Multi-cursor-safe, operating on the cell's own inner view coordinates
+	// directly — same shape as transposeCharsOuter above.
 	private transposeCharsInTableLP(editor: Editor) {
 		const inner = editor.activeCM;
 		if (!inner || inner === editor.cm) return;
 
-		const head = inner.state.selection.main.head;
-		const subLine = inner.state.doc.lineAt(head);
+		const sel = inner.state.selection;
+		const main = sel.main;
+		const changes: { from: number; to: number; insert: string }[] = [];
+		const entries: ({ kind: 'cursor'; pos: number })[] = [];
+		let newMainIndex = -1;
 
-		// Only the inner document's very first line's own start (head === 0)
-		// is the true cell boundary (right after the opening |) — a hard
-		// wall. Every other sub-line's start is a <br> boundary: the inner
-		// view already represents each <br>-delimited in-cell line as a real
-		// CM6 line, so falling through to CM6's own transposeChars below
-		// just crosses that real \n, same as crossing any other line
-		// boundary in plain text.
-		if (head === subLine.from && subLine.number === 1) return;
-		if (head === subLine.to) {
-			this.swapLastTwoInRange(inner, subLine.from, subLine.to);
-			return;
-		}
-		cmTransposeChars(inner);
-	}
+		sel.ranges.forEach(range => {
+			const isMain = range === main;
+			const result = this.resolveTransposeCharsRangeInView(inner, range.head);
+			if (result.kind === 'noop') {
+				if (isMain) newMainIndex = entries.length;
+				entries.push({ kind: 'cursor', pos: range.head });
+				return;
+			}
+			changes.push({ from: result.from, to: result.to, insert: result.insert });
+			if (isMain) newMainIndex = entries.length;
+			entries.push({ kind: 'cursor', pos: result.resultPos });
+		});
+		if (changes.length === 0) return;
 
-	private transposeCharsInTableSource(editor: Editor, info: InCellLineInfo) {
-		if (info.isEmpty) return; // empty in-cell line: no-op, matches the plain-text empty-line case
-
-		const cursor = editor.getCursor();
-		const cm = editor.cm;
-		if (!cm) return;
-
-		if (cursor.ch <= info.startOfInCellLine) {
-			// 'single'/'first': nothing precedes this in-cell line but the
-			// cell's own opening `|` — a genuine hard wall, matching Kill
-			// word's/multi-cell selection's established cell-scoping rule.
-			if (info.lineType === 'single' || info.lineType === 'first') return;
-
-			// 'middle'/'last': a <br> tag immediately precedes this in-cell
-			// line. Swap the whole 4-character tag (never partially) with the
-			// following grapheme cluster — see this function's own doc
-			// comment above for the worked example.
-			const lineText  = editor.getLine(cursor.line);
-			const brStart   = info.startOfInCellLine - 4; // '<br>' (any case) is always exactly 4 chars
-			const brTag     = lineText.slice(brStart, info.startOfInCellLine);
-			const after     = lineText.slice(info.startOfInCellLine);
-			const clusterEnd = findClusterBreak(after, 0);
-			const firstCluster = after.slice(0, clusterEnd);
-
-			const cmLine = cm.state.doc.line(cursor.line + 1);
-			cm.dispatch({
-				changes: {
-					from: cmLine.from + brStart,
-					to: cmLine.from + info.startOfInCellLine + clusterEnd,
-					insert: firstCluster + brTag,
-				},
-				selection: { anchor: cmLine.from + brStart + firstCluster.length + brTag.length },
-				userEvent: 'move.character',
-			});
-			return;
-		}
-
-		if (cursor.ch >= info.endOfInCellLine) {
-			const cmLine = cm.state.doc.line(cursor.line + 1);
-			this.swapLastTwoInRange(cm, cmLine.from + info.startOfInCellLine, cmLine.from + info.endOfInCellLine);
-			return;
-		}
-		cmTransposeChars(cm);
+		const selection = EditorSelection.create(this.mapSelectionAfterChanges(inner, changes, entries), newMainIndex);
+		inner.dispatch({ changes, selection, userEvent: 'move.character' });
 	}
 
 
