@@ -196,6 +196,18 @@ describe('killLine', () => {
 		expect(plugin.killCache).toBe('world\n')
 	})
 
+	// fix/set-mark-clearing-gaps: killLineOuter/killLineInTableLP never look
+	// at markActive at all (kill-line always kills to end of line
+	// regardless of any existing selection) — the clear has to happen in
+	// the killLine dispatcher itself, so this goes through killLine (not
+	// killLineOuter directly, unlike every other test above).
+	it('killLine clears markActive unconditionally, matching real Emacs\'s own deactivate-mark default', () => {
+		const editor = makeSingleCursorEditor(['hello world'], 0, 6)
+		plugin.markActive = true
+		plugin.killLine(editor)
+		expect(plugin.markActive).toBe(false)
+	})
+
 
 	describe('Source Mode table row — cursor before in-cell line end', () => {
 		// Line: '| hello |'  pipes at 0, 8  cellStart=1, cellEnd=8

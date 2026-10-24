@@ -338,6 +338,18 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
 				if (this.isComposing(editor)) return;
+				// jumpAdjacentCell/exitTable (table-navigation.ts, all six
+				// commands below) dispatch via the plain Editor.setCursor
+				// API, not a tagged CM6 transaction this plugin's own
+				// generic native-collapse-clearing listener can recognize —
+				// confirmed live (fix/set-mark-clearing-gaps) that an active
+				// Set-mark selection survives these as a "zombie" armed mark
+				// that silently re-arms a new region on the next extend
+				// command. These are plain point-movement commands, not
+				// part of the Set-mark extend family, so they clear
+				// unconditionally here, matching every other non-extending
+				// movement in this plugin.
+				this.markActive = false;
 				if (editor.inTableCell) jumpAdjacentCell(editor, this, 'h');
 			}
 		});
@@ -348,6 +360,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
 				if (this.isComposing(editor)) return;
+				// See table-cell-left's own comment above.
+				this.markActive = false;
 				if (editor.inTableCell) jumpAdjacentCell(editor, this, 'l');
 			}
 		});
@@ -358,6 +372,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
 				if (this.isComposing(editor)) return;
+				// See table-cell-left's own comment above.
+				this.markActive = false;
 				if (editor.inTableCell) jumpAdjacentCell(editor, this, 'j');
 			}
 		});
@@ -368,6 +384,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
 				if (this.isComposing(editor)) return;
+				// See table-cell-left's own comment above.
+				this.markActive = false;
 				if (editor.inTableCell) jumpAdjacentCell(editor, this, 'k');
 			}
 		});
@@ -378,6 +396,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
 				if (this.isComposing(editor)) return;
+				// See table-cell-left's own comment above.
+				this.markActive = false;
 				const inSourceTable = this.isSourceModeTableLine(editor.getLine(editor.getCursor().line));
 				if (editor.inTableCell || inSourceTable) exitTable(editor, this, true);
 			}
@@ -389,6 +409,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			repeatable: true,
 			editorCallback: (editor: Editor) => {
 				if (this.isComposing(editor)) return;
+				// See table-cell-left's own comment above.
+				this.markActive = false;
 				const inSourceTable = this.isSourceModeTableLine(editor.getLine(editor.getCursor().line));
 				if (editor.inTableCell || inSourceTable) exitTable(editor, this, false);
 			}
@@ -3595,6 +3617,13 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Select all
 	//===========================================================================
 
+	// Real Emacs's mark-whole-buffer (the "Select all" equivalent, C-x h)
+	// doesn't deactivate an existing mark — it pushes a fresh one at the
+	// buffer's own start and activates the region spanning the whole
+	// buffer. Mirrored here: a genuine (non-no-op) Select all arms
+	// markActive on the new selection it just created, the same way a
+	// mouse drag or Shift+Arrow does, so the very next Ctrl-B/F/N/P/A/E
+	// continues extending from this new region instead of just moving.
 	private selectAll(editor: Editor) {
 		const cursor   = editor.getCursor();
 		const line     = editor.getLine(cursor.line);
@@ -3606,6 +3635,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			const end   = getEndOfCellContent(line, cursor.ch);
 			if (start === end) return;
 			editor.setSelection({ line: cursor.line, ch: start }, { line: cursor.line, ch: end });
+			this.markActive = true;
 			return;
 		}
 
@@ -3613,6 +3643,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			{ line: 0, ch: 0 },
 			{ line: editor.lastLine(), ch: editor.getLine(editor.lastLine()).length }
 		);
+		this.markActive = true;
 	}
 
 
@@ -3829,6 +3860,17 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// since a focused cell is a structurally distinct inner EditorView,
 	// not something any range can independently "be in."
 	private killLine(editor: Editor) {
+		// Unconditional, same simplification as Delete char/Transpose
+		// chars/Kill word/Kill region/Copy region/Yank (c79622c and
+		// fix/set-mark-clearing-gaps): real Emacs's kill-line deactivates
+		// the mark like virtually every other editing command does by
+		// default (transient-mark-mode's own deactivate-mark convention),
+		// regardless of whether it operated on a selection — unlike Kill
+		// region/Copy region/Yank, kill-line never even looks at the
+		// selection's extent (it always kills from point to end of line),
+		// so there's no "did this actually consume a selection" guard to
+		// write here at all.
+		this.markActive = false;
 		if (editor.inTableCell) {
 			this.killLineInTableLP(editor);
 			return;

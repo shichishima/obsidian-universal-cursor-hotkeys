@@ -47,6 +47,7 @@ export const config: WebdriverIO.Config = {
 		'./specs/recenterWithSetMark.e2e.ts',
 		'./specs/addCursorAboveBelow.e2e.ts',
 		'./specs/undoInCellVLStale.e2e.ts',
+		'./specs/setMarkClearingGaps.e2e.ts',
 		'./specs/vimJkGgGjGk.e2e.ts',
 		'./specs/vimWordMotions.e2e.ts',
 		'./specs/vimCaretJoinChar.e2e.ts',

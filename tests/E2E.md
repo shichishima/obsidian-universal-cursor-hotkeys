@@ -535,6 +535,52 @@ still-open design question" deferred from that increment).
   budget to 5000ms for this test's own two `waitUntil` calls, not by
   changing any implementation code.
 
+#### `setMarkClearingGaps.e2e.ts`
+
+Three real gaps found by auditing every command against real Emacs's own
+`deactivate-mark` convention (transient-mark-mode deactivates the mark after
+virtually any command unless it explicitly opts out) — not assumed,
+cross-checked against this plugin's own source for each command, then
+confirmed live before fixing (per the project's own "no implementation
+without log evidence" rule).
+
+- **Kill line previously left `markActive` armed**: unlike Kill region/Copy
+  region/Yank (which already clear it), Kill line's own implementation
+  never referenced `markActive` at all. Root cause: Kill line never looks
+  at the current selection's extent in the first place (real `kill-line`
+  always kills from point to end of line, selection or not), so the
+  original Category A design ("clear mark for commands that *consume the
+  selection*") never flagged it — but real Emacs still deactivates the mark
+  as a side effect of kill-line regardless, since that's the *default* for
+  virtually every editing command, not something tied to whether a
+  selection existed. Fixed by clearing unconditionally at the top of
+  `killLine`, matching Delete char/Transpose chars/Kill word's own pattern.
+- **Move to cell left/right/above/below and Exit table above/below (6
+  commands, shared `table-navigation.ts` implementation) previously left a
+  "zombie" armed mark**: confirmed live via a scratch diagnostic (captured
+  `markActive` and the inner view's own selection before/after) that these
+  commands collapse an active selection via plain `Editor.setCursor()`, not
+  a CM6 transaction tagged `"select"` — so the existing generic
+  native-collapse-clearing listener (`setMarkNativeCollapseClearing.e2e.ts`)
+  never catches it. The very next extend command (e.g. Ctrl-F) then
+  silently started a *new* region from the cell just landed on, instead of
+  just moving. These are plain point-movement commands, not part of the
+  Set-mark extend family, so they now clear `markActive` unconditionally at
+  each command's own top level in `main.ts` (not inside the shared
+  `table-navigation.ts`, which stays markActive-unaware by design — see its
+  own file header comment on why it has no view-layer/owner coupling).
+- **Select all previously left `markActive` untouched — the opposite
+  direction of a gap from the other two above**: real Emacs's
+  `mark-whole-buffer` (the actual `C-x h` command Select all stands in for)
+  doesn't deactivate an existing mark, it *activates* a fresh one spanning
+  the whole buffer. So the fix here is to *arm* `markActive` (matching how
+  a mouse drag or Shift+Arrow already auto-arms it) after a genuine
+  (non-no-op) Select all, not to leave it alone. Verified the armed mark is
+  genuinely usable, not just the flag: the next extend command continues
+  from Select all's own resulting selection (compared as document offsets,
+  not hardcoded line numbers, so this doesn't depend on the fixture's own
+  exact trailing-newline layout).
+
 ### Recenter
 
 #### `recenterWithSetMark.e2e.ts`
