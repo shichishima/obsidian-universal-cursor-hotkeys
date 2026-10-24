@@ -30,6 +30,10 @@
 - **Uppercase/Lowercase/Capitalize word now transforms every range in a multi-cursor selection, not just the primary cursor's own:** previously, only the primary cursor's own selection was transformed; every other selection was silently left untouched. Each range now transforms independently — selection or word-at-point, whichever applies — and an invalid selection on one range (e.g. crossing a Source Mode table's cell boundary) no longer blocks the others from transforming.
 - **Smart Home (Ctrl-A / HOME) now skips past the checkbox on a numbered task-list line too (e.g. `1. [ ] item`):** previously, only unordered task lists (`- [ ] item`) were recognized — HOME stopped right after `1. ` instead of past the checkbox.
 
+### Compatibility
+
+- Verified compatible with Obsidian 1.15.
+
 ## [0.11.3] - 2026-10-12
 
 ### Fixed
