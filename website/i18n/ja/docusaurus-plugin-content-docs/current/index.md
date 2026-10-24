@@ -37,7 +37,8 @@ Obsidian のライブプレビューはとても良くできていて、Markdown
 ## 🅴 [macOS 風のキーボードショートカット (Emacs キーバインド) を使いたい →](/macos-emacs-style)
 - `Ctrl` + `P` / `N` / `B` / `F` で Markdown テーブル内でもカーソル移動できるようにする
 - クリップボードと連動した蓄積機能付きの Kill & Yank
-- Recenter-top-bottom での画面センタリング
+- Set-mark による範囲選択。`Shift` + カーソルキーによる範囲選択との相互統合
+- マルチカーソル、マルチ Kill、マルチ Yank
 
 ## 付記
 

@@ -1,5 +1,5 @@
 ---
-sidebar_position: 3
+sidebar_position: 5
 title: For everyone — 制限事項
 sidebar_label: 制限事項
 description: キー挙動強化に関する既知の制限事項。機能する場所の制限

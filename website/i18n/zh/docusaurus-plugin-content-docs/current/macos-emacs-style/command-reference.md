@@ -7,7 +7,7 @@ mode: macos-emacs-style
 ---
 # macOS (Emacs) style — 命令参考
 
-本页是按照 [设置页面](/macos-emacs-style/settings) 的命令分组列出的命令一览与功能概述。各命令的详细行为请参阅 [命令详情](/macos-emacs-style/command-details)。
+本页是按照 [设置页面](/macos-emacs-style/settings) 的命令分组列出的命令一览与功能概述。各命令的详细行为请参阅 [命令详情](/command-details)。
 
 - 命令名称栏显示的是 Obsidian 标准快捷键设置页面中显示的名称。
   - 各个命令名称都链接到 **命令详情** 页面中的相应命令。
@@ -21,18 +21,18 @@ mode: macos-emacs-style
 
 |                               命令名称                                | 推荐<br/>快捷键 | 功能概述                                                       | 按键<br/>重复 |
 | :-----------------------------------------------------------------: | :--------: | ------------------------------------------------------------ | :------: |
-|        [UP](/macos-emacs-style/command-details#cursor-up)           | `Ctrl` + `P` | 进行文本/单元格之间的移动，以及表格、标注的进入（从下方）与退出（向上）。跨越表格行时也会保持光标的横向位置。 |    ✓     |
-|      [DOWN](/macos-emacs-style/command-details#cursor-down)         | `Ctrl` + `N` | 进行文本/单元格之间的移动，以及表格、标注的进入（从上方）与退出（向下）。跨越表格行时也会保持光标的横向位置。 |    ✓     |
-|      [LEFT](/macos-emacs-style/command-details#cursor-left)         | `Ctrl` + `B` | 按字符单位向左移动。位于单元格开头时，会移动到前一个单元格。                                 |    ✓     |
-|     [RIGHT](/macos-emacs-style/command-details#cursor-right)        | `Ctrl` + `F` | 按字符单位向右移动。位于单元格末尾时，会移动到下一个单元格。                                 |    ✓     |
-|      [HOME](/macos-emacs-style/command-details#cursor-home)         | `Ctrl` + `A` | 按显示行左端、正文开头、行首的顺序，分 3 个阶段移动。表格内会从单元格开头移动到前一个单元格。             |    ✓     |
-|       [END](/macos-emacs-style/command-details#cursor-end)          | `Ctrl` + `E` | 按显示行右端、行末的顺序，分 2 个阶段移动。表格内会从单元格末尾移动到下一个单元格。                  |    ✓     |
-|   [TOP](/macos-emacs-style/command-details#cursor-top-bottom)       |     —      | 跳转到笔记的开头。                                                     |          |
-|  [BOTTOM](/macos-emacs-style/command-details#cursor-top-bottom)     |     —      | 跳转到笔记的末尾。                                                     |          |
-|    [Page up](/macos-emacs-style/command-details#page-up-down)       |     —      | 向上滚动 1 页。光标会保持在屏幕上的同一位置。也能落在表格内部。                             |    ✓     |
-|   [Page down](/macos-emacs-style/command-details#page-up-down)      |     —      | 向下滚动 1 页。光标会保持在屏幕上的同一位置。也能落在表格内部。                             |    ✓     |
-|  [Word left](/macos-emacs-style/command-details#word-left-right)    |     —      | 按单词单位向左移动。支持中文分词。                                             |    ✓     |
-| [Word right](/macos-emacs-style/command-details#word-left-right)    |     —      | 按单词单位向右移动。支持中文分词。                                             |    ✓     |
+|        [UP](/command-details#cursor-up)           | `Ctrl` + `P` | 进行文本/单元格之间的移动，以及表格、标注的进入（从下方）与退出（向上）。跨越表格行时也会保持光标的横向位置。 |    ✓     |
+|      [DOWN](/command-details#cursor-down)         | `Ctrl` + `N` | 进行文本/单元格之间的移动，以及表格、标注的进入（从上方）与退出（向下）。跨越表格行时也会保持光标的横向位置。 |    ✓     |
+|      [LEFT](/command-details#cursor-left)         | `Ctrl` + `B` | 按字符单位向左移动。位于单元格开头时，会移动到前一个单元格。                                 |    ✓     |
+|     [RIGHT](/command-details#cursor-right)        | `Ctrl` + `F` | 按字符单位向右移动。位于单元格末尾时，会移动到下一个单元格。                                 |    ✓     |
+|      [HOME](/command-details#cursor-home)         | `Ctrl` + `A` | 按显示行左端、正文开头、行首的顺序，分 3 个阶段移动。表格内会从单元格开头移动到前一个单元格。             |    ✓     |
+|       [END](/command-details#cursor-end)          | `Ctrl` + `E` | 按显示行右端、行末的顺序，分 2 个阶段移动。表格内会从单元格末尾移动到下一个单元格。                  |    ✓     |
+|   [TOP](/command-details#cursor-top-bottom)       |     —      | 跳转到笔记的开头。                                                     |          |
+|  [BOTTOM](/command-details#cursor-top-bottom)     |     —      | 跳转到笔记的末尾。                                                     |          |
+|    [Page up](/command-details#page-up-down)       |     —      | 向上滚动 1 页。光标会保持在屏幕上的同一位置。也能落在表格内部。                             |    ✓     |
+|   [Page down](/command-details#page-up-down)      |     —      | 向下滚动 1 页。光标会保持在屏幕上的同一位置。也能落在表格内部。                             |    ✓     |
+|  [Word left](/command-details#word-left-right)    |     —      | 按单词单位向左移动。支持中文分词。                                             |    ✓     |
+| [Word right](/command-details#word-left-right)    |     —      | 按单词单位向右移动。支持中文分词。                                             |    ✓     |
 
 ## Editing（编辑）\{#editing}
 
@@ -40,27 +40,27 @@ Kill 是 Emacs 术语中的剪切操作。本插件可以通过系统剪贴板�
 
 |                                    命令名称                                     | 推荐<br/>快捷键 | 功能概述                                             | 按键<br/>重复 |
 | :--------------------------------------------------------------------------: | :--------: | -------------------------------------------------- | :------: |
-|          [Kill line](/macos-emacs-style/command-details#kill-line)           | `Ctrl` + `K` | Kill 从光标到行末的内容。在行末执行时会删除换行符并与下一行合并。连续执行的 Kill 会使内容不断累积到剪贴板中。             |    ✓     |
-|        [Kill region](/macos-emacs-style/command-details#kill-region)         | `Ctrl` + `W` | Kill 选中的范围。                                        |          |
-|        [Copy region](/macos-emacs-style/command-details#copy-region)         |     —      | 复制选中的范围，但不会将其删除。                                    |          |
-|               [Yank](/macos-emacs-style/command-details#yank)                | `Ctrl` + `Y` | 粘贴系统剪贴板中的内容。                                     |    ✓     |
-|        [Delete char](/macos-emacs-style/command-details#delete-char)         | `Ctrl` + `D` | 删除光标右侧的 1 个字符。                                     |    ✓     |
-|             [Undo](/macos-emacs-style/command-details#undo-redo)             | `Ctrl` + `/` | 撤销上一次的更改。                                          |    ✓     |
-|             [Redo](/macos-emacs-style/command-details#undo-redo)             |     —      | 重做上一次撤销的更改。                                         |    ✓     |
-|  [Kill word left](/macos-emacs-style/command-details#kill-word-left-right)   |     —      | Kill 从光标到前一个单词开头的内容。连续执行的 Kill 会使内容不断累积到剪贴板中。        |    ✓     |
-| [Kill word right](/macos-emacs-style/command-details#kill-word-left-right)   |     —      | Kill 从光标到下一个单词末尾的内容。连续执行的 Kill 会使内容不断累积到剪贴板中。        |    ✓     |
-|       [Uppercase word](/macos-emacs-style/command-details#word-case)         |     —      | 将选中范围、或没有选区时光标所在位置的整个单词转换为大写。支持中文分词。                |    ✓     |
-|       [Lowercase word](/macos-emacs-style/command-details#word-case)         |     —      | 将选中范围、或没有选区时光标所在位置的整个单词转换为小写。支持中文分词。                |    ✓     |
-|      [Capitalize word](/macos-emacs-style/command-details#word-case)         |     —      | 将选中范围内（逐词）、或没有选区时光标所在单词的开头字母转换为大写。支持中文分词。           |    ✓     |
-|    [Transpose chars](/macos-emacs-style/command-details#transpose-chars)     |     —      | 交换光标前后的 2 个字符。在行末或单元格末尾时，则改为交换前面的 2 个字符。支持表情符号与扩展汉字。 |    ✓     |
-|         [Select all](/macos-emacs-style/command-details#select-all)          |     —      | 当 `Ctrl` + `A` 被分配给 HOME 时，用于 Windows 的全选替代命令。       |          |
+|          [Kill line](/command-details#kill-line)           | `Ctrl` + `K` | Kill 从光标到行末的内容。在行末执行时会删除换行符并与下一行合并。连续执行的 Kill 会使内容不断累积到剪贴板中。             |    ✓     |
+|        [Kill region](/command-details#kill-region)         | `Ctrl` + `W` | Kill 选中的范围。                                        |          |
+|        [Copy region](/command-details#copy-region)         |     —      | 复制选中的范围，但不会将其删除。                                    |          |
+|               [Yank](/command-details#yank)                | `Ctrl` + `Y` | 粘贴系统剪贴板中的内容。                                     |    ✓     |
+|        [Delete char](/command-details#delete-char)         | `Ctrl` + `D` | 删除光标右侧的 1 个字符。                                     |    ✓     |
+|             [Undo](/command-details#undo-redo)             | `Ctrl` + `/` | 撤销上一次的更改。                                          |    ✓     |
+|             [Redo](/command-details#undo-redo)             |     —      | 重做上一次撤销的更改。                                         |    ✓     |
+|  [Kill word left](/command-details#kill-word-left-right)   |     —      | Kill 从光标到前一个单词开头的内容。连续执行的 Kill 会使内容不断累积到剪贴板中。        |    ✓     |
+| [Kill word right](/command-details#kill-word-left-right)   |     —      | Kill 从光标到下一个单词末尾的内容。连续执行的 Kill 会使内容不断累积到剪贴板中。        |    ✓     |
+|       [Uppercase word](/command-details#word-case)         |     —      | 将选中范围、或没有选区时光标所在位置的整个单词转换为大写。支持中文分词。                |    ✓     |
+|       [Lowercase word](/command-details#word-case)         |     —      | 将选中范围、或没有选区时光标所在位置的整个单词转换为小写。支持中文分词。                |    ✓     |
+|      [Capitalize word](/command-details#word-case)         |     —      | 将选中范围内（逐词）、或没有选区时光标所在单词的开头字母转换为大写。支持中文分词。           |    ✓     |
+|    [Transpose chars](/command-details#transpose-chars)     |     —      | 交换光标前后的 2 个字符。在行末或单元格末尾时，则改为交换前面的 2 个字符。支持表情符号与扩展汉字。 |    ✓     |
+|         [Select all](/command-details#select-all)          |     —      | 当 `Ctrl` + `A` 被分配给 HOME 时，用于 Windows 的全选替代命令。       |          |
 
 ## Other hotkeys（其他快捷键）\{#other-hotkeys}
 
 |                                      命令名称                                      | 推荐<br/>快捷键 | 功能概述                                | 按键<br/>重复 |
 | :------------------------------------------------------------------------------: | :--------: | ------------------------------------- | :------: |
-| [Recenter-top-bottom](/macos-emacs-style/command-details#recenter-top-bottom)    | `Ctrl` + `L` | 每次按下时，会在屏幕中央、上端、下端之间切换光标所在行的显示位置。 |          |
-|             [Recenter](/macos-emacs-style/command-details#recenter)              |     —      | 滚动画面，使光标所在行位于屏幕中央。                 |          |
+| [Recenter-top-bottom](/command-details#recenter-top-bottom)    | `Ctrl` + `L` | 每次按下时，会在屏幕中央、上端、下端之间切换光标所在行的显示位置。 |          |
+|             [Recenter](/command-details#recenter)              |     —      | 滚动画面，使光标所在行位于屏幕中央。                 |          |
 
 ## Table structure（表格结构操作）\{#table-structure}
 
@@ -93,9 +93,9 @@ Kill 是 Emacs 术语中的剪切操作。本插件可以通过系统剪贴板�
 
 |                                  命令名称                                  | 推荐<br/>快捷键 | 功能概述                | 按键<br/>重复 |
 | :-----------------------------------------------------------------------: | :--------: | --------------------- | :------: |
-|  [Move to cell left](/macos-emacs-style/command-details#move-to-cell)     |     —      | 移动到左侧相邻单元格的开头。与 `Shift` + `Tab` 不同，不会选中目标单元格的文本。       |    ✓     |
-| [Move to cell right](/macos-emacs-style/command-details#move-to-cell)     |     —      | 移动到右侧相邻单元格的开头。与 `Tab` 不同，不会选中目标单元格的文本。       |    ✓     |
-| [Move to cell below](/macos-emacs-style/command-details#move-to-cell)     |     —      | 移动到下一行同一列单元格的开头。     |    ✓     |
-| [Move to cell above](/macos-emacs-style/command-details#move-to-cell)     |     —      | 移动到上一行同一列单元格的开头。     |    ✓     |
-|   [Exit table below](/macos-emacs-style/command-details#exit-table)       |     —      | 向下脱出当前所在的表格。         |    ✓     |
-|   [Exit table above](/macos-emacs-style/command-details#exit-table)       |     —      | 向上脱出当前所在的表格。         |    ✓     |
+|  [Move to cell left](/command-details#move-to-cell)     |     —      | 移动到左侧相邻单元格的开头。与 `Shift` + `Tab` 不同，不会选中目标单元格的文本。       |    ✓     |
+| [Move to cell right](/command-details#move-to-cell)     |     —      | 移动到右侧相邻单元格的开头。与 `Tab` 不同，不会选中目标单元格的文本。       |    ✓     |
+| [Move to cell below](/command-details#move-to-cell)     |     —      | 移动到下一行同一列单元格的开头。     |    ✓     |
+| [Move to cell above](/command-details#move-to-cell)     |     —      | 移动到上一行同一列单元格的开头。     |    ✓     |
+|   [Exit table below](/command-details#exit-table)       |     —      | 向下脱出当前所在的表格。         |    ✓     |
+|   [Exit table above](/command-details#exit-table)       |     —      | 向上脱出当前所在的表格。         |    ✓     |

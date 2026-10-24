@@ -1,0 +1,5 @@
+インストール直後の Obsidian であればそのまま **Apply recommended** を押して構いません。macOS では初期状態でのホットキー競合はありません。Windows では推奨ホットキーと重なる既定のホットキー (`Ctrl` + `P` のコマンドパレットなど) が Displaced commands に送られますが、これらはすべて **Restore** で元に戻せます。(→[Displaced commands 解説](#displaced-commands))
+すでにホットキーを自分でカスタマイズしている場合は、他のホットキーが残るコマンド (🔵Used など) から外れたホットキーは Displaced commands に載らず **Restore** で戻せません。気になる場合は押す前に各行の Status を確認してください。(→[Status 解説](#status))
+
+一括割り当ての対象は、そのコマンドグループのうちホットキーがまだ 1 つも割り当てられていないコマンドです (→[例外あり](/macos-emacs-style/settings#status-exception))。すでに割り当てられているコマンド (✅Set、🟢Custom) と、推奨ホットキーがないコマンド (—) には影響しません。
+推奨ホットキーを別のコマンドが使用中の場合 (🔵Used、🟡Used、推奨ホットキーが別の複数のコマンドに割り当てられている 🔴Conflict) は、それらのコマンドから推奨ホットキーを外して、代わりにこちらのコマンドに推奨ホットキーを割り当てます。ホットキーが 1 つも残らなくなったコマンドは Displaced commands に送られます。

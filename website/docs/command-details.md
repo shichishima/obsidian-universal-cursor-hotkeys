@@ -1,11 +1,11 @@
 ---
-sidebar_position: 2
-title: macOS (Emacs) style — Command Details
+sidebar_position: 5
+title: Command Details
 sidebar_label: Command Details
 description: Detailed behavior of every command this plugin provides (differences from standard behavior)
-mode: macos-emacs-style
+show_mode_tabs: true
 ---
-# macOS (Emacs) style — Command Details
+# Command Details
 
 Unless noted otherwise, descriptions of tables, callouts, images, embeds, and thematic breaks describe Live Preview behavior. Where a behavior is specific to Source Mode, it's called out within that command's own entry.
 

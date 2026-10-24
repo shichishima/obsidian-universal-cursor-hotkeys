@@ -1,11 +1,11 @@
 ---
-sidebar_position: 2
-title: macOS (Emacs) style — 命令详情
+sidebar_position: 5
+title: 命令详情
 sidebar_label: 命令详情
 description: 本插件提供的全部命令的详细行为（与标准操作的区别）
-mode: macos-emacs-style
+show_mode_tabs: true
 ---
-# macOS (Emacs) style — 命令详情
+# 命令详情
 
 关于表格、标注、图片、嵌入、分隔线的说明，除非特别注明，均为实时预览下的行为。源码模式下的行为会在各项目内单独说明。
 

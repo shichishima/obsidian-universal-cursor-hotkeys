@@ -11,7 +11,7 @@ It also includes a full set of Emacs's major editing commands, so Kill & Yank an
 
 Windows users will also find this plugin's commands useful if they want macOS-style cursor movement, or Emacs-style key bindings.
 
-**See also:** [Command Reference](/macos-emacs-style/command-reference) | [Command Details](/macos-emacs-style/command-details) | [Settings](/macos-emacs-style/settings) | [Limitations](/macos-emacs-style/limitations)
+**See also:** [Command Reference](/macos-emacs-style/command-reference) | [Command Details](/command-details) | [Settings](/macos-emacs-style/settings) | [Limitations](/macos-emacs-style/limitations)
 
 <table>
 

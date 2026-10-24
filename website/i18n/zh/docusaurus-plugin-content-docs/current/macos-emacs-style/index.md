@@ -11,7 +11,7 @@ mode: macos-emacs-style
 
 如果 Windows 用户也想使用 macOS 风格的光标移动，或者想使用 Emacs 风格的按键操作，本插件提供的命令同样会很有帮助。
 
-**接下来：** [命令参考](/macos-emacs-style/command-reference) | [命令详情](/macos-emacs-style/command-details) | [设置](/macos-emacs-style/settings) | [限制事项](/macos-emacs-style/limitations)
+**接下来：** [命令参考](/macos-emacs-style/command-reference) | [命令详情](/command-details) | [设置](/macos-emacs-style/settings) | [限制事项](/macos-emacs-style/limitations)
 
 <table>
 

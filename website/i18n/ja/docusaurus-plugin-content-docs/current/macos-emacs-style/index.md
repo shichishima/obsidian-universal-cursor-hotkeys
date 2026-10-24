@@ -7,11 +7,11 @@ mode: macos-emacs-style
 
 macOS ではショートカット `control` + `P` / `N` / `B` / `F` でノート内でカーソル移動できますが、Markdown テーブルの中ではカーソルキーと違って正しく機能しません。このプラグインはカーソルキーに相当するホットキーコマンドを提供し、これらのショートカットにホットキーとして割り当てることでテーブル内でも正しくカーソル操作できるようにします。
 
-また Emacs の主要な編集コマンドをひと通り揃えていますので、Kill & Yank や Recenter が Obsidian の中で使えるようになります。
+また Emacs の主要な編集コマンドをひと通り揃えていますので、Kill & Yank (Set-mark して Kill-region からの Yank も) や Recenter が Obsidian の中で使えるようになります。
 
 Windows ユーザーも macOS 風のカーソル移動を使いたい場合や Emacs 風のキー操作を使いたい場合にこのプラグインのコマンドが役に立つはずです。
 
-**つづいては：** [コマンドリファレンス](/macos-emacs-style/command-reference) | [コマンド詳細](/macos-emacs-style/command-details) | [設定](/macos-emacs-style/settings) | [制限事項](/macos-emacs-style/limitations)
+**つづいては：** [コマンドリファレンス](/macos-emacs-style/command-reference) | [設定](/macos-emacs-style/settings) | [制限事項](/macos-emacs-style/limitations)
 
 <table>
 

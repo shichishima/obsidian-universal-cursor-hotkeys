@@ -1,5 +1,5 @@
 ---
-sidebar_position: 2
+sidebar_position: 4
 title: For everyone — Settings
 sidebar_label: Settings
 description: How to apply Key Upgrades, how to read the settings screen, and what each Behavior option means.
