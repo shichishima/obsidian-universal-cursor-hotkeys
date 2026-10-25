@@ -1,5 +1,5 @@
 ---
-sidebar_position: 1
+sidebar_position: 2
 title: For everyone — 按键升级
 sidebar_label: 按键升级
 description: 强化方向键、Home/End 以及按单词移动光标键的行为，使其支持 Markdown 格式与中文分词
