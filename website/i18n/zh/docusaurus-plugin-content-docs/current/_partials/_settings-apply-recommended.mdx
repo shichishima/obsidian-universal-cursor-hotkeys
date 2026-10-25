@@ -1,0 +1,5 @@
+如果是刚安装完毕的 Obsidian，可以直接点击这 3 个 **Apply recommended**。macOS 下初始状态不存在快捷键冲突。在 Windows 下，与推荐快捷键重叠的默认快捷键（例如命令面板的 `Ctrl` + `P`）会被归入 Displaced commands，但这些都可以通过 **Restore** 恢复原状。（→[Displaced commands 说明](/macos-emacs-style/settings#displaced-commands)）
+如果你已经自行自定义过快捷键，那么对于仍保留其他快捷键的命令（如 🔵Used 等），被移除的快捷键不会出现在 Displaced commands 中，也无法用 **Restore** 恢复。如果担心这一点，请在点击前先确认各行的 Status。（→[Status 说明](/macos-emacs-style/settings#status)）
+
+一次性分配的对象，是该命令分组中尚未分配任何快捷键的命令（→[有例外](/macos-emacs-style/settings#status-exception)）。已经分配了快捷键的命令（✅Set、🟢Custom）以及没有推荐快捷键的命令（—）不受影响。
+如果推荐快捷键正被其他命令占用（🔵Used、🟡Used，或推荐快捷键同时分配给多个其他命令的 🔴Conflict），则会从那些命令中移除推荐快捷键，改为分配给这里的命令。失去所有快捷键的命令会被归入 Displaced commands。
