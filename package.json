@@ -27,7 +27,7 @@
 		"@wdio/spec-reporter": "^9.32.0",
 		"esbuild": "0.17.3",
 		"eslint": "^9.39.4",
-		"eslint-plugin-obsidianmd": "^0.2.9",
+		"eslint-plugin-obsidianmd": "^0.4.2",
 		"mocha": "^10.8.2",
 		"obsidian": "latest",
 		"tslib": "2.4.0",
