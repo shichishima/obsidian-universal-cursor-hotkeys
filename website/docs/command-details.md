@@ -585,8 +585,10 @@ This command corresponds to Obsidian's own "Select all."
 **Behavior matching "Select all"**
 - **Outside a table:** Selects the entire note.
 - **Within a table cell (Live Preview):** Selects the entire content of the current cell instead of the entire note.
+- In either case, the cursor moves to the end of the selection.
 
 **Behavior differing from "Select all"**
+- Also sets the Set-mark anchor at the start of the selection. Moving the cursor afterward with LEFT/RIGHT/UP/DOWN and similar expands/shrinks the selection.
 - **Within a table cell (Source Mode):** Even in Source Mode, this recognizes that it's inside a table and selects the entire content of the current cell instead of the entire note.
   - The whitespace at the start and end of the cell is excluded from the selection.
   - The standard "Select all" doesn't recognize tables and selects the entire note instead.
