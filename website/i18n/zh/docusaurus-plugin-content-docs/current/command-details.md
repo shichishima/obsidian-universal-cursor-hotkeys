@@ -363,6 +363,38 @@ TOP / BOTTOM 命令可以在 **For everyone** 页面中分配给相同的按键�
 
 </details>
 
+<Anchor id="set-mark" />
+<details>
+<summary>Set mark</summary>
+
+开始范围选择模式。此命令相当于 Emacs 的 set-mark 命令，并与 Obsidian 标准的 `Shift` + 光标移动选择深度整合。
+
+**Set mark 的具体行为**
+
+- **范围选择模式关闭时：**
+  - 以当前光标位置为起点，开始范围选择模式。
+  - 在表格外、Live Preview 的单元格内、Source Mode 的表格单元格内均有效。
+- **范围选择模式开启时：**
+  - 范围选择模式开启状态下移动光标，会扩展/缩小选择范围。（LEFT / RIGHT / UP / DOWN / HOME / END / TOP / BOTTOM / Word left / Word right / Page up / Page down）
+    - 在多光标状态下执行 TOP / BOTTOM 时，所有副光标都会消失，仅保留从主光标到笔记开头或末尾的一个选择范围。
+    - 其他命令则会让每个光标各自独立扩展选择范围。
+  - 范围选择与 Obsidian 标准的范围选择深度整合。用 `Shift` + 方向键或鼠标拖拽开始选择时，会自动设置 Set-mark 的起点，此后可以用 RIGHT / LEFT 等命令继续扩展/缩小范围。反之，用 Set-mark 开始的选择范围，也可以用 `Shift` + 方向键继续扩展/缩小。
+  - 范围选择过程中移动光标触及表格时，会一次性将整个表格纳入选择范围，然后穿过表格。
+  - 单元格内的范围选择无法跨越单元格边界。（到达边界后会直接停止，不再继续移动）
+  - 在范围选择模式开启的状态下再次执行 Set mark，会重置当前为止的选择范围，并将当前光标位置重新设为起点。
+- **范围选择模式的自动解除：** 以下任一操作都会解除起点：
+  - 执行 Deselect 命令
+  - 执行编辑类命令（Kill line、Kill region、Copy region、Yank、Uppercase / Lowercase / Capitalize word、Delete char、Transpose chars、Kill word left / right、Undo / Redo）
+  - 使用系统标准的复制/剪切/粘贴，或 Backspace / Delete
+  - 使用未经按键升级的物理方向键移动光标
+  - 使用鼠标点击移动光标
+  - 执行跨越单元格边界的命令（Move to cell left / right / above / below、Exit table above / below）
+  - 切换到其他笔记
+- **多光标支持：**
+  - 在多光标状态下执行 Set mark，会为每个光标位置都设置起点，之后移动光标时每个光标都会拥有各自的选择范围。
+
+</details>
+
 <Anchor id="kill-region" />
 <details>
 <summary>Kill region</summary>

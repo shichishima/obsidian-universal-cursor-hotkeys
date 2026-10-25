@@ -363,6 +363,38 @@ this becomes:
 
 </details>
 
+<Anchor id="set-mark" />
+<details>
+<summary>Set mark</summary>
+
+Starts range-selection mode. This command corresponds to Emacs's set-mark command. It's unified with Obsidian's own standard `Shift` + cursor-movement selection.
+
+**Set mark's specific behavior**
+
+- **While range-selection mode is off:**
+  - Starts range-selection mode using the current cursor position as its anchor.
+  - Works outside a table, inside a Live Preview table cell, or inside a Source Mode table cell.
+- **While range-selection mode is on:**
+  - Cursor movement while range-selection mode is on expands/shrinks the selection. (LEFT/RIGHT/UP/DOWN/HOME/END/TOP/BOTTOM/Word left/Word right/Page up/Page down)
+    - Running TOP/BOTTOM in a multi-cursor state clears every secondary cursor, leaving a single selection from the primary cursor to the start or end of the note.
+    - Every other command instead extends each cursor's own selection independently.
+  - Range selection is unified with Obsidian's own standard range selection. Starting a selection with `Shift` + a cursor key or a mouse drag automatically sets Set-mark's own anchor, so RIGHT/LEFT and similar commands can continue expanding/shrinking it afterward. Conversely, a selection started with Set-mark can be continued with `Shift` + cursor keys.
+  - Cursor movement during range selection that reaches a table sweeps the whole table into the selection in one step, then passes through it.
+  - Range selection inside a cell can't cross the cell's own boundary. (It simply stops, without moving any further.)
+  - Running Set mark again while range-selection mode is already on resets the selection so far and sets the current cursor position as a new anchor.
+- **Automatic deactivation of range-selection mode:** The anchor is cleared by any of the following:
+  - Running the Deselect command
+  - Running an editing command (Kill line, Kill region, Copy region, Yank, Uppercase/Lowercase/Capitalize word, Delete char, Transpose chars, Kill word left/right, Undo/Redo)
+  - Using the OS's own copy/cut/paste, Backspace, or Delete
+  - Moving the cursor with a physical cursor key that hasn't been Key-upgraded
+  - Moving the cursor with a mouse click
+  - Running a command that crosses a cell boundary (Move to cell left/right/above/below, Exit table above/below)
+  - Switching to a different note
+- **Multi-cursor support:**
+  - Running Set mark in a multi-cursor state sets an anchor at every cursor position, and cursor movement gives each cursor its own selection.
+
+</details>
+
 <Anchor id="kill-region" />
 <details>
 <summary>Kill region</summary>
