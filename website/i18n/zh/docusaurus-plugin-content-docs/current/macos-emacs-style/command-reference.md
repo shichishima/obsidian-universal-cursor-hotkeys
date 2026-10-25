@@ -41,6 +41,7 @@ Kill 是 Emacs 术语中的剪切操作。本插件可以通过系统剪贴板�
 |                                    命令名称                                     | 推荐<br/>快捷键 | 功能概述                                             | 按键<br/>重复 |
 | :--------------------------------------------------------------------------: | :--------: | -------------------------------------------------- | :------: |
 |          [Kill line](/command-details#kill-line)           | `Ctrl` + `K` | Kill 从光标到行末的内容。在行末执行时会删除换行符并与下一行合并。连续执行的 Kill 会使内容不断累积到剪贴板中。             |    ✓     |
+|          [Set mark](/command-details#set-mark)           | `Ctrl` + `Space` | 以光标位置为起点，开始范围选择模式。此后移动光标会扩展/缩小选择范围，以便执行 Kill region、Copy region 等编辑命令。按 `Esc` 键或执行 Deselect 命令可结束范围选择模式。 |            |
 |        [Kill region](/command-details#kill-region)         | `Ctrl` + `W` | Kill 选中的范围。                                        |          |
 |        [Copy region](/command-details#copy-region)         |     —      | 复制选中的范围，但不会将其删除。                                    |          |
 |               [Yank](/command-details#yank)                | `Ctrl` + `Y` | 粘贴系统剪贴板中的内容。                                     |    ✓     |
@@ -54,6 +55,7 @@ Kill 是 Emacs 术语中的剪切操作。本插件可以通过系统剪贴板�
 |      [Capitalize word](/command-details#word-case)         |     —      | 将选中范围内（逐词）、或没有选区时光标所在单词的开头字母转换为大写。支持中文分词。           |    ✓     |
 |    [Transpose chars](/command-details#transpose-chars)     |     —      | 交换光标前后的 2 个字符。在行末或单元格末尾时，则改为交换前面的 2 个字符。支持表情符号与扩展汉字。 |    ✓     |
 |         [Select all](/command-details#select-all)          |     —      | 当 `Ctrl` + `A` 被分配给 HOME 时，用于 Windows 的全选替代命令。       |          |
+|          [Deselect](/command-details#deselect)           |   `Ctrl` + `G`   | 清除选择范围、清除 Set-mark 的起点，并仅保留主光标。 |            |
 
 ## Other hotkeys（其他快捷键）\{#other-hotkeys}
 

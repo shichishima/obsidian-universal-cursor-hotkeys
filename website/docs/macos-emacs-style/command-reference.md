@@ -41,6 +41,7 @@ Commands and function summaries, grouped the same way as on the [Settings](/maco
 |                                    Command Name                                     | Recommended<br/>Hotkey | Function Summary                                                                                  | Key<br/>Repeat |
 | :------------------------------------------------------------------------------: | :--------------: | ----------------------------------------------------------------------------------------------- | :-------: |
 |         [Kill line](/command-details#kill-line)          |   `Ctrl` + `K`    | Kills from the cursor to the end of the line. At the end of a line, deletes the line break and joins with the next line. Consecutive kills accumulate their content in the clipboard. |     ✓     |
+|          [Set mark](/command-details#set-mark)           | `Ctrl` + `Space` | Starts range-selection mode using the cursor position as the anchor. Subsequent cursor movement expands/shrinks the selection for Kill region, Copy region, and similar editing commands to act on. Press `Esc` or run Deselect to end range-selection mode. |            |
 |       [Kill region](/command-details#kill-region)        |   `Ctrl` + `W`    | Kills the selected region.                                                                        |           |
 |       [Copy region](/command-details#copy-region)        |         —         | Copies the selected region without deleting it.                                                   |           |
 |              [Yank](/command-details#yank)               |   `Ctrl` + `Y`    | Pastes the contents of the OS clipboard.                                                           |     ✓     |
@@ -54,6 +55,7 @@ Commands and function summaries, grouped the same way as on the [Settings](/maco
 |      [Capitalize word](/command-details#word-case)       |         —         | Capitalizes the selection word by word, or — if there is no selection — the word at the cursor. Word splitting supports CJK (Chinese/Japanese) text. |     ✓     |
 |   [Transpose chars](/command-details#transpose-chars)    |         —         | Swaps the two characters around the cursor. At the end of a line or cell, swaps the previous two characters instead. Unicode-safe. |     ✓     |
 |        [Select all](/command-details#select-all)         |         —         | A replacement for Select all, intended for Windows, for when `Ctrl` + `A` has been assigned to HOME.       |           |
+|          [Deselect](/command-details#deselect)           |   `Ctrl` + `G`   | Clears the selection, clears the Set-mark anchor, and collapses every cursor down to the primary one. |            |
 
 ## Other hotkeys \{#other-hotkeys}
 
