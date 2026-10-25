@@ -22,4 +22,4 @@ Obsidian の **設定** → コミュニティプラグイン **Universal Cursor
 
 **つづいては：** [コマンドリファレンス](/for-everyone/command-reference) | [キーのアップグレード](/for-everyone/key-upgrades) | [設定](/for-everyone/settings) | [制限事項](/for-everyone/limitations)
 
-![For everyone タブでの Apply all ボタン](/img/for-everyone-apply-all.png)
+![For everyone タブ、Apply recommended と Apply all をハイライト表示](/img/for-everyone-apply-all.png)

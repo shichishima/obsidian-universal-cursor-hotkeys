@@ -18,4 +18,4 @@ mode: for-everyone
 
 **接下来：** [按键升级](/for-everyone/key-upgrades) | [设置](/for-everyone/settings) | [限制事项](/for-everyone/limitations)
 
-![For everyone 标签中的 Apply all 按钮](/img/for-everyone-apply-all.png)
+![For everyone 标签，高亮显示 Apply recommended 和 Apply all 按钮](/img/for-everyone-apply-all.png)

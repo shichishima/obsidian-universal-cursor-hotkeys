@@ -18,4 +18,4 @@ Open **Settings → Universal Cursor Hotkeys → For everyone** and click **Appl
 
 **See also:** [Key Upgrades](/for-everyone/key-upgrades) | [Settings](/for-everyone/settings) | [Limitations](/for-everyone/limitations)
 
-![The Apply all button on the For everyone tab](/img/for-everyone-apply-all.png)
+![The For everyone tab, with Apply recommended and Apply all highlighted](/img/for-everyone-apply-all.png)

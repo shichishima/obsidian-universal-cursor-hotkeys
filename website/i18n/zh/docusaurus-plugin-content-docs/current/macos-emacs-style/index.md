@@ -37,4 +37,6 @@ mode: macos-emacs-style
 
 打开 Obsidian 的 **设置** → 选择第三方插件 **Universal Cursor Hotkeys** → 打开上方标签 **macOS (Emacs) style**，然后分别在 3 个命令组（Cursor movement、Editing、Other hotkeys）中点击 **Apply recommended** 按钮。3 次点击即可完成。
 
+![macOS (Emacs) style 标签，3 个命令组均高亮显示 Apply recommended 按钮](/img/macos-style-apply-all.png)
+
 部分命令不仅重现了纯粹的 Emacs 原生功能，还针对 Obsidian 进行了优化，强化了 Markdown 笔记的编辑体验。上面演示中的 Smart home 和 Smart join，就是 Markdown 编辑器（而非纯文本编辑器）才有的功能。你也可以通过调整设置改回纯粹的原始行为，详情请参阅 [设置](/macos-emacs-style/settings#behavior-options)。

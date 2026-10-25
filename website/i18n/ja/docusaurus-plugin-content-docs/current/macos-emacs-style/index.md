@@ -37,4 +37,6 @@ Windows ユーザーも macOS 風のカーソル移動を使いたい場合や E
 
 Obsidian の **設定** → コミュニティプラグイン **Universal Cursor Hotkeys** を選択 → 上部タブ **macOS (Emacs) style** を開いて、3 つのコマンドグループ (Cursor movement、Editing、Other hotkeys) それぞれで **Apply recommended** ボタンを押してください。3 クリックで完了します。
 
+![macOS (Emacs) style タブ、3 つのコマンドグループ全てで Apply recommended をハイライト表示](/img/macos-style-apply-all.png)
+
 一部のコマンドについては、純粋な Emacs 機能を再現するだけでなく Obsidian に最適化して Markdown ノート編集機能を強化しています。上の動作デモの「Smart home」や「Smart join」は純粋なテキストエディタではない Markdown エディタならではの機能となっています。設定の調整で純粋動作に変えることもできますので [設定](/macos-emacs-style/settings#behavior-options) をあわせてご覧ください。

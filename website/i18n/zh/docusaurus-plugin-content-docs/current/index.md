@@ -15,7 +15,7 @@ import ModeTabs from '@site/src/components/ModeTabs';
 
 将你平时使用的方向键、`Home`/`End` 键、`Page Up`/`Page Down` 键进一步针对 Markdown 做优化，并让它们在实时预览的 Markdown 表格中也能正确工作。同时也支持默认情况下无法正确识别的中文分词。同样适配 Vim 模式。此外，还提供一整套 macOS 风格的键盘快捷键（Emacs 快捷键）。
 
-<img width="688" height="387" alt="标准 Obsidian 与 Universal Cursor Hotkeys 的对比演示：在 Markdown 表格与 CJK 文本中的光标移动" src="https://github.com/user-attachments/assets/b85426e8-e8be-451a-9766-fff410cb634e" />
+![标准 Obsidian 与 Universal Cursor Hotkeys 的对比演示：在 Markdown 表格与 CJK 文本中的光标移动](/img/universal-cursor-hotkeys-demo.gif)
 
 ## 概述
 

@@ -16,7 +16,7 @@ import ModeTabs from '@site/src/components/ModeTabs';
 
 We make the arrow keys, `Home`/`End`, and `Page Up`/`Page Down` keys you already use every day Markdown-aware and table-aware inside Live Preview. We also add CJK (Chinese/Japanese) word-boundary support — which doesn't work correctly out of the box. Vim mode gets the same treatment, and on top of that, we provide a full set of hotkeys for macOS-style keyboard shortcuts (Emacs keybindings).
 
-<img width="688" height="387" alt="Side-by-side demo: standard Obsidian vs. Universal Cursor Hotkeys navigating Markdown tables and CJK text" src="https://github.com/user-attachments/assets/b85426e8-e8be-451a-9766-fff410cb634e" />
+![Side-by-side demo: standard Obsidian vs. Universal Cursor Hotkeys navigating Markdown tables and CJK text](/img/universal-cursor-hotkeys-demo.gif)
 
 ## Overview
 
