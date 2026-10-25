@@ -8,6 +8,7 @@ show_mode_tabs: true
 # Command Details
 
 Unless noted otherwise, descriptions of tables, callouts, images, embeds, and thematic breaks describe Live Preview behavior. Where a behavior is specific to Source Mode, it's called out within that command's own entry.
+Source Mode table support doesn't apply when the "Table-aware Source Mode editing" setting is OFF. (Default: ON)
 
 ## Cursor movement \{#cursor-movement}
 
@@ -329,6 +330,8 @@ This command is designed to reproduce the behavior of Emacs's kill-line. Unlike 
   - Any editing operation other than a consecutive kill stops the accumulation. (Cursor movement, typing, mouse clicks.)
   - If the OS has a clipboard history feature, each consecutive kill is recorded there in sequence.
 - **Interaction with the OS's copy/cut:** Pressing `Ctrl` + `C`/`X` on Windows or `command` + `C`/`X` on macOS stops the consecutive-kill behavior.
+- **Multi-cursor behavior:** Kills independently at each cursor position.
+  - The killed text from multiple cursors is joined with newlines in the clipboard.
 
 **Smart join**
 
@@ -411,6 +414,8 @@ Kills (cuts) the selected text and saves it to the OS clipboard. This command co
   - The selection must stay inside the same cell. If the selection crosses the `|` cell boundary, nothing happens.
   - Within the same cell, the selection may cross a `<br>`. In this case `<br>` is converted to a line break and `\|` to `|` before saving to the clipboard.
 - **Stopping consecutive kills:** Kill region always resets the consecutive-kill accumulation. The killed text replaces the clipboard's previous contents instead of being appended to it.
+- **Multi-cursor behavior:** Kills each cursor's own selection independently.
+  - The killed text from multiple cursors is joined with newlines in the clipboard.
 
 **Difference from the OS's standard cut**
 
@@ -435,6 +440,8 @@ Copies the selected text to the OS clipboard. Unlike Kill region, the text isn't
   - The selection must stay inside the same cell. If the selection crosses the `|` cell boundary, nothing happens.
   - Within the same cell, the selection may cross a `<br>`. In this case `<br>` is converted to a line break and `\|` to `|` before saving to the clipboard.
 - **Stopping consecutive kills:** Like Kill region, this always resets the consecutive-kill accumulation. What's saved also replaces the clipboard's existing contents instead of being appended to it.
+- **Multi-cursor behavior:** Copies each cursor's own selection independently.
+  - The copied text from multiple cursors is joined with newlines in the clipboard.
 
 **Difference from the OS's standard copy**
 
@@ -455,6 +462,10 @@ Pastes the OS clipboard's contents at the cursor position. This command correspo
 - **Outside a table, and within a Live Preview cell:** Pastes the clipboard's contents as-is. Within a Live Preview cell, any line breaks (`\n`) it contains become in-cell line breaks (the same kind `Shift` + `Enter` creates).
 - **Within a table cell in Source Mode:** To avoid breaking the table structure, line breaks are escaped to `<br>` and pipe characters (`|`) to `\|` before pasting.
 - **Stopping consecutive kills:** Yank also always resets the consecutive-kill accumulation.
+- **Avoiding duplicate list markers:** Matching Obsidian's standard paste since version 1.14, pasting onto a list-item line (`-`, `- [ ] `, `1. `, etc.) adjusts to avoid duplicating the existing list marker.
+- **Multi-cursor behavior:** Behavior differs depending on whether the cursor count matches the number of lines stored on the clipboard.
+  - **When they match:** Pastes each clipboard line to its corresponding cursor.
+  - **When they don't match:** Pastes the clipboard's entire contents at each cursor.
 
 **Difference from the OS's standard paste**
 
@@ -462,7 +473,6 @@ Pastes the OS clipboard's contents at the cursor position. This command correspo
 - **When multiple cells are stored on the clipboard:** When you cut/copy multiple cells, the OS clipboard stores them as table structure. Obsidian's standard paste can paste this back as a table, but Yank just pastes the table's Markdown source code. (Pasting it into plain text displays it as a table, but pasting it into a cell inserts the table's raw Markdown source.)
 - **When an image is stored on the clipboard:** If the OS clipboard contains an image, Obsidian's standard paste saves the image file into the vault and inserts an embed link (`![[filename saved in the vault]]`), but Yank just pastes the filename as plain text.
 - **Within a table cell in Source Mode:** The OS's standard paste inserts line breaks and pipe characters as-is without converting them, so pasting multi-line text or text containing pipe characters breaks the table structure. Yank converts line breaks to `<br>` and pipe characters to `\|` before inserting, so the table structure is preserved.
-- **Avoiding duplicate list markers (Obsidian 1.14+):** Obsidian's standard paste avoids duplicating a list marker (`-`, `- [ ] `, `1. `, etc.) when pasting onto a line that already has one, but Yank doesn't make this adjustment and can produce a duplicate marker.
 
 </details>
 
@@ -532,6 +542,9 @@ These commands can be assigned to the physical keys (`Ctrl` + `Backspace`/`Delet
 - **Within a table cell in Source Mode:** Recognizes that it's inside a table and stops before the `|` cell boundary.
   - It treats `<br>` breaks within a cell as line breaks and `|` as the cell boundary. Just as it stops without crossing a cell boundary in Live Preview, in Source Mode it never deletes or crosses a `|` either.
   - With the physical key, a table in Source Mode is just plain text, so it keeps deleting through the `|` characters too, breaking the table.
+- **Multi-cursor behavior:** Kills independently at each cursor position.
+  - The killed text from multiple cursors is joined with newlines in the clipboard.
+  - The join order always follows the document order of the cursors, no matter whether Kill word left or Kill word right was run.
 
 </details>
 
@@ -552,6 +565,7 @@ Converts the text at the cursor position, or in the selection, to uppercase, low
   - With the Cross-row navigation setting OFF, it stops without crossing a row boundary, and never exits the table either.
   - These commands do nothing when multiple cells are selected.
 - **Full-width character support:** Full-width alphabetic characters are converted the same way as half-width ones. Full-width and half-width characters may be mixed.
+- **Multi-cursor behavior:** Each cursor converts independently. An invalid selection on one cursor (e.g. crossing a Source Mode table's cell boundary) doesn't block the others from converting.
 
 </details>
 
@@ -573,6 +587,7 @@ Swaps the two characters immediately before and after the cursor. This command r
 - **At the very start/end of the note, or the start/end of a cell:** There's no character on one side to swap with, so nothing happens.
 - **Table-aware in Source Mode:** Within a table, the `|` to the left of a cell is treated as the start of the note, and the `|` to the right of a cell is treated as the end of a line — these boundary characters never move, so the table is never broken. A `<br>`, on the other hand, is treated the same as a real line break: the whole `<br>` tag (4 characters) is swapped as a single unit with the character before or after it. (For example, with the cursor at the start of "B" in `A<br>B<br>C`, swapping produces `AB<br><br>C`.)
 - **Unicode-safe:** Characters that internally span multiple character units — such as emoji — are treated and swapped as a single character. (Surrogate pairs like "🟩"/"𠮷", and emoji with variation selectors like "☺️".)
+- **Multi-cursor behavior:** Each cursor swaps independently. Even if one cursor sits where swapping isn't possible (e.g. the very start of the note), it doesn't block the others from swapping.
 
 </details>
 
