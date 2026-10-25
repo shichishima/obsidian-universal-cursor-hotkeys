@@ -599,6 +599,24 @@ Obsidian 标准的全选快捷键在 Windows 下是 `Ctrl` + `A`，但这个按�
 
 </details>
 
+<Anchor id="deselect" />
+<details>
+<summary>Deselect</summary>
+
+此命令相当于 Emacs 的 keyboard-quit（`C-g`）。它会清除选择范围、清除 Set-mark 的起点，并仅保留主光标。
+
+**Deselect 的具体行为**
+
+- 存在多个光标或选择范围时执行，只会保留主光标自己的选择范围，其他光标/选择范围都会被清除。
+- 如果只有一个选择范围，则会清除该范围选择。
+  - 也就是说，当多光标状态下每个光标都各自处于范围选择状态时，需要分两次执行才能完全清除：多个选择范围 → 单一选择范围 → 无选择范围。
+  - 这与 `Esc` 键的行为相同。
+- 当前光标位置会保持不变。
+- 所有的 Set-mark 起点都将被清除。
+  - 这与 `Esc` 键的行为不同。
+
+</details>
+
 ## Other hotkeys（其他快捷键） \{#other-hotkeys}
 
 <Anchor id="recenter-top-bottom" />

@@ -599,6 +599,24 @@ Obsidian's standard "Select all" shortcut is `Ctrl` + `A` on Windows, but that's
 
 </details>
 
+<Anchor id="deselect" />
+<details>
+<summary>Deselect</summary>
+
+This command corresponds to Emacs's keyboard-quit (`C-g`). It clears the selection, clears the Set-mark anchor, and collapses every cursor down to the primary one.
+
+**Deselect's specific behavior**
+
+- Running it with multiple cursors/multiple selections leaves only the primary cursor's own selection, clearing every other cursor/selection.
+- With only a single selection, it clears that range selection.
+  - In other words, when every cursor in a multi-cursor state has its own range selection, clearing it fully takes two separate presses: multiple selections → a single selection → no selection.
+  - This matches the `Esc` key's behavior.
+- The current cursor position is preserved.
+- The Set-mark anchor is always cleared, without exception.
+  - This differs from the `Esc` key's behavior.
+
+</details>
+
 ## Other hotkeys \{#other-hotkeys}
 
 <Anchor id="recenter-top-bottom" />
