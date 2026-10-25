@@ -37,7 +37,8 @@ Obsidian 的实时预览做得非常出色，Markdown 表格的显示与编辑�
 ## 🅴 [想使用 macOS 风格的键盘快捷键（Emacs 快捷键） →](/macos-emacs-style)
 - 让 `Ctrl` + `P`/`N`/`B`/`F` 也能在 Markdown 表格内移动光标
 - 带剪贴板联动、具备累积功能的 Kill & Yank
-- 通过 Recenter-top-bottom 实现屏幕居中
+- 用 Set-mark 进行范围选择，与 Obsidian 自身的 `Shift` + 方向键选择相统一
+- 多光标移动、Kill 与 Yank
 
 ## 致谢
 
