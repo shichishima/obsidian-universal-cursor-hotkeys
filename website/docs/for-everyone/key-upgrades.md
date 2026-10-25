@@ -1,5 +1,5 @@
 ---
-sidebar_position: 1
+sidebar_position: 2
 title: For everyone — Key Upgrades
 sidebar_label: Key Upgrades
 description: Upgrades cursor keys, Home/End, and word-movement keys to be Markdown-aware and CJK (Chinese/Japanese) word-aware.

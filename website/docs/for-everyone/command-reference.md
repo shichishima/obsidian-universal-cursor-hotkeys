@@ -1,5 +1,5 @@
 ---
-sidebar_position: 2
+sidebar_position: 1
 title: For everyone — Command Reference
 sidebar_label: Command Reference
 description: A full list of every For everyone command, what it does, and its recommended hotkey.
