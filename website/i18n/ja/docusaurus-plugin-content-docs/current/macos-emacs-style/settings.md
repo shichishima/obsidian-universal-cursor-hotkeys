@@ -5,15 +5,15 @@ sidebar_label: 設定
 description: ホットキーの割り当て方法、設定画面の見方、ステータスバッジとボタンの意味、各挙動オプションの説明
 mode: macos-emacs-style
 ---
-import ApplyRecommended from '@site/docs/_partials/_settings-apply-recommended.mdx';
+import ApplyRecommended from '../_partials/_settings-apply-recommended.mdx';
 
-import SettingsStatus from '@site/docs/_partials/_settings-status.mdx';
+import SettingsStatus from '../_partials/_settings-status.mdx';
 
-import HotkeySettingsTable from '@site/docs/_partials/_settings-hotkey-settings-table.mdx';
+import HotkeySettingsTable from '../_partials/_settings-hotkey-settings-table.mdx';
 
-import DisplacedCommands from '@site/docs/_partials/_displaced-commands.mdx';
+import DisplacedCommands from '../_partials/_displaced-commands.mdx';
 
-import Individual from '@site/docs/_partials/_settings-individual.mdx';
+import Individual from '../_partials/_settings-individual.mdx';
 
 # macOS (Emacs) style — 設定
 Obsidian の **設定** → コミュニティプラグイン **Universal Cursor Hotkeys** を選択 → 上部タブ **macOS (Emacs) style** を開きます。

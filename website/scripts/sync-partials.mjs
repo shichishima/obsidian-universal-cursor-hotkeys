@@ -1,15 +1,28 @@
 // Copies partial-page staging drafts (edited as Obsidian notes, outside this
-// repo) into docs/_partials/ as .mdx, applying the same MDX-safety fixes
-// .claude/data/sync_i18n_staging.py already applies when syncing JA doc
-// pages: a bare <br> must become a self-closed <br/>, and a heading's own
-// trailing "{#id}" must be escaped to "\{#id}" — a bare "{" opens a JS
-// expression in MDX, crashing the build.
+// repo) into the JA i18n tree's own _partials/ as .mdx — the staging vault
+// is JA content, so it belongs under i18n/ja/, not the default (EN) docs/
+// tree. Every settings.md that imports one of these uses a *relative*
+// import path (e.g. "../_partials/_foo.mdx"), never the @site/-rooted
+// absolute form: @site/ always resolves to one single physical path
+// regardless of which locale is rendering, so an absolute import would
+// serve the same (JA) content to every locale. A relative import instead
+// resolves against each locale's own doc file location, and since
+// docs/_partials/, i18n/ja/.../current/_partials/, and (once they exist)
+// i18n/zh/.../current/_partials/ all sit at the same relative position
+// inside their own locale tree, the identical "../_partials/_foo.mdx"
+// import string picks up the right language's own file in each locale.
+// Applies the same MDX-safety fixes .claude/data/sync_i18n_staging.py
+// already applies when syncing JA doc pages: a bare <br> must become a
+// self-closed <br/>, and a heading's own trailing "{#id}" must be escaped
+// to "\{#id}" — a bare "{" opens a JS expression in MDX, crashing the
+// build.
 //
 // Runs automatically via the presync.../prestart/prebuild hooks in
 // package.json. On a machine without the staging vault (e.g. CI), each
 // entry's source path simply doesn't exist, so this is a no-op: whatever
-// docs/_partials/*.mdx file is already committed from the last local run is
-// used as-is — this script never fails the build over a missing source.
+// i18n/ja/.../_partials/*.mdx file is already committed from the last
+// local run is used as-is — this script never fails the build over a
+// missing source.
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -19,7 +32,11 @@ const websiteRoot = path.join(__dirname, '..');
 
 const STAGING_ROOT = '/Users/shichi/Documents/GitHub/obsidian-work/80_private/2026_2Q/UCH-website';
 
-// [staging-relative source, docs/_partials-relative dest]
+const JA_PARTIALS_DIR = path.join(
+	'i18n', 'ja', 'docusaurus-plugin-content-docs', 'current', '_partials',
+);
+
+// [staging-relative source, JA _partials-relative dest]
 const PARTIALS = [
 	['_settings-status.md', '_settings-status.mdx'],
 	['_settings-apply-recommended.md', '_settings-apply-recommended.mdx'],
@@ -50,7 +67,7 @@ function escapeHeadingIds(text) {
 
 for (const [src, dest] of PARTIALS) {
 	const srcPath = path.join(STAGING_ROOT, src);
-	const destPath = path.join(websiteRoot, 'docs', '_partials', dest);
+	const destPath = path.join(websiteRoot, JA_PARTIALS_DIR, dest);
 	if (!fs.existsSync(srcPath)) {
 		console.log(`sync-partials: skipping ${src} (staging file not found, keeping existing ${path.relative(websiteRoot, destPath)} as-is)`);
 		continue;

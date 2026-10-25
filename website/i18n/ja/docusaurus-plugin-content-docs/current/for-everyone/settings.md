@@ -5,15 +5,15 @@ sidebar_label: 設定
 description: キー挙動強化の適用方法、設定画面の見方、各挙動オプションの説明
 mode: for-everyone
 ---
-import ApplyRecommended from '@site/docs/_partials/_settings-apply-recommended.mdx';
+import ApplyRecommended from '../_partials/_settings-apply-recommended.mdx';
 
-import SettingsStatus from '@site/docs/_partials/_settings-status.mdx';
+import SettingsStatus from '../_partials/_settings-status.mdx';
 
-import Individual from '@site/docs/_partials/_settings-individual.mdx';
+import Individual from '../_partials/_settings-individual.mdx';
 
-import DisplacedCommands from '@site/docs/_partials/_displaced-commands.mdx';
+import DisplacedCommands from '../_partials/_displaced-commands.mdx';
 
-import HotkeySettingsTable from '@site/docs/_partials/_settings-hotkey-settings-table.mdx';
+import HotkeySettingsTable from '../_partials/_settings-hotkey-settings-table.mdx';
 
 # For everyone — 設定
 
