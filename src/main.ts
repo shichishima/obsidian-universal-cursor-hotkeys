@@ -715,14 +715,37 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			)
 		);
 
-		this.registerDomEvent(activeDocument, 'mousedown', () => {
-			this.isKillChaining = false;
-			this._recenterStep = 0;
-		});
-
 		this.registerEvent(this.app.workspace.on('active-leaf-change', () => {
 			this.markActive = false;
 		}));
+
+		// registerWindowDomListeners below is registered once here for the
+		// main window, and again for every popout as it opens (confirmed
+		// live via a dedicated E2E_POPOUT suite pass: without the
+		// 'window-open' half, a popout's own native copy/cut/paste/
+		// Backspace/Delete/Escape never reached these listeners at all,
+		// since registerDomEvent(activeDocument, ...) binds to whichever
+		// document is active at the moment it's called — permanently the
+		// main window's own document, since no popout exists yet when
+		// onload runs. No symmetric 'window-close' teardown needed:
+		// registerDomEvent's own cleanup is tied to this plugin's
+		// lifecycle, not the window's, and a closed popout's listeners
+		// simply stop firing once its document is gone.
+		this.registerWindowDomListeners(activeDocument);
+		this.registerEvent(this.app.workspace.on('window-open', (_, win) => {
+			this.registerWindowDomListeners(win.document);
+		}));
+
+		this.vimSupport.setup();
+	}
+
+	// See onload's own call site for why this exists per-window rather than
+	// being called once for activeDocument alone.
+	private registerWindowDomListeners(doc: Document) {
+		this.registerDomEvent(doc, 'mousedown', () => {
+			this.isKillChaining = false;
+			this._recenterStep = 0;
+		});
 
 		// A bare-ESC Key Upgrade (app.hotkeyManager.setHotkeys claiming the
 		// key globally) was tried and reverted (2026-10-17): it broke
@@ -754,7 +777,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// keymap handling runs before any bubble-phase document listener
 		// — but it added real complexity for no behavioral upside, so
 		// dropped in favor of this simpler unconditional clear.)
-		this.registerDomEvent(activeDocument, 'keydown', (e: KeyboardEvent) => {
+		this.registerDomEvent(doc, 'keydown', (e: KeyboardEvent) => {
 			if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'Delete') this.markActive = false;
 		});
 
@@ -767,21 +790,19 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// every one of these after CM6's own handling completes — unlike
 		// Backspace/Delete above, no capture-phase trick is needed here,
 		// since this clear is unconditional regardless of ordering.
-		this.registerDomEvent(activeDocument, 'copy', () => {
+		this.registerDomEvent(doc, 'copy', () => {
 			this.killCache = '';
 			this.markActive = false;
 		});
 
-		this.registerDomEvent(activeDocument, 'cut', () => {
+		this.registerDomEvent(doc, 'cut', () => {
 			this.killCache = '';
 			this.markActive = false;
 		});
 
-		this.registerDomEvent(activeDocument, 'paste', () => {
+		this.registerDomEvent(doc, 'paste', () => {
 			this.markActive = false;
 		});
-
-		this.vimSupport.setup();
 	}
 
 	onunload() {

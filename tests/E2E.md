@@ -11,6 +11,18 @@ Located in `tests/e2e/` (wdio-obsidian-service). Run with `npm run test:e2e`.
     `wdio.conf.mts`, lightest-first order) instead of relaunching per file.
     Faster, somewhat less flaky — table-entry assertions can still
     intermittently fail, rate varies run to run.
+  - `npm run test:e2e:popout` (`E2E_POPOUT=1`) reroutes every
+    `openFixtureAndGetContentStart` call through one shared popout window
+    instead of the main window, letting the whole existing suite run
+    unmodified against a popout — for occasional manual sweeps, not a
+    standing/permanent second pass (doubles runtime, most specs have no
+    popout-sensitive code path). Surfaced one confirmed real bug (now fixed,
+    see `setMarkPopoutNativeClearing.e2e.ts` below) and one test-infra
+    limitation: `setMarkMouseAndLeafChange.e2e.ts`'s own `browser.execute`-
+    based `mouseGesture` helper throws `__name is not defined` against a
+    popout window — looks like an esbuild/`wdio-obsidian-service` helper-
+    injection gap specific to secondary windows, not a plugin bug; those 3
+    mouse-based tests can't be verified this way.
 - **Fixtures** (`vaults/smoke/*.md`): `# heading` + `-` bullet(s) + `---` +
   test content. Specs locate the first line after `---` at runtime, so the
   header can be edited freely without shifting a spec's hardcoded offsets.
@@ -280,6 +292,32 @@ plugin's own commands, so none would otherwise reach a command callback.
   are destructive — keeps an earlier test's edit from affecting a later
   one even if it persists across `openFixtureAndGetContentStart`'s
   fresh-leaf reopen.
+
+#### `setMarkPopoutNativeClearing.e2e.ts`
+
+Same 5 native events as `setMarkNativeClipboardAndDelete.e2e.ts` above, plus
+Escape, dispatched inside a real popout window — regression coverage for a
+confirmed real bug found via an `E2E_POPOUT` full-suite sweep: `main.ts`'s
+markActive-clearing listeners (copy/cut/paste/Backspace/Delete/Escape, now
+`registerWindowDomListeners`) were registered once against the main
+window's own `document` at plugin load time, so a popout window's own,
+separate `document` never got the same listeners — none of these native
+actions cleared `markActive` while editing inside a popout. Fixed by
+re-registering the same listeners on every window as it opens
+(`app.workspace.on('window-open', ...)`).
+
+- Doesn't need `E2E_POPOUT=1` — always runs, opening its own popout
+  directly via the newly-exported `openFixtureInPopoutAndGetContentStart`
+  regardless of that env var, then closing it in `after` (`closePopoutWindow`,
+  which switches back to the main window) so later specs in this suite's
+  own shared instance aren't left running against a stale popout.
+- A freshly-created popout leaf's view mode isn't guaranteed to be Live
+  Preview without an explicit view state — confirmed live via a screenshot
+  showing the file menu's own "Source mode" item checked. Fixed inside
+  `openFixtureInPopoutAndGetContentStart` itself by passing
+  `{ state: { mode: 'source', source: false } }` to `openFile`.
+- One line per case in the fixture (`SetMarkPopoutNativeClearing.md`), same
+  reasoning as the main-window version above.
 
 #### `setMarkNativeCollapseClearing.e2e.ts`
 

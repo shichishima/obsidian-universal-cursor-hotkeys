@@ -40,6 +40,7 @@ export const config: WebdriverIO.Config = {
 		'./specs/setMarkMouseAndLeafChange.e2e.ts',
 		'./specs/setMarkEscapeKeydown.e2e.ts',
 		'./specs/setMarkNativeClipboardAndDelete.e2e.ts',
+		'./specs/setMarkPopoutNativeClearing.e2e.ts',
 		'./specs/setMarkNativeCollapseClearing.e2e.ts',
 		'./specs/setMarkShiftArrowUnification.e2e.ts',
 		'./specs/setMarkBufferEdge.e2e.ts',
