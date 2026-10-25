@@ -7,11 +7,11 @@ mode: macos-emacs-style
 
 在 macOS 上，你可以用快捷键 `control` + `P` / `N` / `B` / `F` 在笔记内移动光标，但与方向键不同，这些快捷键在 Markdown 表格内无法正确工作。本插件提供了与方向键作用相同的快捷键命令，只需将这些快捷键分配给对应命令，即可让它们在表格内也能正确地进行光标操作。
 
-此外，本插件还完整提供了 Emacs 的主要编辑命令，让 Kill & Yank 和 Recenter 也能在 Obsidian 中使用。
+此外，本插件还完整提供了 Emacs 的主要编辑命令，让 Kill & Yank（以及先 Set-mark 再 Kill region 后 Yank 的用法）和 Recenter 也能在 Obsidian 中使用。
 
 如果 Windows 用户也想使用 macOS 风格的光标移动，或者想使用 Emacs 风格的按键操作，本插件提供的命令同样会很有帮助。
 
-**接下来：** [命令参考](/macos-emacs-style/command-reference) | [命令详情](/command-details) | [设置](/macos-emacs-style/settings) | [限制事项](/macos-emacs-style/limitations)
+**接下来：** [命令参考](/macos-emacs-style/command-reference) | [设置](/macos-emacs-style/settings) | [限制事项](/macos-emacs-style/limitations)
 
 <table>
 

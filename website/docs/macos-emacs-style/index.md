@@ -7,11 +7,11 @@ mode: macos-emacs-style
 
 On macOS, the shortcuts `control` + `P`/`N`/`B`/`F` let you move the cursor within a note, but unlike the physical cursor keys, they don't work correctly inside Markdown tables. This plugin provides hotkey commands equivalent to the cursor keys, and assigning these shortcuts to them as hotkeys lets you move the cursor correctly inside tables too.
 
-It also includes a full set of Emacs's major editing commands, so Kill & Yank and Recenter become available right inside Obsidian.
+It also includes a full set of Emacs's major editing commands, so Kill & Yank (including Set-mark followed by Kill region and Yank) and Recenter become available right inside Obsidian.
 
 Windows users will also find this plugin's commands useful if they want macOS-style cursor movement, or Emacs-style key bindings.
 
-**See also:** [Command Reference](/macos-emacs-style/command-reference) | [Command Details](/command-details) | [Settings](/macos-emacs-style/settings) | [Limitations](/macos-emacs-style/limitations)
+**See also:** [Command Reference](/macos-emacs-style/command-reference) | [Settings](/macos-emacs-style/settings) | [Limitations](/macos-emacs-style/limitations)
 
 <table>
 
