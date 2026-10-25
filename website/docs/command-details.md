@@ -367,7 +367,7 @@ this becomes:
 <details>
 <summary>Set mark</summary>
 
-Starts range-selection mode. This command corresponds to Emacs's set-mark command. It's unified with Obsidian's own standard `Shift` + cursor-movement selection.
+Starts range-selection mode. This command corresponds to Emacs's set-mark command. It's unified with Obsidian's standard `Shift` + cursor-movement selection.
 
 **Set mark's specific behavior**
 
@@ -378,7 +378,7 @@ Starts range-selection mode. This command corresponds to Emacs's set-mark comman
   - Cursor movement while range-selection mode is on expands/shrinks the selection. (LEFT/RIGHT/UP/DOWN/HOME/END/TOP/BOTTOM/Word left/Word right/Page up/Page down)
     - Running TOP/BOTTOM in a multi-cursor state clears every secondary cursor, leaving a single selection from the primary cursor to the start or end of the note.
     - Every other command instead extends each cursor's own selection independently.
-  - Range selection is unified with Obsidian's own standard range selection. Starting a selection with `Shift` + a cursor key or a mouse drag automatically sets Set-mark's own anchor, so RIGHT/LEFT and similar commands can continue expanding/shrinking it afterward. Conversely, a selection started with Set-mark can be continued with `Shift` + cursor keys.
+  - Range selection is unified with Obsidian's standard range selection. Starting a selection with `Shift` + a cursor key or a mouse drag automatically sets Set-mark's own anchor, so RIGHT/LEFT and similar commands can continue expanding/shrinking it afterward. Conversely, a selection started with Set-mark can be continued with `Shift` + cursor keys.
   - Cursor movement during range selection that reaches a table sweeps the whole table into the selection in one step, then passes through it.
   - Range selection inside a cell can't cross the cell's own boundary. (It simply stops, without moving any further.)
   - Running Set mark again while range-selection mode is already on resets the selection so far and sets the current cursor position as a new anchor.
@@ -685,5 +685,29 @@ Moves outside the current table.
   - Smart home skips over any leading Markdown at the start of the cell.
 - **If the table sits at the very end of the note (Exit table below):** A blank line is added at the end of the note and the cursor lands there.
 - Works within a table in both Live Preview and Source Mode. Does nothing outside a table.
+
+</details>
+
+## Add cursor \{#add-cursor}
+
+<Anchor id="add-cursor-above-below" />
+<details>
+<summary>Add cursor above / below</summary>
+
+Adds a multi-cursor on the line above or below the current cursor.
+
+**Why this command was added**
+- Obsidian's standard "Add cursor above"/"Add cursor below" commands could land the new cursor at an unstable line or column position, and sometimes didn't work inside a table at all.
+- This command reimplements the behavior consistently: "adds above/below the logical line," "adds at the same character column," and "works inside a table too."
+
+**Add cursor above/below's specific behavior**
+- Adds a multi-cursor on the line above or below the current cursor.
+  - This is above/below the logical line, not the visual line — and above/below the same character column, not the same visual position.
+  - **When the line above or below is too short to add a cursor at the same character column:** The cursor is added at the end of that line instead. Adding a cursor again after that doesn't restore the original character column.
+- The newly added cursor becomes the "primary" one; the original cursor becomes a "secondary" one.
+  - With only a single cursor, that cursor is the primary cursor.
+  - A new cursor is always added above/below relative to the primary cursor.
+  - **When the primary cursor enters a table while cursors are moving:** Every secondary cursor disappears, reverting to a single cursor. If only a secondary cursor tries to enter a table, just that secondary cursor disappears.
+- Works within plain text, or within a single table cell — but can't add a multi-cursor across the plain-text/table boundary, or across a cell boundary.
 
 </details>
