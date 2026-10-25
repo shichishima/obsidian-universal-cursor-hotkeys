@@ -1,16 +1,57 @@
 ---
-sidebar_position: 2
+sidebar_position: 4
 title: For everyone — 设置
 sidebar_label: 设置
 description: 按键行为强化的应用方法、设置页面的说明，以及各项行为选项的说明
 mode: for-everyone
 ---
+import ApplyRecommended from '../_partials/_settings-apply-recommended.mdx';
+import SettingsStatus from '../_partials/_settings-status.mdx';
+import HotkeySettingsTable from '../_partials/_settings-hotkey-settings-table.mdx';
+import DisplacedCommands from '../_partials/_displaced-commands.mdx';
+import Individual from '../_partials/_settings-individual.mdx';
+
 # For everyone — 设置
 
 打开 Obsidian 的 **设置** → 选择第三方插件 **Universal Cursor Hotkeys** → 打开上方标签 **For everyone**。
 
+设置页面大致由 [Hotkey settings（快捷键设置）](/for-everyone/settings#hotkey-settings)、[Key upgrades（按键升级）](/for-everyone/settings#key-upgrades) 和 [Behavior options（行为选项）](/for-everyone/settings#behavior-options) 三部分构成。
+
+通常插件的快捷键分配会在 Obsidian 标准的快捷键设置页面中进行，但本插件可以在插件设置页面内确认快捷键的分配状态，并一次性应用推荐设置。
+
+## Hotkey settings（快捷键设置） \{#hotkey-settings}
+这里共有 1 个命令分组（→[说明](/for-everyone/settings#command-groups)）和 Displaced commands（→[说明](/for-everyone/settings#displaced-commands)），合计 2 个区块。
+
+### Apply recommended 按钮 \{#apply-recommended}
+命令分组 Add cursor 的标题右侧有一个 **Apply recommended** 按钮。点击后会一次性分配该命令分组的推荐快捷键。
+
+<ApplyRecommended />
+
+### 页面说明
+<HotkeySettingsTable />
+
+### 命令分组 \{#command-groups}
+本插件提供的命令和表格相关命令，被分为以下分组显示。
+
+| 命令分组 | 命令数<br/>（其中含推荐快捷键数） | 说明 |
+| --- | :---: | --- |
+| [Add cursor](/for-everyone/command-reference#add-cursor) | 2<br/>（2） | 用于添加多光标的快捷键。<br/>Obsidian 标准也有类似命令，但新增光标的位置有时不稳定，在表格内有时还无法使用，因此本插件提供了替代命令。 |
+
+命令分组名称链接到命令参考中对应的部分。各命令及其推荐快捷键请参阅命令参考。
+
+### Status 一览 \{#status}
+<SettingsStatus />
+
+### Individual 按钮一览 \{#individual}
+<Individual />
+
+### Displaced commands（被移除快捷键的命令） \{#displaced-commands}
+<DisplacedCommands />
+
+## Key upgrades（按键升级） \{#key-upgrades}
+
 ## Apply all 按钮
-将本页面中的所有设置开关设为 ON。（Upgrade navigation basics × 8 个、Upgrade word commands × 4 个、Behavior options × 5 个）
+将这之下的所有设置开关设为 ON。（Upgrade navigation basics × 8 个、Upgrade word commands × 4 个、Behavior options × 6 个）
 
 不过，存在冲突可能性的项目（🔴Used 状态）会被跳过。
 
@@ -48,3 +89,4 @@ mode: for-everyone
 | Visual line movement | ON | **ON：** 在自动换行的长行中按下 `Home`/`End` 时，第一步会先移动到显示行的开头/末尾。<br/><br/>**OFF：** 即使该行会自动换行，`Home`/`End` 也不考虑显示行。`Home` 移动到行首（根据 Smart home 设置，为逻辑行首或正文文本开头），`End` 移动到逻辑行末尾。 |
 | Cross-row navigation | ON | 调整表格内 `Home`/`End` 的行为。<br/><br/>**ON：** 在最左侧单元格开头按下 `Home`，会移动到上一行最右侧单元格的末尾。同样，在最右侧单元格末尾按下 `End`，会移动到下一行最左侧单元格的开头。<br/>如果没有对应的行，则会脱出表格。<br/>（相当于 ←/→ 的行为）<br/><br/>**OFF：** `Home`/`End` 不会跨表格行移动，会停留在最左侧单元格开头或最右侧单元格末尾。 |
 | Double-click word select | ON | 调整鼠标双击进行单词选择的行为。<br/><br/>**ON：** 基于词典的分词，鼠标双击时会按中文单词为单位选中范围。<br/>双击后拖动，选中范围会按单词单位扩展。<br/><br/>**OFF：** Obsidian 标准的双击行为。中文不区分词语边界，会作为一整段选中。 |
+| Table-aware Source Mode editing | ON | **ON：** 在源码模式的表格内，HOME / END、Kill line、Kill region / Copy region、Yank、Delete char、Transpose chars、Uppercase / Lowercase / Capitalize word、Kill word left / right、Select all 等命令都会考虑表格结构（`\|` / `<br>`）。<br/><br/>**OFF：** 将表格行作为纯文本处理，这些命令完全不考虑表格结构。 |
