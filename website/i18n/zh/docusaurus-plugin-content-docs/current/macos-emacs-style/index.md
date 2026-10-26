@@ -35,7 +35,7 @@ mode: macos-emacs-style
 
 默认情况下不会分配任何快捷键。关于光标移动加上一点其他功能的最低限度推荐快捷键，只需进行“快速设置”——按 3 次按钮即可完成设置。
 
-打开 Obsidian 的 **设置** → 选择第三方插件 **Universal Cursor Hotkeys** → 打开上方标签 **macOS (Emacs) style**，然后分别在 3 个命令组（Cursor movement、Editing、Other hotkeys）中点击 **Apply recommended** 按钮。3 次点击即可完成。
+打开 Obsidian 的 **设置** → 选择社区插件 **Universal Cursor Hotkeys** → 打开上方标签 **macOS (Emacs) style**，然后分别在 3 个命令组（Cursor movement、Editing、Other hotkeys）中点击 **Apply recommended** 按钮。3 次点击即可完成。
 
 ![macOS (Emacs) style 标签，3 个命令组均高亮显示 Apply recommended 按钮](/img/macos-style-apply-all.png)
 

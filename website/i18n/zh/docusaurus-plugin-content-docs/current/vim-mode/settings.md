@@ -6,7 +6,7 @@ description: 各设置项目的含义及各行为选项的说明
 mode: vim-mode
 ---
 # Vim mode — 设置
-打开 Obsidian 的 **设置** → 选择第三方插件 **Universal Cursor Hotkeys** → 打开上方标签 **Vim mode**。
+打开 Obsidian 的 **设置** → 选择社区插件 **Universal Cursor Hotkeys** → 打开上方标签 **Vim mode**。
 
 本页面中的设置开关里，Motion upgrades（共 8 个）以及 Table commands 中的 2 个（Table structure 和 Table navigation），从 OFF → ON 会立即生效；但从 ON → OFF 时，需要重启应用才能完全生效。（需要重启时会显示 **Restart** 按钮）
 

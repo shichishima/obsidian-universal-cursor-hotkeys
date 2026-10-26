@@ -9,7 +9,7 @@ mode: for-everyone
 
 此外，本插件还重新实现了 Obsidian 标准多光标功能的部分行为，以修复其不稳定问题。
 
-打开 Obsidian 的 **设置** → 选择第三方插件 **Universal Cursor Hotkeys** → 打开上方标签 **For everyone**，然后点击 Hotkey settings 中的 **Apply recommended** 按钮。
+打开 Obsidian 的 **设置** → 选择社区插件 **Universal Cursor Hotkeys** → 打开上方标签 **For everyone**，然后点击 Hotkey settings 中的 **Apply recommended** 按钮。
 
 另外，并非新增专门的快捷键，而是升级你平时使用的键盘上“按键本身的动作”。
 

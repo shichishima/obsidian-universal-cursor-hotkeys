@@ -12,7 +12,7 @@ import DisplacedCommands from '../_partials/_displaced-commands.mdx';
 import Individual from '../_partials/_settings-individual.mdx';
 
 # macOS (Emacs) style — 设置
-打开 Obsidian 的 **设置** → 选择第三方插件 **Universal Cursor Hotkeys** → 打开上方标签 **macOS (Emacs) style**。
+打开 Obsidian 的 **设置** → 选择社区插件 **Universal Cursor Hotkeys** → 打开上方标签 **macOS (Emacs) style**。
 
 设置页面大致由 [Hotkey settings（快捷键设置）](/macos-emacs-style/settings#hotkey-settings) 和 [Behavior options（行为选项）](/macos-emacs-style/settings#behavior-options) 两部分构成。
 

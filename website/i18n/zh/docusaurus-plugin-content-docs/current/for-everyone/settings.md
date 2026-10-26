@@ -13,7 +13,7 @@ import Individual from '../_partials/_settings-individual.mdx';
 
 # For everyone — 设置
 
-打开 Obsidian 的 **设置** → 选择第三方插件 **Universal Cursor Hotkeys** → 打开上方标签 **For everyone**。
+打开 Obsidian 的 **设置** → 选择社区插件 **Universal Cursor Hotkeys** → 打开上方标签 **For everyone**。
 
 设置页面大致由 [Hotkey settings（快捷键设置）](/for-everyone/settings#hotkey-settings)、[Key upgrades（按键升级）](/for-everyone/settings#key-upgrades) 和 [Behavior options（行为选项）](/for-everyone/settings#behavior-options) 三部分构成。
 
