@@ -1649,7 +1649,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private extendMarkHorizontalChar(editor: Editor, forward: boolean) {
 		const inner = editor.activeCM;
 		const isInCell = !!(editor.inTableCell && inner && inner !== editor.cm);
-		const view = isInCell ? inner! : editor.cm;
+		const view = isInCell ? inner : editor.cm;
 		const sel = view.state.selection;
 		const ranges = sel.ranges.map(range => {
 			if (!isInCell && this.isLivePreviewMode()) {
@@ -5057,7 +5057,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private splitYankTextForCursors(raw: string, cursorCount: number): string[] {
 		const lines = raw.split('\n');
 		if (lines.length === cursorCount) return lines;
-		return new Array(cursorCount).fill(raw);
+		return new Array<string>(cursorCount).fill(raw);
 	}
 
 	// Pure: detects whether `text` begins with a list-marker token — bullet
