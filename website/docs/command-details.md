@@ -495,7 +495,7 @@ Moving from the following locations behaves the same as the physical `Delete` ke
 
 Delete char differs from the physical `Delete` key in the following way.
 
-- **Within a table cell in Source Mode:** The physical `Delete` key doesn't take the cell boundary (`|`) into account, so it deletes the `|` and surrounding spaces one character at a time. This command, by contrast, recognizes that it's inside a table and doesn't delete the boundary characters.
+- **Within a table cell in Source Mode:** The physical `Delete` key doesn't take the cell boundary (`|`) into account, so it deletes the `|` and surrounding whitespace one character at a time. This command, by contrast, recognizes that it's inside a table and doesn't delete the boundary characters.
 
 </details>
 
