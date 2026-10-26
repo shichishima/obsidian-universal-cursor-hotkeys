@@ -25,6 +25,8 @@ mode: macos-emacs-style
   - The commands this plugin provides are text-level operation commands — in a table, they only act on the text within each individual cell.
   - Cutting, copying, or pasting table structure via multi-cell selection is not supported.
   - To cut, copy, or paste table structure, use the OS's own standard cut/copy/paste shortcuts (`Ctrl` + `X`/`C`/`V` on Windows, `command` + `X`/`C`/`V` on macOS) or the right-click context menu.
+- **(Multi-cursor) TOP/BOTTOM and Page up/Page down only extend the primary cursor's selection during Set-mark range selection**
+  - UP/DOWN, LEFT/RIGHT, HOME/END, and Word left/right each extend every cursor's own selection, but TOP/BOTTOM and Page up/Page down only extend the primary cursor's own selection.
 
 ## Table-related
 
@@ -38,6 +40,9 @@ mode: macos-emacs-style
   - Because of this, unexpected behavior can occur when a line happens to match this pattern.
   - **The `|` at both ends of a table row can't be omitted:** [Obsidian's extended syntax](https://obsidian.md/help/advanced-syntax#Tables) lets you omit the leading and trailing `|` of a table row, but this plugin's Source Mode doesn't recognize that abbreviated syntax as a table. A row with both `|` omitted doesn't match the string check above, so it's treated as ordinary text.
   - By contrast, Live Preview, which uses the Markdown syntax tree, detects this correctly.
+- **(Multi-cursor) Running Page up/Page down while a table or callout is on screen loses every secondary cursor**
+  - In a multi-cursor state, running Page up/Page down while a table or callout is on screen clears every cursor except the primary one.
+  - This doesn't happen when no table or callout is on screen.
 
 ## Shortcut conflicts
 

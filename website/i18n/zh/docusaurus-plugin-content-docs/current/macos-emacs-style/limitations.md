@@ -25,6 +25,8 @@ mode: macos-emacs-style
   - 本插件提供的命令是文本层级的操作命令，在表格中只会作用于单个单元格内的文本。
   - 不支持通过多单元格选择对表格结构进行剪切、复制、粘贴。
   - 如需对表格结构进行剪切、复制、粘贴，请使用系统标准的剪切、复制、粘贴功能快捷键（Windows 下为 `Ctrl` + `X`/`C`/`V`，macOS 下为 `command` + `X`/`C`/`V`），或通过鼠标右键打开的上下文菜单。
+- **（多光标）在用 Set-mark 开始的范围选择中，TOP/BOTTOM、Page up/Page down 只会扩展主光标自己的选择范围**
+  - UP/DOWN、LEFT/RIGHT、HOME/END、Word left/right 会分别扩展每个光标各自的选择范围，但 TOP/BOTTOM、Page up/Page down 只会扩展主光标自己的选择范围。
 
 ## 表格相关
 
@@ -38,6 +40,9 @@ mode: macos-emacs-style
   - 因此，当文本恰好匹配这个模式时，可能会出现预期之外的行为。
   - **表格两端的 `|` 不能省略：** [Obsidian 的高级格式语法](https://obsidian.md/zh/help/advanced-syntax#%E8%A1%A8%E6%A0%BC) 中可以省略表格左右两端的 `|`，但本插件在源码模式下不会将这种省略写法识别为表格。省略了两端 `|` 的行不符合上述字符串检查条件，因此会被当作普通文本处理。
   - 相比之下，使用 Markdown 语法树的实时预览模式能够准确判断。
+- **（多光标）屏幕内存在表格或标注时执行 Page up/Page down 会丢失副光标**
+  - 在多光标状态下，屏幕内存在表格或标注时执行 Page up/Page down，会清除除主光标外的所有光标。
+  - 屏幕内不存在表格或标注时，则不会发生此问题。
 
 ## 快捷键冲突
 
