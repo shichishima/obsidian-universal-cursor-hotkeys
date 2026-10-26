@@ -1,5 +1,5 @@
 ---
-sidebar_position: 3
+sidebar_position: 5
 title: For everyone — 限制事项
 sidebar_label: 限制事项
 description: 按键行为强化相关的已知限制。生效范围的限制
