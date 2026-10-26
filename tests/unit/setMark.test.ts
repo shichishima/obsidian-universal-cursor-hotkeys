@@ -685,4 +685,55 @@ describe('Set-mark', () => {
 			expect(outerCm.dispatch).not.toHaveBeenCalled()
 		})
 	})
+
+	describe('extendMarkPage', () => {
+		// Regression test: @codemirror/commands' own cursorPageUp/cursorPageDown
+		// (and this plugin's moveCursorUp/Down, which delegate to CM6's
+		// goUp/goDown) collapse a non-empty range to its near edge instead of
+		// actually paging. Toggling markActive alone doesn't touch the real
+		// CM6 selection, so scrollPage's plain-cursor commands must see an
+		// already-collapsed cursor, or Page Up/Down silently stop moving
+		// whenever a real (non-empty) Set-mark selection is active.
+		it("collapses the real CM6 selection to its head before delegating to scrollPage, so scrollPage's plain-cursor commands never see a non-empty range", () => {
+			plugin.markActive = true
+			const cm: any = {
+				state: { selection: EditorSelection.create([EditorSelection.range(3, 10)], 0) },
+				dispatch: vi.fn(),
+			}
+			const editor: any = { cm, activeCM: cm, inTableCell: false }
+			plugin.scrollPage = vi.fn()
+
+			plugin.extendMarkPage(editor, true)
+
+			expect(cm.dispatch).toHaveBeenCalledWith({
+				selection: EditorSelection.create([EditorSelection.cursor(10)], 0),
+				userEvent: 'select.uch',
+			})
+			expect(plugin.scrollPage).toHaveBeenCalled()
+			expect(plugin.markActive).toBe(false)
+		})
+
+		it('restores markActive and applies anchor..settled-head as the real extend once scrollPage settles (outer view)', () => {
+			plugin.markActive = true
+			const cm: any = {
+				state: { selection: EditorSelection.create([EditorSelection.range(3, 10)], 0) },
+				dispatch: vi.fn(),
+			}
+			const editor: any = { cm, activeCM: cm, inTableCell: false }
+			let settleCallback: () => void = () => {}
+			plugin.scrollPage = vi.fn((_editor: any, _dir: any, onSettled: () => void) => { settleCallback = onSettled })
+
+			plugin.extendMarkPage(editor, true)
+			// Simulate scrollPage's own plain-cursor move landing the head at 42.
+			cm.state.selection = EditorSelection.create([EditorSelection.cursor(42)], 0)
+			settleCallback()
+
+			expect(plugin.markActive).toBe(true)
+			expect(cm.dispatch).toHaveBeenCalledWith({
+				selection: { anchor: 3, head: 42 },
+				userEvent: 'select.uch',
+				scrollIntoView: true,
+			})
+		})
+	})
 })

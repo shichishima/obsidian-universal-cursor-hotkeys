@@ -3095,6 +3095,15 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 		const wasActive = this.markActive;
 		this.markActive = false;
+		// scrollPage's plain-cursor commands (CM6's own cursorPageUp/Down in
+		// the fast path, this plugin's moveCursorUp/Down -> goUp/goDown in
+		// the slow path) all special-case a non-empty range by collapsing
+		// to its near edge instead of actually paging — confirmed by
+		// reading @codemirror/commands' cursorByPage directly. Toggling
+		// markActive alone doesn't touch the real CM6 selection, so without
+		// this collapse, scrollPage never sees a plain cursor and the whole
+		// page-move silently degenerates into a same-page edge collapse.
+		this.collapseActiveSelectionToHead(editor);
 		this.scrollPage(editor, forward ? 1 : -1, () => {
 			this.markActive = wasActive;
 
