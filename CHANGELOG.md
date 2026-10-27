@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.12.0] - 2026-10-27
+
+### Added
+
+- **Set-mark (Ctrl+Space in macOS-style keybindings), an Emacs-style mark/region-selection command:** press Set-mark, then move the cursor to extend a real selection from the marked position instead of just moving it.
+  - Works with UP/DOWN (Ctrl-P/N), LEFT/RIGHT (Ctrl-B/F), HOME/END (Ctrl-A/E), Word left/right (Alt-F/B), TOP/BOTTOM, and Page up/down.
+  - Pressing Set-mark again resets the mark to wherever the cursor currently is, instead of extending further.
+  - Every one of these commands keeps its own table-aware behavior while extending: a table crossed along the way is swept into the selection as one whole block, matching how plain UP/DOWN already treats an unfocused table as one atomic unit when crossing it.
+  - UP/DOWN, LEFT/RIGHT, HOME/END, and Word left/right extend every cursor in a multi-cursor selection independently; TOP/BOTTOM and Page up/down currently only extend the primary cursor.
+  - Unified with Obsidian's own Shift+Arrow-key selection and its related Shift-extend shortcuts (Shift+Home/End, Shift+Page Up/Down, and so on), rather than treating them as two separate, conflicting mechanisms: starting a selection with one of these and continuing it with Set-mark's own extend commands (or the other way around) keeps the same selection anchor throughout.
+  - Also arms automatically on a mouse drag: dragging out a selection sets the mark the same way, so Set-mark's own extend commands can continue extending it right afterward.
+  - The mark clears automatically whenever its selection would otherwise be silently lost: native cursor movement that collapses a selection (arrow keys, Home/End, Page Up/Down, a mouse click), editing commands that consume the selection (Kill region, Copy region, Yank, Uppercase/Lowercase/Capitalize word, Delete char, Transpose chars, Kill word left/right, Undo/Redo), Kill line (always kills to end of line regardless of any selection, but still deactivates the mark the way real Emacs does for virtually every editing command), Move to cell left/right/above/below and Exit table above/below (plain point-movement, not part of the mark-extend family), and switching to a different note or pane.
+  - Select all arms the mark on the selection it just made, matching real Emacs's `mark-whole-buffer` (which activates a fresh region spanning the whole buffer rather than leaving mark state alone) — the very next Ctrl-B/F/N/P/A/E continues extending from there instead of just moving.
+- **Deselect (Ctrl+G, command id `keyboard-quit`), matching real Emacs's `keyboard-quit`:** clears an active selection — including one extended via Set-mark — and also collapses a multi-cursor selection down to the primary cursor.
+- **Kill line, Kill region, Kill word left/right, Copy region, and Yank now support multiple cursors:** each range kills/copies/yanks independently instead of only the primary cursor; killed or copied text from multiple ranges is joined with newlines into one shared clipboard entry, and Yank distributes one line back to each cursor when the line count matches the current cursor count, otherwise pasting the whole text at every cursor.
+- **Add cursor below/above, two new commands for stacking multiple cursors one line at a time:** reimplemented from scratch — Obsidian's own native equivalent has a confirmed line-stepping bug and was unreliable inside table cells — stepping by logical line and character column, clamped to the shorter line's own length when needed, and working inside a table cell's own `<br>`-separated sub-lines too. No hotkey assigned by default.
+- **New "Table-aware Source Mode editing" setting (Behavior Options, on by default): lets Source Mode table rows be treated as plain text.** Turning it off makes every table-structure-aware editing command (HOME/END, Kill line, Kill region/Copy region, Kill word left/right, Yank, Uppercase/Lowercase/Capitalize word, Delete char, Transpose chars, Select all, and Vim's table-exit commands) ignore `|`/`<br>` entirely — e.g. HOME lands at the line's own literal start instead of stopping at cell content. Live Preview is unaffected either way.
+- **Yank (Ctrl-Y) now avoids duplicating a list marker when pasting onto a line that already has one**, matching native Obsidian's own Cmd/Ctrl+V behavior (since 1.14): pasting `1. [ ] item` onto a `- ` line now produces `- [ ] item` instead of `- 1. [ ] item`. The target line's own list type always wins; checkbox state follows the pasted text if it specifies one, otherwise the target's own is kept.
+
+### Fixed
+
+- **Multi-cursor selections no longer collapse down to a single cursor when running cursor-movement commands:**
+  - HOME/END (previously collapsed on every press)
+  - Ctrl-P/N/B/F, arrow keys (previously collapsed only at table/document boundaries)
+  - Word right/left (previously collapsed on every press)
+  - Uppercase/Lowercase/Capitalize word (previously collapsed on every press)
+  - One case is unchanged by design, not a bug: when the primary cursor itself crosses a table/cell boundary, the selection still collapses to primary.
+- **Uppercase/Lowercase/Capitalize word now transforms every range in a multi-cursor selection, not just the primary cursor's own:** previously, only the primary cursor's own selection was transformed; every other selection was silently left untouched. Each range now transforms independently — selection or word-at-point, whichever applies — and an invalid selection on one range (e.g. crossing a Source Mode table's cell boundary) no longer blocks the others from transforming.
+- **Smart Home (Ctrl-A / HOME) now skips past the checkbox on a numbered task-list line too (e.g. `1. [ ] item`):** previously, only unordered task lists (`- [ ] item`) were recognized — HOME stopped right after `1. ` instead of past the checkbox.
+
+### Compatibility
+
+- Verified compatible with Obsidian 1.15.
+
 ## [0.11.3] - 2026-10-12
 
 ### Fixed

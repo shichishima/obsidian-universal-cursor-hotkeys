@@ -4,3 +4,9 @@ node_modules
 .DS_Store
 package-lock.json
 data.json
+
+# wdio-obsidian-service downloads/caches Obsidian app binaries here
+.obsidian-cache
+
+# Claude Code scratch/session data (skills, memory, job tmp dirs) -- never committed
+.claude
