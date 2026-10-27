@@ -175,8 +175,13 @@
 .uch-cell-status { padding: 2px 8px; font-size: 0.9em; white-space: nowrap; }
 /* Conflict/Used rows append other commands' names, which have no length
    limit — those need to wrap; every other status ("Set"/"Custom"/
-   "Available") is a short fixed word that should never wrap. */
-.uch-cell-status-wrap { white-space: normal; }
+   "Available") is a short fixed word that should never wrap. min-width
+   keeps this column from being squeezed toward zero by Command's own
+   width: 100% above (confirmed live: without it, a long CJK-locale
+   conflict name — no spaces for the browser's own line-breaking to
+   prefer — collapsed to one character per line instead of wrapping at a
+   readable width). */
+.uch-cell-status-wrap { white-space: normal; min-width: 12em; }
 .uch-cell-action { padding: 2px 8px; white-space: nowrap; }
 
 /* ── Clickable KBD chip ──────────────────────────────────── */

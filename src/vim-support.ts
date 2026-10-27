@@ -1978,40 +1978,56 @@ export class VimSupport {
 	}
 
 	// Table entry: called when moveByLines' cheap pre-filter suggests the target
-	// line (still in plain-text coordinates) might be a table row. Deferred to a
-	// setTimeout for the same reason as scheduleRowCrossing — entering a table
-	// cell is itself a view-boundary crossing, carrying the same crash risk.
+	// line (still in plain-text coordinates) might be a table row.
+	//
+	// Runs synchronously — unlike scheduleRowCrossing (cell-to-cell/table-exit
+	// crossing), which stays deferred via setTimeout+RAF because that path has
+	// an independently confirmed vim.js clipCursorToContent crash history when
+	// run synchronously (see its own doc comment). This function used to defer
+	// the same way purely on the inherited assumption that table entry "carries
+	// the same crash risk" — never independently verified.
+	//
+	// Bug fixed here (found via test/vim-e2e, 2026-10-23 — see
+	// project_vim_e2e_cross_spec_column_leak in the assistant's own memory):
+	// the deferred version raced against the *next* keystroke under load (the
+	// full E2E suite's accumulated state, not any real per-keystroke timing a
+	// human would produce) — if the setTimeout+RAF chain hadn't fired yet by
+	// the time the next moveByLines call started, neither nativeContinuing nor
+	// externalContinuing could recognize the chain as continuing (this.lastCm/
+	// lastOuterPos/goalHPos were all still stale from before the entry), so
+	// goalHPos silently fell back to head.ch — the just-landed inner cell's own
+	// clamped position — permanently losing the real carried-over goal column.
+	// Re-verified live (user explicitly asked not to trust the inherited
+	// "same crash risk" comment without checking): running this synchronously
+	// crashed zero times across three full runs of the E2E suite (including
+	// the exact scenario — entering a table from plain text via j/k — that
+	// originally motivated deferring it), and eliminates the race outright
+	// since there's no async gap left for the next keystroke to land inside.
 	private scheduleTableEntry(targetLine: number, forward: boolean, goalHPos: number, goalHSPos: number, goalCellIndex: number | null, remaining: number): void {
-		setTimeoutOnActiveWindow(() => {
-			const editor = getActiveEditor();
-			if (!editor) return;
-			// Note: by the time this fires, editor.inTableCell is likely already
-			// true — the motion function's own synchronous return already landed
-			// (incorrectly, at a raw-line ch) inside the table row, and Obsidian
-			// auto-created/focused the inner view in response. That's expected,
-			// not a sign this isn't really an entry; isLinePartOfTable (not
-			// inTableCell) is what confirms targetLine is genuinely a table row
-			// before overriding that temporary landing with the correct one.
-			if (!this.host.isLinePartOfTable(editor, targetLine, 1)) return;
+		const editor = getActiveEditor();
+		if (!editor) return;
+		// Note: by the time this runs, editor.inTableCell is likely already
+		// true — the motion function's own synchronous return already landed
+		// (incorrectly, at a raw-line ch) inside the table row, and Obsidian
+		// auto-created/focused the inner view in response. That's expected,
+		// not a sign this isn't really an entry; isLinePartOfTable (not
+		// inTableCell) is what confirms targetLine is genuinely a table row
+		// before overriding that temporary landing with the correct one.
+		if (!this.host.isLinePartOfTable(editor, targetLine, 1)) return;
 
-			// goalCellIndex is null for a genuinely fresh entry (no continuing
-			// chain to remember a cell from) — falls back to the leftmost cell,
-			// matching Ctrl-N/P's own table-entry convention. Exception: a
-			// sticky `$` goal (goalHPos === Infinity, real vim's own "always
-			// this line's own end" sentinel — see moveToEol's own doc comment)
-			// has no per-character position to preserve in the first place,
-			// so the "no position info for an unfocused row" rationale behind
-			// the leftmost-cell fallback doesn't apply here — enter the LAST
-			// cell instead, matching real vim's own "end of the next line"
-			// intent for `$` followed by `j`/`k`.
-			const cellIndex = goalCellIndex ?? (goalHPos === Infinity ? getRightmostCellIndex(editor.getLine(targetLine)) : 0);
-			const landedOuter = this.host.enterTableAtLine(editor, targetLine, cellIndex, forward, goalHPos, remaining);
-			// See scheduleRowCrossing's own comment on why this read is deferred an
-			// extra frame past the RAF-based focus-transfer fallback.
-			requestAnimationFrameOnActiveWindow(() => {
-				this.resyncAfterDeferredMove(editor, landedOuter, goalHPos, goalHSPos, cellIndex);
-			});
-		}, 0);
+		// goalCellIndex is null for a genuinely fresh entry (no continuing
+		// chain to remember a cell from) — falls back to the leftmost cell,
+		// matching Ctrl-N/P's own table-entry convention. Exception: a
+		// sticky `$` goal (goalHPos === Infinity, real vim's own "always
+		// this line's own end" sentinel — see moveToEol's own doc comment)
+		// has no per-character position to preserve in the first place,
+		// so the "no position info for an unfocused row" rationale behind
+		// the leftmost-cell fallback doesn't apply here — enter the LAST
+		// cell instead, matching real vim's own "end of the next line"
+		// intent for `$` followed by `j`/`k`.
+		const cellIndex = goalCellIndex ?? (goalHPos === Infinity ? getRightmostCellIndex(editor.getLine(targetLine)) : 0);
+		const landedOuter = this.host.enterTableAtLine(editor, targetLine, cellIndex, forward, goalHPos, remaining);
+		this.resyncAfterDeferredMove(editor, landedOuter, goalHPos, goalHSPos, cellIndex);
 	}
 
 	// Shared by scheduleRowCrossing and scheduleTableEntry: the motion function's
