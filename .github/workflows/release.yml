@@ -19,6 +19,16 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify tag is on production branch
+        run: |
+          git fetch origin production
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/production; then
+            echo "::error::This tag is not on the production branch. Refusing to release."
+            exit 1
+          fi
 
       - uses: actions/setup-node@v4
         with:
