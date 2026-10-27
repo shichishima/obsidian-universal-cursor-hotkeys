@@ -15,7 +15,7 @@ import ModeTabs from '@site/src/components/ModeTabs';
 
 普段使っている矢印キー・ `Home` / `End` キー・ `Page Up` / `Page Down` キーを、より Markdown に最適化し、ライブプレビューでの Markdown テーブルに対応させます。標準では正しく動作しなかった日本語テキストの単語分割もサポートします。Vim モードにも対応。加えて macOS 風のキーボードショートカット (Emacs キーバインド) のホットキー一式を提供します。
 
-<img width="688" height="387" alt="標準の Obsidian と Universal Cursor Hotkeys を比較したデモ: Markdown テーブルおよび CJK テキストでのカーソル移動" src="https://github.com/user-attachments/assets/b85426e8-e8be-451a-9766-fff410cb634e" />
+![標準の Obsidian と Universal Cursor Hotkeys を比較したデモ: Markdown テーブルおよび CJK テキストでのカーソル移動](/img/universal-cursor-hotkeys-demo.gif)
 
 ## 概要
 
@@ -37,7 +37,8 @@ Obsidian のライブプレビューはとても良くできていて、Markdown
 ## 🅴 [macOS 風のキーボードショートカット (Emacs キーバインド) を使いたい →](/macos-emacs-style)
 - `Ctrl` + `P` / `N` / `B` / `F` で Markdown テーブル内でもカーソル移動できるようにする
 - クリップボードと連動した蓄積機能付きの Kill & Yank
-- Recenter-top-bottom での画面センタリング
+- Set-mark による範囲選択。`Shift` + カーソルキーによる範囲選択との相互統合
+- マルチカーソル、マルチ Kill、マルチ Yank
 
 ## 付記
 

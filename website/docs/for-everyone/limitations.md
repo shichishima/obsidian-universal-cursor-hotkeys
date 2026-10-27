@@ -1,5 +1,5 @@
 ---
-sidebar_position: 3
+sidebar_position: 5
 title: For everyone — Limitations
 sidebar_label: Limitations
 description: Known limitations of Key Upgrades — where the upgraded keys do and don't work.

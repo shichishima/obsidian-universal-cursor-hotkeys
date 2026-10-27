@@ -5,9 +5,11 @@
   "scripts": {
     "docusaurus": "docusaurus",
     "sync-changelog": "node scripts/sync-changelog.mjs",
-    "prestart": "npm run sync-changelog",
+    "sync-partials": "node scripts/sync-partials.mjs",
+    "sync-i18n-staging": "python3 ../.claude/data/sync_i18n_staging.py --all",
+    "prestart": "npm run sync-changelog && npm run sync-partials && npm run sync-i18n-staging",
     "start": "docusaurus start",
-    "prebuild": "npm run sync-changelog",
+    "prebuild": "npm run sync-changelog && npm run sync-partials && npm run sync-i18n-staging",
     "build": "docusaurus build",
     "swizzle": "docusaurus swizzle",
     "deploy": "docusaurus deploy",

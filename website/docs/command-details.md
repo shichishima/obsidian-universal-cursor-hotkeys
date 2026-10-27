@@ -1,13 +1,14 @@
 ---
-sidebar_position: 2
-title: macOS (Emacs) style — Command Details
+sidebar_position: 5
+title: Command Details
 sidebar_label: Command Details
 description: Detailed behavior of every command this plugin provides (differences from standard behavior)
-mode: macos-emacs-style
+show_mode_tabs: true
 ---
-# macOS (Emacs) style — Command Details
+# Command Details
 
 Unless noted otherwise, descriptions of tables, callouts, images, embeds, and thematic breaks describe Live Preview behavior. Where a behavior is specific to Source Mode, it's called out within that command's own entry.
+Source Mode table support doesn't apply when the "Table-aware Source Mode editing" setting is OFF. (Default: ON)
 
 ## Cursor movement \{#cursor-movement}
 
@@ -329,6 +330,8 @@ This command is designed to reproduce the behavior of Emacs's kill-line. Unlike 
   - Any editing operation other than a consecutive kill stops the accumulation. (Cursor movement, typing, mouse clicks.)
   - If the OS has a clipboard history feature, each consecutive kill is recorded there in sequence.
 - **Interaction with the OS's copy/cut:** Pressing `Ctrl` + `C`/`X` on Windows or `command` + `C`/`X` on macOS stops the consecutive-kill behavior.
+- **Multi-cursor behavior:** Kills independently at each cursor position.
+  - The killed text from multiple cursors is joined with newlines in the clipboard.
 
 **Smart join**
 
@@ -363,6 +366,38 @@ this becomes:
 
 </details>
 
+<Anchor id="set-mark" />
+<details>
+<summary>Set mark</summary>
+
+Starts range-selection mode. This command corresponds to Emacs's set-mark command. It's unified with Obsidian's standard `Shift` + cursor-movement selection.
+
+**Set mark's specific behavior**
+
+- **While range-selection mode is off:**
+  - Starts range-selection mode using the current cursor position as its anchor.
+  - Works outside a table, inside a Live Preview table cell, or inside a Source Mode table cell.
+- **While range-selection mode is on:**
+  - Cursor movement while range-selection mode is on expands/shrinks the selection. (LEFT/RIGHT/UP/DOWN/HOME/END/TOP/BOTTOM/Word left/Word right/Page up/Page down)
+    - Running TOP/BOTTOM in a multi-cursor state clears every secondary cursor, leaving a single selection from the primary cursor to the start or end of the note.
+    - Every other command instead extends each cursor's own selection independently.
+  - Range selection is unified with Obsidian's standard range selection. Starting a selection with `Shift` + a cursor key or a mouse drag automatically sets Set-mark's own anchor, so RIGHT/LEFT and similar commands can continue expanding/shrinking it afterward. Conversely, a selection started with Set-mark can be continued with `Shift` + cursor keys.
+  - Cursor movement during range selection that reaches a table sweeps the whole table into the selection in one step, then passes through it.
+  - Range selection inside a cell can't cross the cell's own boundary. (It simply stops, without moving any further.)
+  - Running Set mark again while range-selection mode is already on resets the selection so far and sets the current cursor position as a new anchor.
+- **Automatic deactivation of range-selection mode:** The anchor is cleared by any of the following:
+  - Running the Deselect command
+  - Running an editing command (Kill line, Kill region, Copy region, Yank, Uppercase/Lowercase/Capitalize word, Delete char, Transpose chars, Kill word left/right, Undo/Redo)
+  - Using the OS's own copy/cut/paste, Backspace, or Delete
+  - Moving the cursor with a physical cursor key that hasn't been Key-upgraded
+  - Moving the cursor with a mouse click
+  - Running a command that crosses a cell boundary (Move to cell left/right/above/below, Exit table above/below)
+  - Switching to a different note
+- **Multi-cursor support:**
+  - Running Set mark in a multi-cursor state sets an anchor at every cursor position, and cursor movement gives each cursor its own selection.
+
+</details>
+
 <Anchor id="kill-region" />
 <details>
 <summary>Kill region</summary>
@@ -379,6 +414,8 @@ Kills (cuts) the selected text and saves it to the OS clipboard. This command co
   - The selection must stay inside the same cell. If the selection crosses the `|` cell boundary, nothing happens.
   - Within the same cell, the selection may cross a `<br>`. In this case `<br>` is converted to a line break and `\|` to `|` before saving to the clipboard.
 - **Stopping consecutive kills:** Kill region always resets the consecutive-kill accumulation. The killed text replaces the clipboard's previous contents instead of being appended to it.
+- **Multi-cursor behavior:** Kills each cursor's own selection independently.
+  - The killed text from multiple cursors is joined with newlines in the clipboard.
 
 **Difference from the OS's standard cut**
 
@@ -403,6 +440,8 @@ Copies the selected text to the OS clipboard. Unlike Kill region, the text isn't
   - The selection must stay inside the same cell. If the selection crosses the `|` cell boundary, nothing happens.
   - Within the same cell, the selection may cross a `<br>`. In this case `<br>` is converted to a line break and `\|` to `|` before saving to the clipboard.
 - **Stopping consecutive kills:** Like Kill region, this always resets the consecutive-kill accumulation. What's saved also replaces the clipboard's existing contents instead of being appended to it.
+- **Multi-cursor behavior:** Copies each cursor's own selection independently.
+  - The copied text from multiple cursors is joined with newlines in the clipboard.
 
 **Difference from the OS's standard copy**
 
@@ -423,6 +462,10 @@ Pastes the OS clipboard's contents at the cursor position. This command correspo
 - **Outside a table, and within a Live Preview cell:** Pastes the clipboard's contents as-is. Within a Live Preview cell, any line breaks (`\n`) it contains become in-cell line breaks (the same kind `Shift` + `Enter` creates).
 - **Within a table cell in Source Mode:** To avoid breaking the table structure, line breaks are escaped to `<br>` and pipe characters (`|`) to `\|` before pasting.
 - **Stopping consecutive kills:** Yank also always resets the consecutive-kill accumulation.
+- **Avoiding duplicate list markers:** Matching Obsidian's standard paste since version 1.14, pasting onto a list-item line (`-`, `- [ ] `, `1. `, etc.) adjusts to avoid duplicating the existing list marker.
+- **Multi-cursor behavior:** Behavior differs depending on whether the cursor count matches the number of lines stored on the clipboard.
+  - **When they match:** Pastes each clipboard line to its corresponding cursor.
+  - **When they don't match:** Pastes the clipboard's entire contents at each cursor.
 
 **Difference from the OS's standard paste**
 
@@ -430,7 +473,6 @@ Pastes the OS clipboard's contents at the cursor position. This command correspo
 - **When multiple cells are stored on the clipboard:** When you cut/copy multiple cells, the OS clipboard stores them as table structure. Obsidian's standard paste can paste this back as a table, but Yank just pastes the table's Markdown source code. (Pasting it into plain text displays it as a table, but pasting it into a cell inserts the table's raw Markdown source.)
 - **When an image is stored on the clipboard:** If the OS clipboard contains an image, Obsidian's standard paste saves the image file into the vault and inserts an embed link (`![[filename saved in the vault]]`), but Yank just pastes the filename as plain text.
 - **Within a table cell in Source Mode:** The OS's standard paste inserts line breaks and pipe characters as-is without converting them, so pasting multi-line text or text containing pipe characters breaks the table structure. Yank converts line breaks to `<br>` and pipe characters to `\|` before inserting, so the table structure is preserved.
-- **Avoiding duplicate list markers (Obsidian 1.14+):** Obsidian's standard paste avoids duplicating a list marker (`-`, `- [ ] `, `1. `, etc.) when pasting onto a line that already has one, but Yank doesn't make this adjustment and can produce a duplicate marker.
 
 </details>
 
@@ -453,7 +495,7 @@ Moving from the following locations behaves the same as the physical `Delete` ke
 
 Delete char differs from the physical `Delete` key in the following way.
 
-- **Within a table cell in Source Mode:** The physical `Delete` key doesn't take the cell boundary (`|`) into account, so it deletes the `|` and surrounding spaces one character at a time. This command, by contrast, recognizes that it's inside a table and doesn't delete the boundary characters.
+- **Within a table cell in Source Mode:** The physical `Delete` key doesn't take the cell boundary (`|`) into account, so it deletes the `|` and surrounding whitespace one character at a time. This command, by contrast, recognizes that it's inside a table and doesn't delete the boundary characters.
 
 </details>
 
@@ -500,6 +542,9 @@ These commands can be assigned to the physical keys (`Ctrl` + `Backspace`/`Delet
 - **Within a table cell in Source Mode:** Recognizes that it's inside a table and stops before the `|` cell boundary.
   - It treats `<br>` breaks within a cell as line breaks and `|` as the cell boundary. Just as it stops without crossing a cell boundary in Live Preview, in Source Mode it never deletes or crosses a `|` either.
   - With the physical key, a table in Source Mode is just plain text, so it keeps deleting through the `|` characters too, breaking the table.
+- **Multi-cursor behavior:** Kills independently at each cursor position.
+  - The killed text from multiple cursors is joined with newlines in the clipboard.
+  - The join order always follows the document order of the cursors, no matter whether Kill word left or Kill word right was run.
 
 </details>
 
@@ -520,6 +565,7 @@ Converts the text at the cursor position, or in the selection, to uppercase, low
   - With the Cross-row navigation setting OFF, it stops without crossing a row boundary, and never exits the table either.
   - These commands do nothing when multiple cells are selected.
 - **Full-width character support:** Full-width alphabetic characters are converted the same way as half-width ones. Full-width and half-width characters may be mixed.
+- **Multi-cursor behavior:** Each cursor converts independently. An invalid selection on one cursor (e.g. crossing a Source Mode table's cell boundary) doesn't block the others from converting.
 
 </details>
 
@@ -541,6 +587,7 @@ Swaps the two characters immediately before and after the cursor. This command r
 - **At the very start/end of the note, or the start/end of a cell:** There's no character on one side to swap with, so nothing happens.
 - **Table-aware in Source Mode:** Within a table, the `|` to the left of a cell is treated as the start of the note, and the `|` to the right of a cell is treated as the end of a line — these boundary characters never move, so the table is never broken. A `<br>`, on the other hand, is treated the same as a real line break: the whole `<br>` tag (4 characters) is swapped as a single unit with the character before or after it. (For example, with the cursor at the start of "B" in `A<br>B<br>C`, swapping produces `AB<br><br>C`.)
 - **Unicode-safe:** Characters that internally span multiple character units — such as emoji — are treated and swapped as a single character. (Surrogate pairs like "🟩"/"𠮷", and emoji with variation selectors like "☺️".)
+- **Multi-cursor behavior:** Each cursor swaps independently. Even if one cursor sits where swapping isn't possible (e.g. the very start of the note), it doesn't block the others from swapping.
 
 </details>
 
@@ -553,8 +600,10 @@ This command corresponds to Obsidian's own "Select all."
 **Behavior matching "Select all"**
 - **Outside a table:** Selects the entire note.
 - **Within a table cell (Live Preview):** Selects the entire content of the current cell instead of the entire note.
+- In either case, the cursor moves to the end of the selection.
 
 **Behavior differing from "Select all"**
+- Also sets the Set-mark anchor at the start of the selection. Moving the cursor afterward with LEFT/RIGHT/UP/DOWN and similar expands/shrinks the selection.
 - **Within a table cell (Source Mode):** Even in Source Mode, this recognizes that it's inside a table and selects the entire content of the current cell instead of the entire note.
   - The whitespace at the start and end of the cell is excluded from the selection.
   - The standard "Select all" doesn't recognize tables and selects the entire note instead.
@@ -564,6 +613,24 @@ This command corresponds to Obsidian's own "Select all."
 Obsidian's standard "Select all" shortcut is `Ctrl` + `A` on Windows, but that's the Recommended Hotkey for the HOME command. Applying the Recommended Hotkey overwrites that shortcut — yet "Select all" itself isn't a command you can assign a hotkey to, so a new command had to be provided to let you run it on a different key.
 
 (The same reason as Undo/Redo.)
+
+</details>
+
+<Anchor id="deselect" />
+<details>
+<summary>Deselect</summary>
+
+This command corresponds to Emacs's keyboard-quit (`C-g`). It clears the selection, clears the Set-mark anchor, and collapses every cursor down to the primary one.
+
+**Deselect's specific behavior**
+
+- Running it with multiple cursors/multiple selections leaves only the primary cursor's own selection, clearing every other cursor/selection.
+- With only a single selection, it clears that range selection.
+  - In other words, when every cursor in a multi-cursor state has its own range selection, clearing it fully takes two separate presses: multiple selections → a single selection → no selection.
+  - This matches the `Esc` key's behavior.
+- The current cursor position is preserved.
+- The Set-mark anchor is always cleared, without exception.
+  - This differs from the `Esc` key's behavior.
 
 </details>
 
@@ -635,5 +702,29 @@ Moves outside the current table.
   - Smart home skips over any leading Markdown at the start of the cell.
 - **If the table sits at the very end of the note (Exit table below):** A blank line is added at the end of the note and the cursor lands there.
 - Works within a table in both Live Preview and Source Mode. Does nothing outside a table.
+
+</details>
+
+## Add cursor \{#add-cursor}
+
+<Anchor id="add-cursor-above-below" />
+<details>
+<summary>Add cursor above / below</summary>
+
+Adds a multi-cursor on the line above or below the current cursor.
+
+**Why this command was added**
+- Obsidian's standard "Add cursor above"/"Add cursor below" commands could land the new cursor at an unstable line or column position, and sometimes didn't work inside a table at all.
+- This command reimplements the behavior consistently: "adds above/below the logical line," "adds at the same character column," and "works inside a table too."
+
+**Add cursor above/below's specific behavior**
+- Adds a multi-cursor on the line above or below the current cursor.
+  - This is above/below the logical line, not the visual line — and above/below the same character column, not the same visual position.
+  - **When the line above or below is too short to add a cursor at the same character column:** The cursor is added at the end of that line instead. Adding a cursor again after that doesn't restore the original character column.
+- The newly added cursor becomes the "primary" one; the original cursor becomes a "secondary" one.
+  - With only a single cursor, that cursor is the primary cursor.
+  - A new cursor is always added above/below relative to the primary cursor.
+  - **When the primary cursor enters a table while cursors are moving:** Every secondary cursor disappears, reverting to a single cursor. If only a secondary cursor tries to enter a table, just that secondary cursor disappears.
+- Works within plain text, or within a single table cell — but can't add a multi-cursor across the plain-text/table boundary, or across a cell boundary.
 
 </details>

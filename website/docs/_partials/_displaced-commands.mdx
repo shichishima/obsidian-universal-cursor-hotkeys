@@ -1,0 +1,15 @@
+
+A list of commands that lost their one and only hotkey as a result of applying a recommended hotkey. Each entry has an **Assign** button to reassign it from Obsidian's own Hotkeys panel, and a **Restore** button to undo the recommended-hotkey assignment and return the key to its original command.
+
+| Item | Description |
+| --- | --- |
+| **Command** | The name of the command that lost its hotkey when a recommended hotkey was applied. Clicking it opens Obsidian's own Hotkeys panel, filtered to that command name. |
+| **Assign<br/>button** | Opens the same Hotkeys panel as above. Use it to assign a new hotkey. |
+| **Hotkey** | The hotkey that was lost when the recommended hotkey was applied. Clicking it opens Obsidian's own Hotkeys panel, filtered to that key. |
+| **Displaced by** | The name of this plugin's command that caused the Command column's command to be sent to "Displaced commands". Clicking it opens Obsidian's own Hotkeys panel, filtered to that command name.<br/>What was originally "Command's command → Hotkey key" has become:<br/>"Displaced by's command → Hotkey key"<br/>"Command's command → unassigned"<br/>— in other words, the Displaced by command has taken the Hotkey away. |
+| **Restore<br/>button** | Currently it's "Displaced by's command → Hotkey key". This button turns that back into:<br/>"Command's command → Hotkey key"<br/>"Displaced by's command → unassigned"<br/>— restoring the original state from before the Hotkey was taken. |
+
+This **Restore** button lets you undo an **Apply recommended** bulk assignment and return to the original hotkey state fairly safely, even afterward.
+
+A command disappears from this table once it's been assigned any hotkey, whether via the **Assign** button, the **Restore** button, or Obsidian's own Hotkeys panel. This reflects the idea that "as long as some hotkey can trigger the command, that's fine" — it doesn't mean "you should assign it a hotkey just to clear it off this table".
+For a command you can trigger by mouse, or one you use rarely enough that running it from the command palette is good enough, it's perfectly fine to just leave it sitting in Displaced commands.
