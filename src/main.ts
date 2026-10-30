@@ -883,6 +883,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// not started yet.
 		bind('cursor-left', (el) => this.titleMoveChar(el, false));
 		bind('cursor-right', (el) => this.titleMoveChar(el, true));
+		bind('cursor-up', (el) => this.titleMoveLine(el, false));
+		bind('cursor-down', (el) => this.titleMoveLineOrEscapeToBody(el));
 		return scope;
 	}
 
@@ -909,6 +911,48 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// internally for this granularity.
 	private titleMoveChar(titleEl: HTMLElement, forward: boolean) {
 		this.titleSelectionModify(titleEl, forward ? 'right' : 'left', 'character');
+	}
+
+	// Ctrl-P (up) within the title: no escape case needed going up — the
+	// title is always the topmost context (frontmatter is explicitly out
+	// of scope for now, see project memory), so "nothing above" should
+	// just no-op, which Selection.modify already does natively on its own
+	// when there's truly no previous visual line to move to.
+	private titleMoveLine(titleEl: HTMLElement, forward: boolean) {
+		this.titleSelectionModify(titleEl, forward ? 'forward' : 'backward', 'line');
+	}
+
+	// Ctrl-N (down) within the title: tries the native move first, then
+	// compares VERTICAL (Y) position rather than the raw selection
+	// node/offset — Selection.modify has its own built-in fallback of
+	// snapping horizontally to the current visual line's end when there's
+	// nowhere to go vertically (confirmed live, same category as
+	// escapeUpToTitle's own "goUp snaps to ch 0" finding), which would
+	// otherwise look like "the position changed" and delay the escape by
+	// one extra keypress while losing the original column. Comparing Y
+	// correctly distinguishes "moved to a different visual line" (don't
+	// escape) from "merely snapped horizontally in place on the same
+	// line" (do escape, using the PRE-snap X). Deliberately does NOT
+	// match native physical-ArrowDown's own behavior (confirmed live:
+	// native lands at the body's ch 0, no column preservation at all).
+	private titleMoveLineOrEscapeToBody(titleEl: HTMLElement) {
+		const sel = titleEl.ownerDocument.getSelection();
+		if (!sel || sel.rangeCount === 0) return;
+		const beforeRect = sel.getRangeAt(0).getClientRects()[0] ?? sel.getRangeAt(0).getBoundingClientRect();
+		this.titleMoveLine(titleEl, true);
+		const afterRange = sel.rangeCount > 0 ? sel.getRangeAt(0) : null;
+		const afterRect = afterRange ? (afterRange.getClientRects()[0] ?? afterRange.getBoundingClientRect()) : null;
+		if (!afterRect || Math.abs(afterRect.top - beforeRect.top) >= 1) return; // moved to a new visual line, done
+
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (!view) return;
+		const cm = (view.editor as any).cm as EditorView;
+		const firstLineCoords = cm.coordsAtPos(0);
+		if (!firstLineCoords) return;
+		const targetY = (firstLineCoords.top + firstLineCoords.bottom) / 2;
+		const pos = cm.posAtCoords({ x: beforeRect.left, y: targetY });
+		view.editor.focus();
+		if (pos != null) view.editor.setCursor(view.editor.offsetToPos(pos));
 	}
 
 	onunload() {
@@ -1431,7 +1475,27 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const cursor = editor.getCursor();
 
 		if (cursor.line === 0 || !this.isLivePreviewMode()) {
+			// 0.13.0 Feature 1: capture the ORIGINAL column's coords before
+			// exec — 'goUp' has its own built-in fallback of snapping
+			// horizontally to ch 0 when there's nowhere to go vertically
+			// (confirmed live), which would otherwise look like "the
+			// position changed" on a plain ch comparison, delaying the
+			// title-escape by one extra keypress and losing the original
+			// column in the process. Comparing VERTICAL (Y) position
+			// instead correctly distinguishes "genuinely moved to a
+			// different visual row within a wrapped line 0" (don't escape)
+			// from "merely snapped horizontally in place" (do escape, using
+			// the pre-snap X).
+			const cm = editor.cm;
+			const beforeCoords = cursor.line === 0 ? cm?.coordsAtPos(editor.posToOffset(cursor)) : null;
 			this.execPreservingGoalColumn(editor, 'goUp');
+			if (cursor.line === 0 && beforeCoords) {
+				const after = editor.getCursor();
+				const afterCoords = cm?.coordsAtPos(editor.posToOffset(after));
+				if (afterCoords && Math.abs(afterCoords.top - beforeCoords.top) < 1) {
+					this.escapeUpToTitle(editor, beforeCoords.left);
+				}
+			}
 			return;
 		}
 
@@ -1470,6 +1534,34 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}
 
 		this.execPreservingGoalColumn(editor, 'goUp');
+	}
+
+	// 0.13.0 Feature 1: reached only when goUp was a true no-op at document
+	// start (see moveCursorUpImpl's own call site). Deliberately does NOT
+	// match native physical-ArrowUp's own behavior here (confirmed live:
+	// native selects the ENTIRE title, with no column preservation at
+	// all) — intentionally landing a collapsed caret instead, preserving
+	// the horizontal pixel position via coordsAtPos/caretRangeFromPoint
+	// (not a character-index "goal column", since the title's own font
+	// isn't guaranteed monospace and may wrap across multiple visual
+	// lines — pixel-based matching sidesteps needing to count visual
+	// lines at all). cm.dom.ownerDocument (not the global `document`)
+	// keeps this correct from a popout window.
+	private escapeUpToTitle(editor: Editor, targetX: number) {
+		const cm = editor.cm;
+		const doc = cm.dom.ownerDocument;
+		const title = doc.querySelector(TITLE_SELECTOR) as HTMLElement | null;
+		if (!title) return;
+		title.focus();
+		const titleRect = title.getBoundingClientRect();
+		const targetY = titleRect.bottom - 1; // aim at the title's last visual line
+		const range = (doc as unknown as { caretRangeFromPoint(x: number, y: number): Range | null })
+			.caretRangeFromPoint(targetX, targetY);
+		if (range && title.contains(range.startContainer)) {
+			const sel = doc.getSelection();
+			sel?.removeAllRanges();
+			sel?.addRange(range);
+		}
 	}
 
 
