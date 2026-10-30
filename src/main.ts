@@ -1,4 +1,4 @@
-import { Editor, Plugin, MarkdownView } from 'obsidian';
+import { Editor, Plugin, MarkdownView, Scope, Modifier } from 'obsidian';
 import { UniversalCursorHotkeysSettingTab, DisplacedCommand } from './settings';
 import { VimSupport } from './vim-support';
 import { InCellLineInfo, getCellBounds, getStartOfCellContent, getEndOfCellContent,
@@ -12,6 +12,12 @@ import { deleteCharForward, cursorPageDown, cursorPageUp } from '@codemirror/com
 import { getWordSpans, getBigWordSpans, findWordSpanOnLine } from './word-segmentation';
 import { exitTable, jumpAdjacentCell } from './table-navigation';
 import { cjkWordSelectionStyle } from './cjk-word-select';
+
+// 0.13.0 Feature 1: the note title field is a plain contenteditable, no
+// CM6 involved. `[contenteditable='true']` excludes any read-only-mode
+// rendering of the same class, matching ksanrse/obsidian-custom-cursor's
+// own selector for the same element.
+const TITLE_SELECTOR = ".inline-title[contenteditable='true']";
 
 // Extend the Obsidian Editor interface to include the internal CodeMirror 6 instance (EditorView)
 declare module "obsidian" {
@@ -157,6 +163,13 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// anchor is already sitting at the point Set mark was pressed; motion
 	// commands extend the selection from there while this is true.
 	private markActive: boolean = false;
+
+	// 0.13.0 Feature 1, step 1: Ctrl-A/E in the note title field (plain
+	// contenteditable, no CM6 there). Rebuilt fresh on every focusin into
+	// the title and discarded on focusout — see buildTitleScope's own
+	// comment for why this is cheap (reads only this short, fixed command
+	// list's current hotkeys, not Obsidian's or UCH's full hotkey table).
+	private titleScope: Scope | null = null;
 
 	// Guards every editorCallback below against firing mid-IME-composition.
 	// Confirmed live (2026-09-26): during active composition, CM6's own
@@ -803,6 +816,99 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		this.registerDomEvent(doc, 'paste', () => {
 			this.markActive = false;
 		});
+
+		// 0.13.0 Feature 1, step 1 (title field, Ctrl-A/E only for now).
+		// Piggybacks on this same per-window registration for free popout
+		// coverage, same as everything else in this method.
+		this.registerDomEvent(doc, 'focusin', (e: FocusEvent) => {
+			if ((e.target as HTMLElement)?.closest?.(TITLE_SELECTOR)) {
+				this.titleScope = this.buildTitleScope();
+				this.app.keymap.pushScope(this.titleScope);
+			}
+		}, true);
+		this.registerDomEvent(doc, 'focusout', (e: FocusEvent) => {
+			if (this.titleScope && (e.target as HTMLElement)?.closest?.(TITLE_SELECTOR)) {
+				this.app.keymap.popScope(this.titleScope);
+				this.titleScope = null;
+			}
+		}, true);
+	}
+
+	// Scans the baked hotkey table (defaults + user overrides already
+	// merged) for every hotkey currently effective for one UCH command —
+	// same technique settings.ts's own effectiveHotkeys() uses for the
+	// Hotkeys-conflict UI, duplicated here in miniature rather than
+	// imported, since main.ts doesn't otherwise depend on settings.ts's
+	// UI-only internals.
+	private getEffectiveHotkeysFor(commandId: string): { modifiers: string[], key: string }[] {
+		const hm = (this.app as any).hotkeyManager;
+		const result: { modifiers: string[], key: string }[] = [];
+		for (let i = 0; i < hm.bakedIds.length; i++) {
+			if (hm.bakedIds[i] === `universal-cursor-hotkeys:${commandId}`) {
+				const hk = hm.bakedHotkeys[i];
+				result.push({ modifiers: hk.modifiers ? hk.modifiers.split(',') : [], key: hk.key });
+			}
+		}
+		return result;
+	}
+
+	// Rebuilt from scratch on every focusin (see titleScope's own comment) —
+	// cost scales with this short, fixed list of commands, not with
+	// Obsidian's or UCH's full hotkey count. Keys NOT registered here fall
+	// through to native contenteditable behavior untouched (confirmed live
+	// and in E2E for frontmatter's own ArrowDown; same mechanism applies
+	// here), so nothing needs to be explicitly excluded.
+	private buildTitleScope(): Scope {
+		// bakedIds/bakedHotkeys are a lazily-built cache (confirmed live:
+		// 0 entries until something forces a rebuild) used for the Hotkeys
+		// settings UI, not kept continuously in sync by Obsidian's own
+		// runtime key dispatch — bake() must be called before reading it.
+		(this.app as any).hotkeyManager.bake();
+		const scope = new Scope();
+		const bind = (commandId: string, handler: (titleEl: HTMLElement) => void) => {
+			for (const hk of this.getEffectiveHotkeysFor(commandId)) {
+				scope.register(hk.modifiers as Modifier[], hk.key, (evt) => {
+					const title = (evt.target as HTMLElement)?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
+					if (title) handler(title);
+					return false;
+				});
+			}
+		};
+		bind('cursor-home', (el) => this.titleMoveToLineBoundary(el, false));
+		bind('cursor-end', (el) => this.titleMoveToLineBoundary(el, true));
+		// cursor-up/down (Ctrl-P/N) deliberately NOT bound here yet — real
+		// Ctrl-P/N scope also covers title↔note-body boundary crossing
+		// (Ctrl-P at the title going into the note's first line, and vice
+		// versa), a different piece of work than plain visual-line up/down,
+		// not started yet.
+		bind('cursor-left', (el) => this.titleMoveChar(el, false));
+		bind('cursor-right', (el) => this.titleMoveChar(el, true));
+		return scope;
+	}
+
+	// Selection.modify is a real, long-standing (baseline ~2020) Chromium/
+	// WebKit API, just not part of TypeScript's own lib.dom.d.ts — same gap
+	// mlwelles/obsidian-emacs-text-editor's own contenteditable-ops.ts
+	// works around. Pure cursor movement, no content mutation, so (unlike
+	// Kill/Yank later) no synthetic InputEvent is needed here — nothing
+	// changed that Obsidian's own title-save logic needs to notice.
+	private titleSelectionModify(titleEl: HTMLElement, direction: string, granularity: string) {
+		const sel = titleEl.ownerDocument.getSelection() as (Selection & {
+			modify(alter: string, direction: string, granularity: string): void;
+		}) | null;
+		sel?.modify('move', direction, granularity);
+	}
+
+	private titleMoveToLineBoundary(titleEl: HTMLElement, forward: boolean) {
+		this.titleSelectionModify(titleEl, forward ? 'forward' : 'backward', 'lineboundary');
+	}
+
+	// 'left'/'right' (not 'forward'/'backward') for character granularity —
+	// matches mlwelles/obsidian-emacs-text-editor's own contenteditable-ops.ts
+	// choice, which mirrors what a real ArrowLeft/ArrowRight keypress does
+	// internally for this granularity.
+	private titleMoveChar(titleEl: HTMLElement, forward: boolean) {
+		this.titleSelectionModify(titleEl, forward ? 'right' : 'left', 'character');
 	}
 
 	onunload() {
