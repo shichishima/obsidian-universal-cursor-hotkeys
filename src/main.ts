@@ -904,6 +904,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		bind('cursor-up', (el) => this.titleMoveLine(el, false));
 		bind('cursor-down', (el) => this.titleMoveLineOrEscapeToBody(el));
 		bind('kill-line', (el) => this.titleKillLine(el));
+		bind('kill-word-left', (el) => this.titleKillWord(el, false));
+		bind('kill-word-right', (el) => this.titleKillWord(el, true));
 		return scope;
 	}
 
@@ -1241,6 +1243,50 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			() => console.log('[UCH-title-debug] titleKillLine: clipboard.writeText succeeded'),
 			(err) => console.error('[UCH-title-debug] titleKillLine: clipboard.writeText FAILED', err),
 		);
+		this.isKillChaining = true;
+	}
+
+	// Alt-Backspace/Alt-D in the title: kills one word left/right from the
+	// cursor. Deliberately does NOT reuse word-segmentation.ts (the
+	// Intl.Segmenter-based engine Word left/right and Vim w/b/e need on
+	// the body side, since CM6's own native word-class boundary has no
+	// CJK awareness at all) — confirmed live the title's own native
+	// Selection.modify('extend', ..., 'word') already segments CJK
+	// correctly on its own (same as physical Option-←/→ in the title,
+	// see project_title_field_native_option_arrow_word_boundary memory),
+	// so no custom engine is needed here.
+	//
+	// Collapses to the current focus point first, discarding any existing
+	// (non-collapsed) selection — kill-word operates from point only,
+	// ignoring any active region, same as the body's own
+	// resolveKillWordRangeOuter (which always reads range.head,
+	// regardless of whether that range has a selection). Extending with
+	// 'word' granularity and checking range.collapsed afterward tells a
+	// genuine no-op (already at the title's own start/end) apart from a
+	// real kill, without needing a separate length/offset comparison.
+	//
+	// prepend = !forward on updateKillCache, matching killWordOuter's own
+	// convention: a backward kill (Alt-Backspace) builds the kill-ring in
+	// buffer order across consecutive kills, a forward kill (Alt-D)
+	// appends.
+	private titleKillWord(titleEl: HTMLElement, forward: boolean) {
+		this.titleGoalX = null; // horizontal-intent action
+		const doc = titleEl.ownerDocument;
+		const sel = doc.getSelection() as (Selection & {
+			modify(alter: string, direction: string, granularity: string): void;
+		}) | null;
+		if (!sel || sel.rangeCount === 0 || !sel.focusNode) return;
+		sel.collapse(sel.focusNode, sel.focusOffset);
+
+		sel.modify('extend', forward ? 'right' : 'left', 'word');
+		const range = sel.getRangeAt(0);
+		if (range.collapsed) return; // already at the title's own start/end: nothing to kill
+		const killedText = range.toString();
+
+		doc.execCommand('delete', false);
+
+		this.updateKillCache(killedText, !forward);
+		navigator.clipboard.writeText(this.killCache).catch(() => {});
 		this.isKillChaining = true;
 	}
 
