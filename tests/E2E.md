@@ -1307,4 +1307,23 @@ the body's own convention.
   the bare-ESC Key Upgrade revert note elsewhere in `src/main.ts`). Set-
   mark cancellation only, nothing else.
 
+#### `titleRegion.e2e.ts`
+
+Ctrl-W (Kill region) / Alt-W (Copy region) in the title field. Unlike the
+body's own `killRegion`/`copyRegion` (which need multi-cursor handling),
+these operate on whatever native Selection is currently active regardless
+of how it got there (Set-mark extend, a mouse drag, Shift+Arrow) — a
+native Selection only ever has one range, so there's no per-range loop
+needed at all.
+
+- **(1)** Copy region copies the Set-mark selection without mutating the
+  title, and clears the mark.
+- **(2)** Kill region deletes the Set-mark selection, kills it (no
+  chaining with any prior kill-ring content — always overwrites, same as
+  the body's own convention), and clears the mark.
+- **(3)** The direct confirmation that this isn't special-cased to
+  Set-mark-created selections: Kill region correctly operates on a native
+  Selection built directly via `setBaseAndExtent` (a mouse-drag
+  equivalent), with Set-mark never pressed at all.
+
 1. Popout window support

@@ -803,6 +803,13 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// dropped in favor of this simpler unconditional clear.)
 		this.registerDomEvent(doc, 'keydown', (e: KeyboardEvent) => {
 			if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'Delete') this.markActive = false;
+			if (e.key === 'Escape') {
+				const titleAtKeydown = (e.target as HTMLElement)?.closest?.(TITLE_SELECTOR);
+				console.log('[UCH-title-debug] Escape keydown: target=', e.target, 'wasInTitle=', !!titleAtKeydown, 'titleScope(before)=', this.titleScope);
+				setTimeout(() => {
+					console.log('[UCH-title-debug] Escape, 1 tick later: activeElement=', doc.activeElement, 'activeElement is title=', !!doc.activeElement?.closest?.(TITLE_SELECTOR), 'titleScope(after)=', this.titleScope);
+				}, 0);
+			}
 		});
 
 		// copy/cut/paste: same rationale as Backspace/Delete above — these
@@ -908,6 +915,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		bind('kill-word-right', (el) => this.titleKillWord(el, true));
 		bind('set-mark', (el) => this.titleSetMark(el));
 		bind('keyboard-quit', (el) => this.titleKeyboardQuit(el));
+		bind('kill-region', (el) => this.titleKillRegion(el));
+		bind('copy-region', (el) => this.titleCopyRegion(el));
 		return scope;
 	}
 
@@ -1436,6 +1445,37 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const sel = titleEl.ownerDocument.getSelection();
 		if (!sel || !sel.focusNode) return;
 		sel.collapse(sel.focusNode, sel.focusOffset);
+	}
+
+	// Ctrl-W (Kill region) / Alt-W (Copy region) in the title: operate on
+	// whatever native Selection is currently active, regardless of how it
+	// got there (Set-mark extend, a mouse drag, Shift+Arrow) — unlike the
+	// body's own killRegion/copyRegion, no multi-cursor handling is
+	// needed at all, since a native Selection only ever has one range.
+	// Deliberately does NOT collapse to focus first the way
+	// titleKillLine/titleKillWord do (those operate from point,
+	// discarding any region on purpose) — this command's whole job IS the
+	// active region itself.
+	private titleCopyRegion(titleEl: HTMLElement) {
+		const sel = titleEl.ownerDocument.getSelection();
+		if (!sel || sel.isCollapsed) return; // nothing selected
+		const text = sel.toString();
+		this.markActive = false;
+		this.isKillChaining = false;
+		this.updateKillCache(text);
+		navigator.clipboard.writeText(this.killCache).catch(() => {});
+	}
+
+	private titleKillRegion(titleEl: HTMLElement) {
+		const doc = titleEl.ownerDocument;
+		const sel = doc.getSelection();
+		if (!sel || sel.isCollapsed) return; // nothing selected
+		const text = sel.toString();
+		doc.execCommand('delete', false); // same undo-stack-integrated technique as titleKillLine/titleKillWord
+		this.markActive = false;
+		this.isKillChaining = false;
+		this.updateKillCache(text);
+		navigator.clipboard.writeText(this.killCache).catch(() => {});
 	}
 
 	onunload() {
@@ -2059,6 +2099,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const titleScopeEl = view?.containerEl ?? doc;
 		const title = titleScopeEl.querySelector(TITLE_SELECTOR) as HTMLElement | null;
 		if (!title) return;
+		console.log('[UCH-title-debug] escapeUpToTitle: BEFORE focus() — activeElement===title?', doc.activeElement === title, 'activeElement=', doc.activeElement, 'titleScope(before)=', this.titleScope);
 
 		// The body and the title don't share the same absolute-pixel
 		// coordinate space: the body has its own line-number gutter the
@@ -2084,6 +2125,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// is used as-is from here on.
 		this.titleGoalX = adjustedX;
 		title.focus();
+		console.log('[UCH-title-debug] escapeUpToTitle: AFTER focus() — activeElement===title?', doc.activeElement === title, 'titleScope(after)=', this.titleScope, '(if this stayed the same as "before" above, focusin never fired)');
 		const titleRect = title.getBoundingClientRect();
 		const targetY = titleRect.bottom - 1; // aim at the title's last visual line
 		// Clamp to the title's own actual box: a short, unwrapped title
