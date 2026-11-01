@@ -171,6 +171,17 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// list's current hotkeys, not Obsidian's or UCH's full hotkey table).
 	private titleScope: Scope | null = null;
 
+	// Goal-column equivalent for the title's own vertical (Ctrl-P/N)
+	// movement — same idea as execPreservingGoalColumn's goalColumn for
+	// the body: the ORIGINAL horizontal pixel position a vertical move
+	// started from, kept across a chain of vertical moves through
+	// possibly-shorter visual lines (which clamp/"crop" the rendered
+	// column), reapplied once a wide-enough line is reached again rather
+	// than being lost. Set when a vertical move starts fresh (including
+	// crossing in from the body); cleared by any horizontal move
+	// (Ctrl-B/F, Home/End), by leaving the title, or on focusout.
+	private titleGoalX: number | null = null;
+
 	// Guards every editorCallback below against firing mid-IME-composition.
 	// Confirmed live (2026-09-26): during active composition, CM6's own
 	// `composing` flag stays true even once the IME itself stops consuming
@@ -822,14 +833,22 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// coverage, same as everything else in this method.
 		this.registerDomEvent(doc, 'focusin', (e: FocusEvent) => {
 			if ((e.target as HTMLElement)?.closest?.(TITLE_SELECTOR)) {
-				this.titleScope = this.buildTitleScope();
-				this.app.keymap.pushScope(this.titleScope);
+				console.log('[UCH-title-debug] focusin on title -> building+pushing scope', e.target);
+				try {
+					this.titleScope = this.buildTitleScope();
+					this.app.keymap.pushScope(this.titleScope);
+					console.log('[UCH-title-debug] pushScope succeeded, titleScope=', this.titleScope);
+				} catch (err) {
+					console.error('[UCH-title-debug] buildTitleScope/pushScope THREW', err);
+				}
 			}
 		}, true);
 		this.registerDomEvent(doc, 'focusout', (e: FocusEvent) => {
 			if (this.titleScope && (e.target as HTMLElement)?.closest?.(TITLE_SELECTOR)) {
+				console.log('[UCH-title-debug] focusout on title -> popping scope', this.titleScope);
 				this.app.keymap.popScope(this.titleScope);
 				this.titleScope = null;
+				this.titleGoalX = null; // safety net for any exit path titleMoveLineOrEscapeToBody doesn't cover
 			}
 		}, true);
 	}
@@ -849,6 +868,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				result.push({ modifiers: hk.modifiers ? hk.modifiers.split(',') : [], key: hk.key });
 			}
 		}
+		console.log('[UCH-title-debug] getEffectiveHotkeysFor', commandId, '->', JSON.stringify(result), 'bakedIds.length=', hm.bakedIds.length);
 		return result;
 	}
 
@@ -864,10 +884,13 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// settings UI, not kept continuously in sync by Obsidian's own
 		// runtime key dispatch — bake() must be called before reading it.
 		(this.app as any).hotkeyManager.bake();
+		console.log('[UCH-title-debug] buildTitleScope: baked, bakedIds.length=', (this.app as any).hotkeyManager.bakedIds.length);
 		const scope = new Scope();
 		const bind = (commandId: string, handler: (titleEl: HTMLElement) => void) => {
 			for (const hk of this.getEffectiveHotkeysFor(commandId)) {
+				console.log('[UCH-title-debug] registering', commandId, hk.modifiers, hk.key);
 				scope.register(hk.modifiers as Modifier[], hk.key, (evt) => {
+					console.log('[UCH-title-debug] SCOPE HANDLER FIRED for', commandId, 'target=', evt.target);
 					const title = (evt.target as HTMLElement)?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
 					if (title) handler(title);
 					return false;
@@ -876,11 +899,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		};
 		bind('cursor-home', (el) => this.titleMoveToLineBoundary(el, false));
 		bind('cursor-end', (el) => this.titleMoveToLineBoundary(el, true));
-		// cursor-up/down (Ctrl-P/N) deliberately NOT bound here yet — real
-		// Ctrl-P/N scope also covers title↔note-body boundary crossing
-		// (Ctrl-P at the title going into the note's first line, and vice
-		// versa), a different piece of work than plain visual-line up/down,
-		// not started yet.
 		bind('cursor-left', (el) => this.titleMoveChar(el, false));
 		bind('cursor-right', (el) => this.titleMoveChar(el, true));
 		bind('cursor-up', (el) => this.titleMoveLine(el, false));
@@ -901,8 +919,98 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		sel?.modify('move', direction, granularity);
 	}
 
+	// Deliberately does NOT use Selection.modify('lineboundary') — confirmed
+	// live on a wrapped title that it can resolve the ambiguous wrap-point
+	// offset with the WRONG side's affinity (Ctrl-A on VLn landing on
+	// VLn-1's own right edge instead of VLn's left edge; CM6's own
+	// Smart Home/End avoids the equivalent issue via moveToLineBoundary's
+	// explicit assoc return, which Selection.modify has no equivalent
+	// control for). A pixel-coordinate hit-test (caretRangeFromPoint) was
+	// tried next and ALSO confirmed live to land on the wrong line: every
+	// wrapped visual line shares the exact same left/right edge coordinate
+	// (the container's own box), and there's a several-px dead zone right
+	// at that shared edge where it resolves to the first line regardless
+	// of margin size — not a fixed, reliable threshold to guess a margin
+	// against.
+	//
+	// What actually works: step one character at a time using the SAME
+	// primitive Ctrl-B/F already use reliably, checking the vertical (Y)
+	// position after each step. Stop as soon as a step crosses onto a
+	// different visual line, and use the last position that was still on
+	// the starting line. No pixel-margin guessing, no reliance on any
+	// single API call's own internal boundary resolution.
+	//
+	// Also honors Visual line movement (settings.visualLineMovement,
+	// Home/End-only per its own description — Ctrl-N/P's line movement is
+	// unrelated), mirroring the body's own Smart Home/End: ON moves to the
+	// visual line edge first, escalating to the title's absolute start/end
+	// only once already there; OFF always goes straight to the absolute
+	// start/end.
 	private titleMoveToLineBoundary(titleEl: HTMLElement, forward: boolean) {
-		this.titleSelectionModify(titleEl, forward ? 'forward' : 'backward', 'lineboundary');
+		const sel = titleEl.ownerDocument.getSelection() as (Selection & {
+			modify(alter: string, direction: string, granularity: string): void;
+		}) | null;
+		if (!sel || sel.rangeCount === 0) return;
+		this.titleGoalX = null; // horizontal-intent move, not a vertical-goal continuation
+
+		if (!this.settings.visualLineMovement) {
+			sel.modify('move', forward ? 'forward' : 'backward', 'documentboundary');
+			return;
+		}
+
+		// Deliberately never snapshots a position as a Range and reapplies
+		// it later (sel.addRange(savedRange)) — confirmed live that a Range
+		// object carries no caret-affinity information at all, so
+		// reapplying one at this exact ambiguous wrap-point offset lets the
+		// browser re-resolve affinity from scratch, and it defaults to the
+		// PREVIOUS line's side (the original bug this whole function
+		// exists to avoid). Only ever navigates the live Selection via
+		// modify() — including the one-character "undo" below — which
+		// keeps whatever affinity Chromium's own live-navigation maintains
+		// internally, which does render correctly.
+		const startNode = sel.focusNode, startOffset = sel.focusOffset;
+		const startRect = sel.getRangeAt(0).getClientRects()[0] ?? sel.getRangeAt(0).getBoundingClientRect();
+		const stepDir = forward ? 'right' : 'left';
+		const backDir = forward ? 'left' : 'right';
+
+		for (let i = 0; i < 2000; i++) {
+			const beforeNode = sel.focusNode, beforeOffset = sel.focusOffset;
+			sel.modify('move', stepDir, 'character');
+			if (sel.focusNode === beforeNode && sel.focusOffset === beforeOffset) break; // hit the title's absolute start/end
+			// The exact wrap-point character (e.g. a collapsed space, or —
+			// confirmed live with CJK text that wraps between two ordinary
+			// characters with no whitespace at all — the bare boundary
+			// offset itself) is genuinely ambiguous: it reports TWO rects,
+			// one for each adjacent line, AND — confirmed live, this cost
+			// several iterations to find — a collapsed caret there always
+			// renders on the PREVIOUS line's side, regardless of which
+			// direction it was reached from (ruling out a caret-affinity
+			// fix). That default happens to be CORRECT for End (forward):
+			// "previous line" relative to the boundary IS the line being
+			// moved to its own end, so landing there is fine, same as
+			// before. It's WRONG for Home (backward): the boundary's
+			// "previous line" rendering is the line being LEFT, not the
+			// one Home is trying to reach — so backward specifically must
+			// never land on an ambiguous offset, stopping one character
+			// short of it instead (the true text-model edge character,
+			// but unrenderable there — a real Chromium limitation, not a
+			// bug in this scan).
+			const rects = sel.getRangeAt(0).getClientRects();
+			const sameLine = forward
+				? (rects.length > 0
+					? Array.from(rects).some(r => Math.abs(r.top - startRect.top) < 1)
+					: Math.abs(sel.getRangeAt(0).getBoundingClientRect().top - startRect.top) < 1)
+				: (rects.length === 1 && Math.abs(rects[0].top - startRect.top) < 1);
+			if (!sameLine) {
+				sel.modify('move', backDir, 'character'); // undo the one step that left the line
+				break;
+			}
+		}
+
+		if (sel.focusNode === startNode && sel.focusOffset === startOffset) {
+			// Never actually moved — already at this line's edge.
+			sel.modify('move', forward ? 'forward' : 'backward', 'documentboundary');
+		}
 	}
 
 	// 'left'/'right' (not 'forward'/'backward') for character granularity —
@@ -910,6 +1018,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// choice, which mirrors what a real ArrowLeft/ArrowRight keypress does
 	// internally for this granularity.
 	private titleMoveChar(titleEl: HTMLElement, forward: boolean) {
+		this.titleGoalX = null; // horizontal-intent move, not a vertical-goal continuation
 		this.titleSelectionModify(titleEl, forward ? 'right' : 'left', 'character');
 	}
 
@@ -918,31 +1027,106 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// of scope for now, see project memory), so "nothing above" should
 	// just no-op, which Selection.modify already does natively on its own
 	// when there's truly no previous visual line to move to.
-	private titleMoveLine(titleEl: HTMLElement, forward: boolean) {
+	//
+	// Goal-column-aware: tries the native move first just to learn WHERE
+	// the target visual line is (its Y) and whether one even exists (a
+	// genuine no-op here means "nothing above/below", left completely
+	// alone — this also doubles as titleMoveLineOrEscapeToBody's own
+	// probe for "are we on the title's last visual line"). If a line WAS
+	// found, re-lands using titleGoalX (falling back to the pre-move
+	// column if no goal is active yet) rather than wherever
+	// Selection.modify's own internal column-tracking happened to put it
+	// — so a chain of Ctrl-P/N through a short visual line "pops back" to
+	// the original wider column once a wide-enough line is reached again,
+	// instead of staying clamped to the short line's own width.
+	// Returns whether it actually moved to a different visual line — the
+	// caller (titleMoveLineOrEscapeToBody) relies on THIS return value
+	// rather than re-inspecting the selection's own rects afterward,
+	// because the landing position itself can be the same ambiguous
+	// VL-boundary offset this whole investigation already found (a
+	// collapsed caret there always renders via the PREVIOUS line's rect,
+	// regardless of how it was reached) — re-checking post-hoc would just
+	// walk back into the exact bug this fix resolves.
+	private titleMoveLine(titleEl: HTMLElement, forward: boolean): boolean {
+		const sel = titleEl.ownerDocument.getSelection();
+		if (!sel || sel.rangeCount === 0) return false;
+		const beforeRect = sel.getRangeAt(0).getClientRects()[0] ?? sel.getRangeAt(0).getBoundingClientRect();
+		const goalX = this.titleGoalX ?? beforeRect.left;
+
 		this.titleSelectionModify(titleEl, forward ? 'forward' : 'backward', 'line');
+
+		// Confirmed live: modify('forward','line') can land EXACTLY on the
+		// ambiguous VL1/VL2 boundary offset (same offset this whole
+		// Home/End investigation already found reports 2+ rects, one per
+		// adjacent line) rather than past it into the next line's own
+		// interior — rects[0] alone then looks identical to beforeRect
+		// (both report the line being LEFT), making a genuine move look
+		// like a no-op and wrongly triggering the body-escape one VL too
+		// early. Check every rect: if ANY of them differs from the
+		// starting line, a line boundary genuinely was reached, and that
+		// differing rect's own top is the real target line's Y.
+		const afterRange = sel.rangeCount > 0 ? sel.getRangeAt(0) : null;
+		const afterRects = afterRange ? Array.from(afterRange.getClientRects()) : [];
+		const movedRect = afterRects.length > 0
+			? (afterRects.find(r => Math.abs(r.top - beforeRect.top) >= 1) ?? null)
+			: (afterRange && Math.abs(afterRange.getBoundingClientRect().top - beforeRect.top) >= 1 ? afterRange.getBoundingClientRect() : null);
+		if (!movedRect) return false; // no line to move to; leave as-is
+
+		this.titleGoalX = goalX;
+		const targetY = movedRect.top + movedRect.height / 2;
+		const doc = titleEl.ownerDocument as unknown as { caretRangeFromPoint(x: number, y: number): Range | null };
+		const range = doc.caretRangeFromPoint(goalX, targetY);
+		if (range && titleEl.contains(range.startContainer)) {
+			sel.removeAllRanges();
+			sel.addRange(range);
+		}
+
+		// The position we just landed on (via caretRangeFromPoint, or left
+		// over from the native line-move above if that hit-test failed)
+		// can itself be the exact ambiguous VL-boundary offset — most
+		// likely when goalX sits right at the shared left/right edge all
+		// visual lines share (e.g. goalX 0 from the title's very start).
+		// Per the established finding, a collapsed caret there ALWAYS
+		// renders via the rect of whichever adjacent line comes FIRST in
+		// TEXT order, never the second — regardless of how it was
+		// reached, and regardless of whether the overall move is Ctrl-N
+		// or Ctrl-P. The wrap boundary only ever sits at a line's own
+		// LEFT edge (new lines always start at column 0), so when goalX
+		// is near that edge the ambiguous pair is always "(line above,
+		// target line)" with the target line second — true for Ctrl-P
+		// stepping up through intermediate lines just as much as Ctrl-N
+		// stepping down. So the fix is always to nudge forward ('right')
+		// one character, never 'left' — nudging left for Ctrl-P here
+		// doesn't land on the target line at all, it overshoots one
+		// character further INTO the line above it (confirmed live: an
+		// extra visual line of drift on every Ctrl-P through a title
+		// goal-column pinned near column 0). Detect this (2+ rects, and
+		// the one actually used for rendering doesn't match the target
+		// line we just moved to) and nudge onto a position that's
+		// unambiguously inside the target line.
+		const landedRects = sel.rangeCount > 0 ? sel.getRangeAt(0).getClientRects() : [];
+		if (landedRects.length > 1 && Math.abs(landedRects[0].top - movedRect.top) >= 1) {
+			sel.modify('move', 'right', 'character');
+		}
+		return true;
 	}
 
-	// Ctrl-N (down) within the title: tries the native move first, then
-	// compares VERTICAL (Y) position rather than the raw selection
-	// node/offset — Selection.modify has its own built-in fallback of
-	// snapping horizontally to the current visual line's end when there's
-	// nowhere to go vertically (confirmed live, same category as
-	// escapeUpToTitle's own "goUp snaps to ch 0" finding), which would
-	// otherwise look like "the position changed" and delay the escape by
-	// one extra keypress while losing the original column. Comparing Y
-	// correctly distinguishes "moved to a different visual line" (don't
-	// escape) from "merely snapped horizontally in place on the same
-	// line" (do escape, using the PRE-snap X). Deliberately does NOT
-	// match native physical-ArrowDown's own behavior (confirmed live:
-	// native lands at the body's ch 0, no column preservation at all).
+	// Ctrl-N (down) within the title: delegates the "move one VL down, or
+	// detect there's none" work to titleMoveLine itself (which leaves the
+	// selection untouched on a genuine no-op), then just checks whether
+	// anything actually moved to decide whether to escape into the body.
+	// Deliberately does NOT match native physical-ArrowDown's own
+	// behavior (confirmed live: native lands at the body's ch 0, no
+	// column preservation at all) — uses titleGoalX (falling back to the
+	// pre-move column) so a goal established by an earlier Ctrl-P/N
+	// chain, or by crossing in from the body, carries all the way through
+	// to the body landing too.
 	private titleMoveLineOrEscapeToBody(titleEl: HTMLElement) {
 		const sel = titleEl.ownerDocument.getSelection();
 		if (!sel || sel.rangeCount === 0) return;
 		const beforeRect = sel.getRangeAt(0).getClientRects()[0] ?? sel.getRangeAt(0).getBoundingClientRect();
-		this.titleMoveLine(titleEl, true);
-		const afterRange = sel.rangeCount > 0 ? sel.getRangeAt(0) : null;
-		const afterRect = afterRange ? (afterRange.getClientRects()[0] ?? afterRange.getBoundingClientRect()) : null;
-		if (!afterRect || Math.abs(afterRect.top - beforeRect.top) >= 1) return; // moved to a new visual line, done
+		const goalX = this.titleGoalX ?? beforeRect.left;
+		if (this.titleMoveLine(titleEl, true)) return; // moved to a new visual line, done
 
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 		if (!view) return;
@@ -950,9 +1134,54 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const firstLineCoords = cm.coordsAtPos(0);
 		if (!firstLineCoords) return;
 		const targetY = (firstLineCoords.top + firstLineCoords.bottom) / 2;
-		const pos = cm.posAtCoords({ x: beforeRect.left, y: targetY });
+
+		// Same gutter mismatch as escapeUpToTitle's own fix, mirrored for
+		// the opposite crossing: goalX lives in the title's own pixel
+		// space (no line-number gutter), but the body's line-start X
+		// sits past its gutter — using goalX as a raw body X would
+		// undershoot by the gutter's own width. Normalize by each side's
+		// own line-start X instead of matching absolute screen pixels.
+		const titleStartX = titleEl.getBoundingClientRect().left;
+		const bodyLineStartX = firstLineCoords.left;
+		const adjustedX = goalX - titleStartX + bodyLineStartX;
+		console.log('[UCH-title-debug] titleMoveLineOrEscapeToBody: goalX=', goalX, 'titleGoalX=', this.titleGoalX, 'beforeRect.left=', beforeRect.left, 'titleStartX=', titleStartX, 'bodyLineStartX=', bodyLineStartX, 'adjustedX=', adjustedX);
+
+		// precise: false — confirmed live that CM6's default (precise)
+		// posAtCoords returns null outright when the point lands right at
+		// a line's own edge (e.g. an EMPTY line's near-zero-width hit
+		// box), same class of exact-edge failure already seen with
+		// caretRangeFromPoint on the title side. false clamps to the
+		// nearest valid position instead of ever returning null.
+		const pos = cm.posAtCoords({ x: adjustedX, y: targetY }, false);
+		console.log('[UCH-title-debug] titleMoveLineOrEscapeToBody: pos=', pos, 'targetY=', targetY);
 		view.editor.focus();
-		if (pos != null) view.editor.setCursor(view.editor.offsetToPos(pos));
+		this.titleGoalX = null; // leaving the title; the body has its own separate goal-column system
+		if (pos != null) {
+			// Seed CM6's own native goalColumn (the same field
+			// execPreservingGoalColumn preserves for a Ctrl-P/N chain, and
+			// computeRowCrossPixelGoal reads for table-row crossings) with
+			// this crossing's own adjustedX, instead of a plain
+			// editor.setCursor — a fresh selection dispatch carries no
+			// goalColumn at all, so a Ctrl-P/N continuing in the body
+			// right after this landing would otherwise silently reset to
+			// whatever pixel X the landing position itself happens to be
+			// at, forgetting the title's own column. Mirrors the
+			// symmetric fix already made for the opposite (title-entry)
+			// crossing in moveCursorUpImpl. goalColumn is relative to the
+			// view's own contentDOM left edge, same convention as
+			// computeRowCrossPixelGoal.
+			const rect = cm.contentDOM.getBoundingClientRect();
+			const goalColumnToSeed = adjustedX - rect.left;
+			cm.dispatch({
+				selection: EditorSelection.create(
+					[EditorSelection.cursor(pos, 1, undefined, goalColumnToSeed)],
+					0,
+				),
+				scrollIntoView: true,
+				userEvent: 'move',
+			});
+			console.log('[UCH-title-debug] titleMoveLineOrEscapeToBody: dispatched, goalColumnToSeed=', goalColumnToSeed, 'resulting selection.main.goalColumn=', cm.state.selection.main.goalColumn, 'cursor=', view.editor.getCursor());
+		}
 	}
 
 	onunload() {
@@ -1493,7 +1722,22 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				const after = editor.getCursor();
 				const afterCoords = cm?.coordsAtPos(editor.posToOffset(after));
 				if (afterCoords && Math.abs(afterCoords.top - beforeCoords.top) < 1) {
-					this.escapeUpToTitle(editor, beforeCoords.left);
+					// Prefer CM6's own native goal-column (the same field
+					// execPreservingGoalColumn above just preserved across
+					// this whole up-chain, and computeRowCrossPixelGoal
+					// reads for table-row crossings) over the CURRENT
+					// cursor's own X — on a short/blank line (e.g. an
+					// empty line 1 reached after stepping up from a much
+					// longer line 2) the current X has already collapsed
+					// to ch 0, silently forgetting a wider column from
+					// several Ctrl-P presses back. No separate
+					// title-crossing goal-column bookkeeping needed: this
+					// is the exact same mechanism the body already
+					// maintains for itself.
+					const goalColumn = cm?.state?.selection?.main?.goalColumn;
+					const rect = cm?.contentDOM.getBoundingClientRect();
+					const targetX = (goalColumn !== undefined && rect) ? rect.left + goalColumn : beforeCoords.left;
+					this.escapeUpToTitle(editor, targetX);
 				}
 			}
 			return;
@@ -1550,17 +1794,84 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private escapeUpToTitle(editor: Editor, targetX: number) {
 		const cm = editor.cm;
 		const doc = cm.dom.ownerDocument;
-		const title = doc.querySelector(TITLE_SELECTOR) as HTMLElement | null;
+		// A window can contain more than one `.inline-title` at once (e.g.
+		// another leaf/pane, hover preview, or linked view also open) —
+		// confirmed live the plain document-wide querySelector can pick an
+		// unrelated, zero-sized one from a DIFFERENT leaf, which makes
+		// every downstream rect/hit-test computation degenerate. Scope the
+		// lookup to the active view's own container so it always matches
+		// the title paired with THIS editor.
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		const titleScopeEl = view?.containerEl ?? doc;
+		const title = titleScopeEl.querySelector(TITLE_SELECTOR) as HTMLElement | null;
 		if (!title) return;
+
+		// The body and the title don't share the same absolute-pixel
+		// coordinate space: the body has its own line-number gutter the
+		// title doesn't, so matching targetX as a raw screen X would
+		// systematically overshoot into the title by roughly the
+		// gutter's own width — most visibly wrong right at ch=0, which
+		// should land at the title's own true start but would instead
+		// land partway in (confirmed live, tentatively "fixed" by
+		// special-casing ch=0 alone, but that just traded it for a worse
+		// discontinuity at ch=1/ch=2, still raw-matched). Normalize by
+		// each side's own line-start X instead: this makes ch=0 land at
+		// the title's own ch=0 with no special case needed, and keeps
+		// other columns consistently offset from it rather than jumping.
+		const bodyLineStartX = cm.coordsAtPos(0)?.left;
+		const titleStartX = title.getBoundingClientRect().left;
+		const adjustedX = bodyLineStartX != null ? targetX - bodyLineStartX + titleStartX : targetX;
+		console.log('[UCH-title-debug] escapeUpToTitle: targetX=', targetX, 'bodyLineStartX=', bodyLineStartX, 'titleStartX=', titleStartX, 'adjustedX=', adjustedX);
+
+		// Seed the title's own goal-column with the ADJUSTED (title-space)
+		// X, so a Ctrl-P/N chain continuing WITHIN the title (see
+		// titleMoveLine) keeps reaching for this same column — within the
+		// title there's no gutter mismatch to correct for, so this value
+		// is used as-is from here on.
+		this.titleGoalX = adjustedX;
 		title.focus();
 		const titleRect = title.getBoundingClientRect();
 		const targetY = titleRect.bottom - 1; // aim at the title's last visual line
+		// Clamp to the title's own actual box: a short, unwrapped title
+		// is often narrower than the body. A hit-test point past the
+		// title's own right edge lands outside the title element
+		// entirely (e.g. the empty margin next to it), failing the
+		// `title.contains(...)` check below and leaving the crossing a
+		// no-op instead of clamping to the title's own last character,
+		// same as caretRangeFromPoint already does naturally for an
+		// in-title overshoot.
+		const clampedX = Math.min(Math.max(adjustedX, titleRect.left), titleRect.right - 1);
 		const range = (doc as unknown as { caretRangeFromPoint(x: number, y: number): Range | null })
-			.caretRangeFromPoint(targetX, targetY);
+			.caretRangeFromPoint(clampedX, targetY);
+		console.log('[UCH-title-debug] escapeUpToTitle: titleRect=', JSON.stringify(titleRect), 'targetY=', targetY, 'clampedX=', clampedX, 'range=', range, 'startContainer=', range?.startContainer, 'contained=', range ? title.contains(range.startContainer) : null);
 		if (range && title.contains(range.startContainer)) {
-			const sel = doc.getSelection();
+			const sel = doc.getSelection() as (Selection & {
+				modify(alter: string, direction: string, granularity: string): void;
+			}) | null;
 			sel?.removeAllRanges();
 			sel?.addRange(range);
+
+			// Same ambiguous-VL-boundary-offset nudge as titleMoveLine's
+			// own fix: caretRangeFromPoint can land EXACTLY on the
+			// offset shared between VLn-1 and VLn (most likely when
+			// clampedX sits right at the title's own left edge, e.g. a
+			// crossing from the body's ch=0) — a collapsed caret there
+			// always renders via the PREVIOUS line's rect regardless of
+			// how it was reached, which visually looks like landing on
+			// VLn-1's right edge instead of VLn's own start. We're
+			// always landing on the title's LAST (bottommost) visual
+			// line here, so the ambiguous rect with the larger top is
+			// the one we actually want; if the default-rendered rect
+			// (rects[0]) isn't that one, step one character forward to
+			// move off the boundary into VLn's own unambiguous interior.
+			const landedRects = sel ? Array.from(sel.getRangeAt(0).getClientRects()) : [];
+			if (landedRects.length > 1) {
+				const targetRect = landedRects.reduce((a, b) => (b.top > a.top ? b : a));
+				if (Math.abs(landedRects[0].top - targetRect.top) >= 1) {
+					sel?.modify('move', 'right', 'character');
+				}
+			}
+			console.log('[UCH-title-debug] escapeUpToTitle: landedRects=', landedRects.map(r => r.top), 'post-nudge rect=', sel?.getRangeAt(0).getClientRects()[0]);
 		}
 	}
 

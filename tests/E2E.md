@@ -1047,4 +1047,64 @@ documented in `setMarkMouseAndLeafChange.e2e.ts` for single-click).
 - **(3)** Double-clicking inside `"異なる"` (a verb+auxiliary morpheme)
   selects the whole unit, not split further by the segmenter.
 
+### Title field (0.13.0 Feature 1)
+
+Ctrl-P/N crossing between the note body and the `.inline-title` field (a
+plain contenteditable, not CM6). The title's own text IS the note's
+filename, so unlike every other spec in this suite, these notes are
+created on the fly with `app.vault.create` instead of a committed
+`vaults/smoke/*.md` fixture — the filename controls the title under test
+directly. This plugin ships with no default hotkeys, and the title-field
+Scope specifically reads the user's own current bindings
+(`hotkeyManager.bakedHotkeys`), so these specs call
+`hotkeyManager.setHotkeys`/`bake()` before dispatching a real
+`KeyboardEvent` (bubbles:true) to whichever element has focus — same
+technique `setMarkEscapeKeydown.e2e.ts` already uses for a native key, but
+needed here even for a Ctrl-letter *command* key, since a plain
+`executeObsidianCommand` call bypasses the Scope/Keymap push-stack
+entirely and would never exercise the title-specific handler at all.
+
+#### `titleCrossingShort.e2e.ts`
+
+A short, unwrapped title — isolates the pixel-coordinate math from the
+VL-wrap-boundary ambiguity covered separately below.
+
+- **(1)** Body line 0 ch 0 crosses into the title at exactly offset 0.
+  Before normalizing by each side's own line-start X (instead of matching
+  raw absolute screen pixels), this overshot into the title by roughly the
+  body's own line-number gutter width.
+- **(2)** A goal column from deep in a later line survives crossing a
+  blank line before reaching the title (reads CM6's own native
+  `goalColumn`, the same field `execPreservingGoalColumn` already
+  preserves for table-row crossings, instead of the blank line's own
+  already-collapsed ch-0 position), then round-trips back exactly via
+  Ctrl-A (title Home) → Ctrl-N: the escape-to-body landing seeds CM6's
+  `goalColumn` directly via a `cm.dispatch` carrying
+  `EditorSelection.cursor`'s own 4th param, since a plain
+  `editor.setCursor` carries no goalColumn at all.
+
+#### `titleCrossingWrapped.e2e.ts`
+
+A title long enough to wrap across 4 visual lines. Direct regression test
+for a real bug found live during development: chaining Ctrl-P upward
+through the title's own visual lines skipped one extra line per press
+(landing two visual lines up instead of one). Root cause was the
+ambiguous-VL-boundary-offset nudge (the same "a collapsed caret at a wrap
+boundary always renders via the line being left, regardless of how it was
+reached" limitation documented in `titleMoveToLineBoundary`'s own comment)
+nudging in the wrong direction for the backward/Ctrl-P case — the fix
+nudges forward unconditionally, since the ambiguous pair is always "(line
+above, target line)" with the target line second, true for Ctrl-P
+stepping up through intermediate lines just as much as Ctrl-N stepping
+down.
+
+- Asserts the FULL exact sequence of visual-line top coordinates while
+  chaining Ctrl-P up then Ctrl-N back down — a skip is only visible as a
+  missing intermediate step, not just a wrong final position.
+- Also covers: landing on the title's true first line (offset 0) after
+  walking all the way up: a true no-op once there (nothing above —
+  frontmatter is out of scope for this feature); the down-chain retracing
+  the exact same visual lines in reverse; and the final Ctrl-N escaping
+  into the body.
+
 1. Popout window support
