@@ -903,6 +903,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		bind('cursor-right', (el) => this.titleMoveChar(el, true));
 		bind('cursor-up', (el) => this.titleMoveLine(el, false));
 		bind('cursor-down', (el) => this.titleMoveLineOrEscapeToBody(el));
+		bind('kill-line', (el) => this.titleKillLine(el));
 		return scope;
 	}
 
@@ -952,6 +953,13 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}) | null;
 		if (!sel || sel.rangeCount === 0) return;
 		this.titleGoalX = null; // horizontal-intent move, not a vertical-goal continuation
+		// isKillChaining's own auto-reset (see killLineOuter's own comment)
+		// is wired entirely through CM6's updateListener, which never fires
+		// for the title at all (plain contenteditable, not CM6) — every
+		// non-kill title command has to reset it explicitly here instead,
+		// or a kill-line chain in the title would never break on an
+		// intervening Home/End/move.
+		this.isKillChaining = false;
 
 		if (!this.settings.visualLineMovement) {
 			sel.modify('move', forward ? 'forward' : 'backward', 'documentboundary');
@@ -1019,6 +1027,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// internally for this granularity.
 	private titleMoveChar(titleEl: HTMLElement, forward: boolean) {
 		this.titleGoalX = null; // horizontal-intent move, not a vertical-goal continuation
+		this.isKillChaining = false; // see titleMoveToLineBoundary's own comment
 		this.titleSelectionModify(titleEl, forward ? 'right' : 'left', 'character');
 	}
 
@@ -1050,6 +1059,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private titleMoveLine(titleEl: HTMLElement, forward: boolean): boolean {
 		const sel = titleEl.ownerDocument.getSelection();
 		if (!sel || sel.rangeCount === 0) return false;
+		this.isKillChaining = false; // see titleMoveToLineBoundary's own comment — also covers titleMoveLineOrEscapeToBody, which always calls this first
 		const beforeRect = sel.getRangeAt(0).getClientRects()[0] ?? sel.getRangeAt(0).getBoundingClientRect();
 		const goalX = this.titleGoalX ?? beforeRect.left;
 
@@ -1182,6 +1192,56 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			});
 			console.log('[UCH-title-debug] titleMoveLineOrEscapeToBody: dispatched, goalColumnToSeed=', goalColumnToSeed, 'resulting selection.main.goalColumn=', cm.state.selection.main.goalColumn, 'cursor=', view.editor.getCursor());
 		}
+	}
+
+	// Ctrl-K in the title: kills from the cursor to the title's own text
+	// end. Title is always logically ONE line (unlike killLineOuter's own
+	// body-side Smart-join-into-the-next-line case), so there's no "next
+	// line" to join with here — already at the end is simply a no-op,
+	// matching killLineOuter's own no-op convention of leaving
+	// isKillChaining untouched rather than resetting it (titleGoalX is
+	// still reset unconditionally, same as every other title command —
+	// that's a horizontal-INTENT signal regardless of effect).
+	//
+	// Shares the exact same kill-ring (killCache/updateKillCache/
+	// navigator.clipboard) as the body's own Kill line, so Yank (once
+	// implemented in the title) and cross-buffer kill-chaining both just
+	// work with no separate title-side kill-ring needed.
+	//
+	// Uses document.execCommand('delete', false) rather than
+	// Range.deleteContents() — confirmed live the former integrates with
+	// the title's own native undo stack (Ctrl-Z correctly restores the
+	// killed text) while the latter does not. The killed text itself is
+	// captured via range.toString() just before the delete call, since
+	// execCommand's own return value doesn't carry it.
+	private titleKillLine(titleEl: HTMLElement) {
+		this.titleGoalX = null; // horizontal-intent action
+		const doc = titleEl.ownerDocument;
+		const sel = doc.getSelection();
+		if (!sel || sel.rangeCount === 0) return;
+		const cur = sel.getRangeAt(0);
+		const container = cur.startContainer;
+		if (container.nodeType !== Node.TEXT_NODE) return; // defensive: the title is always flat text
+		const textLen = (container as Text).length;
+		const cursorOffset = cur.startOffset;
+		if (cursorOffset >= textLen) return; // already at the title's own end: nothing to kill
+
+		const range = doc.createRange();
+		range.setStart(container, cursorOffset);
+		range.setEnd(container, textLen);
+		sel.removeAllRanges();
+		sel.addRange(range);
+		const killedText = range.toString();
+
+		doc.execCommand('delete', false);
+
+		this.updateKillCache(killedText);
+		console.log('[UCH-title-debug] titleKillLine: killedText=', JSON.stringify(killedText), 'killCache=', JSON.stringify(this.killCache));
+		navigator.clipboard.writeText(this.killCache).then(
+			() => console.log('[UCH-title-debug] titleKillLine: clipboard.writeText succeeded'),
+			(err) => console.error('[UCH-title-debug] titleKillLine: clipboard.writeText FAILED', err),
+		);
+		this.isKillChaining = true;
 	}
 
 	onunload() {

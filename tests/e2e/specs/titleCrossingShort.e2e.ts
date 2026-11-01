@@ -1,5 +1,6 @@
 import { browser, expect } from '@wdio/globals'
 import { describe, it, after } from 'mocha'
+import { readFixtureBody } from '../helpers'
 
 // 0.13.0 Feature 1: Ctrl-P/N crossing between the note body and the
 // `.inline-title` field (a plain contenteditable, not CM6). The title's
@@ -7,8 +8,11 @@ import { describe, it, after } from 'mocha'
 // suite (which opens a committed fixture under vaults/smoke/ via
 // openFixtureAndGetContentStart), these notes are created on the fly with
 // app.vault.create so the filename — and therefore the title under test —
-// is controlled directly from the spec itself. Deleted again in `after`
-// so repeated runs don't accumulate stale notes in the shared test vault.
+// is controlled directly from the spec itself. The note's BODY content
+// still comes from a committed vaults/smoke/*.md fixture (via
+// readFixtureBody) — only the title needs to be dynamic. Deleted again in
+// `after` so repeated runs don't accumulate stale notes in the shared test
+// vault.
 //
 // This plugin ships with NO default hotkeys (every command is bound only
 // once the user configures it), and the title-field Scope specifically
@@ -67,18 +71,19 @@ describe('Title crossing: short (unwrapped) title', function () {
 	it('body line0 ch0 crosses into the title at exactly offset 0 (no gutter drift)', async function () {
 		const path = 'TitleCrossingShortCh0.md'
 		createdPaths.push(path)
-		await browser.executeObsidian(async ({ app, obsidian }, path2) => {
+		const body = await readFixtureBody('TitleCrossingShortCh0Fixture.md')
+		await browser.executeObsidian(async ({ app, obsidian }, { path2, body2 }) => {
 			const hm = (app as any).hotkeyManager
 			hm.setHotkeys('universal-cursor-hotkeys:cursor-up', [{ modifiers: ['Ctrl'], key: 'P' }])
 			hm.bake()
 			app.workspace.getLeavesOfType('markdown').forEach(leaf => leaf.detach())
 			const existing = app.vault.getFileByPath(path2)
 			if (existing) await app.vault.delete(existing)
-			const file = await app.vault.create(path2, 'alpha bravo charlie')
+			const file = await app.vault.create(path2, body2)
 			await app.workspace.getLeaf(true).openFile(file)
 			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
-			view.editor.setCursor({ line: 0, ch: 0 })
-		}, path)
+			view.editor.setCursor({ line: 0, ch: 0 }) // line 0 of the fixture body is the actual test position
+		}, { path2: path, body2: body })
 		await browser.pause(300) // let the freshly-opened title finish laying out
 
 		await pressCtrl('body', 'p')
@@ -95,7 +100,11 @@ describe('Title crossing: short (unwrapped) title', function () {
 	it('a goal column from a longer line survives crossing a blank line, then round-trips back exactly via Ctrl-A/Ctrl-N', async function () {
 		const path = 'TitleCrossingShortRoundTrip.md'
 		createdPaths.push(path)
-		await browser.executeObsidian(async ({ app, obsidian }, path2) => {
+		// Line 0 is blank, line 1 has real text — mirrors the reported
+		// scenario: pressing Ctrl-P from deep inside line 1 passes through
+		// the blank line 0 on the way to the title.
+		const body = await readFixtureBody('TitleCrossingShortRoundTripFixture.md')
+		await browser.executeObsidian(async ({ app, obsidian }, { path2, body2 }) => {
 			const hm = (app as any).hotkeyManager
 			hm.setHotkeys('universal-cursor-hotkeys:cursor-up', [{ modifiers: ['Ctrl'], key: 'P' }])
 			hm.setHotkeys('universal-cursor-hotkeys:cursor-down', [{ modifiers: ['Ctrl'], key: 'N' }])
@@ -104,14 +113,11 @@ describe('Title crossing: short (unwrapped) title', function () {
 			app.workspace.getLeavesOfType('markdown').forEach(leaf => leaf.detach())
 			const existing = app.vault.getFileByPath(path2)
 			if (existing) await app.vault.delete(existing)
-			// Line 0 is blank, line 1 has real text — mirrors the reported
-			// scenario: pressing Ctrl-P from deep inside line 1 passes
-			// through the blank line 0 on the way to the title.
-			const file = await app.vault.create(path2, '\nsecond line has plenty of text in it')
+			const file = await app.vault.create(path2, body2)
 			await app.workspace.getLeaf(true).openFile(file)
 			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
 			view.editor.setCursor({ line: 1, ch: 20 })
-		}, path)
+		}, { path2: path, body2: body })
 		await browser.pause(300)
 
 		await pressCtrl('body', 'p') // line1 -> line0 (blank)
