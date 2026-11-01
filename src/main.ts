@@ -906,6 +906,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		bind('kill-line', (el) => this.titleKillLine(el));
 		bind('kill-word-left', (el) => this.titleKillWord(el, false));
 		bind('kill-word-right', (el) => this.titleKillWord(el, true));
+		bind('set-mark', (el) => this.titleSetMark(el));
+		bind('keyboard-quit', (el) => this.titleKeyboardQuit(el));
 		return scope;
 	}
 
@@ -919,7 +921,12 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const sel = titleEl.ownerDocument.getSelection() as (Selection & {
 			modify(alter: string, direction: string, granularity: string): void;
 		}) | null;
-		sel?.modify('move', direction, granularity);
+		// 'extend' while a mark is active keeps the native Selection's own
+		// anchor fixed and only moves focus — the exact same mechanism a
+		// real Shift+Arrow keypress uses, so no separate anchor-tracking
+		// machinery is needed here the way the body's own CM6-based
+		// Set-mark needs (see titleSetMark's own doc comment).
+		sel?.modify(this.markActive ? 'extend' : 'move', direction, granularity);
 	}
 
 	// Deliberately does NOT use Selection.modify('lineboundary') — confirmed
@@ -962,9 +969,16 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// or a kill-line chain in the title would never break on an
 		// intervening Home/End/move.
 		this.isKillChaining = false;
+		// Set-mark: 'extend' keeps the native Selection's own anchor fixed
+		// and only moves focus (see titleSelectionModify's own comment) —
+		// every modify() call below (including the one-character "undo"
+		// mid-scan) uses this same alter consistently, so a marked
+		// extension through this whole boundary scan accumulates onto the
+		// one fixed anchor rather than collapsing partway through.
+		const alter = this.markActive ? 'extend' : 'move';
 
 		if (!this.settings.visualLineMovement) {
-			sel.modify('move', forward ? 'forward' : 'backward', 'documentboundary');
+			sel.modify(alter, forward ? 'forward' : 'backward', 'documentboundary');
 			return;
 		}
 
@@ -985,7 +999,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 		for (let i = 0; i < 2000; i++) {
 			const beforeNode = sel.focusNode, beforeOffset = sel.focusOffset;
-			sel.modify('move', stepDir, 'character');
+			sel.modify(alter, stepDir, 'character');
 			if (sel.focusNode === beforeNode && sel.focusOffset === beforeOffset) break; // hit the title's absolute start/end
 			// The exact wrap-point character (e.g. a collapsed space, or —
 			// confirmed live with CJK text that wraps between two ordinary
@@ -1012,14 +1026,14 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 					: Math.abs(sel.getRangeAt(0).getBoundingClientRect().top - startRect.top) < 1)
 				: (rects.length === 1 && Math.abs(rects[0].top - startRect.top) < 1);
 			if (!sameLine) {
-				sel.modify('move', backDir, 'character'); // undo the one step that left the line
+				sel.modify(alter, backDir, 'character'); // undo the one step that left the line
 				break;
 			}
 		}
 
 		if (sel.focusNode === startNode && sel.focusOffset === startOffset) {
 			// Never actually moved — already at this line's edge.
-			sel.modify('move', forward ? 'forward' : 'backward', 'documentboundary');
+			sel.modify(alter, forward ? 'forward' : 'backward', 'documentboundary');
 		}
 	}
 
@@ -1059,13 +1073,61 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// regardless of how it was reached) — re-checking post-hoc would just
 	// walk back into the exact bug this fix resolves.
 	private titleMoveLine(titleEl: HTMLElement, forward: boolean): boolean {
-		const sel = titleEl.ownerDocument.getSelection();
+		const doc = titleEl.ownerDocument;
+		const sel = doc.getSelection();
 		if (!sel || sel.rangeCount === 0) return false;
 		this.isKillChaining = false; // see titleMoveToLineBoundary's own comment — also covers titleMoveLineOrEscapeToBody, which always calls this first
-		const beforeRect = sel.getRangeAt(0).getClientRects()[0] ?? sel.getRangeAt(0).getBoundingClientRect();
+		// Set-mark: captured BEFORE any modify() call below, since the
+		// pixel-based repositioning further down (caretRangeFromPoint +
+		// addRange) doesn't go through modify() at all and would
+		// otherwise collapse the selection, discarding the mark's own
+		// anchor — reapplied via setBaseAndExtent once the new focus
+		// position is known.
+		const markAnchorNode = sel.anchorNode, markAnchorOffset = sel.anchorOffset;
+		// Every rect check below reads the FOCUS position's own collapsed
+		// rects, never sel.getRangeAt(0) directly — confirmed live that
+		// while a mark is active, getRangeAt(0) returns the WHOLE anchor-
+		// to-focus range, whose getClientRects() reflects the entire
+		// highlighted span (often just one big rect covering most of a
+		// line) rather than "where does the caret currently render",
+		// which is what every check here actually needs. Using
+		// getRangeAt(0) directly broke "did we move" detection entirely
+		// once marked: the whole-range rect's own top rarely differs from
+		// beforeRect's, so every marked Ctrl-P/N silently became a no-op.
+		const beforeRect = this.titleFocusRects(doc, sel)[0] ?? sel.getRangeAt(0).getBoundingClientRect();
 		const goalX = this.titleGoalX ?? beforeRect.left;
 
 		this.titleSelectionModify(titleEl, forward ? 'forward' : 'backward', 'line');
+
+		// Set-mark: extending in the direction OPPOSITE the selection's
+		// current extension (e.g. Ctrl-F then Ctrl-P, or Ctrl-B then
+		// Ctrl-N) only retracts focus back to the anchor on THIS modify()
+		// call — confirmed live via a direct native-API probe — it does
+		// not continue past the anchor into the new direction until a
+		// SECOND call, same as pressing the key again would. Detect this
+		// exact case (focus landed exactly on the anchor it started this
+		// whole function at) and issue one more modify() call to actually
+		// complete the line move. Safe even at a genuine boundary (e.g.
+		// the anchor already sits at the title's own absolute start): the
+		// second call simply can't move any further either, and the
+		// movedRect check below still correctly reports "no line to move
+		// to" in that case.
+		//
+		// Crucially, only retry when this FIRST call's own retraction
+		// did NOT already cross a visual line boundary — confirmed live
+		// (reported after the above fix): once the anchor happens to sit
+		// exactly one VL away from where a chain of reversals currently
+		// is, retracting to it IS the real, complete one-line move (not a
+		// same-line "snap back to anchor" artifact); unconditionally
+		// retrying in that case issued a needless second call that
+		// continued PAST the anchor into a further line, silently
+		// skipping an entire visual line on every second reversal in a
+		// row (e.g. Ctrl-F, Ctrl-P, Ctrl-N chained together).
+		if (this.markActive && markAnchorNode &&
+			sel.focusNode === markAnchorNode && sel.focusOffset === markAnchorOffset &&
+			!this.titleFocusRects(doc, sel).some(r => Math.abs(r.top - beforeRect.top) >= 1)) {
+			this.titleSelectionModify(titleEl, forward ? 'forward' : 'backward', 'line');
+		}
 
 		// Confirmed live: modify('forward','line') can land EXACTLY on the
 		// ambiguous VL1/VL2 boundary offset (same offset this whole
@@ -1077,20 +1139,22 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// early. Check every rect: if ANY of them differs from the
 		// starting line, a line boundary genuinely was reached, and that
 		// differing rect's own top is the real target line's Y.
-		const afterRange = sel.rangeCount > 0 ? sel.getRangeAt(0) : null;
-		const afterRects = afterRange ? Array.from(afterRange.getClientRects()) : [];
-		const movedRect = afterRects.length > 0
-			? (afterRects.find(r => Math.abs(r.top - beforeRect.top) >= 1) ?? null)
-			: (afterRange && Math.abs(afterRange.getBoundingClientRect().top - beforeRect.top) >= 1 ? afterRange.getBoundingClientRect() : null);
+		const afterRects = this.titleFocusRects(doc, sel);
+		const movedRect = afterRects.find(r => Math.abs(r.top - beforeRect.top) >= 1) ?? null;
 		if (!movedRect) return false; // no line to move to; leave as-is
 
 		this.titleGoalX = goalX;
 		const targetY = movedRect.top + movedRect.height / 2;
-		const doc = titleEl.ownerDocument as unknown as { caretRangeFromPoint(x: number, y: number): Range | null };
-		const range = doc.caretRangeFromPoint(goalX, targetY);
+		const docCRFP = doc as unknown as { caretRangeFromPoint(x: number, y: number): Range | null };
+		const range = docCRFP.caretRangeFromPoint(goalX, targetY);
 		if (range && titleEl.contains(range.startContainer)) {
-			sel.removeAllRanges();
-			sel.addRange(range);
+			if (this.markActive && markAnchorNode) {
+				(sel as unknown as { setBaseAndExtent(aNode: Node, aOff: number, fNode: Node, fOff: number): void })
+					.setBaseAndExtent(markAnchorNode, markAnchorOffset, range.startContainer, range.startOffset);
+			} else {
+				sel.removeAllRanges();
+				sel.addRange(range);
+			}
 		}
 
 		// The position we just landed on (via caretRangeFromPoint, or left
@@ -1116,11 +1180,29 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// the one actually used for rendering doesn't match the target
 		// line we just moved to) and nudge onto a position that's
 		// unambiguously inside the target line.
-		const landedRects = sel.rangeCount > 0 ? sel.getRangeAt(0).getClientRects() : [];
+		const landedRects = this.titleFocusRects(doc, sel);
 		if (landedRects.length > 1 && Math.abs(landedRects[0].top - movedRect.top) >= 1) {
-			sel.modify('move', 'right', 'character');
+			// modify() operates on the CURRENT selection's own anchor,
+			// already correctly set to markAnchorNode/Offset by the
+			// setBaseAndExtent call above when marked — no extra anchor
+			// handling needed here, just the same alter as everywhere else.
+			(sel as unknown as { modify(alter: string, direction: string, granularity: string): void })
+				.modify(this.markActive ? 'extend' : 'move', 'right', 'character');
 		}
 		return true;
+	}
+
+	// Collapsed-at-focus rects — used throughout titleMoveLine instead of
+	// reading sel.getRangeAt(0) directly, since that range reflects the
+	// WHOLE anchor-to-focus span whenever a mark is active, not "where
+	// does the caret/focus currently render" (see titleMoveLine's own
+	// comment on why that distinction matters).
+	private titleFocusRects(doc: Document, sel: Selection): DOMRect[] {
+		if (!sel.focusNode) return [];
+		const r = doc.createRange();
+		r.setStart(sel.focusNode, sel.focusOffset);
+		r.collapse(true);
+		return Array.from(r.getClientRects());
 	}
 
 	// Ctrl-N (down) within the title: delegates the "move one VL down, or
@@ -1139,6 +1221,13 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const beforeRect = sel.getRangeAt(0).getClientRects()[0] ?? sel.getRangeAt(0).getBoundingClientRect();
 		const goalX = this.titleGoalX ?? beforeRect.left;
 		if (this.titleMoveLine(titleEl, true)) return; // moved to a new visual line, done
+		// Set-mark: the title<->body boundary is never crossed while
+		// extending, same "exit = stay in place" convention
+		// extendMarkInCell already uses for a table cell's own boundary —
+		// a marked selection can't span two separate DOM editing roots
+		// (CM6's own EditorSelection vs the title's native Selection), so
+		// this is a hard stop in both directions, not a deferred TODO.
+		if (this.markActive) return;
 
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 		if (!view) return;
@@ -1218,9 +1307,18 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// execCommand's own return value doesn't carry it.
 	private titleKillLine(titleEl: HTMLElement) {
 		this.titleGoalX = null; // horizontal-intent action
+		this.markActive = false; // kill commands deactivate the mark unconditionally, same as the body's own killLineOuter
 		const doc = titleEl.ownerDocument;
 		const sel = doc.getSelection();
-		if (!sel || sel.rangeCount === 0) return;
+		if (!sel || sel.rangeCount === 0 || !sel.focusNode) return;
+		// Collapse to the current focus point first, discarding any active
+		// (marked) selection — kill-line never looks at the region, always
+		// "from point to end of line", same as the body's own killLineOuter
+		// (and the same collapse titleKillWord already does for the
+		// identical reason). Without this, reading getRangeAt(0)'s own
+		// startOffset directly would kill from the WRONG end of an active
+		// selection whenever the mark's anchor sits after its focus.
+		sel.collapse(sel.focusNode, sel.focusOffset);
 		const cur = sel.getRangeAt(0);
 		const container = cur.startContainer;
 		if (container.nodeType !== Node.TEXT_NODE) return; // defensive: the title is always flat text
@@ -1271,6 +1369,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// appends.
 	private titleKillWord(titleEl: HTMLElement, forward: boolean) {
 		this.titleGoalX = null; // horizontal-intent action
+		this.markActive = false; // kill commands deactivate the mark unconditionally, same as the body's own killWordOuter
 		const doc = titleEl.ownerDocument;
 		const sel = doc.getSelection() as (Selection & {
 			modify(alter: string, direction: string, granularity: string): void;
@@ -1288,6 +1387,55 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		this.updateKillCache(killedText, !forward);
 		navigator.clipboard.writeText(this.killCache).catch(() => {});
 		this.isKillChaining = true;
+	}
+
+	// Ctrl-Space (set-mark candidate) in the title: arms markActive and
+	// collapses any active selection to its own focus point — the exact
+	// native-Selection equivalent of the body's own collapseActiveSelectionToHead
+	// (which collapses every range to its own head). Unlike the body's
+	// CM6-based Set-mark, no separate anchor-tracking is needed at all:
+	// the title's native Selection already distinguishes anchor from
+	// focus on its own, and titleSelectionModify/titleMoveToLineBoundary/
+	// titleMoveLine all already call Selection.modify with 'extend'
+	// instead of 'move' whenever markActive is true, which is the native
+	// browser's own built-in mechanism for "grow a selection from a fixed
+	// anchor" (the same one a real Shift+Arrow keypress uses).
+	//
+	// The title<->body boundary is never crossed while a mark is active,
+	// in either direction — see titleMoveLineOrEscapeToBody's own guard
+	// and escapeUpToTitle's call site (moveCursorUp routes to
+	// extendMarkVertically instead whenever markActive, which never knows
+	// about title-crossing at all and already stays put at the document's
+	// own start on its own). Same "exit = stay in place" convention
+	// extendMarkInCell already uses at a table cell's own boundary — a
+	// marked selection can't span two separate DOM editing roots (CM6's
+	// own EditorSelection vs the title's native Selection), so this is a
+	// permanent design boundary, not a deferred TODO.
+	private titleSetMark(titleEl: HTMLElement) {
+		this.markActive = true;
+		const sel = titleEl.ownerDocument.getSelection();
+		if (!sel || !sel.focusNode) return;
+		sel.collapse(sel.focusNode, sel.focusOffset);
+	}
+
+	// Ctrl-G (keyboard-quit) in the title: deactivates the mark and
+	// collapses any active selection to its own focus — set-mark
+	// cancellation ONLY. Deliberately does NOT mirror the body's own
+	// keyboardQuit any further than this (no multi-range concept exists
+	// in a native Selection to begin with, so there's nothing else to
+	// collapse). In particular, this must NOT leave the title the way a
+	// bare physical Escape does — confirmed live that native Escape in
+	// the title blurs it entirely, jumping back to wherever the cursor
+	// was in the body before the title was ever entered (Obsidian's own
+	// native behavior, untouched — see the bare-ESC Key Upgrade revert
+	// note elsewhere in this file for why). Ctrl-G staying put in the
+	// title, with only the mark/selection affected, is what distinguishes
+	// it from that native behavior.
+	private titleKeyboardQuit(titleEl: HTMLElement) {
+		this.markActive = false;
+		const sel = titleEl.ownerDocument.getSelection();
+		if (!sel || !sel.focusNode) return;
+		sel.collapse(sel.focusNode, sel.focusOffset);
 	}
 
 	onunload() {
