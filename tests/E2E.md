@@ -1107,4 +1107,23 @@ down.
   the exact same visual lines in reverse; and the final Ctrl-N escaping
   into the body.
 
+#### `titleCrossingPopout.e2e.ts`
+
+Confirms Ctrl-P/N title<->body crossing works the same inside a popout
+window — its own separate document/DOM, not just another view onto the
+main window's. This category of bug has bitten this plugin before (see
+`setMarkPopoutNativeClearing.e2e.ts`): a listener registered once against
+the main window's own document at plugin load time can silently never
+reach a later-opened popout's own document. The title Scope is
+pushed/popped via `registerWindowDomListeners`, which is already wired
+per-window — this is the regression test confirming that actually holds
+for the title-crossing feature specifically, not just the
+markActive-clearing listeners it was originally fixed for.
+
+- Doesn't reuse `openFixtureInPopoutAndGetContentStart` (that helper opens
+  an EXISTING committed fixture by path) — the note has to be created
+  with a controlled filename first (title = filename, same reasoning as
+  the two specs above), so this spec opens its own popout directly via
+  `app.workspace.openPopoutLeaf()`, closing it in `after`.
+
 1. Popout window support
