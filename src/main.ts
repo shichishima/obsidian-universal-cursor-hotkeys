@@ -917,6 +917,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		bind('keyboard-quit', (el) => this.titleKeyboardQuit(el));
 		bind('kill-region', (el) => this.titleKillRegion(el));
 		bind('copy-region', (el) => this.titleCopyRegion(el));
+		bind('yank', (el) => { void this.titleYank(el); });
 		return scope;
 	}
 
@@ -1476,6 +1477,50 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		this.isKillChaining = false;
 		this.updateKillCache(text);
 		navigator.clipboard.writeText(this.killCache).catch(() => {});
+	}
+
+	// Ctrl-Y (Yank) in the title: reads the OS clipboard (falling back to
+	// the kill-ring if that throws, same as the body's own yank), then
+	// inserts it via execCommand('insertText', false, raw) — the
+	// insertion counterpart to the 'delete' command titleKillLine/
+	// titleKillWord/titleKillRegion already use, same undo-stack
+	// integration. Replaces an active selection automatically (insertText
+	// is specified to do that), matching the body's own yankOuter, which
+	// uses range.from/range.to directly rather than range.head.
+	//
+	// None of the body's own yankOuter machinery applies here at all:
+	// multi-cursor distribution (a native Selection only ever has one
+	// range), Source Mode table-syntax escaping, and list-marker paste
+	// dedup are all body/Markdown-specific concerns the title has none
+	// of. Embedded newlines — plausible from a body-side kill spanning
+	// multiple lines — DO need manual stripping here, despite
+	// execCommand('insertText', ...) normally dropping them on its own
+	// (confirmed identical to a real native Cmd-V paste for a newline
+	// that isn't trailing). A kill-ring entry ending in a newline (e.g.
+	// two Ctrl-Ks in the body: first kills the line's own text, second
+	// kills the line break itself) hits a genuine Chromium contenteditable
+	// bug on insert — confirmed live, and confirmed to affect a real
+	// native Cmd-V paste identically, not just this plugin's own
+	// execCommand call: the selection's focus/anchor land on the title's
+	// container element instead of its text node afterward, and the
+	// title's native undo stack silently stops working for every
+	// subsequent edit. Stripping newlines ourselves before inserting
+	// avoids ever handing the browser a string it mishandles.
+	private async titleYank(titleEl: HTMLElement) {
+		this.markActive = false;
+		this.isKillChaining = false;
+		let raw: string;
+		try {
+			raw = await navigator.clipboard.readText();
+		} catch {
+			raw = this.killCache;
+		}
+		if (!raw) return;
+		const text = raw.replace(/\n/g, '');
+		if (!text) return;
+
+		this.titleGoalX = null; // horizontal-intent action
+		titleEl.ownerDocument.execCommand('insertText', false, text);
 	}
 
 	onunload() {
