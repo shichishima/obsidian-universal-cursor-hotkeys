@@ -1050,12 +1050,35 @@ documented in `setMarkMouseAndLeafChange.e2e.ts` for single-click).
 ### Title field (0.13.0 Feature 1)
 
 Ctrl-P/N crossing between the note body and the `.inline-title` field (a
-plain contenteditable, not CM6). The title's own text IS the note's
-filename, so unlike every other spec in this suite, these notes are
-created on the fly with `app.vault.create` instead of a committed
-`vaults/smoke/*.md` fixture — the filename controls the title under test
-directly. This plugin ships with no default hotkeys, and the title-field
-Scope specifically reads the user's own current bindings
+plain contenteditable, not CM6).
+
+**Why the NOTE isn't just opened in place from a committed fixture, the
+way every other spec in this suite does it**: every other spec's fixture
+FILENAME is just an arbitrary label (`MultiCursorHome.md`) — the actual
+test content lives in the file's BODY, after the `# heading`/`-`
+bullets/`---` separator, and the spec opens that exact file. These specs
+test the TITLE itself, and the title's own text IS the note's filename,
+so the note under test needs a filename that carries the literal string
+under test (a specific short string, an exact ch0 target, 140+ characters
+to force wrapping) — not a stable, readable label a committed file could
+keep. Kill line's own specs go further: Obsidian renames the file to
+match as the title is edited, so testing directly against a committed
+fixture would rename it on disk on every run. So the NOTE is created on
+the fly with `app.vault.create` under whatever title text the test
+needs, and deleted again in `after`.
+
+The note's BODY content, though, still lives in a normal committed
+`vaults/smoke/*.md` fixture, same `# heading`/`-` bullets/`---`
+convention as everywhere else — `readFixtureBody` (in `helpers.ts`,
+alongside `openFixtureAndGetContentStart`) reads everything after a given
+fixture's own `---` as a plain string, which the spec then passes
+straight into `app.vault.create`'s own content argument. Each such
+fixture's own filename ends in `...Fixture.md` specifically to avoid
+colliding with the dynamically-created note's own path — several of these
+specs name their note very close to the fixture it reads from.
+
+This plugin ships with no default hotkeys, and the title-field Scope
+specifically reads the user's own current bindings
 (`hotkeyManager.bakedHotkeys`), so these specs call
 `hotkeyManager.setHotkeys`/`bake()` before dispatching a real
 `KeyboardEvent` (bubbles:true) to whichever element has focus — same
@@ -1125,5 +1148,44 @@ markActive-clearing listeners it was originally fixed for.
   with a controlled filename first (title = filename, same reasoning as
   the two specs above), so this spec opens its own popout directly via
   `app.workspace.openPopoutLeaf()`, closing it in `after`.
+
+#### `titleKillLine.e2e.ts`
+
+Ctrl-K (Kill line) in the title field — the first content-*mutating*
+command to reach the title, everything before this was pure cursor
+movement. Uses `document.execCommand('delete', false)` rather than
+`Range.deleteContents()` — confirmed live the former integrates with the
+title's own native undo stack while the latter does not. Shares the exact
+same kill-ring (`killCache`/`isKillChaining`) as the body's own Kill line.
+
+- **(1)** Kills from the cursor to the title's own end; a second Ctrl-K
+  right at the new end is a no-op (the title is always logically ONE
+  line, so unlike the body's own Smart-join-into-the-next-line case,
+  there's no "next line" to join with here).
+- **(2)** Ctrl-Z (native undo) correctly restores the killed text.
+- **(3)/(4)** Direct regression coverage for a real gap found while
+  building this: `isKillChaining`'s own auto-reset is wired entirely
+  through CM6's `updateListener`, which never fires for the title at all
+  (plain contenteditable, not CM6) — every non-kill title command
+  (`titleMoveToLineBoundary`/`titleMoveChar`/`titleMoveLine`) needed an
+  explicit reset added, or a kill chain in the title would never break.
+  **(3)** confirms a kill in the title followed immediately by a kill in
+  the body (no intervening command) still chains into one kill-ring
+  entry; **(4)** confirms an intervening title movement between them
+  correctly breaks the chain (the body's kill overwrites rather than
+  appends).
+- Moving focus between the title and the body fires real native
+  focus/blur events that push/pop this plugin's own title Scope (same
+  wiring the real feature relies on) — `editor.focus()` is required
+  before `executeObsidianCommand` on the body will actually fire its
+  `editorCallback` at all (confirmed live: `editor.setCursor` alone
+  updates CM6's own state but doesn't move DOM focus away from the
+  title, so the editorCallback silently never ran).
+- Each test's post-kill title lands on a DIFFERENT prefix, not just
+  cosmetic — an earlier draft had every test converge on the same name
+  ("Kill"), and Obsidian's own rename-on-blur collided with the previous
+  test's leftover file of that name, silently breaking everything
+  downstream in that test. `openNote` deletes both the original and the
+  expected post-kill filename up front, and `after` cleans up both too.
 
 1. Popout window support

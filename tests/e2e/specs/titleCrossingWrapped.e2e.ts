@@ -1,5 +1,6 @@
 import { browser, expect } from '@wdio/globals'
 import { describe, it, after } from 'mocha'
+import { readFixtureBody } from '../helpers'
 
 // 0.13.0 Feature 1: Ctrl-P/N crossing into and within a WRAPPED title (one
 // long enough to span multiple visual lines). See titleCrossingShort.e2e.ts
@@ -58,7 +59,10 @@ describe('Title crossing: wrapped title', function () {
 	}
 
 	it('chains Ctrl-P up through each visual line exactly once, then Ctrl-N back down, then escapes to the body', async function () {
-		const hm = await browser.executeObsidian(async ({ app, obsidian }, path2) => {
+		// Line 0 is blank — the test crosses into the title from its own
+		// ch0.
+		const body = await readFixtureBody('TitleCrossingWrappedFixture.md')
+		const hm = await browser.executeObsidian(async ({ app, obsidian }, { path2, body2 }) => {
 			const hm2 = (app as any).hotkeyManager
 			hm2.setHotkeys('universal-cursor-hotkeys:cursor-up', [{ modifiers: ['Ctrl'], key: 'P' }])
 			hm2.setHotkeys('universal-cursor-hotkeys:cursor-down', [{ modifiers: ['Ctrl'], key: 'N' }])
@@ -66,12 +70,12 @@ describe('Title crossing: wrapped title', function () {
 			app.workspace.getLeavesOfType('markdown').forEach(leaf => leaf.detach())
 			const existing = app.vault.getFileByPath(path2)
 			if (existing) await app.vault.delete(existing)
-			const file = await app.vault.create(path2, '\nfirst line of body text here')
+			const file = await app.vault.create(path2, body2)
 			await app.workspace.getLeaf(true).openFile(file)
 			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
 			view.editor.setCursor({ line: 0, ch: 0 })
 			return true
-		}, path)
+		}, { path2: path, body2: body })
 		await expect(hm).toBe(true)
 		await browser.pause(300)
 

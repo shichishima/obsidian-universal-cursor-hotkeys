@@ -1,6 +1,6 @@
 import { browser, expect } from '@wdio/globals'
 import { describe, it, after } from 'mocha'
-import { switchToMainWindow } from '../helpers'
+import { switchToMainWindow, readFixtureBody } from '../helpers'
 
 // 0.13.0 Feature 1: confirms Ctrl-P/N title<->body crossing works the same
 // inside a popout window — its own SEPARATE document/DOM, not just a
@@ -67,21 +67,22 @@ describe('Title crossing inside a popout window', function () {
 	it('Ctrl-P crosses body ch0 -> title ch0, Ctrl-N escapes back, inside the popout\'s own document', async function () {
 		const beforeHandles = await browser.getWindowHandles()
 
-		const leafId = await browser.executeObsidian(async ({ app, obsidian }, path2) => {
+		const body = await readFixtureBody('TitleCrossingPopoutFixture.md')
+		const leafId = await browser.executeObsidian(async ({ app, obsidian }, { path2, body2 }) => {
 			const hm = (app as any).hotkeyManager
 			hm.setHotkeys('universal-cursor-hotkeys:cursor-up', [{ modifiers: ['Ctrl'], key: 'P' }])
 			hm.setHotkeys('universal-cursor-hotkeys:cursor-down', [{ modifiers: ['Ctrl'], key: 'N' }])
 			hm.bake()
 			const existing = app.vault.getFileByPath(path2)
 			if (existing) await app.vault.delete(existing)
-			const file = await app.vault.create(path2, 'alpha bravo charlie')
+			const file = await app.vault.create(path2, body2)
 			const leaf: any = app.workspace.openPopoutLeaf()
 			await leaf.openFile(file, { state: { mode: 'source', source: false } })
 			app.workspace.setActiveLeaf(leaf, { focus: true })
 			const view = leaf.view as InstanceType<typeof obsidian.MarkdownView>
 			view.editor.setCursor({ line: 0, ch: 0 })
 			return leaf.id as string
-		}, path)
+		}, { path2: path, body2: body })
 
 		await browser.waitUntil(
 			async () => (await browser.getWindowHandles()).length > beforeHandles.length,
