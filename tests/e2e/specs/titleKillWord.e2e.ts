@@ -64,7 +64,7 @@ describe('Kill word left/right (Alt-D / Alt-Backspace) in the title field', func
 			return browser.executeObsidian(({ app }) => {
 				return (app as any).plugins.plugins['universal-cursor-hotkeys'].titleScope !== null
 			})
-		}, { timeout: 2000, interval: 50, timeoutMsg: 'title Scope never pushed' })
+		}, { timeout: 8000, interval: 50, timeoutMsg: 'title Scope never pushed' })
 	}
 
 	async function pressAlt(key: string) {

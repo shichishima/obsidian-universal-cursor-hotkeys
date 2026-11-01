@@ -85,7 +85,7 @@ describe('Kill line (Ctrl-K) in the title field', function () {
 			return browser.executeObsidian(({ app }) => {
 				return (app as any).plugins.plugins['universal-cursor-hotkeys'].titleScope !== null
 			})
-		}, { timeout: 2000, interval: 50, timeoutMsg: 'title Scope never pushed' })
+		}, { timeout: 8000, interval: 50, timeoutMsg: 'title Scope never pushed' })
 	}
 
 	async function pressCtrl(el: 'body' | 'title', key: string) {

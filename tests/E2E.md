@@ -1238,4 +1238,73 @@ on its own, same as physical Option-←/→ in the title.
   over from the first) DOES pull that space in, a common word-delete
   convention (e.g. Ctrl+Backspace in many editors) rather than a bug.
 
+#### `titleSetMark.e2e.ts`
+
+Set-mark (Ctrl-Space) in the title field. Unlike the body's own CM6-based
+Set-mark (which needs its own anchor-tracking machinery), the title's
+native Selection already distinguishes anchor from focus on its own —
+arming the mark just collapses to the current focus, and every existing
+movement command already calls `Selection.modify` with `'extend'` instead
+of `'move'` whenever `markActive` is true (the same native mechanism a
+real Shift+Arrow keypress uses). The title<->body boundary is never
+crossed while a mark is active, in either direction — same "exit = stay
+in place" convention `extendMarkInCell` already uses at a table cell's
+own boundary, since a marked selection can't span two separate DOM
+editing roots (CM6's own `EditorSelection` vs the title's native
+`Selection`). Kill commands deactivate the mark unconditionally, same as
+the body's own convention.
+
+- **(1)** Ctrl-F/B extend a native selection from a fixed anchor; Ctrl-A/E
+  extend to the line boundary.
+- **(2)** The direct regression test for a real bug found live during
+  development: Ctrl-P/N's own "did we move to a new visual line"
+  detection read `sel.getRangeAt(0)` directly, which reflects the WHOLE
+  anchor-to-focus range once a mark is active (often a single rect
+  spanning most of a line) rather than "where does the caret/focus
+  currently render" — every marked Ctrl-P/N silently became a no-op as a
+  result. Fixed by reading a dedicated collapsed-at-focus range
+  throughout (`titleFocusRects`). Asserts the chain is monotonically
+  non-decreasing and eventually stabilizes (not the exact offsets/VL
+  count themselves, since the test window's own width isn't perfectly
+  reproducible across separate E2E runs), confirms the anchor never
+  moves and the title is never escaped from, then chains Ctrl-P back down
+  to the anchor itself.
+- **(2b)** Direct regression test for a second real bug found live:
+  extending in the direction OPPOSITE the selection's current extension
+  (Ctrl-F then Ctrl-P, or Ctrl-B then Ctrl-N) — a single
+  `Selection.modify('extend', ..., 'line')` call only retracts focus back
+  to the anchor in that situation (confirmed live via a direct native-API
+  probe), it doesn't continue past the anchor into the new direction
+  until a SECOND call. Without `titleMoveLine` detecting this (focus
+  landed exactly on the anchor it started the call at) and re-issuing the
+  modify() call once more, both of these silently collapsed the whole
+  selection back to the Set-mark position instead of moving at all.
+- **(2c)** A second real bug found live right after (2b)'s own fix
+  shipped: that fix unconditionally retried the modify() call whenever
+  the first one retracted focus exactly onto the anchor — correct when
+  the anchor sits on the SAME line the call started on (a trivial
+  same-line retraction, nothing moved yet), but wrong once a chain of
+  reversals puts the anchor on a genuinely DIFFERENT line: retracting
+  onto it there already IS the real, complete one-line move, and
+  retrying anyway continued past the anchor into a further line, silently
+  skipping one entire visual line on every SECOND reversal in a row
+  (e.g. Ctrl-F, Ctrl-P, Ctrl-N chained together). Fixed by only retrying
+  when the first call's own retraction did NOT already cross a visual
+  line boundary. Needs a title wrapping across 3+ visual lines — (2b)'s
+  own 2-line title can't distinguish this bug from (2b)'s own fix.
+- **(3)** Kill line clears the mark and kills from the cursor (focus),
+  not from the selection's own range-start — another real bug this
+  surfaced: `titleKillLine` used to read `getRangeAt(0)`'s own
+  `startOffset` directly, which is the range's lower-order boundary, not
+  necessarily point/focus, whenever the mark's anchor sits after its
+  focus. Fixed by collapsing to focus first, same pattern `titleKillWord`
+  already used.
+- **(4)** Ctrl-G (keyboard-quit) clears the mark and collapses to focus,
+  WITHOUT leaving the title — deliberately not mirroring native physical
+  Escape's own behavior there (confirmed live: it blurs the title
+  entirely, jumping back to wherever the cursor was in the body before
+  the title was ever entered, untouched Obsidian-native behavior — see
+  the bare-ESC Key Upgrade revert note elsewhere in `src/main.ts`). Set-
+  mark cancellation only, nothing else.
+
 1. Popout window support
