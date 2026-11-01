@@ -1326,4 +1326,71 @@ needed at all.
   Selection built directly via `setBaseAndExtent` (a mouse-drag
   equivalent), with Set-mark never pressed at all.
 
+#### `titleYank.e2e.ts`
+
+Ctrl-Y (Yank) in the title field — the last item in the Kill/Yank roadmap.
+`titleYank` uses `document.execCommand('insertText', false, text)` —
+confirmed live (via a throwaway probe comparing it against a real
+`ClipboardEvent('paste', ...)`) to behave identically to native Cmd-V
+paste in the title for an embedded (non-trailing) newline, dropping it
+entirely rather than replacing it with a space. But a kill-ring entry
+ENDING in a newline hits a genuine Chromium contenteditable bug on
+insert, confirmed live to affect a real native Cmd-V paste identically
+(not just this plugin's own `execCommand` call) — see test (5). Unlike
+the body's own `yank`/`yankOuter` (which needs per-range multi-cursor
+handling and Markdown-table/list-marker-dedup logic), the title only ever
+has one native Selection, and `execCommand('insertText')` already does
+the right thing whether the selection is collapsed or not.
+
+- **(1)** Yank inserts the kill-ring content at a collapsed cursor
+  position, and clears an active Set-mark (`markActive`) and
+  `isKillChaining`, same convention as every other title-mutating command.
+- **(2)** Yank replaces an active, non-collapsed native selection (built
+  directly via `setBaseAndExtent`, not Set-mark) instead of inserting at a
+  point — confirms `execCommand('insertText')`'s documented
+  selection-replacement behavior holds in this context.
+- **(3)** Cross-context round trip: Kill line in the BODY populates the
+  shared kill-ring (`killCache`), then Yank in the TITLE retrieves it —
+  the reverse direction of `titleKillLine.e2e.ts` test (3) (title kills,
+  body yanks). Confirms the kill-ring is genuinely shared plugin-level
+  state, not duplicated per context.
+- **(4)** Yank integrates with the title's own native undo stack (Ctrl-Z
+  right after a Yank restores the pre-yank text), same pattern already
+  confirmed for Kill line/Kill word/Kill region.
+- **(5)** Regression for a real user-reported bug: a kill-ring entry
+  ending in a newline (e.g. two Ctrl-Ks in the body — first kills the
+  line's own text, second kills the line break itself) corrupts the
+  title's native Selection on insert if the newline reaches
+  `execCommand('insertText')` unstripped — the selection's focus/anchor
+  land on the title's own container `<div>` instead of its text node, and
+  the title's native undo stack silently stops working for every
+  subsequent edit. Confirmed via a throwaway repro probe to affect a real
+  native Cmd-V paste of the same content identically, so `titleYank` now
+  strips newlines itself before calling `execCommand('insertText')`
+  rather than trusting the browser. This test asserts both halves: the
+  resulting selection lands on a real text node, and undo still works
+  right after.
+- **(6)** Yank prefers the real OS clipboard over `killCache` when they
+  diverge — simulates copying something outside Obsidian after an earlier
+  in-app kill (`killCache` is set directly, without touching the
+  clipboard, and the inserted text is the clipboard's own value).
+  Confirms `titleYank`'s `clipboard.readText()`-first design actually
+  takes effect, not just that it happens to agree with `killCache` in
+  every other test (which always seeds both to the same value).
+- **(7)** Yank falls back to `killCache` when
+  `navigator.clipboard.readText()` throws — monkey-patches `readText` to
+  reject for the duration of the test (restored in a `finally` so it
+  doesn't leak into later tests sharing this same Obsidian instance),
+  exercising the one branch of `titleYank`'s own try/catch that every
+  other test leaves untouched (`readText()` always succeeds in this E2E
+  harness otherwise).
+- **(8)** Strips an embedded (non-trailing) newline too, e.g. "AB\nCD" —
+  distinct from test (5)'s trailing-newline case: a multi-line body Kill
+  region would produce a kill-ring entry with a newline in the middle, not
+  just at the end. Same regression guard as test (5) (selection lands on
+  a real text node, undo still works).
+- **(9)** Yank is a safe no-op when the kill-ring is empty (both
+  `killCache` and the clipboard) — covers `titleYank`'s own early-return
+  guard.
+
 1. Popout window support
