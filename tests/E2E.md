@@ -1393,4 +1393,22 @@ the right thing whether the selection is collapsed or not.
   `killCache` and the clipboard) — covers `titleYank`'s own early-return
   guard.
 
+#### `titleKillYankPopout.e2e.ts`
+
+Confirms Set-mark, Kill region, and Yank in the title field all work
+inside a popout window's own separate document. `titleCrossingPopout.e2e.ts`
+already covers this for pure cursor movement (Ctrl-P/N); the title Scope's
+per-window registration (`registerWindowDomListeners`, wired through
+`app.workspace.on('window-open', ...)`) was designed to cover every title
+command in a popout "for free," but `titleKillLine.e2e.ts`/
+`titleKillWord.e2e.ts`/`titleSetMark.e2e.ts`/`titleRegion.e2e.ts`/
+`titleYank.e2e.ts` only ever run against the main window, so that
+architectural expectation had never actually been exercised for anything
+content-mutating. Rather than duplicating each of those specs' own
+assertions a second time inside a popout, this is a single combined test
+chaining Set-mark extend → Kill region → Yank (round-trips back to the
+exact original title) → Kill line, in one popout session — enough to
+prove the shared mechanism isn't accidentally scoped to the main window
+only, without re-testing logic already covered elsewhere.
+
 1. Popout window support
