@@ -1,5 +1,20 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **Emacs-style keybindings now work directly in the note title field** (not just the note body): previously, pressing any of these keys while focused in the title simply did nothing — Obsidian's own command dispatch doesn't fire for these commands unless real DOM focus is in the note body's own editor.
+  - **Cursor movement:** Ctrl-B/F (left/right character), Ctrl-A/E (Home/End), Ctrl-P/N (up/down) — including crossing the boundary between the title and the first line of the body in either direction, with the goal column preserved across the crossing. Ctrl-A/E honors the Visual line movement setting the same way the note body's own Home/End does: moves to the start/end of the current visual line first on a wrapped title, escalating to the title's own absolute start/end only once already there.
+  - **Set-mark (Ctrl-Space) and Deselect (Ctrl-G):** extend a real selection from a marked position using the movement keys above, the same way Set-mark already works in the note body.
+  - **Kill line (Ctrl-K):** kills from the cursor to the title's own end.
+  - **Kill word left/right:** word-boundary detection reuses the title's own native word segmentation, which is already CJK-aware on its own — no separate dictionary-based engine needed here, unlike the note body. No hotkey assigned by default.
+  - **Kill region (Ctrl-W) / Copy region:** kill or copy whatever is currently selected, however it got selected (Set-mark, a mouse drag, Shift+Arrow). Copy region has no hotkey assigned by default.
+  - **Yank (Ctrl-Y):** pastes the kill-ring content, preferring the real OS clipboard and falling back to the kill-ring if that's unavailable; replaces an active selection if there is one. Strips any newlines from the pasted text before inserting, to avoid a Chromium contenteditable bug that would otherwise corrupt the title's own selection and silently break its native undo — confirmed to affect a real native Cmd/Ctrl+V paste of the same content identically, not just this plugin's own Yank.
+  - All of the above share the same kill-ring/clipboard state as the note body's own Kill/Yank commands: killing in one and yanking in the other round-trips correctly.
+  - Works inside a popout window too.
+  - No separate settings for the title field: each command automatically follows whichever hotkey is already assigned to its note-body counterpart, visible the same way as always in Settings → Universal Cursor Hotkeys (or Obsidian's own Hotkeys page).
+
 ## [0.12.0] - 2026-10-27
 
 ### Added
