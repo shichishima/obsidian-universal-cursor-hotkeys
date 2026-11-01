@@ -1187,5 +1187,55 @@ same kill-ring (`killCache`/`isKillChaining`) as the body's own Kill line.
   test's leftover file of that name, silently breaking everything
   downstream in that test. `openNote` deletes both the original and the
   expected post-kill filename up front, and `after` cleans up both too.
+- `openNote`'s own wait after opening the note polls for this plugin's
+  `titleScope` field to actually become non-null, instead of a fixed
+  pause — confirmed live a flat 300ms pause here was genuinely flaky
+  (title.focus()'s own focusin handler pushes the title Scope
+  asynchronously enough relative to a freshly-opened leaf that 300ms
+  wasn't always enough margin), failing as "nothing happened at all" on
+  a test's very first keypress. Found while building
+  `titleKillWord.e2e.ts` below, which hits the identical `openNote`
+  shape; retrofitted here too.
+
+#### `titleKillWord.e2e.ts`
+
+Alt-D (Kill word right) / Alt-Backspace (Kill word left) in the title
+field. Deliberately does NOT reuse `word-segmentation.ts` (the
+`Intl.Segmenter`-based engine Word left/right and Vim `w`/`b`/`e` need on
+the body side, since CM6's own native word-class boundary has no CJK
+awareness at all) — confirmed live the title's own native
+`Selection.modify('extend', ..., 'word')` already segments CJK correctly
+on its own, same as physical Option-←/→ in the title.
+
+- **(1)** Kills exactly one word forward/backward from the cursor; a
+  no-op right at the title's own start/end.
+- **(2)** Ctrl-Z (native undo) correctly restores the killed word — same
+  `execCommand('delete', false)` mechanism as Kill line.
+- **(3)** The direct regression test for the CJK finding above. Killing
+  an embedded English word (e.g. "Emacs") wouldn't actually test CJK
+  segmentation — the real test is whether a run of kanji/hiragana
+  ("異なる扱いです") gets split at all, rather than killed as one
+  indivisible block (the exact failure mode `word-segmentation.ts` exists
+  to prevent on the body side). Two consecutive kills split it into
+  "異なる" then "扱い" — genuinely word-aware, though NOT an identical
+  split to the body's own custom segmenter (see
+  `cjkDoubleClickWordSelect.e2e.ts`, which keeps "異なる" as one
+  verb+auxiliary unit the same way, but doesn't split "扱いです" further
+  the way the title's native boundary does) — different engines, both
+  real word segmentation, asserting the title's own actual behavior
+  rather than that it matches the body's. Uses its own minimal title
+  text ("異なる扱いです" alone, confirmed live to segment identically to
+  the same substring embedded in `cjkDoubleClickWordSelect.e2e.ts`'s own
+  longer fixture text) rather than reusing that spec's full string —
+  the "日本語の"/"Emacs" portions there exist for ITS OWN separate checks
+  (a pure CJK run, an embedded English word), not this one.
+- **(4)** A backward kill prepends, building the kill-ring in buffer
+  order across two consecutive backward kills (`updateKillCache`'s own
+  `prepend = !forward`, matching the body's own `killWordOuter`
+  convention) — also surfaces a real, confirmed nuance: a backward kill
+  starting from the true end of the title text excludes the preceding
+  space, but a second backward kill starting right after a space (left
+  over from the first) DOES pull that space in, a common word-delete
+  convention (e.g. Ctrl+Backspace in many editors) rather than a bug.
 
 1. Popout window support

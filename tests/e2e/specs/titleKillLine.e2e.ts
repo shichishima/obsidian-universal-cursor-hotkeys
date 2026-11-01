@@ -75,7 +75,17 @@ describe('Kill line (Ctrl-K) in the title field', function () {
 			sel.removeAllRanges()
 			sel.addRange(range)
 		}, { path2: path, postKillPath: postKillName, body2: body, offset: titleOffset })
-		await browser.pause(300)
+		// Deterministic instead of a fixed pause — confirmed live (while
+		// building titleKillWord.e2e.ts, which hits this same openNote
+		// shape) that a flat 300ms isn't always enough margin for
+		// title.focus()'s own focusin handler to finish pushing the title
+		// Scope on a freshly-opened leaf; failed as "nothing happened at
+		// all" on the very first Ctrl-K press of a test.
+		await browser.waitUntil(async () => {
+			return browser.executeObsidian(({ app }) => {
+				return (app as any).plugins.plugins['universal-cursor-hotkeys'].titleScope !== null
+			})
+		}, { timeout: 2000, interval: 50, timeoutMsg: 'title Scope never pushed' })
 	}
 
 	async function pressCtrl(el: 'body' | 'title', key: string) {
