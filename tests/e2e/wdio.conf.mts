@@ -70,6 +70,7 @@ export const config: WebdriverIO.Config = {
 		'./specs/titleKillYankPopout.e2e.ts',
 		'./specs/propertyItemSelection.e2e.ts',
 		'./specs/propertyCtrlBf.e2e.ts',
+		'./specs/propertyCtrlG.e2e.ts',
 		'./specs/titleCrossingFrontmatter.e2e.ts',
 	]],
 

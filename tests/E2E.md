@@ -1502,6 +1502,58 @@ to 3 times, checking after each) instead of a hardcoded count.
 - **(6)** Regression: Ctrl-B/F at the Add-button are a no-op (matches
   native).
 
+#### `propertyCtrlG.e2e.ts`
+
+Phase 3 of the frontmatter sub-phase: Ctrl-G (`keyboard-quit`) in
+Properties-panel item-selection mode delegates straight to native
+Escape, the same "delegate to native key" pattern Ctrl-B/F and Ctrl-N/P
+already use for this panel. Unlike cursor-up/down, there's no
+goal-column concern here at all — confirmed live before writing these
+tests: native Escape from ANY element in the chain (a row, the heading,
+the Add-button — panel expanded or collapsed, doesn't matter) simply
+returns DOM focus to the body. CM6's own cursor position was never
+touched while focus was in Properties (entering item-selection mode
+never moves it), so it's restored exactly where it already was. Built
+red-green: these tests were written and run against the pre-fix code
+first (4 of 6 failing — Ctrl-G simply wasn't intercepted, so focus never
+left Properties at all), then the one-line `buildPropertyRowScope`
+addition made all 6 pass.
+
+- **(1)** Ctrl-G on a property row escapes to the body, restoring its
+  own existing cursor position (not a fixed one).
+- **(2)** Ctrl-G at the Properties heading escapes to the body the same
+  way.
+- **(3)** Ctrl-G at the Add-button escapes to the body the same way.
+- **(4)** Ctrl-G at the heading, panel COLLAPSED, still escapes to the
+  body the same way — collapsed treated as a normal-case variant from
+  the start, not a reactive edge case.
+- **(5)** Regression: Ctrl-G does nothing to row focus while ordinary
+  text editing is active (not item-selection mode) — same exact-match
+  Scope-push guard every other command in this panel already relies on.
+- **(6)** Regression: a note WITHOUT frontmatter is unaffected —
+  Ctrl-G still clears an active Set-mark selection in the body exactly
+  as before.
+
+**Investigated and deferred, not a bug**: whether Ctrl-G could also work
+from inside actual text-editing mode (name/value-edit), matching what
+physical Escape itself already does there (real Emacs's C-g is a
+universal abort, not scoped to one navigation mode). Confirmed live:
+broadening this plugin's `app.keymap.pushScope`-based mechanism (even
+using `.closest()` instead of an exact match) can't reach it — Obsidian
+stops propagation of any Ctrl-modified keydown from inside a
+contenteditable-DIV value-edit widget (e.g. text's own
+`metadata-input-longtext`) somewhere between `document.body` and
+`.workspace-split`, before it ever reaches this plugin's own
+document-level interception, regardless of how broadly the push/pop
+condition is widened. A plain `<input>`-based widget (name-edit always;
+number's own value-edit) does NOT block it — only the richer
+contenteditable-DIV ones do. A listener attached directly on
+`view.containerEl` (confirmed live to still see the event, since it sits
+below `.workspace-split`) does work, but that's a materially different
+mechanism from the Scope-based one everything else in this panel uses —
+left for a separate future branch, needed anyway for the planned
+property-value-editing Ctrl-F/B/A/E/W/Y suite.
+
 #### `titleCrossingFrontmatter.e2e.ts`
 
 Extends the already-shipped title<->body crossing

@@ -900,6 +900,21 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// editing) must NOT push this scope; only the row DIV itself
 		// (reached via Escape x2) counts as item-selection mode. Parallel
 		// to, not merged with, the title's own focusin/focusout above.
+		//
+		// Confirmed live this session that broadening this to .closest()
+		// (so Ctrl-G could also work from inside actual text-editing, not
+		// just item-selection mode) doesn't work for contenteditable-DIV
+		// value-edit widgets (e.g. text's own "metadata-input-longtext")
+		// anyway — Obsidian stops propagation of any Ctrl-modified keydown
+		// somewhere between document.body and .workspace-split, which
+		// this app.keymap.pushScope-based mechanism can't reach regardless
+		// of how broadly it's pushed (confirmed: document-level listeners,
+		// capture or bubble, never see the event at all from there). A
+		// listener attached directly on view.containerEl (or anything
+		// below .workspace-split) DOES see it fine — that's a real,
+		// different mechanism for a future branch to use for editing-mode
+		// support (also needed for the planned property-value-editing
+		// Ctrl-F/B/A/E/W/Y suite), not something to bolt onto this one.
 		this.registerDomEvent(doc, 'focusin', (e: FocusEvent) => {
 			if ((e.target as HTMLElement)?.matches?.(PROPERTY_PANEL_FOCUS_SELECTOR)) {
 				this.propertyRowScope = this.buildPropertyRowScope();
@@ -1033,6 +1048,29 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// Add-button does nothing either way.
 		bind('cursor-left', 'ArrowLeft');
 		bind('cursor-right', 'ArrowRight');
+		// Ctrl-G (keyboard-quit): also a plain native dispatch, no handler
+		// needed — confirmed live that native Escape from ANY element in
+		// this chain (a row, the heading, the Add-button, panel expanded
+		// or collapsed) simply returns DOM focus to the body. CM6's own
+		// cursor position was never touched while focus was in
+		// Properties, so it's restored exactly where it already was — no
+		// goal-column logic needed here, unlike cursor-up/down.
+		//
+		// Deliberately scoped to item-selection mode only, same as every
+		// other binding here — does NOT also work from inside a row's own
+		// text-editing descendants (unlike what Escape itself does
+		// there). Confirmed live: Obsidian stops propagation of any
+		// Ctrl-modified keydown from inside a contenteditable-DIV
+		// value-edit widget (e.g. text's "metadata-input-longtext")
+		// somewhere between document.body and .workspace-split, which
+		// this app.keymap.pushScope-based mechanism can never reach no
+		// matter how the push/pop condition is broadened. Extending into
+		// editing mode needs a different mechanism entirely (a listener
+		// attached directly on view.containerEl or similar, confirmed
+		// live to still see the event there) — left for a separate
+		// branch, alongside the planned property-value-editing
+		// Ctrl-F/B/A/E/W/Y suite that will need the same mechanism.
+		bind('keyboard-quit', 'Escape');
 		return scope;
 	}
 
