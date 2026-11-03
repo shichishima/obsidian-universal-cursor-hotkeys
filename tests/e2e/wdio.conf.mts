@@ -68,6 +68,8 @@ export const config: WebdriverIO.Config = {
 		'./specs/titleRegion.e2e.ts',
 		'./specs/titleYank.e2e.ts',
 		'./specs/titleKillYankPopout.e2e.ts',
+		'./specs/propertyItemSelection.e2e.ts',
+		'./specs/titleCrossingFrontmatter.e2e.ts',
 	]],
 
 	// Serial by default — confirmed live that running multiple Obsidian/
