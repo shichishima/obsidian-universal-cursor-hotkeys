@@ -19,6 +19,17 @@ import { cjkWordSelectionStyle } from './cjk-word-select';
 // own selector for the same element.
 const TITLE_SELECTOR = ".inline-title[contenteditable='true']";
 
+// 0.13.0 Feature 1, frontmatter sub-phase: a Properties-panel row, in its
+// own "item selection mode" (confirmed live: Escape twice from inside a
+// property's text editing collapses focus to the row DIV itself,
+// tabIndex=0 — distinct from any of its own text-editing descendants
+// having focus, which is a separate, later phase's concern). Also
+// matches the panel's own heading ("Properties") and its trailing
+// "Add property" button — both are real tabIndex=0 focus targets in the
+// same row-to-row ArrowUp/Down navigation chain, confirmed live.
+const PROPERTY_PANEL_FOCUS_SELECTOR =
+	'.metadata-property, .metadata-properties-heading, .metadata-add-button';
+
 // Extend the Obsidian Editor interface to include the internal CodeMirror 6 instance (EditorView)
 declare module "obsidian" {
 	interface Editor {
@@ -170,6 +181,29 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// comment for why this is cheap (reads only this short, fixed command
 	// list's current hotkeys, not Obsidian's or UCH's full hotkey table).
 	private titleScope: Scope | null = null;
+
+	// 0.13.0 Feature 1, frontmatter sub-phase: pushed/popped the same way
+	// as titleScope above, but keyed to a Properties-panel row's own
+	// "item selection mode" (see PROPERTY_PANEL_FOCUS_SELECTOR) instead of the
+	// title field.
+	private propertyRowScope: Scope | null = null;
+
+	// 0.13.0 Feature 1, frontmatter sub-phase: a goal-column equivalent
+	// for crossings that pass THROUGH the Properties panel (body<->title
+	// now that Properties sits between them). Always stored in BODY's
+	// own screen-pixel space (the same shape escapeUpToTitle's own
+	// `targetX` parameter expects), regardless of whether it was
+	// established from the body side (stored directly) or the title side
+	// (converted to body-space before storing, using the same
+	// gutter-normalization formula titleMoveLineOrEscapeToBody already
+	// uses for its own direct body landing) — this way only ONE
+	// direction of conversion (body-space -> title-space) is ever needed,
+	// at the single point where it finally lands in the title. Set when
+	// entering Properties from either side, consumed (and reset to null)
+	// the moment it's actually used to land a cursor in title or body;
+	// while merely navigating row-to-row within Properties it's just
+	// carried through unused, since no row has horizontal text to target.
+	private propertyGoalX: number | null = null;
 
 	// Goal-column equivalent for the title's own vertical (Ctrl-P/N)
 	// movement — same idea as execPreservingGoalColumn's goalColumn for
@@ -858,6 +892,26 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				this.titleGoalX = null; // safety net for any exit path titleMoveLineOrEscapeToBody doesn't cover
 			}
 		}, true);
+
+		// 0.13.0 Feature 1, frontmatter sub-phase: Properties-panel row
+		// item-selection mode (see PROPERTY_PANEL_FOCUS_SELECTOR's own comment).
+		// Deliberately an exact-match check (e.target, not .closest()) —
+		// a property's own text/input descendant having focus (ordinary
+		// editing) must NOT push this scope; only the row DIV itself
+		// (reached via Escape x2) counts as item-selection mode. Parallel
+		// to, not merged with, the title's own focusin/focusout above.
+		this.registerDomEvent(doc, 'focusin', (e: FocusEvent) => {
+			if ((e.target as HTMLElement)?.matches?.(PROPERTY_PANEL_FOCUS_SELECTOR)) {
+				this.propertyRowScope = this.buildPropertyRowScope();
+				this.app.keymap.pushScope(this.propertyRowScope);
+			}
+		}, true);
+		this.registerDomEvent(doc, 'focusout', (e: FocusEvent) => {
+			if (this.propertyRowScope && (e.target as HTMLElement)?.matches?.(PROPERTY_PANEL_FOCUS_SELECTOR)) {
+				this.app.keymap.popScope(this.propertyRowScope);
+				this.propertyRowScope = null;
+			}
+		}, true);
 	}
 
 	// Scans the baked hotkey table (defaults + user overrides already
@@ -919,6 +973,190 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		bind('copy-region', (el) => this.titleCopyRegion(el));
 		bind('yank', (el) => { void this.titleYank(el); });
 		return scope;
+	}
+
+	// 0.13.0 Feature 1, frontmatter sub-phase 1: Ctrl-N/P drive the same
+	// row-to-row focus navigation a Properties-panel row's own "item
+	// selection mode" already does for physical ArrowUp/ArrowDown — see
+	// PROPERTY_PANEL_FOCUS_SELECTOR's own comment. Delegates to a synthetic
+	// native key dispatch on the focused row rather than hand-rolling
+	// previousElementSibling/nextElementSibling + .focus() — confirmed
+	// live that physical ArrowDown already handles every boundary
+	// sensibly on its own (row-to-row, heading-into-first-row, and
+	// last-row-into-the-"Add property"-button, which itself already
+	// falls through correctly into the body below), so no extra
+	// boundary-guard code is needed for cursor-down anywhere; the
+	// synthetic dispatch just inherits whatever Obsidian's own native
+	// handler already does, same "delegate to native key" precedent Key
+	// Upgrades elsewhere in this plugin already uses.
+	//
+	// cursor-up is the one exception: physical ArrowUp from the heading
+	// escapes to the title but SELECTS it whole, unlike every other
+	// Ctrl-N/P crossing in this plugin (body<->title, table-row
+	// crossings), which always lands a collapsed cursor — matching that
+	// instead of native's own select-all needs its own handler
+	// (propertyHeadingEscapeToTitle) rather than a plain dispatch.
+	private buildPropertyRowScope(): Scope {
+		(this.app as any).hotkeyManager.bake();
+		const scope = new Scope();
+		const bind = (
+			commandId: string,
+			key: string,
+			headingHandler?: (heading: HTMLElement) => void,
+			addButtonHandler?: (addButton: HTMLElement) => void,
+		) => {
+			for (const hk of this.getEffectiveHotkeysFor(commandId)) {
+				scope.register(hk.modifiers as Modifier[], hk.key, (evt) => {
+					const target = (evt.target as HTMLElement)?.matches?.(PROPERTY_PANEL_FOCUS_SELECTOR)
+						? (evt.target as HTMLElement) : null;
+					if (!target) return false;
+					if (headingHandler && target.matches('.metadata-properties-heading')) {
+						headingHandler(target);
+					} else if (addButtonHandler && target.matches('.metadata-add-button')) {
+						addButtonHandler(target);
+					} else {
+						target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+					}
+					return false;
+				});
+			}
+		};
+		bind('cursor-up', 'ArrowUp', (heading) => this.propertyHeadingEscapeToTitle(heading));
+		bind('cursor-down', 'ArrowDown', undefined, (addButton) => this.propertyAddButtonEscapeToBody(addButton));
+		return scope;
+	}
+
+	// Properties heading, Ctrl-P: lands a collapsed cursor at the title's
+	// own end, rather than native ArrowUp's own select-the-whole-title —
+	// matches every other Ctrl-N/P crossing in this plugin (body<->title,
+	// table-row crossings), which always lands a collapsed cursor, never
+	// a selection. Scoped to the active view's own container (not
+	// document-wide), same multi-leaf/popout reasoning as
+	// escapeUpToTitle/titleMoveLineOrEscapeToBody.
+	private propertyHeadingEscapeToTitle(heading: HTMLElement) {
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		const scopeEl = view?.containerEl ?? heading.ownerDocument;
+		const title = scopeEl.querySelector(TITLE_SELECTOR) as HTMLElement | null;
+		if (!title) return;
+		title.focus();
+		const doc = title.ownerDocument;
+		const sel = doc.getSelection() as (Selection & {
+			modify(alter: string, direction: string, granularity: string): void;
+		}) | null;
+
+		// 0.13.0 Feature 1, frontmatter sub-phase: if a goal column
+		// survived the Properties detour (set by moveCursorUpImpl or
+		// titleMoveLineOrEscapeToBody when first entering Properties),
+		// land at its title-space equivalent instead of the title's own
+		// end — matches body<->title crossing's own column-preserving
+		// behavior for the no-frontmatter case. Mirrors escapeUpToTitle's
+		// own landing logic (caretRangeFromPoint + the same ambiguous-VL
+		// nudge), just reached from the heading instead of the body.
+		if (this.propertyGoalX != null && view) {
+			const cm = (view.editor as any).cm as EditorView;
+			const bodyLineStartX = cm.coordsAtPos(view.editor.posToOffset({ line: this.getFirstBodyLine(), ch: 0 }))?.left;
+			const titleStartX = title.getBoundingClientRect().left;
+			const adjustedX = bodyLineStartX != null ? this.propertyGoalX - bodyLineStartX + titleStartX : this.propertyGoalX;
+			this.propertyGoalX = null;
+			this.titleGoalX = adjustedX;
+			const titleRect = title.getBoundingClientRect();
+			const targetY = titleRect.bottom - 1;
+			const clampedX = Math.min(Math.max(adjustedX, titleRect.left), titleRect.right - 1);
+			const range = (doc as unknown as { caretRangeFromPoint(x: number, y: number): Range | null })
+				.caretRangeFromPoint(clampedX, targetY);
+			if (range && title.contains(range.startContainer)) {
+				sel?.removeAllRanges();
+				sel?.addRange(range);
+				const landedRects = sel ? Array.from(sel.getRangeAt(0).getClientRects()) : [];
+				if (landedRects.length > 1) {
+					const targetRect = landedRects.reduce((a, b) => (b.top > a.top ? b : a));
+					if (Math.abs(landedRects[0].top - targetRect.top) >= 1) {
+						sel?.modify('move', 'right', 'character');
+					}
+				}
+				return;
+			}
+			// Landing failed (e.g. hit-test fell outside the title) — fall
+			// through to the default end-of-title landing below.
+		}
+
+		// No preserved goal (or landing above failed) — collapse to the
+		// title's own end. Deliberately NOT sel.collapse(title,
+		// title.childNodes.length) — confirmed live that lands the
+		// selection's focus/anchor on the title's own container DIV (an
+		// ELEMENT, child-index-based position) rather than its text node,
+		// the same bug class already found and fixed for titleYank's own
+		// newline handling. A subsequent Ctrl-N from there (titleMoveLine)
+		// misjudges that element-anchored position as "there's still room
+		// to move," silently eating the first press before a second one
+		// finally escapes back out. Selection.modify's own
+		// 'documentboundary' granularity always lands on a real text node
+		// instead.
+		this.propertyGoalX = null;
+		sel?.modify('move', 'forward', 'documentboundary');
+	}
+
+	// Properties Add-button, Ctrl-N: mirrors propertyHeadingEscapeToTitle
+	// for the opposite direction — lands in the body at the preserved
+	// goal column (propertyGoalX, already stored in body-space, see its
+	// own comment) if one survived the Properties detour, reusing
+	// titleMoveLineOrEscapeToBody's own body-landing logic (posAtCoords +
+	// seeding CM6's native goalColumn so a Ctrl-P/N chain continuing in
+	// the body keeps reaching for this same column). Falls back to plain
+	// native ArrowDown delegation (already confirmed live to land at the
+	// body's real first line, ch 0) when there's no preserved goal.
+	private propertyAddButtonEscapeToBody(addButton: HTMLElement) {
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (this.propertyGoalX == null || !view) {
+			addButton.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+			return;
+		}
+		const cm = (view.editor as any).cm as EditorView;
+		const firstLineCoords = cm.coordsAtPos(view.editor.posToOffset({ line: this.getFirstBodyLine(), ch: 0 }));
+		if (!firstLineCoords) {
+			addButton.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+			return;
+		}
+		const targetY = (firstLineCoords.top + firstLineCoords.bottom) / 2;
+		const targetX = this.propertyGoalX;
+		this.propertyGoalX = null;
+		const pos = cm.posAtCoords({ x: targetX, y: targetY }, false);
+		view.editor.focus();
+		if (pos == null) return;
+		const rect = cm.contentDOM.getBoundingClientRect();
+		const goalColumnToSeed = targetX - rect.left;
+		cm.dispatch({
+			selection: EditorSelection.create(
+				[EditorSelection.cursor(pos, 1, undefined, goalColumnToSeed)],
+				0,
+			),
+			scrollIntoView: true,
+			userEvent: 'move',
+		});
+	}
+
+	// Returns the 0-indexed line where real body content starts,
+	// accounting for frontmatter. Needed because frontmatter's own lines
+	// get silently clamped past by Live Preview the moment anything tries
+	// to place a cursor there (confirmed live: editor.setCursor({line:0,
+	// ch:0}) with frontmatter present actually lands on the real first
+	// body line instead) — a hardcoded `line === 0` check for "the body's
+	// own top" is unreachable whenever frontmatter exists.
+	//
+	// Source Mode deliberately returns 0 unconditionally, ignoring
+	// frontmatter entirely — there's no Properties GUI panel to land on
+	// there at all, and frontmatter is just plain text like any other
+	// line, so the whole "skip past it" concept this helper exists for
+	// doesn't apply. Without this, a note's own absolute line 0 (the
+	// opening ---) would never satisfy `cursor.line === firstBodyLine`
+	// (since frontmatterPosition still exists even in Source Mode),
+	// silently breaking the plain title<->body Ctrl-P/N crossing for
+	// every frontmatter-having note in Source Mode specifically.
+	private getFirstBodyLine(): number {
+		if (!this.isLivePreviewMode()) return 0;
+		const file = this.app.workspace.getActiveFile();
+		const fmPos = file ? this.app.metadataCache.getFileCache(file)?.frontmatterPosition : undefined;
+		return fmPos ? fmPos.end.line + 1 : 0;
 	}
 
 	// Selection.modify is a real, long-standing (baseline ~2020) Chromium/
@@ -1241,8 +1479,60 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 		if (!view) return;
+
+		// 0.13.0 Feature 1, frontmatter sub-phase: land in the Properties
+		// panel's own heading instead of jumping straight to the body,
+		// when the note actually HAS frontmatter (getFirstBodyLine() > 0)
+		// AND a Properties panel is actually visible right now (Source
+		// Mode has no GUI panel). Checking the heading element's own mere
+		// DOM PRESENCE is not enough on its own — confirmed live the
+		// `.metadata-properties-heading`/`.metadata-add-button` elements
+		// exist in the DOM (just hidden, offsetParent === null) even for a
+		// note with NO frontmatter at all, so a presence-only check
+		// wrongly redirected .focus() to a hidden, unfocusable element,
+		// silently breaking the existing title->body escape for every
+		// frontmatter-less note.
+		const heading = (this.getFirstBodyLine() > 0)
+			? view.containerEl.querySelector('.metadata-properties-heading') as HTMLElement | null
+			: null;
+		if (heading && heading.offsetParent !== null) {
+			this.titleGoalX = null; // leaving the title; the title-local goal has no meaning inside Properties
+			// 0.13.0 Feature 1, frontmatter sub-phase: preserve the goal
+			// column through the Properties detour instead of discarding
+			// it — convert title-space goalX to BODY-space before storing
+			// (propertyGoalX's own comment explains why body-space is the
+			// canonical shape), using the exact same gutter-normalization
+			// formula this function's own direct body-landing already
+			// uses below. Best-effort: if the body's own first-line
+			// coords aren't available for some reason, store nothing
+			// rather than a wrong value — propertyHeadingEscapeToTitle
+			// already has a sensible fallback for a null propertyGoalX.
+			const cmForGoal = (view.editor as any).cm as EditorView;
+			const firstLineCoordsForGoal = cmForGoal.coordsAtPos(view.editor.posToOffset({ line: this.getFirstBodyLine(), ch: 0 }));
+			if (firstLineCoordsForGoal) {
+				const titleStartXForGoal = titleEl.getBoundingClientRect().left;
+				this.propertyGoalX = goalX - titleStartXForGoal + firstLineCoordsForGoal.left;
+			}
+			heading.focus();
+			// Confirmed live: focusing a plain (non-text) element like the
+			// heading does NOT itself clear window.getSelection() — the
+			// native Selection silently keeps pointing at wherever it was
+			// in the title's own text. The title's own cursor rendering
+			// doesn't care (CM6-independent title, nothing reads this
+			// stale state on its own), but a THIRD-PARTY title-caret
+			// plugin reading window.getSelection() directly (confirmed
+			// live with a real one) kept showing a cursor at the title's
+			// old position until the Selection changed again elsewhere.
+			titleEl.ownerDocument.getSelection()?.removeAllRanges();
+			return;
+		}
+
 		const cm = (view.editor as any).cm as EditorView;
-		const firstLineCoords = cm.coordsAtPos(0);
+		// 0.13.0 Feature 1, frontmatter sub-phase: the real first body
+		// line's own start offset, not position 0 — see getFirstBodyLine's
+		// own comment for why frontmatter makes that distinction
+		// necessary (position 0 would be the frontmatter's own `---`).
+		const firstLineCoords = cm.coordsAtPos(view.editor.posToOffset({ line: this.getFirstBodyLine(), ch: 0 }));
 		if (!firstLineCoords) return;
 		const targetY = (firstLineCoords.top + firstLineCoords.bottom) / 2;
 
@@ -2041,8 +2331,12 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	private moveCursorUpImpl(editor: Editor) {
 		const cursor = editor.getCursor();
+		// 0.13.0 Feature 1, frontmatter sub-phase: the real first body
+		// line, not a hardcoded 0 — see getFirstBodyLine's own comment for
+		// why frontmatter makes that distinction necessary.
+		const firstBodyLine = this.getFirstBodyLine();
 
-		if (cursor.line === 0 || !this.isLivePreviewMode()) {
+		if (cursor.line === firstBodyLine || !this.isLivePreviewMode()) {
 			// 0.13.0 Feature 1: capture the ORIGINAL column's coords before
 			// exec — 'goUp' has its own built-in fallback of snapping
 			// horizontally to ch 0 when there's nowhere to go vertically
@@ -2055,28 +2349,81 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			// from "merely snapped horizontally in place" (do escape, using
 			// the pre-snap X).
 			const cm = editor.cm;
-			const beforeCoords = cursor.line === 0 ? cm?.coordsAtPos(editor.posToOffset(cursor)) : null;
+			const beforeCoords = cursor.line === firstBodyLine ? cm?.coordsAtPos(editor.posToOffset(cursor)) : null;
+			// Real pre-existing bug, surfaced (not introduced) by this
+			// session's frontmatter work: capture goalColumn BEFORE the
+			// exec below, not after. Confirmed live that when 'goUp' hits
+			// "nowhere further to go" (already at the document's/view's
+			// absolute top line), CM6 itself RESETS goalColumn to null as
+			// part of its own top-of-document handling — reading it
+			// AFTER the exec silently loses whatever wide column a
+			// previous multi-press chain had established, exactly when
+			// escaping to the title needs it most. This was always
+			// theoretically reachable for a frontmatter-less note too
+			// (a short line 0 following a wide line 1), just far more
+			// likely once frontmatter's own short "---" lines are
+			// involved.
+			const goalColumnBeforeExec = cm?.state?.selection?.main?.goalColumn;
 			this.execPreservingGoalColumn(editor, 'goUp');
-			if (cursor.line === 0 && beforeCoords) {
+			if (cursor.line === firstBodyLine && beforeCoords) {
 				const after = editor.getCursor();
 				const afterCoords = cm?.coordsAtPos(editor.posToOffset(after));
 				if (afterCoords && Math.abs(afterCoords.top - beforeCoords.top) < 1) {
-					// Prefer CM6's own native goal-column (the same field
-					// execPreservingGoalColumn above just preserved across
-					// this whole up-chain, and computeRowCrossPixelGoal
-					// reads for table-row crossings) over the CURRENT
-					// cursor's own X — on a short/blank line (e.g. an
-					// empty line 1 reached after stepping up from a much
-					// longer line 2) the current X has already collapsed
-					// to ch 0, silently forgetting a wider column from
-					// several Ctrl-P presses back. No separate
+					// Prefer the PRE-exec goal-column (captured above) over
+					// the CURRENT cursor's own X — on a short/blank line
+					// (e.g. an empty line 1 reached after stepping up from
+					// a much longer line 2) the current X has already
+					// collapsed to ch 0, silently forgetting a wider
+					// column from several Ctrl-P presses back. No separate
 					// title-crossing goal-column bookkeeping needed: this
 					// is the exact same mechanism the body already
-					// maintains for itself.
-					const goalColumn = cm?.state?.selection?.main?.goalColumn;
+					// maintains for itself — just read at the right time.
 					const rect = cm?.contentDOM.getBoundingClientRect();
-					const targetX = (goalColumn !== undefined && rect) ? rect.left + goalColumn : beforeCoords.left;
-					this.escapeUpToTitle(editor, targetX);
+					const targetX = (goalColumnBeforeExec !== undefined && rect) ? rect.left + goalColumnBeforeExec : beforeCoords.left;
+					// 0.13.0 Feature 1, frontmatter sub-phase: land in the
+					// Properties panel's own "Add property" button instead
+					// of jumping straight to the title, when the note
+					// actually HAS frontmatter AND a Properties panel is
+					// actually visible right now — see
+					// titleMoveLineOrEscapeToBody's own matching comment
+					// for why mere DOM presence isn't enough on its own
+					// (the Add-button/heading elements exist, just hidden,
+					// even for a note with no frontmatter at all).
+					//
+					// The Add-button specifically also goes hidden when the
+					// user has COLLAPSED the Properties panel (confirmed
+					// live: the heading itself stays visible, gaining an
+					// "is-collapsed" class, but the Add-button and every
+					// row go offsetParent === null) — falling all the way
+					// through to the title in that case would skip
+					// Properties entirely even though it genuinely exists
+					// and is visible, just collapsed. Fall back to the
+					// heading itself when the Add-button isn't usable but
+					// the heading still is, rather than assuming "no
+					// visible Add-button" means "no Properties panel."
+					const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+					const hasFrontmatter = this.getFirstBodyLine() > 0;
+					const addButton = hasFrontmatter
+						? view?.containerEl.querySelector('.metadata-add-button') as HTMLElement | null
+						: null;
+					const heading = hasFrontmatter
+						? view?.containerEl.querySelector('.metadata-properties-heading') as HTMLElement | null
+						: null;
+					if (addButton && addButton.offsetParent !== null) {
+						// 0.13.0 Feature 1, frontmatter sub-phase: preserve the
+						// goal column through the Properties detour — already
+						// in body-space (the exact shape escapeUpToTitle's own
+						// targetX expects), so no conversion needed here; see
+						// propertyGoalX's own comment.
+						this.propertyGoalX = targetX;
+						addButton.focus();
+					} else if (heading && heading.offsetParent !== null) {
+						this.propertyGoalX = targetX;
+						heading.focus();
+						heading.ownerDocument.getSelection()?.removeAllRanges();
+					} else {
+						this.escapeUpToTitle(editor, targetX);
+					}
 				}
 			}
 			return;

@@ -1412,3 +1412,196 @@ prove the shared mechanism isn't accidentally scoped to the main window
 only, without re-testing logic already covered elsewhere.
 
 1. Popout window support
+
+### Frontmatter Properties panel (0.13.0 Feature 1)
+
+#### `propertyItemSelection.e2e.ts`
+
+Phase 1 of the frontmatter sub-phase: Ctrl-N/P drive the same row-to-row
+focus navigation a Properties-panel row's own "item selection mode"
+already does for physical ArrowUp/ArrowDown. Item selection mode is
+reached by pressing Escape twice from inside a property's text-editing
+state — confirmed live this collapses `document.activeElement` to the
+`.metadata-property` row DIV itself (`tabIndex=0`), distinct from any of
+its own text-editing descendants having focus. The pushed Scope is keyed
+to an EXACT match on the row element (not `.closest()`), specifically so
+ordinary text editing inside a property never activates this
+row-navigation scope. Ctrl-N/P dispatch a synthetic native
+ArrowDown/ArrowUp `KeyboardEvent` on the focused row rather than
+hand-rolling sibling-element lookup + `.focus()` — the boundary behavior
+(tests (2)/(3)) is whatever Obsidian's own native handler already does,
+confirmed live: ArrowUp at the first row moves to the "Properties"
+heading above; ArrowDown at the last row moves to the "Add property"
+button below. Neither is UCH-authored, just inherited for free.
+
+- **(1)** Ctrl-N/P move focus between sibling property rows in order.
+- **(2)** Ctrl-P at the first row moves to the Properties heading, same
+  as physical ArrowUp.
+- **(3)** Ctrl-N at the last row moves to the Add-property button, same
+  as physical ArrowDown.
+- **(4)** Ctrl-N/P do nothing to row focus while ordinary text editing is
+  active (not item-selection mode) — the direct regression coverage for
+  the exact-match (not `.closest()`) Scope-push condition.
+- **(5)** Ctrl-N at the Properties heading moves into the first property
+  row — confirms the heading is a full member of the navigable chain,
+  not a dead end.
+- **(6)** Ctrl-P at the Add-property button moves into the last property
+  row — same, for the Add-button.
+
+Note on test helper structure: `enterItemSelectionMode`'s focus + two
+Escape presses are bundled into a single `executeObsidian` call rather
+than three separate round trips — confirmed live that the multi-round-trip
+style can intermittently race with the Properties panel still settling
+right after a freshly (re-)opened note, specifically affecting tests
+(2)/(3) only when run immediately after test (1) in the same shared
+instance (passed in isolation, failed in file order) — a single bundled
+script has no such gap.
+
+#### `titleCrossingFrontmatter.e2e.ts`
+
+Extends the already-shipped title<->body crossing
+(`titleCrossingShort.e2e.ts`/`titleCrossingWrapped.e2e.ts`) to route
+through the Properties panel instead, whenever the note actually has
+frontmatter. Building this surfaced a real, substantial bug found and
+fixed along the way, not just new feature code:
+
+- **Pre-existing bug, unrelated to this feature**: both crossing sites
+  (the `cursor-up` handler's own call to `escapeUpToTitle`, and
+  `titleMoveLineOrEscapeToBody`) hardcoded "line 0"/position 0 as "the
+  body's own first line." When frontmatter exists, position 0 is the
+  frontmatter's own opening `---`, not real body content — Live Preview
+  silently clamps any attempt to place a cursor there to the real first
+  body line, so the old `cursor.line === 0` check could never be
+  satisfied and Ctrl-P at the top of a frontmatter-having note's body did
+  nothing at all. Fixed with a new `getFirstBodyLine()` helper (reads
+  `frontmatterPosition` from the file's cached metadata).
+- **A second, more dangerous bug found while building the fix itself**:
+  the first attempt checked `.metadata-properties-heading`/
+  `.metadata-add-button`'s mere DOM PRESENCE to decide "does a Properties
+  panel exist to redirect to." Confirmed live this is wrong — both
+  elements exist in the DOM (just hidden, `offsetParent === null`) even
+  for a note with **no frontmatter at all**, so that check wrongly
+  redirected `.focus()` to a hidden, unfocusable element on every
+  frontmatter-less note, silently breaking the ALREADY-SHIPPED
+  title<->body crossing for the common case. Test (4) below is the
+  direct regression catch for this — it failed before the fix (checked
+  via `getFirstBodyLine() > 0` AND `offsetParent !== null` together
+  instead of DOM presence alone), confirming it as a real regression,
+  not a hypothetical one.
+- **A third real user-reported bug, found testing with a third-party
+  title-caret plugin installed**: focusing the heading alone does NOT
+  clear `window.getSelection()` — it silently kept pointing at the
+  title's own old position (confirmed live: `rangeCount` stayed `1`,
+  `anchorNode` still inside the title), which that third-party plugin
+  (reading the native Selection directly, independent of this plugin's
+  own DOM focus) kept rendering a stale cursor from, visible until the
+  Selection changed again elsewhere entirely (e.g. once the real cursor
+  reached the body). CM6's own cursor rendering is unaffected by this
+  (it's independent of `window.getSelection()`), so this never showed up
+  as a UCH-visible symptom — only a plugin that reads the raw Selection
+  for its own rendering would notice. Fixed by explicitly clearing it
+  (`removeAllRanges()`) in the same branch that moves focus to the
+  heading. Test (1) below asserts this directly.
+- **A fourth real user-reported bug**: the fix for the second bug above
+  only ever checked the Add-button's own visibility to decide "land in
+  Properties." Confirmed live that COLLAPSING the Properties panel hides
+  the Add-button (and every row) — `offsetParent` becomes `null` — but
+  the heading itself stays visible, just gaining an `is-collapsed` class.
+  So a collapsed (but still genuinely present) Properties panel fell all
+  the way through to `escapeUpToTitle`, skipping Properties entirely even
+  though it's still visibly there, just closed. Fixed by falling back to
+  the heading when the Add-button isn't usable but the heading still is.
+  Test (3b) below is the direct regression catch.
+- **A fifth real user-reported bug**: `getFirstBodyLine()` read
+  `frontmatterPosition` unconditionally, regardless of editing mode.
+  Source Mode has no Properties GUI panel at all — frontmatter there is
+  just plain text, like any other line — but `frontmatterPosition` still
+  exists in the file's cached metadata even in Source Mode. So the body's
+  own literal line 0 (the opening `---`) never satisfied
+  `cursor.line === firstBodyLine` (which pointed past it), and the
+  title's own Ctrl-N landed INSIDE line 0 instead of stopping there
+  (since the "is there a heading to land on" check read frontmatter
+  position the same unconditional way). Fixed by having
+  `getFirstBodyLine()` return `0` unconditionally outside Live Preview —
+  Source Mode gets zero special-casing, exactly matching how a
+  frontmatter-less note already behaved. Test (5) below is the direct
+  regression catch.
+- **A sixth real user-reported bug — a pre-existing mechanism bug
+  surfaced (not introduced) by this session's work**: the `cursor-up`
+  handler read CM6's own `goalColumn` AFTER calling
+  `execPreservingGoalColumn(editor, 'goUp')`, but confirmed live that
+  CM6 itself RESETS `goalColumn` to `null` the moment `'goUp'` hits
+  "nowhere further to go" (already at the document's own absolute top
+  line) — exactly the moment escaping to the title needs it most. A wide
+  goal column established several Ctrl-P presses back (e.g. starting on
+  a long body line) was silently lost the instant the cursor crossed a
+  short line (most easily hit via frontmatter's own `---` line in Source
+  Mode, though always theoretically reachable for any frontmatter-less
+  note too) right before escaping, landing in the title at a narrow
+  column instead of the original wide one. Fixed by capturing
+  `goalColumn` BEFORE the exec call, not after. Test (6) below is the
+  direct regression catch.
+- **A user-requested symmetry fix (not a bug report)**: crossing via the
+  Properties panel originally always landed at a FIXED position on the
+  far side — the title's own end going up, `ch=0` going down — instead
+  of preserving the goal column the way the existing no-frontmatter
+  body<->title crossing already does. Fixed with a new `propertyGoalX`
+  field: stores the goal in the body's own screen-pixel space regardless
+  of which direction it's traveling, converting to title-space only at
+  the final landing point (`propertyHeadingEscapeToTitle`) using the
+  same gutter-normalization formula `escapeUpToTitle` already uses; the
+  reverse direction (`propertyAddButtonEscapeToBody`) seeds CM6's own
+  native `goalColumn` the same way `titleMoveLineOrEscapeToBody` already
+  does. Test (7) below is the direct coverage, round-tripping through
+  the full panel in both directions.
+
+- **(1)** Title, Ctrl-N at its own last visual line, escapes to the
+  Properties heading (not straight to the body) when frontmatter exists,
+  and leaves no stale `window.getSelection()` pointing back into the
+  title (see the third bug above).
+- **(2)** Properties heading, Ctrl-P, lands a collapsed cursor at the
+  title's own end — not native ArrowUp's own select-the-whole-title
+  (the design question explicitly discussed with the user; every other
+  Ctrl-N/P crossing in this plugin lands a collapsed cursor, never a
+  selection, so this keeps that convention rather than copying native's
+  own divergent behavior here). This test's own repro never establishes
+  a goal column first, so it covers the "end" fallback specifically; the
+  preserved-goal path is covered separately by test (7).
+- **(2b)** Regression for a real user-reported bug: test (2)'s own
+  original landing code used `sel.collapse(title,
+  title.childNodes.length)`, which put the selection's focus/anchor on
+  the title's own container `<div>` — an ELEMENT, child-index-based
+  position — rather than its text node (the same bug class already found
+  and fixed for `titleYank`'s own newline handling). `titleMoveLine`
+  (which `titleMoveLineOrEscapeToBody` calls first, to decide whether
+  there's more title left to move through) misjudged that
+  element-anchored position as "there's still room to move," silently
+  eating the first Ctrl-N press right back out of the title — a second
+  press was needed before it actually escaped. Fixed by having
+  `propertyHeadingEscapeToTitle` use `Selection.modify('move', 'forward',
+  'documentboundary')` instead, which always lands on a real text node.
+  This test asserts both halves: the selection after heading Ctrl-P lands
+  on a text node, and the very next Ctrl-N escapes on the first press.
+- **(3)** Body's real first line, ch 0, Ctrl-P, escapes to the
+  Properties Add-button when frontmatter exists.
+- **(3b)** Regression: Ctrl-P at body top lands on the Properties
+  heading (not the title) when the panel is COLLAPSED (see the fourth
+  bug above).
+- **(4)** Regression: a note WITHOUT frontmatter is completely
+  unaffected — Ctrl-P at body ch 0 still escapes straight to the title,
+  landing a collapsed cursor exactly as it already did before this
+  session's work (see the second bug above for why this specific test
+  earns its keep).
+- **(5)** Regression: in Source Mode, frontmatter is treated as plain
+  text — no Properties routing at all, title<->body crossing still works
+  at the file's literal line 0 (see the fifth bug above).
+- **(6)** Regression: a wide goal column (established on a long body
+  line, several Ctrl-P presses back) survives the escape to the title
+  even after crossing a short line (frontmatter's own `---`, in Source
+  Mode) right before escaping (see the sixth bug above).
+- **(7)** The `propertyGoalX` symmetry fix (see above): a wide goal
+  column established on the body survives a full round trip through the
+  Properties panel — up through the Add-button, the one property row,
+  and the heading, into the title at the equivalent column (not the
+  title's own end) — and back down the same way, landing at the EXACT
+  original body position, not just "the first body line."
