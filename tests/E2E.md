@@ -1457,6 +1457,51 @@ right after a freshly (re-)opened note, specifically affecting tests
 instance (passed in isolation, failed in file order) — a single bundled
 script has no such gap.
 
+#### `propertyCtrlBf.e2e.ts`
+
+Phase 2 of the frontmatter sub-phase: Ctrl-B/F in Properties-panel
+item-selection mode delegate straight to native ArrowLeft/ArrowRight, the
+same pattern `propertyItemSelection.e2e.ts` uses for Ctrl-N/P. Unlike
+Ctrl-N/P, no custom per-element handler is needed anywhere in this
+chain — confirmed live before writing these tests (red-green: these
+tests were written and run against the pre-fix code first, confirming
+they failed for the right reason, before the one-line `buildPropertyRowScope`
+addition that makes them pass):
+
+- `.metadata-properties-heading`: Left collapses, Right expands the
+  whole Properties block. **Not a toggle** — Right at an already-expanded
+  heading, and Left at an already-collapsed one, are both a confirmed
+  no-op.
+- `.metadata-property`: Left enters the row's own native name-edit mode
+  (always an `<input class="metadata-property-key-input">`, regardless of
+  property type), Right enters its value-edit mode (the widget varies by
+  type — e.g. a contenteditable `.metadata-input-longtext` DIV for text,
+  a plain `<input>` for number).
+- `.metadata-add-button`: both directions are a confirmed no-op.
+
+Also confirmed live: the number of Escape presses needed to return from
+an edit mode back to the row varies by property type AND direction (text:
+2 for both name- and value-edit; number/tags value-edit: 1) — this is
+Obsidian's own native behavior, not something this feature controls, so
+test (1) below uses an adaptive `returnToRow()` helper (presses Escape up
+to 3 times, checking after each) instead of a hardcoded count.
+
+- **(1)** Ctrl-B enters native name-edit mode; after returning to the row
+  via Escape, Ctrl-F enters native value-edit mode — exercises both
+  directions on the same row, with the Escape-back step in between.
+- **(2)** Ctrl-B at the Properties heading collapses the panel.
+- **(3)** Ctrl-F at the Properties heading expands a collapsed panel, and
+  is confirmed a no-op on a second press once already expanded (not a
+  toggle).
+- **(4)** Regression: Ctrl-B/F do nothing to row focus while ordinary
+  text editing is active (not item-selection mode) — same exact-match
+  Scope-push guard `propertyItemSelection.e2e.ts`'s test (4) already
+  relies on.
+- **(5)** Regression: a note WITHOUT frontmatter is unaffected — Ctrl-B
+  still moves the body cursor one character left.
+- **(6)** Regression: Ctrl-B/F at the Add-button are a no-op (matches
+  native).
+
 #### `titleCrossingFrontmatter.e2e.ts`
 
 Extends the already-shipped title<->body crossing
@@ -1554,6 +1599,23 @@ fixed along the way, not just new feature code:
   native `goalColumn` the same way `titleMoveLineOrEscapeToBody` already
   does. Test (7) below is the direct coverage, round-tripping through
   the full panel in both directions.
+- **A seventh real user-reported bug, found right after the symmetry fix
+  above shipped**: `cursor-down`'s `bind()` call for the heading had no
+  `headingHandler` at all, only a plain native-dispatch fallback — which
+  works fine when the panel is EXPANDED (native ArrowDown already moves
+  into the first row), but when the panel is COLLAPSED, the Add-button
+  and every row are hidden (`offsetParent === null`), so that native
+  dispatch instead escapes straight past them into the body — through a
+  path that knows nothing about `propertyGoalX`, silently landing at
+  `ch 0` and losing a column that otherwise survived all the way from the
+  title. Fixed with a new `propertyHeadingCtrlN` handler: expanded panel
+  still gets the unchanged plain dispatch, collapsed panel reuses
+  `propertyAddButtonEscapeToBody`'s own goal-column-aware body-landing
+  logic directly (it only ever used its element argument for the
+  native-dispatch fallback, so the heading works just as well there as
+  the real Add-button). Test (8) below is the direct regression catch —
+  built red-green, written and confirmed failing (landing at `ch 0`)
+  against the pre-fix code first.
 
 - **(1)** Title, Ctrl-N at its own last visual line, escapes to the
   Properties heading (not straight to the body) when frontmatter exists,
@@ -1605,3 +1667,7 @@ fixed along the way, not just new feature code:
   and the heading, into the title at the equivalent column (not the
   title's own end) — and back down the same way, landing at the EXACT
   original body position, not just "the first body line."
+- **(8)** The `propertyHeadingCtrlN` fix (see the seventh bug above): a
+  column established directly in the title (not derived from a prior
+  body visit) survives escaping down through a COLLAPSED Properties
+  panel into the body, landing well past `ch 0`.

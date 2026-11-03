@@ -1022,7 +1022,17 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			}
 		};
 		bind('cursor-up', 'ArrowUp', (heading) => this.propertyHeadingEscapeToTitle(heading));
-		bind('cursor-down', 'ArrowDown', undefined, (addButton) => this.propertyAddButtonEscapeToBody(addButton));
+		bind('cursor-down', 'ArrowDown', (heading) => this.propertyHeadingCtrlN(heading), (addButton) => this.propertyAddButtonEscapeToBody(addButton));
+		// Ctrl-B/F: unlike cursor-up/down, every element in this chain
+		// already does the right thing with a plain native dispatch, no
+		// handler needed at all — confirmed live: the heading
+		// collapses (Left) / expands (Right) the whole Properties block
+		// (not a toggle: Right at an already-expanded heading, and Left
+		// at an already-collapsed one, are both a no-op), a row enters
+		// its own name-edit (Left) / value-edit (Right) mode, and the
+		// Add-button does nothing either way.
+		bind('cursor-left', 'ArrowLeft');
+		bind('cursor-right', 'ArrowRight');
 		return scope;
 	}
 
@@ -1094,6 +1104,28 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// instead.
 		this.propertyGoalX = null;
 		sel?.modify('move', 'forward', 'documentboundary');
+	}
+
+	// Properties heading, Ctrl-N: when the panel is EXPANDED, plain native
+	// ArrowDown already correctly moves into the first row (unchanged from
+	// before this fix). When it's COLLAPSED, the Add-button and every row
+	// are hidden (offsetParent === null), so native ArrowDown instead
+	// escapes straight past them into the body — but through a path that
+	// knows nothing about propertyGoalX, silently landing at ch 0 and
+	// losing a column that otherwise survived all the way from the title
+	// (real user-reported bug). Fixed by reusing
+	// propertyAddButtonEscapeToBody's own goal-column-aware body-landing
+	// logic directly in that case — it only ever uses its element
+	// argument for the native-dispatch fallback, so the heading works
+	// just as well there as the real Add-button.
+	private propertyHeadingCtrlN(heading: HTMLElement) {
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		const addButton = view?.containerEl.querySelector('.metadata-add-button') as HTMLElement | null;
+		if (addButton && addButton.offsetParent !== null) {
+			heading.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+			return;
+		}
+		this.propertyAddButtonEscapeToBody(heading);
 	}
 
 	// Properties Add-button, Ctrl-N: mirrors propertyHeadingEscapeToTitle
