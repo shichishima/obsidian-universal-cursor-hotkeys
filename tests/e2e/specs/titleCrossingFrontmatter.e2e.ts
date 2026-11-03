@@ -469,4 +469,84 @@ second body line
 		await expect(backInBody.line).toBe(3)
 		await expect(backInBody.ch).toBe(10)
 	})
+
+	it('(8) regression: a goal column established in the TITLE survives escaping down through a COLLAPSED Properties panel into the body', async function () {
+		// Real user-reported bug: the Add-button/every row is hidden
+		// (offsetParent === null) when the panel is collapsed, so
+		// cursor-down's bind() call for the heading had no headingHandler
+		// at all — it fell through to a bare native ArrowDown dispatch,
+		// which (confirmed live) escapes straight past the hidden
+		// Add-button into the body, landing at ch 0. That path knows
+		// nothing about propertyGoalX, silently losing a column that
+		// otherwise survived all the way from the title. Fixed by giving
+		// cursor-down a headingHandler too (propertyHeadingCtrlN):
+		// when the Add-button is actually visible (panel expanded).
+		// plain native ArrowDown still applies unchanged (heading -> first
+		// row); when it's hidden (collapsed), reuses
+		// propertyAddButtonEscapeToBody's own goal-column-aware
+		// body-landing logic directly — it only ever used its element
+		// argument for the native-dispatch fallback, so the heading works
+		// just as well there as the real Add-button.
+		createdPaths.push('TitleCrossFmCollapsedGoalDown.md')
+		await browser.executeObsidian(async ({ app }) => {
+			const hm = (app as any).hotkeyManager
+			hm.setHotkeys('universal-cursor-hotkeys:cursor-up', [{ modifiers: ['Ctrl'], key: 'P' }])
+			hm.setHotkeys('universal-cursor-hotkeys:cursor-down', [{ modifiers: ['Ctrl'], key: 'N' }])
+			hm.bake()
+			app.workspace.getLeavesOfType('markdown').forEach(leaf => leaf.detach())
+			const path = 'TitleCrossFmCollapsedGoalDown.md'
+			const existing = app.vault.getFileByPath(path)
+			if (existing) await app.vault.delete(existing)
+			const file = await app.vault.create(path, `---
+myText: hello world
+---
+a wide body line with plenty of characters
+second body line
+`)
+			await app.workspace.getLeaf(true).openFile(file)
+		})
+		await browser.pause(400)
+
+		// Collapse the Properties panel.
+		await browser.executeObsidian(({ app, obsidian }) => {
+			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+			const heading = view.containerEl.querySelector('.metadata-properties-heading') as HTMLElement
+			const collapseIndicator = heading.querySelector('.collapse-indicator') as HTMLElement | null
+			collapseIndicator?.click()
+		})
+		await browser.pause(200)
+
+		// Place a collapsed cursor partway through the title (not at its
+		// start/end, so a "fixed position" fallback would be
+		// distinguishable from a real preserved column).
+		await browser.executeObsidian(({ app, obsidian }) => {
+			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+			const title = view.containerEl.querySelector(".inline-title[contenteditable='true']") as HTMLElement
+			title.focus()
+			const sel = title.ownerDocument.getSelection()!
+			const textNode = title.firstChild!
+			const offset = Math.min(5, textNode.textContent?.length ?? 0)
+			const range = title.ownerDocument.createRange()
+			range.setStart(textNode, offset)
+			range.collapse(true)
+			sel.removeAllRanges()
+			sel.addRange(range)
+		})
+		await browser.pause(100)
+
+		await pressOnActive('n') // title -> heading (collapsed panel)
+		const afterFirstN = await snap()
+		await expect(afterFirstN.className).toContain('metadata-properties-heading')
+
+		await pressOnActive('n') // heading -> body (Add-button/rows hidden, skips straight through)
+		const result = await browser.executeObsidian(({ app, obsidian }) => {
+			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+			return view.editor.getCursor()
+		})
+		await expect(result.line).toBe(3)
+		// The bug landed at ch 0 unconditionally; the fix lands at the
+		// title offset's own pixel-equivalent column, which for this
+		// fixture is comfortably away from 0.
+		await expect(result.ch).toBeGreaterThan(0)
+	})
 })
