@@ -1144,24 +1144,28 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		sel?.modify('move', 'forward', 'documentboundary');
 	}
 
-	// Properties heading, Ctrl-N: when the panel is EXPANDED, plain native
-	// ArrowDown already correctly moves into the first row (unchanged from
-	// before this fix). When it's COLLAPSED, the Add-button and every row
-	// are hidden (offsetParent === null), so native ArrowDown instead
-	// escapes straight past them into the body — but through a path that
-	// knows nothing about propertyGoalX, silently landing at ch 0 and
-	// losing a column that otherwise survived all the way from the title
-	// (real user-reported bug). Fixed by reusing
-	// propertyAddButtonEscapeToBody's own goal-column-aware body-landing
-	// logic directly in that case — it only ever uses its element
-	// argument for the native-dispatch fallback, so the heading works
-	// just as well there as the real Add-button.
+	// Properties heading, Ctrl-N: when the panel is EXPANDED (and has at
+	// least one row), focuses the first row directly rather than
+	// dispatching a synthetic native ArrowDown and trusting Obsidian's
+	// own handler to move focus there — a real user-reported bug on
+	// Windows (confirmed NOT reproducible on macOS, both Obsidian 1.14.5
+	// and 1.15.0, with a byte-identical build; same dispatch-and-trust
+	// behavior existed unchanged since this plugin's very first
+	// heading/Add-button support, so this isn't something this session's
+	// own changes introduced). When the panel is COLLAPSED, or expanded
+	// but with zero rows, reuses propertyAddButtonEscapeToBody's own
+	// goal-column-aware body-landing logic directly — it only ever uses
+	// its element argument for the native-dispatch fallback, so the
+	// heading works just as well there as the real Add-button.
 	private propertyHeadingCtrlN(heading: HTMLElement) {
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 		const addButton = view?.containerEl.querySelector('.metadata-add-button') as HTMLElement | null;
 		if (addButton && addButton.offsetParent !== null) {
-			heading.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
-			return;
+			const firstRow = view?.containerEl.querySelector('.metadata-property') as HTMLElement | null;
+			if (firstRow) {
+				firstRow.focus();
+				return;
+			}
 		}
 		this.propertyAddButtonEscapeToBody(heading);
 	}

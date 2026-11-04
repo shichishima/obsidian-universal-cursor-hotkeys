@@ -1444,7 +1444,24 @@ button below. Neither is UCH-authored, just inherited for free.
   the exact-match (not `.closest()`) Scope-push condition.
 - **(5)** Ctrl-N at the Properties heading moves into the first property
   row — confirms the heading is a full member of the navigable chain,
-  not a dead end.
+  not a dead end. **Real user-reported symptom on Windows
+  (2026-11-04), fix NOT YET CONFIRMED**: the original implementation
+  (`bind('cursor-down', 'ArrowDown', undefined, ...)`, no heading
+  handler at all — a plain synthetic ArrowDown dispatch on the heading,
+  trusting Obsidian's own native handler to move focus into the first
+  row) reportedly didn't move focus on Windows at all, even with a
+  byte-identical build confirmed against macOS (verified on both
+  Obsidian 1.14.5 and 1.15.0 there, neither reproduced it — root cause
+  on Windows still unconfirmed). Since this dispatch-and-trust behavior
+  existed unchanged since this plugin's very first heading/Add-button
+  support, any real gap here isn't something introduced by the later
+  `propertyHeadingCtrlN` goal-column work. Changed to focus the first
+  `.metadata-property` row directly instead of dispatching and hoping —
+  strictly more robust regardless of whether it resolves the Windows
+  symptom, since it drops the dependency on how Obsidian's own handler
+  processes a synthetic event. This test's own assertion (focus lands on
+  the first row) didn't need to change, only the mechanism reaching that
+  result did.
 - **(6)** Ctrl-P at the Add-property button moves into the last property
   row — same, for the Add-button.
 
