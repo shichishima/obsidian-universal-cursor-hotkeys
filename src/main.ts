@@ -1061,6 +1061,16 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			headingHandler?: (heading: HTMLElement) => void,
 			addButtonHandler?: (addButton: HTMLElement) => void,
 			valueEditHandler?: (valueEl: HTMLElement) => void,
+			// Set-mark is the one command with no sensible native-dispatch
+			// fallback for a plain row/heading/Add-button target (there's
+			// nothing to "mark" there) — confirmed live that dispatching a
+			// bare Space on a row isn't actually harmless as originally
+			// assumed: Obsidian's own row listener treats it as "start
+			// typing," moving focus straight into the value-edit widget and
+			// inserting it. Suppressing the fallback entirely for those
+			// targets (true no-op) avoids that side effect; every other
+			// bind() call keeps relying on the fallback as before.
+			suppressFallback?: boolean,
 		) => {
 			for (const hk of this.getEffectiveHotkeysFor(commandId)) {
 				// Real user-reported bug: a Key Upgrade binding the SAME
@@ -1090,7 +1100,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 						headingHandler(target);
 					} else if (addButtonHandler && target.matches('.metadata-add-button')) {
 						addButtonHandler(target);
-					} else {
+					} else if (!suppressFallback) {
 						target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
 					}
 					return false;
@@ -1120,21 +1130,46 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		bind('cursor-right', 'ArrowRight', undefined, undefined, (el) => this.titleMoveChar(el, true));
 		bind('cursor-home', 'Home', undefined, undefined, (el) => this.titleMoveToLineBoundary(el, false));
 		bind('cursor-end', 'End', undefined, undefined, (el) => this.titleMoveToLineBoundary(el, true));
-		// Ctrl-G (keyboard-quit): also a plain native dispatch, no handler
-		// needed anywhere, INCLUDING the value-edit widget — confirmed
-		// live that native Escape from ANY element in this chain (a row,
-		// the heading, the Add-button, panel expanded or collapsed) simply
+		// Ctrl-Space (set-mark): only meaningful in the value-edit widget —
+		// there's nothing to "mark" on a row/heading/Add-button, so
+		// suppressFallback is set instead of letting the native-dispatch
+		// fallback run there. Confirmed live this fallback is NOT actually
+		// harmless (an earlier assumption, now corrected): dispatching a
+		// bare Space on a row makes Obsidian's own row listener treat it as
+		// "start typing," moving focus straight into the value-edit widget
+		// and inserting it — exactly the kind of accidental mode switch
+		// this plugin should never cause. Reuses titleSetMark as-is: it
+		// arms markActive and collapses the native Selection to its own
+		// current focus (the anchor point) — titleMoveChar/
+		// titleMoveToLineBoundary above already check markActive via
+		// titleSelectionModify's own 'extend' vs 'move' branch, so
+		// movement immediately starts extending a real selection once
+		// armed, confirmed live.
+		bind('set-mark', ' ', undefined, undefined, (el) => this.titleSetMark(el), true);
+		// Ctrl-G (keyboard-quit): a plain native dispatch for
+		// item-selection mode, no handler needed there — confirmed live
+		// that native Escape from ANY of those elements (a row, the
+		// heading, the Add-button, panel expanded or collapsed) simply
 		// returns DOM focus to the body (CM6's own cursor position was
 		// never touched while focus was in Properties, so it's restored
-		// exactly where it already was — no goal-column logic needed here,
-		// unlike cursor-up/down), and from the value-edit widget itself,
-		// native Escape exits toward item-selection mode via Obsidian's
-		// own JS-level handling, not a browser-default action — so, unlike
-		// cursor-left/right/home/end above, a synthetic dispatch (which
-		// only ever triggers JS-handled behavior, never a browser-default
-		// one) reaches it just fine without needing titleMoveChar-style
-		// Selection-API work of our own.
-		bind('keyboard-quit', 'Escape');
+		// exactly where it already was — no goal-column logic needed
+		// here, unlike cursor-up/down).
+		//
+		// The value-edit widget needs its own handler, unlike
+		// cursor-left/right/home/end above: native Escape alone DOES
+		// still exit toward item-selection mode there (JS-handled, not a
+		// browser-default action, so a synthetic dispatch reaches it
+		// fine) — but real Emacs's C-g is a universal ABORT, which must
+		// also clear any armed mark, not just leave it dangling for
+		// whatever's focused next. titleKeyboardQuit (reused as-is) does
+		// exactly that — arms markActive=false and collapses the
+		// Selection to focus — then the native Escape dispatch (the
+		// SAME one used everywhere else in this bind) does the actual
+		// exit.
+		bind('keyboard-quit', 'Escape', undefined, undefined, (el) => {
+			this.titleKeyboardQuit(el);
+			el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+		});
 		return scope;
 	}
 

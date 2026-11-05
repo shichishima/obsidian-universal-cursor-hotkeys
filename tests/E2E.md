@@ -1676,6 +1676,61 @@ now-incorrect behavior (Ctrl-B/F/G doing nothing from inside the
 value-edit widget) — both updated to confirm the new, correct behavior
 instead, in the same commit as this spec.
 
+#### `propertyValueEditSetMark.e2e.ts`
+
+0.13.0 Feature 1, property-value-editing sub-phase, Phase 2: Set-mark
+(Ctrl-Space) inside a text property's own value-edit widget. Reuses
+`titleSetMark` as-is from the title field's own implementation — it arms
+`markActive` and collapses the native Selection to its own current focus
+(the anchor point); `titleMoveChar`/`titleMoveToLineBoundary` (shipped in
+`propertyValueEditMovement.e2e.ts` above) already check `markActive` via
+`titleSelectionModify`'s own `'extend'` vs `'move'` branch, so movement
+immediately starts extending a real selection once armed, confirmed live
+before writing these tests by calling the plugin's own private methods
+directly. Also extends `keyboard-quit` (Ctrl-G, already shipped) with a
+value-edit-specific handler: real Emacs's C-g is a universal ABORT, so it
+must also clear any armed mark (reusing `titleKeyboardQuit`) before doing
+the native-Escape exit everything else in this panel already does.
+
+**A real bug found while writing test (6)** (regression: Ctrl-Space on
+the plain row should be a harmless no-op): `bind()`'s native-dispatch
+fallback — used whenever a bound key's target doesn't match any of
+`valueEditHandler`/`headingHandler`/`addButtonHandler` — only ever
+constructed `new KeyboardEvent('keydown', { key, ... })`, dropping every
+modifier flag from the real triggering event. For Arrow/Escape (every
+other command bound here) this went unnoticed, since neither has
+modifier-sensitive native behavior on a row. Set-mark's own key (Space)
+is different: confirmed live via a diagnostic probe (dispatching a bare
+Space directly on a focused row) that Obsidian's own row listener treats
+a bare Space keydown as "start typing," moving focus straight into the
+value-edit widget and inserting it — so a real Ctrl+Space press on the
+row was silently re-dispatching as a bare Space and switching into edit
+mode, the exact "accidental mode switch" this plugin should never cause.
+
+An initial, broader fix attempt (passing the real event's modifier flags
+through on every fallback dispatch, not just this one) was tried and
+reverted — it broke the Arrow/Escape delegation other already-shipped
+tests depend on (native row-to-row navigation and native Escape-exit
+apparently only match an *unmodified* key on their own internal
+listeners; adding `ctrlKey: true` to those dispatches made them silently
+stop working, confirmed by a full regression run before reverting).
+**Final fix**: a new `suppressFallback` parameter on `bind()`, set only
+for the `set-mark` call — when a target matches none of the three
+handlers, the fallback dispatch is skipped entirely (a true no-op)
+instead of falling through to a native dispatch that was never actually
+harmless for this one key.
+
+- **(1)** Ctrl-Space then Ctrl-F extends a real selection forward.
+- **(2)** Ctrl-Space then Ctrl-B extends a real selection backward.
+- **(3)** Ctrl-Space then Ctrl-A extends the selection to the start of
+  the value.
+- **(4)** Ctrl-Space then Ctrl-E extends the selection to the end of the
+  value.
+- **(5)** Ctrl-G clears an active mark AND exits to item-selection mode,
+  in one press.
+- **(6)** Regression: Ctrl-Space on the row itself (item-selection mode)
+  does nothing — the test that caught the fallback-dispatch bug above.
+
 #### `titleCrossingFrontmatter.e2e.ts`
 
 Extends the already-shipped title<->body crossing
