@@ -1107,8 +1107,20 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				});
 			}
 		};
-		bind('cursor-up', 'ArrowUp', (heading) => this.propertyHeadingEscapeToTitle(heading));
-		bind('cursor-down', 'ArrowDown', (heading) => this.propertyHeadingCtrlN(heading), (addButton) => this.propertyAddButtonEscapeToBody(addButton));
+		// Ctrl-P/N inside the value-edit widget: a text property's value
+		// is a multi-line, word-wrapping contenteditable (confirmed by its
+		// own class name, "longtext"), so unlike a single-line field it
+		// genuinely has multiple VISUAL lines to move between — reuses
+		// titleMoveLine as-is (already generic over any HTMLElement, same
+		// precedent as every other value-edit handler above). Matches the
+		// minimal, within-widget-only scope every other command here
+		// already has (Ctrl-A/E/F/B, Set-mark, Kill/Yank): no-ops at the
+		// widget's own first/last visual line rather than escaping
+		// anywhere (titleMoveLine's own `false` return — "no line to move
+		// to" — is simply discarded here, unlike the title field's own
+		// usage, which chains an escape-to-body/heading on that signal).
+		bind('cursor-up', 'ArrowUp', (heading) => this.propertyHeadingEscapeToTitle(heading), undefined, (el) => this.propertyValueEditMoveLine(el, false));
+		bind('cursor-down', 'ArrowDown', (heading) => this.propertyHeadingCtrlN(heading), (addButton) => this.propertyAddButtonEscapeToBody(addButton), (el) => this.propertyValueEditMoveLine(el, true));
 		// Ctrl-B/F: in item-selection mode, every element already does the
 		// right thing with a plain native dispatch, no handler needed at
 		// all — confirmed live: the heading collapses (Left) / expands
@@ -1251,6 +1263,35 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				}
 			});
 		});
+	}
+
+	// Ctrl-P/N inside the value-edit widget: wraps titleMoveLine with a
+	// restore-on-no-op, since titleMoveLine's own `false` return ("no
+	// line to move to") does NOT mean "the selection was left untouched"
+	// — confirmed live: its internal Selection.modify('move', dir,
+	// 'line') call still mutates the real selection (e.g. jumping to the
+	// value's own end on a short, single-visual-line value) even when
+	// the function decides afterward there was no actual visual-line
+	// change to finish landing on. This was never a problem for the
+	// title field's own Ctrl-N/P, the only existing caller — a `false`
+	// there always leads to escaping to the body/heading, which replaces
+	// the selection anyway, so the modify() call's own side effect never
+	// mattered. The value-edit widget has nowhere to escape to (every
+	// other command here is deliberately within-widget-only, matching
+	// Ctrl-A/E/F/B/Set-mark/Kill/Yank's own scope), so a boundary press
+	// must be a TRUE no-op — captures the anchor/focus pair beforehand
+	// and restores it via setBaseAndExtent whenever titleMoveLine reports
+	// no movement.
+	private propertyValueEditMoveLine(valueEl: HTMLElement, forward: boolean) {
+		const sel = valueEl.ownerDocument.getSelection();
+		if (!sel || sel.rangeCount === 0) return;
+		const anchorNode = sel.anchorNode, anchorOffset = sel.anchorOffset;
+		const focusNode = sel.focusNode, focusOffset = sel.focusOffset;
+		const moved = this.titleMoveLine(valueEl, forward);
+		if (!moved && anchorNode && focusNode) {
+			(sel as unknown as { setBaseAndExtent(aNode: Node, aOff: number, fNode: Node, fOff: number): void })
+				.setBaseAndExtent(anchorNode, anchorOffset, focusNode, focusOffset);
+		}
 	}
 
 	// Properties heading, Ctrl-P: lands a collapsed cursor at the title's

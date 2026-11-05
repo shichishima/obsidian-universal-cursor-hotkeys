@@ -1667,14 +1667,49 @@ lets the widget's own push land first.
 - **(4)** Ctrl-E moves to the end of the value.
 - **(5)** Regression: a bare (no Ctrl) `"f"` keypress still types
   normally, not intercepted as movement.
-- **(6)** Regression: Ctrl-N/P (not bound to any value-edit behavior)
-  don't move the cursor here.
+- **(6)** Regression: Ctrl-N/P on a value with only ONE visual line are
+  a true no-op (the cursor doesn't jump to an end) — see below for why
+  this test's own framing changed.
+- **(7)** Ctrl-N/P move by VISUAL line within a wrapped value, and stop
+  at its own first/last visual line.
+- **(8)** Regression: a note WITHOUT frontmatter is unaffected —
+  Ctrl-N/P still move the body cursor between real lines.
 
 Also found and fixed along the way: `propertyCtrlBf.e2e.ts`'s own test
 (4) and `propertyCtrlG.e2e.ts`'s own test (5) both asserted the OLD,
 now-incorrect behavior (Ctrl-B/F/G doing nothing from inside the
 value-edit widget) — both updated to confirm the new, correct behavior
 instead, in the same commit as this spec.
+
+**2026-11-06, Ctrl-N/P added**: the user pointed out a real gap this
+spec's own original test (6) had locked in as "intended" — a text
+property's value-edit widget (`.metadata-input-longtext`, i.e.
+"longtext") genuinely word-wraps across multiple VISUAL lines, so
+Ctrl-N/P (previous/next line) has real meaning there, unlike the
+title field. Added by reusing `titleMoveLine` as-is (already generic
+over any `HTMLElement`), wrapped in a new `propertyValueEditMoveLine`
+that restores the prior anchor/focus pair whenever `titleMoveLine`
+reports no movement.
+
+**A real bug found while adding this**: `titleMoveLine`'s own `false`
+return ("no line to move to") does NOT mean the selection was left
+untouched — confirmed live its internal
+`Selection.modify('move', dir, 'line')` call still mutates the real
+selection (jumping to the value's own end/start) even when the
+function decides afterward there's no visual-line change to finish
+landing on. This was invisible for the title field's own Ctrl-N/P (the
+only existing caller before this): a `false` there always leads to
+escaping to the body/heading, which replaces the selection anyway, so
+the modify() call's own side effect never mattered. The value-edit
+widget has nowhere to escape to (every other command here is
+deliberately within-widget-only), so a boundary press needed a TRUE
+no-op — `propertyValueEditMoveLine` captures the anchor/focus pair
+before calling `titleMoveLine` and restores it via `setBaseAndExtent`
+whenever that call reports no movement. Test (6)'s own original
+assertion (`focusOffset` unchanged) is what caught this — it started
+failing (`Expected: 5, Received: 11`, jumped to the value's own end)
+the moment Ctrl-N/P were first wired up, before this fix landed. Built
+red-green: confirmed failing against the pre-fix build, passing after.
 
 #### `propertyValueEditSetMark.e2e.ts`
 
