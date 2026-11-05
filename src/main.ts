@@ -900,6 +900,21 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// editing) must NOT push this scope; only the row DIV itself
 		// (reached via Escape x2) counts as item-selection mode. Parallel
 		// to, not merged with, the title's own focusin/focusout above.
+		//
+		// Confirmed live this session that broadening this to .closest()
+		// (so Ctrl-G could also work from inside actual text-editing, not
+		// just item-selection mode) doesn't work for contenteditable-DIV
+		// value-edit widgets (e.g. text's own "metadata-input-longtext")
+		// anyway — Obsidian stops propagation of any Ctrl-modified keydown
+		// somewhere between document.body and .workspace-split, which
+		// this app.keymap.pushScope-based mechanism can't reach regardless
+		// of how broadly it's pushed (confirmed: document-level listeners,
+		// capture or bubble, never see the event at all from there). A
+		// listener attached directly on view.containerEl (or anything
+		// below .workspace-split) DOES see it fine — that's a real,
+		// different mechanism for a future branch to use for editing-mode
+		// support (also needed for the planned property-value-editing
+		// Ctrl-F/B/A/E/W/Y suite), not something to bolt onto this one.
 		this.registerDomEvent(doc, 'focusin', (e: FocusEvent) => {
 			if ((e.target as HTMLElement)?.matches?.(PROPERTY_PANEL_FOCUS_SELECTOR)) {
 				this.propertyRowScope = this.buildPropertyRowScope();
@@ -1006,6 +1021,23 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			addButtonHandler?: (addButton: HTMLElement) => void,
 		) => {
 			for (const hk of this.getEffectiveHotkeysFor(commandId)) {
+				// Real user-reported bug: a Key Upgrade binding the SAME
+				// bare key this handler is about to dispatch (e.g. the
+				// "↓↑ column-aware" Key Upgrade adding a bare ArrowDown
+				// hotkey to cursor-down, alongside Ctrl-N) makes
+				// getEffectiveHotkeysFor return that bare hotkey too —
+				// registering a handler for it here means the synthetic
+				// dispatch below re-enters THIS SAME scope's own
+				// just-registered handler for that exact (no modifiers,
+				// key) combo, confirmed live to silently swallow the
+				// whole chain (the real native row navigation never
+				// actually runs). Skipping only this exact self-colliding
+				// combo — not bare hotkeys in general — leaves e.g. a
+				// vim-style bare 'j'/'k' binding to the same command
+				// completely unaffected, since dispatching 'ArrowDown'
+				// from a 'j'-triggered handler doesn't re-enter anything
+				// registered under 'j'.
+				if (hk.modifiers.length === 0 && hk.key === key) continue;
 				scope.register(hk.modifiers as Modifier[], hk.key, (evt) => {
 					const target = (evt.target as HTMLElement)?.matches?.(PROPERTY_PANEL_FOCUS_SELECTOR)
 						? (evt.target as HTMLElement) : null;
@@ -1033,6 +1065,29 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// Add-button does nothing either way.
 		bind('cursor-left', 'ArrowLeft');
 		bind('cursor-right', 'ArrowRight');
+		// Ctrl-G (keyboard-quit): also a plain native dispatch, no handler
+		// needed — confirmed live that native Escape from ANY element in
+		// this chain (a row, the heading, the Add-button, panel expanded
+		// or collapsed) simply returns DOM focus to the body. CM6's own
+		// cursor position was never touched while focus was in
+		// Properties, so it's restored exactly where it already was — no
+		// goal-column logic needed here, unlike cursor-up/down.
+		//
+		// Deliberately scoped to item-selection mode only, same as every
+		// other binding here — does NOT also work from inside a row's own
+		// text-editing descendants (unlike what Escape itself does
+		// there). Confirmed live: Obsidian stops propagation of any
+		// Ctrl-modified keydown from inside a contenteditable-DIV
+		// value-edit widget (e.g. text's "metadata-input-longtext")
+		// somewhere between document.body and .workspace-split, which
+		// this app.keymap.pushScope-based mechanism can never reach no
+		// matter how the push/pop condition is broadened. Extending into
+		// editing mode needs a different mechanism entirely (a listener
+		// attached directly on view.containerEl or similar, confirmed
+		// live to still see the event there) — left for a separate
+		// branch, alongside the planned property-value-editing
+		// Ctrl-F/B/A/E/W/Y suite that will need the same mechanism.
+		bind('keyboard-quit', 'Escape');
 		return scope;
 	}
 
@@ -1106,24 +1161,28 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		sel?.modify('move', 'forward', 'documentboundary');
 	}
 
-	// Properties heading, Ctrl-N: when the panel is EXPANDED, plain native
-	// ArrowDown already correctly moves into the first row (unchanged from
-	// before this fix). When it's COLLAPSED, the Add-button and every row
-	// are hidden (offsetParent === null), so native ArrowDown instead
-	// escapes straight past them into the body — but through a path that
-	// knows nothing about propertyGoalX, silently landing at ch 0 and
-	// losing a column that otherwise survived all the way from the title
-	// (real user-reported bug). Fixed by reusing
-	// propertyAddButtonEscapeToBody's own goal-column-aware body-landing
-	// logic directly in that case — it only ever uses its element
-	// argument for the native-dispatch fallback, so the heading works
-	// just as well there as the real Add-button.
+	// Properties heading, Ctrl-N: when the panel is EXPANDED (and has at
+	// least one row), focuses the first row directly rather than
+	// dispatching a synthetic native ArrowDown and trusting Obsidian's
+	// own handler to move focus there — a real user-reported bug on
+	// Windows (confirmed NOT reproducible on macOS, both Obsidian 1.14.5
+	// and 1.15.0, with a byte-identical build; same dispatch-and-trust
+	// behavior existed unchanged since this plugin's very first
+	// heading/Add-button support, so this isn't something this session's
+	// own changes introduced). When the panel is COLLAPSED, or expanded
+	// but with zero rows, reuses propertyAddButtonEscapeToBody's own
+	// goal-column-aware body-landing logic directly — it only ever uses
+	// its element argument for the native-dispatch fallback, so the
+	// heading works just as well there as the real Add-button.
 	private propertyHeadingCtrlN(heading: HTMLElement) {
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 		const addButton = view?.containerEl.querySelector('.metadata-add-button') as HTMLElement | null;
 		if (addButton && addButton.offsetParent !== null) {
-			heading.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
-			return;
+			const firstRow = view?.containerEl.querySelector('.metadata-property') as HTMLElement | null;
+			if (firstRow) {
+				firstRow.focus();
+				return;
+			}
 		}
 		this.propertyAddButtonEscapeToBody(heading);
 	}

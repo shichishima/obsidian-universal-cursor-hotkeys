@@ -1444,7 +1444,24 @@ button below. Neither is UCH-authored, just inherited for free.
   the exact-match (not `.closest()`) Scope-push condition.
 - **(5)** Ctrl-N at the Properties heading moves into the first property
   row — confirms the heading is a full member of the navigable chain,
-  not a dead end.
+  not a dead end. **Real user-reported symptom on Windows
+  (2026-11-04), fix NOT YET CONFIRMED**: the original implementation
+  (`bind('cursor-down', 'ArrowDown', undefined, ...)`, no heading
+  handler at all — a plain synthetic ArrowDown dispatch on the heading,
+  trusting Obsidian's own native handler to move focus into the first
+  row) reportedly didn't move focus on Windows at all, even with a
+  byte-identical build confirmed against macOS (verified on both
+  Obsidian 1.14.5 and 1.15.0 there, neither reproduced it — root cause
+  on Windows still unconfirmed). Since this dispatch-and-trust behavior
+  existed unchanged since this plugin's very first heading/Add-button
+  support, any real gap here isn't something introduced by the later
+  `propertyHeadingCtrlN` goal-column work. Changed to focus the first
+  `.metadata-property` row directly instead of dispatching and hoping —
+  strictly more robust regardless of whether it resolves the Windows
+  symptom, since it drops the dependency on how Obsidian's own handler
+  processes a synthetic event. This test's own assertion (focus lands on
+  the first row) didn't need to change, only the mechanism reaching that
+  result did.
 - **(6)** Ctrl-P at the Add-property button moves into the last property
   row — same, for the Add-button.
 
@@ -1501,6 +1518,110 @@ to 3 times, checking after each) instead of a hardcoded count.
   still moves the body cursor one character left.
 - **(6)** Regression: Ctrl-B/F at the Add-button are a no-op (matches
   native).
+
+#### `propertyCtrlG.e2e.ts`
+
+Phase 3 of the frontmatter sub-phase: Ctrl-G (`keyboard-quit`) in
+Properties-panel item-selection mode delegates straight to native
+Escape, the same "delegate to native key" pattern Ctrl-B/F and Ctrl-N/P
+already use for this panel. Unlike cursor-up/down, there's no
+goal-column concern here at all — confirmed live before writing these
+tests: native Escape from ANY element in the chain (a row, the heading,
+the Add-button — panel expanded or collapsed, doesn't matter) simply
+returns DOM focus to the body. CM6's own cursor position was never
+touched while focus was in Properties (entering item-selection mode
+never moves it), so it's restored exactly where it already was. Built
+red-green: these tests were written and run against the pre-fix code
+first (4 of 6 failing — Ctrl-G simply wasn't intercepted, so focus never
+left Properties at all), then the one-line `buildPropertyRowScope`
+addition made all 6 pass.
+
+- **(1)** Ctrl-G on a property row escapes to the body, restoring its
+  own existing cursor position (not a fixed one).
+- **(2)** Ctrl-G at the Properties heading escapes to the body the same
+  way.
+- **(3)** Ctrl-G at the Add-button escapes to the body the same way.
+- **(4)** Ctrl-G at the heading, panel COLLAPSED, still escapes to the
+  body the same way — collapsed treated as a normal-case variant from
+  the start, not a reactive edge case.
+- **(5)** Regression: Ctrl-G does nothing to row focus while ordinary
+  text editing is active (not item-selection mode) — same exact-match
+  Scope-push guard every other command in this panel already relies on.
+- **(6)** Regression: a note WITHOUT frontmatter is unaffected —
+  Ctrl-G still clears an active Set-mark selection in the body exactly
+  as before.
+
+**Investigated and deferred, not a bug**: whether Ctrl-G could also work
+from inside actual text-editing mode (name/value-edit), matching what
+physical Escape itself already does there (real Emacs's C-g is a
+universal abort, not scoped to one navigation mode). Confirmed live:
+broadening this plugin's `app.keymap.pushScope`-based mechanism (even
+using `.closest()` instead of an exact match) can't reach it — Obsidian
+stops propagation of any Ctrl-modified keydown from inside a
+contenteditable-DIV value-edit widget (e.g. text's own
+`metadata-input-longtext`) somewhere between `document.body` and
+`.workspace-split`, before it ever reaches this plugin's own
+document-level interception, regardless of how broadly the push/pop
+condition is widened. A plain `<input>`-based widget (name-edit always;
+number's own value-edit) does NOT block it — only the richer
+contenteditable-DIV ones do. A listener attached directly on
+`view.containerEl` (confirmed live to still see the event, since it sits
+below `.workspace-split`) does work, but that's a materially different
+mechanism from the Scope-based one everything else in this panel uses —
+left for a separate future branch, needed anyway for the planned
+property-value-editing Ctrl-F/B/A/E/W/Y suite.
+
+#### `propertyKeyUpgradeInterference.e2e.ts`
+
+Real user-reported bug, found testing on Windows (2026-11-05) with the
+"↓↑ column-aware" Key Upgrade enabled (bare ArrowUp/ArrowDown also bound
+to `cursor-up`/`cursor-down`, alongside Ctrl-N/P). `buildPropertyRowScope`'s
+own `bind()` helper iterates EVERY effective hotkey for a command via
+`getEffectiveHotkeysFor()` — which then also picks up that Key Upgrade's
+own bare-arrow hotkey, registering a Scope handler for it too. Since
+Ctrl-N/P's own native-delegation mechanism is to dispatch a SYNTHETIC
+bare `ArrowDown`/`ArrowUp` as its own last step, that synthetic dispatch
+re-enters this SAME scope's own just-registered handler for that exact
+(no modifiers, key) combo — confirmed live this silently swallows the
+whole chain: the real native row navigation never actually runs at all,
+with symptoms matching exactly what was reported (row-to-row navigation
+completely dead; heading<->first-row only worked in the direction
+`propertyHeadingCtrlN`'s explicit `.focus()` fix from the day before
+happened to sidestep, by coincidence, since it doesn't dispatch anything;
+body<->Add-button worked because that crossing's own code path is
+largely outside this scope). Could not reproduce on macOS until
+deliberately replicating the Key Upgrade's exact hotkey configuration
+via `hm.setHotkeys()` — once replicated, reproduced immediately and
+consistently.
+
+Fixed by skipping registration of exactly the hotkey that would
+self-collide with the dispatch key (`hk.modifiers.length === 0 &&
+hk.key === key`), not bare hotkeys in general — a vim-style bare 'j'/'k'
+binding to the same command is completely unaffected, since dispatching
+`'ArrowDown'` from a `'j'`-triggered handler doesn't re-enter anything
+registered under `'j'`. Built red-green: written and confirmed failing
+against the pre-fix code first (via `git stash`, rebuilding, re-running,
+then restoring the fix), all 3 failing for the right reason before the
+fix made them pass.
+
+- **(1)** Ctrl-N/P still move focus between sibling property rows when
+  the bare ArrowUp/Down Key Upgrade is also enabled.
+- **(2)** Ctrl-P from the first row still reaches the heading, with the
+  Key Upgrade enabled.
+- **(3)** Ctrl-N from the Add-button still lands on the body's real
+  first line (ch 0), with the Key Upgrade enabled — NOT a "restore the
+  previous cursor position" operation (that's Ctrl-G/Escape's own job);
+  this test's first draft asserted the wrong expected value by
+  conflating the two, caught by the test itself failing even after the
+  real fix landed.
+
+**Not yet investigated**: a separate, likely cosmetic observation from
+the same Windows report — with the Key Upgrade OFF entirely (so Ctrl-N/P
+behaves like the no-Key-Upgrade baseline), the Add-button's own focus
+ring doesn't visually render when it should be focused. Possibly a
+`:focus-visible` heuristic difference (some browsers only show it for
+keyboard-initiated focus, not a programmatic `.focus()` call) rather
+than a functional bug — not yet confirmed either way.
 
 #### `titleCrossingFrontmatter.e2e.ts`
 
