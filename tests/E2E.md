@@ -1786,6 +1786,65 @@ not the implementation**:
   and `titleYank.e2e.ts`'s own test (3), now for the Properties
   value-edit widget specifically.
 
+**A real, substantial bug found AFTER this commit shipped, reported by
+the user from real-machine usage**: pressing Ctrl-A → Ctrl-K → Ctrl-Y
+twice in a row left the cursor completely unresponsive — including
+Ctrl-G, which had been working fine up to that point — with only a
+physical Escape press able to recover. Confirmed live via a throwaway
+diagnostic spec (dumping `app.keymap`'s own window-scope stack —
+`getWindowStack(activeWindow).scope` — at every step of the repro, read
+by reconstructing the internal field names
+`.scope`/`.prevScopes`/`.parent` first identified while investigating
+the original property-value-editing architecture, see
+`project_property_value_edit_real_key_interception_dead_end` in the
+assistant's own memory): Obsidian's own property-value suggestion
+dropdown (visible the moment the widget gets focus, suggesting
+previously-used values for that property key) reacts to the real
+`input` event Ctrl-K/Ctrl-Y's own `execCommand` triggers by pushing ITS
+OWN `Scope` on top of `propertyRowScope`. DOM focus never actually left
+the value-edit widget (confirmed: `document.activeElement` stayed the
+same throughout), so `propertyRowScope` was still technically pushed —
+just shadowed underneath the suggester's own scope, silently breaking
+every command bound here until a physical Escape closed the dropdown
+and popped its scope as an unrelated side effect of Obsidian's own
+code.
+
+Also checked and ruled out as a separate concern during the same
+investigation: `titleKillLine`'s own `execCommand('delete')`, when it
+empties this specific widget completely, leaves behind a literal stray
+`"\n"` in the DOM (confirmed live — this widget is Obsidian's own
+multi-line-capable contenteditable, unlike the title field's single-line
+one, where this was never observed) — but this is purely a transient
+DOM-rendering artifact, confirmed NOT to reach the real saved file
+(read back directly via `app.vault.read` after blurring away from the
+widget: the frontmatter correctly serializes to an empty `myText:`,
+with no stray newline). No fix needed for this part.
+
+**Fix**: a new `reclaimPropertyRowScopeAfterMutation` method (see its
+own comment in `main.ts`), called after every mutating value-edit
+command (`kill-line`/`kill-region`/`yank` — `copy-region` never
+mutates the DOM, so it never triggers the dropdown's reactive push and
+needs no reclaim). After a 2-frame defer (same margin used elsewhere in
+this file for analogous focus/render-settling races — long enough for
+the suggester's own reactive push to have already happened), it checks
+whether the window's current scope is still ours; if something else
+has taken over, it pops THAT scope specifically. **Confirmed live this
+is the correct fix shape, not just "any fix that passes"**: an earlier
+attempt that instead force-pushed a fresh copy of `propertyRowScope` on
+top also recovered Ctrl-G, but would have left a stale duplicate
+sitting in `prevScopes` forever (the suggester's own eventual
+`popScope` call for its own scope would then find itself no longer on
+top and silently no-op, leaking the stack) — popping the foreign scope
+directly instead restores `propertyRowScope` to the top cleanly, with
+no leftover growth, confirmed via the same diagnostic's own
+`prevScopes.length` reading before and after.
+
+- **(8)** Regression: repeated Ctrl-A/Ctrl-K/Ctrl-Y cycles don't let the
+  suggestion dropdown shadow the Scope — the round trip stays lossless
+  AND Ctrl-G still works afterward. Built red-green: confirmed failing
+  (`Expected: true, Received: false`) against the pre-fix build before
+  implementing `reclaimPropertyRowScopeAfterMutation`, passing after.
+
 #### `titleCrossingFrontmatter.e2e.ts`
 
 Extends the already-shipped title<->body crossing

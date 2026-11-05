@@ -1186,11 +1186,71 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// Kill-word (Alt-D/Alt-Backspace) is deliberately NOT included —
 		// out of scope per the user's own explicit scope decision for this
 		// sub-feature.
-		bind('kill-line', 'K', undefined, undefined, (el) => this.titleKillLine(el), true);
-		bind('kill-region', 'W', undefined, undefined, (el) => this.titleKillRegion(el), true);
+		//
+		// kill-line/kill-region/yank each call reclaimPropertyRowScopeAfterMutation
+		// afterward — see that method's own comment for the real bug this
+		// guards against (Obsidian's own property-value suggestion
+		// dropdown can shadow propertyRowScope after a real mutating
+		// execCommand). copy-region never mutates the DOM, so it never
+		// triggers the dropdown's own reactive scope-push and needs no
+		// reclaim.
+		bind('kill-line', 'K', undefined, undefined, (el) => {
+			this.titleKillLine(el);
+			this.reclaimPropertyRowScopeAfterMutation();
+		}, true);
+		bind('kill-region', 'W', undefined, undefined, (el) => {
+			this.titleKillRegion(el);
+			this.reclaimPropertyRowScopeAfterMutation();
+		}, true);
 		bind('copy-region', 'W', undefined, undefined, (el) => this.titleCopyRegion(el), true);
-		bind('yank', 'Y', undefined, undefined, (el) => { void this.titleYank(el); }, true);
+		bind('yank', 'Y', undefined, undefined, (el) => {
+			void this.titleYank(el).then(() => this.reclaimPropertyRowScopeAfterMutation());
+		}, true);
 		return scope;
+	}
+
+	// Real bug found via live diagnostic while investigating a user report
+	// ("Ctrl-A→Ctrl-K→Ctrl-Y twice in a row and the cursor stops
+	// responding, Ctrl-G doesn't even work, only physical Escape gets me
+	// out"): a value-edit command that mutates the widget's content via
+	// doc.execCommand fires a real 'input' event, which Obsidian's OWN
+	// property-value suggestion dropdown (the "previously used values for
+	// this property" autocomplete, already visible the moment the widget
+	// gets focus) reacts to by pushing its OWN Scope on top of
+	// propertyRowScope — confirmed live via a diagnostic dump of
+	// app.keymap's own window-scope stack (getWindowStack(activeWindow).scope)
+	// after a repeated Kill-line/Yank cycle: propertyRowScope was still
+	// technically pushed (our own focusin/focusout handlers saw nothing,
+	// since DOM focus never actually left the value-edit widget) but
+	// SHADOWED underneath the suggester's own scope — every command bound
+	// here (confirmed with Ctrl-G specifically) silently stopped firing
+	// until the user pressed physical Escape, which closes the
+	// suggester's own dropdown and pops its scope as a side effect of
+	// Obsidian's own code, unrelated to anything this plugin does.
+	//
+	// Fix: after a 2-frame defer (same margin already used elsewhere in
+	// this file for analogous focus/render-settling races — the
+	// suggester's own reactive push needs to have already happened by
+	// then), check whether the window's current scope is still ours; if
+	// something else has taken over, pop THAT scope specifically rather
+	// than force-pushing a duplicate of our own on top of it. Confirmed
+	// live this is the correct fix shape: force-pushing would leave a
+	// stale duplicate of propertyRowScope sitting in prevScopes forever
+	// (the suggester's own eventual popScope call for its own scope would
+	// then find itself no longer on top and silently no-op, leaking the
+	// stack), while popping the foreign scope directly restores
+	// propertyRowScope to the top cleanly, with no leftover stack growth.
+	private reclaimPropertyRowScopeAfterMutation() {
+		requestAnimationFrameOnActiveWindow(() => {
+			requestAnimationFrameOnActiveWindow(() => {
+				if (!this.propertyRowScope) return;
+				const keymap = (this.app as any).keymap;
+				const current = keymap.getWindowStack(activeWindow).scope;
+				if (current && current !== this.propertyRowScope) {
+					keymap.popScope(current);
+				}
+			});
+		});
 	}
 
 	// Properties heading, Ctrl-P: lands a collapsed cursor at the title's

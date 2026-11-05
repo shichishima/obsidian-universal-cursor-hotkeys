@@ -45,10 +45,12 @@ describe('Property value-edit mode: Kill-line / Kill-region / Copy-region / Yank
 			hm.setHotkeys('universal-cursor-hotkeys:set-mark', [{ modifiers: ['Ctrl'], key: ' ' }])
 			hm.setHotkeys('universal-cursor-hotkeys:cursor-left', [{ modifiers: ['Ctrl'], key: 'B' }])
 			hm.setHotkeys('universal-cursor-hotkeys:cursor-right', [{ modifiers: ['Ctrl'], key: 'F' }])
+			hm.setHotkeys('universal-cursor-hotkeys:cursor-home', [{ modifiers: ['Ctrl'], key: 'A' }])
 			hm.setHotkeys('universal-cursor-hotkeys:kill-line', [{ modifiers: ['Ctrl'], key: 'K' }])
 			hm.setHotkeys('universal-cursor-hotkeys:kill-region', [{ modifiers: ['Ctrl'], key: 'W' }])
 			hm.setHotkeys('universal-cursor-hotkeys:copy-region', [{ modifiers: ['Alt'], key: 'W' }])
 			hm.setHotkeys('universal-cursor-hotkeys:yank', [{ modifiers: ['Ctrl'], key: 'Y' }])
+			hm.setHotkeys('universal-cursor-hotkeys:keyboard-quit', [{ modifiers: ['Ctrl'], key: 'G' }])
 			hm.bake()
 			app.workspace.getLeavesOfType('markdown').forEach(leaf => leaf.detach())
 			const existing = app.vault.getFileByPath(path2)
@@ -236,5 +238,39 @@ first body line
 		await pressCtrl('y')
 		const after = await snap()
 		await expect(after.valueText).toBe('hellofirst body line world')
+	})
+
+	// Real bug, reported by the user from real-machine usage right after
+	// this sub-feature shipped: pressing Ctrl-A -> Ctrl-K -> Ctrl-Y twice
+	// in a row left the cursor completely unresponsive, including Ctrl-G
+	// — only a physical Escape press recovered it. Root cause: Obsidian's
+	// own property-value suggestion dropdown (visible the moment the
+	// widget gets focus, suggesting previously-used values for this
+	// property) reacts to the real 'input' event Ctrl-K/Ctrl-Y's own
+	// execCommand triggers by pushing ITS OWN Scope on top of
+	// propertyRowScope — confirmed live via a diagnostic dump of
+	// app.keymap's own window-scope stack. DOM focus never actually left
+	// the value-edit widget, so propertyRowScope was still technically
+	// pushed, just shadowed underneath the suggester's scope, silently
+	// breaking every command bound here until physical Escape closed the
+	// dropdown and popped its own scope as an unrelated side effect of
+	// Obsidian's own code. Fixed by reclaimPropertyRowScopeAfterMutation
+	// (see its own comment in main.ts) — called after every mutating
+	// value-edit command (kill-line/kill-region/yank), it detects a
+	// foreign scope on top after a settle delay and pops it specifically,
+	// rather than force-pushing a duplicate of our own (which would leak
+	// the stack — see the method's own comment for why).
+	it('(8) regression: repeated Ctrl-A/Ctrl-K/Ctrl-Y cycles don\'t let Obsidian\'s own suggestion dropdown shadow the Scope — Ctrl-G still works afterward', async function () {
+		await openNote('PropertyValueEditKillYankScopeShadow.md')
+		await focusValueAt(0)
+
+		await pressCtrl('a'); await pressCtrl('k'); await pressCtrl('y')
+		await pressCtrl('a'); await pressCtrl('k'); await pressCtrl('y')
+		const afterCycles = await snap()
+		await expect(afterCycles.valueText).toBe('hello world') // the round trip itself is still lossless
+
+		await pressCtrl('g')
+		const afterQuit = await snap()
+		await expect(afterQuit.isRow).toBe(true) // Ctrl-G still works — the scope wasn't left shadowed
 	})
 })
