@@ -1170,6 +1170,26 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			this.titleKeyboardQuit(el);
 			el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
 		});
+		// Ctrl-K (kill-line) / Ctrl-W (kill-region) / Alt-W (copy-region) /
+		// Ctrl-Y (yank): only meaningful in the value-edit widget — there's
+		// nothing to kill/copy/yank on a row/heading/Add-button. All four
+		// reuse their title-field counterpart as-is (titleKillLine/
+		// titleKillRegion/titleCopyRegion/titleYank), already generic over
+		// any HTMLElement via its own ownerDocument's Selection API, same
+		// precedent as every value-edit handler above. suppressFallback is
+		// set for all four, same reasoning as set-mark above: their base
+		// keys are plain letters, and the fallback dispatch's own dropped-
+		// modifier bug (fixed for set-mark, see its own comment above)
+		// would equally make a bare letter keydown on a row look like
+		// "start typing" to Obsidian's own row listener.
+		//
+		// Kill-word (Alt-D/Alt-Backspace) is deliberately NOT included —
+		// out of scope per the user's own explicit scope decision for this
+		// sub-feature.
+		bind('kill-line', 'K', undefined, undefined, (el) => this.titleKillLine(el), true);
+		bind('kill-region', 'W', undefined, undefined, (el) => this.titleKillRegion(el), true);
+		bind('copy-region', 'W', undefined, undefined, (el) => this.titleCopyRegion(el), true);
+		bind('yank', 'Y', undefined, undefined, (el) => { void this.titleYank(el); }, true);
 		return scope;
 	}
 

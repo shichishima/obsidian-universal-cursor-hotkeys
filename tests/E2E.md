@@ -1731,6 +1731,61 @@ harmless for this one key.
 - **(6)** Regression: Ctrl-Space on the row itself (item-selection mode)
   does nothing — the test that caught the fallback-dispatch bug above.
 
+#### `propertyValueEditKillYank.e2e.ts`
+
+0.13.0 Feature 1, property-value-editing sub-phase, Phase 3: Kill-line
+(Ctrl-K), Kill-region (Ctrl-W), Copy-region (Alt-W), and Yank (Ctrl-Y)
+inside a text property's own value-edit widget. Reuses
+`titleKillLine`/`titleKillRegion`/`titleCopyRegion`/`titleYank` as-is
+from the title field's own implementation — all four already operate
+purely through the Selection API on the element's own `ownerDocument`,
+with zero title-specific assumption baked in, same precedent as every
+other value-edit handler shipped in `propertyValueEditMovement.e2e.ts`/
+`propertyValueEditSetMark.e2e.ts`. Kill-word (Alt-D/Alt-Backspace) is
+deliberately NOT included — out of scope per the user's own explicit
+scope decision for this sub-feature. All four are bound with
+`suppressFallback` (see `propertyValueEditSetMark.e2e.ts`'s own section
+above for why) — their base keys are plain letters, same dropped-
+modifier risk Set-mark's own Ctrl-Space already found and fixed.
+
+**Two real bugs found while writing this spec, both in the TEST itself,
+not the implementation**:
+- An initial `pressCtrl` helper hardcoded its dispatch target to the
+  value-edit widget (copied from `titleRegion.e2e.ts`/`titleYank.e2e.ts`'s
+  own pattern, where that's correct — the title only ever has one
+  possible target). Test (6) below (the row no-op regression) focuses
+  the plain row instead, so hardcoding the dispatch target made it
+  silently test the wrong element the whole time, passing for the wrong
+  reason. Fixed by dispatching on `document.activeElement` instead —
+  whatever currently has real DOM focus, matching how a real keypress
+  actually targets.
+- Tests seeding `killCache` directly (to control what Ctrl-Y inserts)
+  forgot that `titleYank` (reused here) prefers the real OS clipboard
+  over `killCache` when they diverge — confirmed behavior, already
+  covered by `titleYank.e2e.ts`'s own test (6). A leftover clipboard
+  value from an earlier test in this same shared instance (Copy
+  region's own `navigator.clipboard.writeText` call) won every time
+  until the test also seeded the clipboard directly, matching
+  `titleYank.e2e.ts`'s own `openNote` precedent.
+
+- **(1)** Ctrl-K kills from the cursor to the value's own end, into the
+  shared kill-ring.
+- **(2)** Ctrl-W (Kill region) deletes the Set-mark selection and clears
+  the mark.
+- **(3)** Alt-W (Copy region) copies the Set-mark selection without
+  mutating the value, and clears the mark.
+- **(4)** Ctrl-Y inserts the kill-ring content at a collapsed cursor.
+- **(5)** Ctrl-Y replaces an active (non-collapsed) selection instead of
+  inserting at a point.
+- **(6)** Regression: Ctrl-K/Ctrl-W/Ctrl-Y on the row itself
+  (item-selection mode) do nothing — the test that caught the
+  hardcoded-dispatch-target bug above.
+- **(7)** Cross-context: Kill line in the body populates the shared
+  kill-ring, Yank in the value-edit widget retrieves it — same
+  shared-kill-ring confirmation as `titleKillLine.e2e.ts`'s own test (3)
+  and `titleYank.e2e.ts`'s own test (3), now for the Properties
+  value-edit widget specifically.
+
 #### `titleCrossingFrontmatter.e2e.ts`
 
 Extends the already-shipped title<->body crossing
