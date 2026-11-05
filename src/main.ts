@@ -30,6 +30,23 @@ const TITLE_SELECTOR = ".inline-title[contenteditable='true']";
 const PROPERTY_PANEL_FOCUS_SELECTOR =
 	'.metadata-property, .metadata-properties-heading, .metadata-add-button';
 
+// 0.13.0 Feature 1, property-value-editing sub-phase: a text property's
+// own VALUE-edit widget ("metadata-input-longtext", a contenteditable
+// DIV) — confirmed live this is the exact same element Bases table
+// cells use for inline text editing too, so this covers both for free.
+// Deliberately narrower than PROPERTY_PANEL_FOCUS_SELECTOR (item
+// selection mode, the row itself) — this is the row's VALUE actually
+// being edited. Does NOT match the name/key-edit INPUT (a separate,
+// later phase — see PROPERTY_PANEL_SCOPE_SELECTOR's own comment).
+const PROPERTY_VALUE_EDIT_SELECTOR = '.metadata-input-longtext';
+
+// The combined set of elements that keep propertyRowScope pushed.
+// Exact-match only (not .closest()) throughout — every element in both
+// selectors above is itself the real focus target, never a descendant
+// of one, so there's no need to climb the tree.
+const PROPERTY_PANEL_SCOPE_SELECTOR =
+	`${PROPERTY_PANEL_FOCUS_SELECTOR}, ${PROPERTY_VALUE_EDIT_SELECTOR}`;
+
 // Extend the Obsidian Editor interface to include the internal CodeMirror 6 instance (EditorView)
 declare module "obsidian" {
 	interface Editor {
@@ -894,35 +911,59 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}, true);
 
 		// 0.13.0 Feature 1, frontmatter sub-phase: Properties-panel row
-		// item-selection mode (see PROPERTY_PANEL_FOCUS_SELECTOR's own comment).
-		// Deliberately an exact-match check (e.target, not .closest()) —
-		// a property's own text/input descendant having focus (ordinary
-		// editing) must NOT push this scope; only the row DIV itself
-		// (reached via Escape x2) counts as item-selection mode. Parallel
-		// to, not merged with, the title's own focusin/focusout above.
+		// item-selection mode (see PROPERTY_PANEL_FOCUS_SELECTOR's own
+		// comment), now also covering the text value-edit widget (see
+		// PROPERTY_VALUE_EDIT_SELECTOR's own comment) via the combined
+		// PROPERTY_PANEL_SCOPE_SELECTOR. Deliberately exact-match (not
+		// .closest()) on that combined set — the name/key-edit INPUT
+		// (ordinary editing of the property's NAME, a separate, later
+		// phase) must NOT push this scope, only the row DIV itself
+		// (item-selection mode) and the value-edit widget itself count.
 		//
-		// Confirmed live this session that broadening this to .closest()
-		// (so Ctrl-G could also work from inside actual text-editing, not
-		// just item-selection mode) doesn't work for contenteditable-DIV
-		// value-edit widgets (e.g. text's own "metadata-input-longtext")
-		// anyway — Obsidian stops propagation of any Ctrl-modified keydown
-		// somewhere between document.body and .workspace-split, which
-		// this app.keymap.pushScope-based mechanism can't reach regardless
-		// of how broadly it's pushed (confirmed: document-level listeners,
-		// capture or bubble, never see the event at all from there). A
-		// listener attached directly on view.containerEl (or anything
-		// below .workspace-split) DOES see it fine — that's a real,
-		// different mechanism for a future branch to use for editing-mode
-		// support (also needed for the planned property-value-editing
-		// Ctrl-F/B/A/E/W/Y suite), not something to bolt onto this one.
+		// Confirmed live that pushing this Scope DOES correctly reach a
+		// REAL keypress even when its exact combo is an already-registered
+		// command hotkey (e.g. Ctrl-F bound to cursor-right) and focus is
+		// inside the value-edit widget — pushing a Scope makes it get
+		// checked before the root scope's own global command binding
+		// does, in Obsidian's own window-level capture listener, so our
+		// handler runs and does its work before that original keydown
+		// gets stopped. An EARLIER attempt at this same broadening was
+		// abandoned after testing with synthetic dispatchEvent() calls
+		// suggested it couldn't work — that test methodology turned out
+		// to be unreliable for anything touching Obsidian's own Keymap;
+		// browser.keys() (real input) gives the true, consistent answer.
+		//
+		// The value-edit widget specifically needs its push DEFERRED by
+		// one frame (confirmed live via the window scope stack's own
+		// state): it pushes its OWN Scope on focus too (bare Arrow/
+		// PageUp/PageDown/Home, for its own multi-line text navigation),
+		// and pushing ours synchronously here loses the race — the
+		// widget's own push lands AFTER ours, burying it underneath with
+		// no parent-chain fallback, so it's never consulted at all for
+		// any key. Pushing one frame later (same 2-RAF defer pattern used
+		// elsewhere in this file for analogous focus-settling races, e.g.
+		// addCursorOnView's own call site) lets the widget's own push
+		// happen first, so ours ends up on top as intended. Item
+		// selection mode's own elements (row/heading/Add-button) don't
+		// have this race — they push synchronously, unchanged.
 		this.registerDomEvent(doc, 'focusin', (e: FocusEvent) => {
-			if ((e.target as HTMLElement)?.matches?.(PROPERTY_PANEL_FOCUS_SELECTOR)) {
-				this.propertyRowScope = this.buildPropertyRowScope();
-				this.app.keymap.pushScope(this.propertyRowScope);
+			const target = e.target as HTMLElement;
+			if (!target?.matches?.(PROPERTY_PANEL_SCOPE_SELECTOR)) return;
+			if (target.matches(PROPERTY_VALUE_EDIT_SELECTOR)) {
+				requestAnimationFrameOnActiveWindow(() => {
+					requestAnimationFrameOnActiveWindow(() => {
+						if (doc.activeElement !== target) return;
+						this.propertyRowScope = this.buildPropertyRowScope();
+						this.app.keymap.pushScope(this.propertyRowScope);
+					});
+				});
+				return;
 			}
+			this.propertyRowScope = this.buildPropertyRowScope();
+			this.app.keymap.pushScope(this.propertyRowScope);
 		}, true);
 		this.registerDomEvent(doc, 'focusout', (e: FocusEvent) => {
-			if (this.propertyRowScope && (e.target as HTMLElement)?.matches?.(PROPERTY_PANEL_FOCUS_SELECTOR)) {
+			if (this.propertyRowScope && (e.target as HTMLElement)?.matches?.(PROPERTY_PANEL_SCOPE_SELECTOR)) {
 				this.app.keymap.popScope(this.propertyRowScope);
 				this.propertyRowScope = null;
 			}
@@ -1019,6 +1060,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			key: string,
 			headingHandler?: (heading: HTMLElement) => void,
 			addButtonHandler?: (addButton: HTMLElement) => void,
+			valueEditHandler?: (valueEl: HTMLElement) => void,
 		) => {
 			for (const hk of this.getEffectiveHotkeysFor(commandId)) {
 				// Real user-reported bug: a Key Upgrade binding the SAME
@@ -1039,10 +1081,12 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				// registered under 'j'.
 				if (hk.modifiers.length === 0 && hk.key === key) continue;
 				scope.register(hk.modifiers as Modifier[], hk.key, (evt) => {
-					const target = (evt.target as HTMLElement)?.matches?.(PROPERTY_PANEL_FOCUS_SELECTOR)
+					const target = (evt.target as HTMLElement)?.matches?.(PROPERTY_PANEL_SCOPE_SELECTOR)
 						? (evt.target as HTMLElement) : null;
 					if (!target) return false;
-					if (headingHandler && target.matches('.metadata-properties-heading')) {
+					if (valueEditHandler && target.matches(PROPERTY_VALUE_EDIT_SELECTOR)) {
+						valueEditHandler(target);
+					} else if (headingHandler && target.matches('.metadata-properties-heading')) {
 						headingHandler(target);
 					} else if (addButtonHandler && target.matches('.metadata-add-button')) {
 						addButtonHandler(target);
@@ -1055,38 +1099,41 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		};
 		bind('cursor-up', 'ArrowUp', (heading) => this.propertyHeadingEscapeToTitle(heading));
 		bind('cursor-down', 'ArrowDown', (heading) => this.propertyHeadingCtrlN(heading), (addButton) => this.propertyAddButtonEscapeToBody(addButton));
-		// Ctrl-B/F: unlike cursor-up/down, every element in this chain
-		// already does the right thing with a plain native dispatch, no
-		// handler needed at all — confirmed live: the heading
-		// collapses (Left) / expands (Right) the whole Properties block
-		// (not a toggle: Right at an already-expanded heading, and Left
-		// at an already-collapsed one, are both a no-op), a row enters
-		// its own name-edit (Left) / value-edit (Right) mode, and the
-		// Add-button does nothing either way.
-		bind('cursor-left', 'ArrowLeft');
-		bind('cursor-right', 'ArrowRight');
+		// Ctrl-B/F: in item-selection mode, every element already does the
+		// right thing with a plain native dispatch, no handler needed at
+		// all — confirmed live: the heading collapses (Left) / expands
+		// (Right) the whole Properties block (not a toggle: Right at an
+		// already-expanded heading, and Left at an already-collapsed one,
+		// are both a no-op), a row enters its own name-edit (Left) /
+		// value-edit (Right) mode, and the Add-button does nothing either
+		// way. Inside the value-edit widget itself, though, a plain
+		// native dispatch does nothing useful — browsers only perform a
+		// key's own default action (like moving a text caret) for
+		// TRUSTED events, never a JS-constructed synthetic one — so this
+		// reuses titleMoveChar/titleMoveToLineBoundary (0.13.0's existing
+		// title-field movement implementation) directly, doing the real
+		// Selection-API work ourselves instead of hoping a dispatch
+		// triggers it. Both already take a generic HTMLElement and
+		// operate purely through Selection.modify() on its own
+		// ownerDocument, with no title-specific assumption baked in.
+		bind('cursor-left', 'ArrowLeft', undefined, undefined, (el) => this.titleMoveChar(el, false));
+		bind('cursor-right', 'ArrowRight', undefined, undefined, (el) => this.titleMoveChar(el, true));
+		bind('cursor-home', 'Home', undefined, undefined, (el) => this.titleMoveToLineBoundary(el, false));
+		bind('cursor-end', 'End', undefined, undefined, (el) => this.titleMoveToLineBoundary(el, true));
 		// Ctrl-G (keyboard-quit): also a plain native dispatch, no handler
-		// needed — confirmed live that native Escape from ANY element in
-		// this chain (a row, the heading, the Add-button, panel expanded
-		// or collapsed) simply returns DOM focus to the body. CM6's own
-		// cursor position was never touched while focus was in
-		// Properties, so it's restored exactly where it already was — no
-		// goal-column logic needed here, unlike cursor-up/down.
-		//
-		// Deliberately scoped to item-selection mode only, same as every
-		// other binding here — does NOT also work from inside a row's own
-		// text-editing descendants (unlike what Escape itself does
-		// there). Confirmed live: Obsidian stops propagation of any
-		// Ctrl-modified keydown from inside a contenteditable-DIV
-		// value-edit widget (e.g. text's "metadata-input-longtext")
-		// somewhere between document.body and .workspace-split, which
-		// this app.keymap.pushScope-based mechanism can never reach no
-		// matter how the push/pop condition is broadened. Extending into
-		// editing mode needs a different mechanism entirely (a listener
-		// attached directly on view.containerEl or similar, confirmed
-		// live to still see the event there) — left for a separate
-		// branch, alongside the planned property-value-editing
-		// Ctrl-F/B/A/E/W/Y suite that will need the same mechanism.
+		// needed anywhere, INCLUDING the value-edit widget — confirmed
+		// live that native Escape from ANY element in this chain (a row,
+		// the heading, the Add-button, panel expanded or collapsed) simply
+		// returns DOM focus to the body (CM6's own cursor position was
+		// never touched while focus was in Properties, so it's restored
+		// exactly where it already was — no goal-column logic needed here,
+		// unlike cursor-up/down), and from the value-edit widget itself,
+		// native Escape exits toward item-selection mode via Obsidian's
+		// own JS-level handling, not a browser-default action — so, unlike
+		// cursor-left/right/home/end above, a synthetic dispatch (which
+		// only ever triggers JS-handled behavior, never a browser-default
+		// one) reaches it just fine without needing titleMoveChar-style
+		// Selection-API work of our own.
 		bind('keyboard-quit', 'Escape');
 		return scope;
 	}

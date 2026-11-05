@@ -141,29 +141,32 @@ second body line
 		await expect(after.editorCursor).toEqual({ line: 4, ch: 5 })
 	})
 
-	it('(5) regression: Ctrl-G does nothing to row focus while ordinary text editing is active (not item-selection mode)', async function () {
-		// Deliberately scoped out, not merely untested — see
-		// buildPropertyRowScope's own comment on its keyboard-quit
-		// binding: Obsidian stops propagation of any Ctrl-modified
-		// keydown from inside a contenteditable-DIV value-edit widget
-		// before it ever reaches this plugin's app.keymap.pushScope-based
-		// mechanism, confirmed live. Extending into editing mode needs a
-		// different mechanism (direct view.containerEl listener),
-		// tracked as a separate future branch.
-		await openNote('PropertyCtrlGNoInterference.md')
+	it('(5) Ctrl-G also escapes from inside the value-edit widget itself, back to item-selection mode (not just item-selection mode\'s own row/heading/Add-button)', async function () {
+		// This was originally scoped OUT (see the property-value-editing
+		// movement work, feat/property-value-edit-movement) after
+		// confirming live that Obsidian stops propagation of a
+		// Ctrl-modified keydown from this widget before it reaches
+		// app.keymap at all — UNLESS a Scope is actually pushed while
+		// focus is there, in which case it's checked before Obsidian's
+		// own root-scope command binding ever gets a chance. Once
+		// propertyRowScope's own push/pop condition was broadened to
+		// cover this widget too (for the movement commands), Ctrl-G
+		// escaping from here came along for free — this test now
+		// confirms it rather than asserting the opposite.
+		await openNote('PropertyCtrlGFromValueEdit.md')
 		await browser.executeObsidian(({ app, obsidian }) => {
 			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
 			const row = view.containerEl.querySelector('.metadata-property[data-property-key="mytext"]') as HTMLElement
 			const target = row.querySelector('[contenteditable="true"]') as HTMLElement
 			target.focus()
 		})
-		await browser.pause(80)
+		await browser.pause(150)
 		const before = await snap()
 		await expect(before.isContentEditable).toBe(true)
 
 		await pressCtrlG()
 		const after = await snap()
-		await expect(after.isContentEditable).toBe(true)
+		await expect(after.isContentEditable).toBe(false)
 		await expect(after.propertyKey).toBe('mytext')
 	})
 

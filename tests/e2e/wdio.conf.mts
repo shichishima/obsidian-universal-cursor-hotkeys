@@ -72,6 +72,7 @@ export const config: WebdriverIO.Config = {
 		'./specs/propertyCtrlBf.e2e.ts',
 		'./specs/propertyCtrlG.e2e.ts',
 		'./specs/propertyKeyUpgradeInterference.e2e.ts',
+		'./specs/propertyValueEditMovement.e2e.ts',
 		'./specs/titleCrossingFrontmatter.e2e.ts',
 	]],
 
