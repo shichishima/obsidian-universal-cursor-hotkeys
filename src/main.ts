@@ -1021,6 +1021,23 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			addButtonHandler?: (addButton: HTMLElement) => void,
 		) => {
 			for (const hk of this.getEffectiveHotkeysFor(commandId)) {
+				// Real user-reported bug: a Key Upgrade binding the SAME
+				// bare key this handler is about to dispatch (e.g. the
+				// "↓↑ column-aware" Key Upgrade adding a bare ArrowDown
+				// hotkey to cursor-down, alongside Ctrl-N) makes
+				// getEffectiveHotkeysFor return that bare hotkey too —
+				// registering a handler for it here means the synthetic
+				// dispatch below re-enters THIS SAME scope's own
+				// just-registered handler for that exact (no modifiers,
+				// key) combo, confirmed live to silently swallow the
+				// whole chain (the real native row navigation never
+				// actually runs). Skipping only this exact self-colliding
+				// combo — not bare hotkeys in general — leaves e.g. a
+				// vim-style bare 'j'/'k' binding to the same command
+				// completely unaffected, since dispatching 'ArrowDown'
+				// from a 'j'-triggered handler doesn't re-enter anything
+				// registered under 'j'.
+				if (hk.modifiers.length === 0 && hk.key === key) continue;
 				scope.register(hk.modifiers as Modifier[], hk.key, (evt) => {
 					const target = (evt.target as HTMLElement)?.matches?.(PROPERTY_PANEL_FOCUS_SELECTOR)
 						? (evt.target as HTMLElement) : null;

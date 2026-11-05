@@ -71,6 +71,7 @@ export const config: WebdriverIO.Config = {
 		'./specs/propertyItemSelection.e2e.ts',
 		'./specs/propertyCtrlBf.e2e.ts',
 		'./specs/propertyCtrlG.e2e.ts',
+		'./specs/propertyKeyUpgradeInterference.e2e.ts',
 		'./specs/titleCrossingFrontmatter.e2e.ts',
 	]],
 

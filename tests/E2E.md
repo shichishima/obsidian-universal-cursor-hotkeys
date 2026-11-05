@@ -1571,6 +1571,58 @@ mechanism from the Scope-based one everything else in this panel uses —
 left for a separate future branch, needed anyway for the planned
 property-value-editing Ctrl-F/B/A/E/W/Y suite.
 
+#### `propertyKeyUpgradeInterference.e2e.ts`
+
+Real user-reported bug, found testing on Windows (2026-11-05) with the
+"↓↑ column-aware" Key Upgrade enabled (bare ArrowUp/ArrowDown also bound
+to `cursor-up`/`cursor-down`, alongside Ctrl-N/P). `buildPropertyRowScope`'s
+own `bind()` helper iterates EVERY effective hotkey for a command via
+`getEffectiveHotkeysFor()` — which then also picks up that Key Upgrade's
+own bare-arrow hotkey, registering a Scope handler for it too. Since
+Ctrl-N/P's own native-delegation mechanism is to dispatch a SYNTHETIC
+bare `ArrowDown`/`ArrowUp` as its own last step, that synthetic dispatch
+re-enters this SAME scope's own just-registered handler for that exact
+(no modifiers, key) combo — confirmed live this silently swallows the
+whole chain: the real native row navigation never actually runs at all,
+with symptoms matching exactly what was reported (row-to-row navigation
+completely dead; heading<->first-row only worked in the direction
+`propertyHeadingCtrlN`'s explicit `.focus()` fix from the day before
+happened to sidestep, by coincidence, since it doesn't dispatch anything;
+body<->Add-button worked because that crossing's own code path is
+largely outside this scope). Could not reproduce on macOS until
+deliberately replicating the Key Upgrade's exact hotkey configuration
+via `hm.setHotkeys()` — once replicated, reproduced immediately and
+consistently.
+
+Fixed by skipping registration of exactly the hotkey that would
+self-collide with the dispatch key (`hk.modifiers.length === 0 &&
+hk.key === key`), not bare hotkeys in general — a vim-style bare 'j'/'k'
+binding to the same command is completely unaffected, since dispatching
+`'ArrowDown'` from a `'j'`-triggered handler doesn't re-enter anything
+registered under `'j'`. Built red-green: written and confirmed failing
+against the pre-fix code first (via `git stash`, rebuilding, re-running,
+then restoring the fix), all 3 failing for the right reason before the
+fix made them pass.
+
+- **(1)** Ctrl-N/P still move focus between sibling property rows when
+  the bare ArrowUp/Down Key Upgrade is also enabled.
+- **(2)** Ctrl-P from the first row still reaches the heading, with the
+  Key Upgrade enabled.
+- **(3)** Ctrl-N from the Add-button still lands on the body's real
+  first line (ch 0), with the Key Upgrade enabled — NOT a "restore the
+  previous cursor position" operation (that's Ctrl-G/Escape's own job);
+  this test's first draft asserted the wrong expected value by
+  conflating the two, caught by the test itself failing even after the
+  real fix landed.
+
+**Not yet investigated**: a separate, likely cosmetic observation from
+the same Windows report — with the Key Upgrade OFF entirely (so Ctrl-N/P
+behaves like the no-Key-Upgrade baseline), the Add-button's own focus
+ring doesn't visually render when it should be focused. Possibly a
+`:focus-visible` heuristic difference (some browsers only show it for
+keyboard-initiated focus, not a programmatic `.focus()` call) rather
+than a functional bug — not yet confirmed either way.
+
 #### `titleCrossingFrontmatter.e2e.ts`
 
 Extends the already-shipped title<->body crossing
