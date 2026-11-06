@@ -1238,6 +1238,63 @@ on its own, same as physical Option-←/→ in the title.
   over from the first) DOES pull that space in, a common word-delete
   convention (e.g. Ctrl+Backspace in many editors) rather than a bug.
 
+#### `titleDeleteChar.e2e.ts`
+
+0.13.0 Feature 1: Ctrl-D (Delete char) in the title field — entirely new
+for this context, unlike every other command added to the title field
+so far (all of which already existed on at least the body side before
+being ported here, giving an existing implementation to reuse). Unlike
+Kill line/word (which always collapse to point first, discarding any
+active selection on purpose), Delete char does NOT touch the mark's own
+extend/move distinction and deletes whatever's already selected if a
+selection exists — matching real Emacs's `delete-char`, which also
+ignores the mark, and matching the body's own `deleteChar`
+(`deleteCharForward`), which never checks `markActive` either.
+
+A real subtlety found while implementing (not a bug, a genuine platform
+behavior to guard against): `document.execCommand('delete')` on a
+COLLAPSED selection defaults to a BACKWARD (backspace-like) deletion,
+not a no-op. Naively extending-then-deleting (`Selection.modify('extend',
+'forward', 'character')` then `execCommand('delete')`) would therefore
+delete the WRONG (preceding) character at the title's own absolute end,
+where there's nothing to extend into and the selection stays collapsed.
+Fixed by checking whether the extend attempt actually left the collapsed
+state before calling `execCommand` at all — test (2) below is the direct
+regression coverage.
+
+- **(1)** Deletes the character after the cursor.
+- **(2)** A true no-op at the title's own end — the specific regression
+  this command's own implementation needed to guard against.
+- **(3)** Deletes an entire active (non-collapsed) selection, not one
+  extra character past it.
+- **(4)** Integrates with the title's own native undo stack.
+
+#### `propertyValueEditDeleteChar.e2e.ts`
+
+0.13.0 Feature 1, property-value-editing sub-phase: Ctrl-D (Delete char)
+inside a text property's own value-edit widget. Reuses `titleDeleteChar`
+as-is — entirely new for BOTH the title field and this widget (unlike
+Kill word, which already existed on the title side before this phase),
+so there's no "title already proved it" precedent to lean on here, only
+the underlying Selection API mechanism already used throughout this
+whole sub-feature. `suppressFallback` is set and
+`reclaimPropertyRowScopeAfterMutation` is called afterward, same
+treatment as every other mutating value-edit command here.
+
+- **(1)** Deletes the character after the cursor.
+- **(2)** A true no-op at the value's own end.
+- **(3)** Deletes an entire active (non-collapsed) selection, not one
+  extra character past it.
+- **(4)** Regression: Ctrl-D on the row itself (item-selection mode)
+  does nothing.
+
+Both specs' full affected-regression run plus a full-suite pass (186
+tests) confirmed clean — one unrelated, pre-existing flake
+(`propertyValueEditSetMark.e2e.ts`'s own test 4) reproduced once in the
+full run and came back green on an isolated single-file re-run,
+consistent with this project's own "isolated re-run is sufficient
+evidence for a flake" convention.
+
 #### `titleSetMark.e2e.ts`
 
 Set-mark (Ctrl-Space) in the title field. Unlike the body's own CM6-based

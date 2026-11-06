@@ -64,6 +64,7 @@ export const config: WebdriverIO.Config = {
 		'./specs/titleCrossingPopout.e2e.ts',
 		'./specs/titleKillLine.e2e.ts',
 		'./specs/titleKillWord.e2e.ts',
+		'./specs/titleDeleteChar.e2e.ts',
 		'./specs/titleSetMark.e2e.ts',
 		'./specs/titleRegion.e2e.ts',
 		'./specs/titleYank.e2e.ts',
@@ -76,6 +77,7 @@ export const config: WebdriverIO.Config = {
 		'./specs/propertyValueEditSetMark.e2e.ts',
 		'./specs/propertyValueEditKillYank.e2e.ts',
 		'./specs/propertyValueEditKillWord.e2e.ts',
+		'./specs/propertyValueEditDeleteChar.e2e.ts',
 		'./specs/titleCrossingFrontmatter.e2e.ts',
 	]],
 

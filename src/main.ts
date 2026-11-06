@@ -1021,6 +1021,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		bind('cursor-up', (el) => this.titleMoveLine(el, false));
 		bind('cursor-down', (el) => this.titleMoveLineOrEscapeToBody(el));
 		bind('kill-line', (el) => this.titleKillLine(el));
+		bind('delete-char', (el) => this.titleDeleteChar(el));
 		bind('kill-word-left', (el) => this.titleKillWord(el, false));
 		bind('kill-word-right', (el) => this.titleKillWord(el, true));
 		bind('set-mark', (el) => this.titleSetMark(el));
@@ -1226,6 +1227,14 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}, true);
 		bind('kill-word-right', 'D', undefined, undefined, (el) => {
 			this.titleKillWord(el, true);
+			this.reclaimPropertyRowScopeAfterMutation();
+		}, true);
+		// Delete char (Ctrl-D): reuses titleDeleteChar as-is, entirely new
+		// for both the title field and this widget (unlike every command
+		// above, which already existed on at least one side). Same
+		// mutating-command treatment as the kill commands above.
+		bind('delete-char', 'D', undefined, undefined, (el) => {
+			this.titleDeleteChar(el);
 			this.reclaimPropertyRowScopeAfterMutation();
 		}, true);
 		return scope;
@@ -2051,6 +2060,34 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// titleKillLine/titleKillWord do (those operate from point,
 	// discarding any region on purpose) — this command's whole job IS the
 	// active region itself.
+	// Ctrl-D (Delete char): deletes the character AFTER point, same as the
+	// body's own deleteChar — doesn't touch markActive's own extend/move
+	// distinction via a collapse-to-point step the way Kill line/word do
+	// (those discard an active region on purpose; Delete char doesn't),
+	// matching real Emacs's delete-char, which also ignores the mark.
+	// If a non-empty selection already exists, deletes exactly that
+	// (standard editor convention — same as a physical Delete keypress
+	// over a selection anywhere else); if collapsed, extends by one
+	// character forward first, then deletes that. Guards against
+	// Selection.modify's own collapsed-selection fallback behavior for
+	// execCommand('delete') (which defaults to a BACKWARD/backspace-like
+	// deletion when the selection is still collapsed) by checking
+	// whether the extend attempt actually left collapsed state — true
+	// no-op at the title's own end, never a wrong-direction delete.
+	private titleDeleteChar(titleEl: HTMLElement) {
+		this.markActive = false;
+		const doc = titleEl.ownerDocument;
+		const sel = doc.getSelection() as (Selection & {
+			modify(alter: string, direction: string, granularity: string): void;
+		}) | null;
+		if (!sel || sel.rangeCount === 0) return;
+		if (sel.isCollapsed) {
+			sel.modify('extend', 'forward', 'character');
+			if (sel.isCollapsed) return; // already at the title's own end: nothing to delete
+		}
+		doc.execCommand('delete', false);
+	}
+
 	private titleCopyRegion(titleEl: HTMLElement) {
 		const sel = titleEl.ownerDocument.getSelection();
 		if (!sel || sel.isCollapsed) return; // nothing selected
