@@ -1581,6 +1581,20 @@ sweep (this spec plus `propertyItemSelection`, `propertyCtrlG`,
   item-selection mode on its own, confirming the fix didn't disturb the
   native two-stage behavior it was built to preserve.
 
+**(13) added in a follow-up fix, same day — a real user report**
+("2文字目でCtrl-D→Cmd-Zで入力が効かなくなる"): the exact same
+scope-shadowing bug already fixed for the text value-edit widget
+(`propertyValueEditDeleteChar.e2e.ts`'s own test (5)) — this input's
+own native autocomplete/suggester reacts to the real `input` event
+from `execCommand('delete')` or the browser's own native Undo by
+pushing its OWN Scope on top of `propertyRowScope`, exactly like the
+text widget's suggester. The existing document-level `input` reclaim
+listener was scoped to `PROPERTY_VALUE_EDIT_SELECTOR` only (this input
+didn't exist yet when that fix shipped) — broadened to
+`PROPERTY_TEXT_LIKE_EDIT_SELECTOR` to cover both. Confirmed red before
+the fix (reverting the selector back to `PROPERTY_VALUE_EDIT_SELECTOR`
+reproduces test (13) failing) and green after.
+
 #### `titleSetMark.e2e.ts`
 
 Set-mark (Ctrl-Space) in the title field. Unlike the body's own CM6-based

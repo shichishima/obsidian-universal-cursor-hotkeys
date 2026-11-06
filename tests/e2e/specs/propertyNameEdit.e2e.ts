@@ -242,4 +242,44 @@ first body line
 		})
 		await expect(isRow).toBe(true)
 	})
+
+	// Real user report ("2文字目でCtrl-D→Cmd-Zで入力が効かなくなる"): the
+	// SAME scope-shadowing bug already fixed for the text value-edit
+	// widget (propertyValueEditDeleteChar.e2e.ts's own test (5)) also
+	// affects this input -- its own native autocomplete/suggester reacts
+	// to the real 'input' event from execCommand('delete') or the
+	// browser's own native Undo by pushing its OWN Scope on top of
+	// propertyRowScope, exactly like the text widget's suggester. The
+	// existing document-level 'input' reclaim listener was originally
+	// scoped to PROPERTY_VALUE_EDIT_SELECTOR only (this input didn't
+	// exist yet when that fix shipped) -- broadened to
+	// PROPERTY_TEXT_LIKE_EDIT_SELECTOR to cover both. Repro specifically
+	// needs a non-zero starting offset, same as the original text-widget
+	// bug.
+	it('(13) regression: Ctrl-D then native Undo doesn\'t leave the key-edit input unresponsive', async function () {
+		await openNote('PropNameUndoRegression.md', 'myName')
+		await focusKeyInput(1) // repro specifically needs a non-zero starting offset
+
+		await browser.keys(['Control', 'd'])
+		await browser.keys(['Control', 'd'])
+		await browser.keys(['Control', 'd'])
+		await browser.pause(200)
+
+		await browser.keys(['Meta', 'z'])
+		await browser.keys(['Meta', 'z'])
+		await browser.keys(['Meta', 'z'])
+		await browser.pause(200)
+		const afterUndo = await getKeyInput()
+		await expect(afterUndo.value).toBe('myName') // undo round-trip itself still correct
+
+		await browser.keys(['Control', 'g'])
+		await browser.pause(200)
+		const isRow = await browser.executeObsidian(({ app, obsidian }) => {
+			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+			const doc = view.containerEl.ownerDocument
+			const active = doc.activeElement as HTMLElement | null
+			return active?.classList.contains('metadata-property') ?? false
+		})
+		await expect(isRow).toBe(true) // Ctrl-G still works -- the scope wasn't left shadowed
+	})
 })

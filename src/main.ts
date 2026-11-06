@@ -1124,9 +1124,23 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// reclaimPropertyRowScopeAfterMutation() call that used to follow
 		// kill-line/kill-region/kill-word-left/kill-word-right/yank/
 		// delete-char individually in buildPropertyRowScope.
+		//
+		// Extended to PROPERTY_KEY_EDIT_SELECTOR (2026-11-07): a real user
+		// report ("2文字目でCtrl-D→Cmd-Zで入力が効かなくなる" — Ctrl-D then
+		// Cmd-Z at offset 1+ breaks input) confirmed live this exact same
+		// shadowing also happens for the name/key-edit input — its own
+		// native autocomplete/suggester reacts to the SAME real 'input'
+		// event (from execCommand('delete') or the browser's own native
+		// Undo) by pushing its OWN Scope on top of propertyRowScope, just
+		// like the text value-edit widget's own suggester. Confirmed via
+		// a scope-stack dump (`topScopeIsOurs: false` right after Ctrl-D
+		// + Cmd-Z) before fixing. This was originally scoped to only
+		// PROPERTY_VALUE_EDIT_SELECTOR because that was the only widget
+		// with a mutation-reactive suggester known about at the time the
+		// text-type phase shipped — the key-edit input didn't exist yet.
 		this.registerDomEvent(doc, 'input', (e: Event) => {
 			if (!this.propertyRowScope) return;
-			if (!(e.target as HTMLElement)?.matches?.(PROPERTY_VALUE_EDIT_SELECTOR)) return;
+			if (!(e.target as HTMLElement)?.matches?.(PROPERTY_TEXT_LIKE_EDIT_SELECTOR)) return;
 			this.reclaimPropertyRowScopeAfterMutation();
 		}, true);
 	}
