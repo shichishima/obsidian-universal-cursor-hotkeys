@@ -80,6 +80,7 @@ export const config: WebdriverIO.Config = {
 		'./specs/propertyValueEditKillWord.e2e.ts',
 		'./specs/propertyValueEditDeleteChar.e2e.ts',
 		'./specs/propertyValueEditWordMotion.e2e.ts',
+		'./specs/propertyOtherTypesCtrlGPnbf.e2e.ts',
 		'./specs/titleCrossingFrontmatter.e2e.ts',
 	]],
 
