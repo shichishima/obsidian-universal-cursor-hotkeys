@@ -1397,6 +1397,99 @@ directly affected regression set) as the primary confidence signal** —
 a full-suite pass is no longer treated as a required gate for every
 small change.
 
+#### `propertyOtherTypesCtrlGPnbf.e2e.ts`
+
+0.13.0 Feature 1, property-value-editing follow-up phase: extends
+Ctrl-G (exit) to checkbox/date/datetime/list(multitext)/tags/aliases (6
+types), and Ctrl-P/N/B/F to date/datetime/list/tags/aliases (5, checkbox
+excluded — no cursor concept at all). See project memory
+`project_property_other_types_ctrl_g_pnbf_scope` for the user's own
+original scope decision.
+
+**A major, scope-correcting finding from live diagnostic probes run
+BEFORE implementing anything** (per this project's own "no
+implementation without log evidence" discipline — the original scope
+memo's own "cursor-key equivalent via simple dispatch delegation"
+framing turned out to be WRONG, not just unverified): confirmed via a
+direct comparison (synthetic `dispatchEvent()` vs. a real
+`browser.keys()` press, same technique used throughout this whole
+sub-feature's own investigations) that **a dispatched `ArrowUp` does
+NOT step a native `<input type="date">`'s own value at all** — a real
+physical press increments it (e.g. the year sub-field), a dispatched
+one leaves it completely unchanged. This is the exact same "browsers
+only perform a key's own default action for TRUSTED events" wall
+already known from the title/text-type work (see
+`project_frontmatter_property_dom_survey`'s own Category B finding:
+these inputs also have zero Selection API), just confirmed here for
+the OTHER half of the plan (native key-equivalent dispatch) that the
+original scope memo had assumed would work as a fallback. There is
+**no implementation possible for Ctrl-P/N/B/F on date/datetime with
+any public API** — this is a genuine, unfixable platform wall, not an
+engineering gap. The SAME dispatch-doesn't-trigger-native-movement
+wall was separately confirmed for the multi-select trailing chip's own
+contenteditable too (dispatching `ArrowLeft` there doesn't move the
+caret either) — but that one DOES have a real Selection API (confirmed
+live), so real movement is achieved there by reusing
+`titleMoveChar`/`propertyValueEditMoveLine` exactly as-is, the same
+mechanism the text type already uses, NOT a "simpler cursor-key
+delegation" the way checkbox/date/datetime needed to settle for.
+
+New selector constants (`PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR`,
+`PROPERTY_MULTISELECT_INPUT_SELECTOR`, `PROPERTY_DATE_TYPE_SELECTOR`,
+`PROPERTY_CURSOR_PNBF_SELECTOR`, `PROPERTY_ANY_VALUE_WIDGET_SELECTOR`)
+and a new `valueEditSelector` parameter on `buildPropertyRowScope`'s
+own `bind()` helper (defaulting to the original text-only selector for
+every pre-existing call site, unchanged) — only the `keyboard-quit` and
+`cursor-up`/`cursor-down`/`cursor-left`/`cursor-right` calls pass a
+broader selector explicitly, since those are the only commands this
+phase actually extends. Two new wrapper methods
+(`propertyMoveLineOrNoop`/`propertyMoveCharOrNoop`) guard the
+date/datetime no-op case before delegating to the existing
+`propertyValueEditMoveLine`/`titleMoveChar` for text/multi-select.
+
+- **(1.\*)** Ctrl-G exits from all 7 types back to item-selection mode
+  — one parameterized test per type (checkbox/date/datetime/number/
+  list/tags/aliases).
+- **(2)**/**(3)** Ctrl-F/B/P/N on date/datetime are a true no-op — both
+  the value and focus stay completely unchanged across all four keys.
+- **(4)** Ctrl-F actually moves the caret within the multi-select
+  trailing chip, confirming the same Selection API mechanism as the
+  text type works here unchanged.
+- **(5)** Regression: Ctrl-F on checkbox falls through safely (checkbox
+  is deliberately excluded from `PROPERTY_CURSOR_PNBF_SELECTOR`, so it
+  hits the generic native-dispatch fallback instead — confirmed this is
+  harmless, no crash, no unwanted state change).
+
+**`number` added in a follow-up fix, same day — a real gap, not a
+deliberate exclusion**: `number` was never part of this phase's
+original 6-type list at all (the user's own scope decision only ever
+named checkbox/date/datetime/list/tags/aliases), caught by a real user
+report ("numberでCtrl-Gが効かない") after the rest of this phase had
+already shipped. Shares the exact same no-Selection-API wall as
+date/datetime, and was never in scope for Ctrl-PNBF either way, so it
+only joins `PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR`.
+
+**A second real bug found while adding it, in this phase's own
+already-shipped code, not the new addition itself**:
+`PROPERTY_ANY_VALUE_WIDGET_SELECTOR` had been built as
+`` `${PROPERTY_CURSOR_PNBF_SELECTOR}, input[type="checkbox"]` `` — a
+separate, hardcoded construction that never actually referenced
+`PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR` at all. So adding `number` to
+`PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR` alone had zero effect on the
+selector `keyboard-quit`'s own `bind()` call (and `PROPERTY_PANEL_SCOPE_SELECTOR`)
+actually use — confirmed live test (1.mynumber) still failed
+(`Expected: true, Received: false`) after that first edit. Fixed by
+rebuilding `PROPERTY_ANY_VALUE_WIDGET_SELECTOR` directly from
+`PROPERTY_VALUE_EDIT_SELECTOR` + `PROPERTY_MULTISELECT_INPUT_SELECTOR`
++ `PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR` instead, so any future addition
+to the latter propagates automatically rather than needing a second,
+easy-to-forget manual update.
+
+All 11 tests passed on the first run (after the real fix) and a repeat
+run. Verified via a short, targeted affected-regression set (4 spec
+files, 31 tests, all clean) rather than a full-suite pass, per this
+file's own "Execution" policy above.
+
 #### `titleSetMark.e2e.ts`
 
 Set-mark (Ctrl-Space) in the title field. Unlike the body's own CM6-based

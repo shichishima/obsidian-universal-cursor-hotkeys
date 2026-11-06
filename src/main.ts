@@ -40,12 +40,72 @@ const PROPERTY_PANEL_FOCUS_SELECTOR =
 // later phase — see PROPERTY_PANEL_SCOPE_SELECTOR's own comment).
 const PROPERTY_VALUE_EDIT_SELECTOR = '.metadata-input-longtext';
 
+// 0.13.0 Feature 1, property-value-editing's own follow-up phase:
+// checkbox/date/datetime/number's own value-edit elements. Confirmed
+// live (diagnostic probes, not assumed) that date/datetime have NO
+// usable Selection API at all AND that a synthetic-dispatched Arrow
+// key does NOT trigger their native stepping behavior either (their
+// own segmented year/month/day stepping is a genuine browser-engine
+// default action, gated on trusted events — same category as plain
+// text-caret movement, confirmed NOT reproducible via dispatchEvent(),
+// only via a real browser.keys() press). number shares the same
+// no-Selection-API wall (per project_frontmatter_property_dom_survey's
+// own Category B finding) and was never in this phase's own Ctrl-PNBF
+// scope to begin with (the user's own list only ever named date/
+// datetime/list/tags/aliases for that). So all four get Ctrl-G (exit)
+// only — no Ctrl-PNBF at all, there's nothing a plugin can do here
+// with any public API. number was missing from this selector entirely
+// until a real user report ("numberでCtrl-Gが効かない") caught the
+// gap — confirmed live the same manual-Escape-dispatch mechanism
+// already proven for the other three works identically here too.
+const PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR =
+	'input[type="checkbox"], input[type="date"], input[type="datetime-local"], input[type="number"]';
+
+// multitext/tags/aliases all share this one trailing, currently-being-
+// composed chip (a real contenteditable DIV) — confirmed live it DOES
+// support the same Selection API the text type's own value-edit widget
+// uses (titleMoveChar/titleMoveWord etc. already work there unchanged,
+// no multi-select-specific logic needed), unlike checkbox/date/datetime
+// above. Doesn't cover the already-committed pills themselves (opaque,
+// non-editable chips) — pill-to-pill navigation is a separate, still
+// unexplored question, out of scope for this phase.
+const PROPERTY_MULTISELECT_INPUT_SELECTOR = '.multi-select-input';
+
+// date/datetime specifically (a subset of PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR) —
+// used by PROPERTY_CURSOR_PNBF_SELECTOR below, which needs these two
+// but NOT checkbox (checkbox has no cursor concept at all, explicitly
+// excluded from Ctrl-PNBF by the user's own scope decision).
+const PROPERTY_DATE_TYPE_SELECTOR = 'input[type="date"], input[type="datetime-local"]';
+
+// Ctrl-P/N/B/F's own matching selector: text + multiselect get real
+// Selection-API movement; date/datetime are included here too but
+// their own handler is a true no-op (see propertyMoveCharOrNoop/
+// propertyMoveLineOrNoop) — included so the keypress is still
+// swallowed cleanly by this plugin's own scope rather than falling
+// through to a native-dispatch fallback that does nothing useful
+// anyway. Checkbox is deliberately NOT part of this one.
+const PROPERTY_CURSOR_PNBF_SELECTOR =
+	`${PROPERTY_VALUE_EDIT_SELECTOR}, ${PROPERTY_MULTISELECT_INPUT_SELECTOR}, ${PROPERTY_DATE_TYPE_SELECTOR}`;
+
+// Ctrl-G's own matching selector: every value-widget type, built
+// directly from PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR (not derived from
+// PROPERTY_CURSOR_PNBF_SELECTOR + a hardcoded checkbox addendum, which
+// is how a real bug slipped in here — adding `number` to
+// PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR alone had NO effect on this
+// constant, since it never referenced that one at all, confirmed live
+// when Ctrl-G still didn't work for number even after that edit).
+// Ctrl-G's own scope is strictly broader than Ctrl-PNBF's (includes
+// every type in PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR, not just the two
+// PROPERTY_CURSOR_PNBF_SELECTOR happens to also cover).
+const PROPERTY_ANY_VALUE_WIDGET_SELECTOR =
+	`${PROPERTY_VALUE_EDIT_SELECTOR}, ${PROPERTY_MULTISELECT_INPUT_SELECTOR}, ${PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR}`;
+
 // The combined set of elements that keep propertyRowScope pushed.
 // Exact-match only (not .closest()) throughout — every element in both
 // selectors above is itself the real focus target, never a descendant
 // of one, so there's no need to climb the tree.
 const PROPERTY_PANEL_SCOPE_SELECTOR =
-	`${PROPERTY_PANEL_FOCUS_SELECTOR}, ${PROPERTY_VALUE_EDIT_SELECTOR}`;
+	`${PROPERTY_PANEL_FOCUS_SELECTOR}, ${PROPERTY_ANY_VALUE_WIDGET_SELECTOR}`;
 
 // Extend the Obsidian Editor interface to include the internal CodeMirror 6 instance (EditorView)
 declare module "obsidian" {
@@ -1104,6 +1164,13 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			// targets (true no-op) avoids that side effect; every other
 			// bind() call keeps relying on the fallback as before.
 			suppressFallback?: boolean,
+			// Which value-widget selector this specific command's own
+			// valueEditHandler applies to — defaults to the original
+			// text-only selector (every command before this phase). Ctrl-G
+			// and Ctrl-P/N/B/F pass a broader one explicitly (see their own
+			// call sites below) since they're the only commands extended
+			// to checkbox/date/datetime/multi-select so far.
+			valueEditSelector: string = PROPERTY_VALUE_EDIT_SELECTOR,
 		) => {
 			for (const hk of this.getEffectiveHotkeysFor(commandId)) {
 				// Real user-reported bug: a Key Upgrade binding the SAME
@@ -1127,7 +1194,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 					const target = (evt.target as HTMLElement)?.matches?.(PROPERTY_PANEL_SCOPE_SELECTOR)
 						? (evt.target as HTMLElement) : null;
 					if (!target) return false;
-					if (valueEditHandler && target.matches(PROPERTY_VALUE_EDIT_SELECTOR)) {
+					if (valueEditHandler && target.matches(valueEditSelector)) {
 						valueEditHandler(target);
 					} else if (headingHandler && target.matches('.metadata-properties-heading')) {
 						headingHandler(target);
@@ -1152,8 +1219,13 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// anywhere (titleMoveLine's own `false` return — "no line to move
 		// to" — is simply discarded here, unlike the title field's own
 		// usage, which chains an escape-to-body/heading on that signal).
-		bind('cursor-up', 'ArrowUp', (heading) => this.propertyHeadingEscapeToTitle(heading), undefined, (el) => this.propertyValueEditMoveLine(el, false));
-		bind('cursor-down', 'ArrowDown', (heading) => this.propertyHeadingCtrlN(heading), (addButton) => this.propertyAddButtonEscapeToBody(addButton), (el) => this.propertyValueEditMoveLine(el, true));
+		//
+		// Extended to date/datetime/multi-select via PROPERTY_CURSOR_PNBF_SELECTOR
+		// (see propertyMoveLineOrNoop's own comment — date/datetime are a
+		// confirmed, true platform wall here, no implementation is
+		// possible for them at all).
+		bind('cursor-up', 'ArrowUp', (heading) => this.propertyHeadingEscapeToTitle(heading), undefined, (el) => this.propertyMoveLineOrNoop(el, false), undefined, PROPERTY_CURSOR_PNBF_SELECTOR);
+		bind('cursor-down', 'ArrowDown', (heading) => this.propertyHeadingCtrlN(heading), (addButton) => this.propertyAddButtonEscapeToBody(addButton), (el) => this.propertyMoveLineOrNoop(el, true), undefined, PROPERTY_CURSOR_PNBF_SELECTOR);
 		// Ctrl-B/F: in item-selection mode, every element already does the
 		// right thing with a plain native dispatch, no handler needed at
 		// all — confirmed live: the heading collapses (Left) / expands
@@ -1171,8 +1243,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// triggers it. Both already take a generic HTMLElement and
 		// operate purely through Selection.modify() on its own
 		// ownerDocument, with no title-specific assumption baked in.
-		bind('cursor-left', 'ArrowLeft', undefined, undefined, (el) => this.titleMoveChar(el, false));
-		bind('cursor-right', 'ArrowRight', undefined, undefined, (el) => this.titleMoveChar(el, true));
+		//
+		// Extended to date/datetime/multi-select via
+		// propertyMoveCharOrNoop (same reasoning as cursor-up/down above).
+		bind('cursor-left', 'ArrowLeft', undefined, undefined, (el) => this.propertyMoveCharOrNoop(el, false), undefined, PROPERTY_CURSOR_PNBF_SELECTOR);
+		bind('cursor-right', 'ArrowRight', undefined, undefined, (el) => this.propertyMoveCharOrNoop(el, true), undefined, PROPERTY_CURSOR_PNBF_SELECTOR);
 		bind('cursor-home', 'Home', undefined, undefined, (el) => this.titleMoveToLineBoundary(el, false));
 		bind('cursor-end', 'End', undefined, undefined, (el) => this.titleMoveToLineBoundary(el, true));
 		// Word left/right (Alt-B/Alt-F): the last remaining title/property
@@ -1221,10 +1296,23 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// Selection to focus — then the native Escape dispatch (the
 		// SAME one used everywhere else in this bind) does the actual
 		// exit.
+		//
+		// Extended to ALL other value-widget types via
+		// PROPERTY_ANY_VALUE_WIDGET_SELECTOR (the one command that
+		// reaches checkbox too, unlike Ctrl-PNBF above) — confirmed live
+		// the native-Escape-dispatch exit mechanism itself works
+		// identically for checkbox/date/multi-select, same as text.
+		// titleKeyboardQuit is skipped for checkbox/date/datetime
+		// specifically (PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR): there's no
+		// mark/Selection concept to clear there at all, and calling
+		// doc.getSelection() while focus is in a plain <input> has
+		// nothing meaningful to collapse anyway.
 		bind('keyboard-quit', 'Escape', undefined, undefined, (el) => {
-			this.titleKeyboardQuit(el);
+			if (!el.matches(PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR)) {
+				this.titleKeyboardQuit(el);
+			}
 			el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
-		});
+		}, undefined, PROPERTY_ANY_VALUE_WIDGET_SELECTOR);
 		// Ctrl-K (kill-line) / Ctrl-W (kill-region) / Alt-W (copy-region) /
 		// Ctrl-Y (yank): only meaningful in the value-edit widget — there's
 		// nothing to kill/copy/yank on a row/heading/Add-button. All four
@@ -1347,6 +1435,31 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			(sel as unknown as { setBaseAndExtent(aNode: Node, aOff: number, fNode: Node, fOff: number): void })
 				.setBaseAndExtent(anchorNode, anchorOffset, focusNode, focusOffset);
 		}
+	}
+
+	// Ctrl-P/N's own entry point for PROPERTY_CURSOR_PNBF_SELECTOR
+	// (text/multi-select/date/datetime): date/datetime get a true no-op
+	// here — confirmed live (diagnostic probe, not assumed) that these
+	// have no Selection API AND that a synthetic Arrow-key dispatch does
+	// NOT trigger their native stepping behavior either (that's a
+	// trusted-events-only browser default, same category as plain
+	// text-caret movement — a real browser.keys() press does step the
+	// value, but nothing a plugin's own JS-constructed KeyboardEvent can
+	// trigger). Text and multi-select both reuse the existing
+	// propertyValueEditMoveLine as-is — multi-select's own trailing chip
+	// is a real contenteditable with the same Selection API, confirmed
+	// live.
+	private propertyMoveLineOrNoop(el: HTMLElement, forward: boolean) {
+		if (el.matches(PROPERTY_DATE_TYPE_SELECTOR)) return;
+		this.propertyValueEditMoveLine(el, forward);
+	}
+
+	// Ctrl-B/F's own entry point for PROPERTY_CURSOR_PNBF_SELECTOR — same
+	// reasoning as propertyMoveLineOrNoop above, reusing titleMoveChar
+	// as-is for text/multi-select.
+	private propertyMoveCharOrNoop(el: HTMLElement, forward: boolean) {
+		if (el.matches(PROPERTY_DATE_TYPE_SELECTOR)) return;
+		this.titleMoveChar(el, forward);
 	}
 
 	// Properties heading, Ctrl-P: lands a collapsed cursor at the title's
