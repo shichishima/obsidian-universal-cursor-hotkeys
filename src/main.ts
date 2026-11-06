@@ -1195,17 +1195,13 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// would equally make a bare letter keydown on a row look like
 		// "start typing" to Obsidian's own row listener.
 		//
-		// Kill-word (Alt-D/Alt-Backspace) is deliberately NOT included —
-		// out of scope per the user's own explicit scope decision for this
-		// sub-feature.
-		//
-		// kill-line/kill-region/yank each call reclaimPropertyRowScopeAfterMutation
-		// afterward — see that method's own comment for the real bug this
-		// guards against (Obsidian's own property-value suggestion
-		// dropdown can shadow propertyRowScope after a real mutating
-		// execCommand). copy-region never mutates the DOM, so it never
-		// triggers the dropdown's own reactive scope-push and needs no
-		// reclaim.
+		// kill-line/kill-region/kill-word/yank each call
+		// reclaimPropertyRowScopeAfterMutation afterward — see that
+		// method's own comment for the real bug this guards against
+		// (Obsidian's own property-value suggestion dropdown can shadow
+		// propertyRowScope after a real mutating execCommand).
+		// copy-region never mutates the DOM, so it never triggers the
+		// dropdown's own reactive scope-push and needs no reclaim.
 		bind('kill-line', 'K', undefined, undefined, (el) => {
 			this.titleKillLine(el);
 			this.reclaimPropertyRowScopeAfterMutation();
@@ -1217,6 +1213,20 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		bind('copy-region', 'W', undefined, undefined, (el) => this.titleCopyRegion(el), true);
 		bind('yank', 'Y', undefined, undefined, (el) => {
 			void this.titleYank(el).then(() => this.reclaimPropertyRowScopeAfterMutation());
+		}, true);
+		// Kill word left/right (Alt-Backspace/Alt-D): reuses titleKillWord
+		// as-is, matching the title field's own command set, which already
+		// has this (the earlier "deliberately out of scope" decision for
+		// this sub-feature was revisited once the title/property command
+		// parity gap was noticed). Same mutating-command treatment as
+		// kill-line/kill-region above (suppressFallback + reclaim).
+		bind('kill-word-left', 'Backspace', undefined, undefined, (el) => {
+			this.titleKillWord(el, false);
+			this.reclaimPropertyRowScopeAfterMutation();
+		}, true);
+		bind('kill-word-right', 'D', undefined, undefined, (el) => {
+			this.titleKillWord(el, true);
+			this.reclaimPropertyRowScopeAfterMutation();
 		}, true);
 		return scope;
 	}

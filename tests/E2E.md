@@ -1880,6 +1880,60 @@ no leftover growth, confirmed via the same diagnostic's own
   (`Expected: true, Received: false`) against the pre-fix build before
   implementing `reclaimPropertyRowScopeAfterMutation`, passing after.
 
+#### `propertyValueEditKillWord.e2e.ts`
+
+0.13.0 Feature 1, property-value-editing sub-phase: Kill word left/right
+(Alt-Backspace / Alt-D) inside a text property's own value-edit widget.
+Reuses `titleKillWord` as-is from the title field's own implementation —
+already generic over any `HTMLElement` via its own `ownerDocument`'s
+Selection API, same precedent as every value-edit handler shipped
+earlier in this sub-feature. This command was initially scoped OUT of
+property-value-editing entirely (the user's own explicit decision when
+the sub-feature was first scoped), then revisited once a side-by-side
+comparison against the title field's own command set surfaced the gap
+— the title already had Kill word, property-value-editing didn't,
+with no principled reason for the asymmetry once noticed.
+
+Same CJK finding as `titleKillWord.e2e.ts` applies here unchanged (same
+underlying function, same native `Selection.modify('extend', ...,
+'word')` mechanism) — confirmed live via test (3), not just assumed
+from the title's own already-passing result.
+
+`suppressFallback` is set (same reasoning as every other mutating
+value-edit command here) and `reclaimPropertyRowScopeAfterMutation` is
+called afterward (same mutating-command treatment as kill-line/
+kill-region/yank — Obsidian's own property-value suggestion dropdown
+can shadow `propertyRowScope` after any real mutating `execCommand`,
+see `propertyValueEditKillYank.e2e.ts`'s own section above for the
+full writeup).
+
+- **(1)** Alt-D kills one word forward.
+- **(2)** Alt-Backspace kills one word backward; a true no-op at the
+  value's own start.
+- **(3)** CJK: a run of kanji/hiragana is split word by word via the
+  widget's own native word-boundary logic, same as the title field.
+- **(4)** Regression: Alt-D/Alt-Backspace on the row itself
+  (item-selection mode) do nothing.
+
+Built on a fresh `feat/property-kill-word` branch, the first of three
+planned branches closing the remaining title/property-value-editing
+command-parity gaps (Kill word here; Delete char and Word left/right —
+both entirely new for both contexts, not just a property-side
+reuse — planned as two further branches). All 4 tests passed on the
+first run (expected: pure reuse of an already-proven function, no new
+mechanism). A full-suite run immediately after this branch's work hit
+a broad, unrelated failure cluster (propertyCtrlBf/G, Set-mark, Kill/
+Yank, titleCrossingFrontmatter, etc. — not just this new file) with
+every affected spec's own runtime inflated 5-10x normal (e.g. Set-mark
+30s → 3m 41s) — traced to the test Electron window not being visible/
+focused during an unattended background run (frontmost app was
+Terminal), matching the already-documented
+`requestAnimationFrame`-throttling-while-hidden mechanism (see
+[[feedback_e2e_check_machine_awake_before_debugging]]/
+`setMarkBufferEdge.e2e.ts`'s own note on this). Re-running the exact
+same regression set with the window actually visible came back fully
+clean (61/61, normal runtimes) — confirmed not a real regression.
+
 #### `titleCrossingFrontmatter.e2e.ts`
 
 Extends the already-shipped title<->body crossing
