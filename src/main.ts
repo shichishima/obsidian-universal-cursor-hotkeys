@@ -1048,6 +1048,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		bind('cursor-end', (el) => this.titleMoveToLineBoundary(el, true));
 		bind('cursor-left', (el) => this.titleMoveChar(el, false));
 		bind('cursor-right', (el) => this.titleMoveChar(el, true));
+		bind('word-left', (el) => this.titleMoveWord(el, false));
+		bind('word-right', (el) => this.titleMoveWord(el, true));
 		bind('cursor-up', (el) => this.titleMoveLine(el, false));
 		bind('cursor-down', (el) => this.titleMoveLineOrEscapeToBody(el));
 		bind('kill-line', (el) => this.titleKillLine(el));
@@ -1173,6 +1175,16 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		bind('cursor-right', 'ArrowRight', undefined, undefined, (el) => this.titleMoveChar(el, true));
 		bind('cursor-home', 'Home', undefined, undefined, (el) => this.titleMoveToLineBoundary(el, false));
 		bind('cursor-end', 'End', undefined, undefined, (el) => this.titleMoveToLineBoundary(el, true));
+		// Word left/right (Alt-B/Alt-F): the last remaining title/property
+		// command-parity gap, entirely new for both contexts (same as
+		// Delete char). suppressFallback is set — unlike Ctrl-B/F above
+		// (which fall through to a meaningful native dispatch on the
+		// heading/row/Add-button), there's no established native meaning
+		// for Alt+letter there, and the fallback dispatch's own
+		// dropped-modifier risk (same class as every other suppressed
+		// command here) applies equally to a bare 'b'/'f' landing on a row.
+		bind('word-left', 'B', undefined, undefined, (el) => this.titleMoveWord(el, false), true);
+		bind('word-right', 'F', undefined, undefined, (el) => this.titleMoveWord(el, true), true);
 		// Ctrl-Space (set-mark): only meaningful in the value-edit widget —
 		// there's nothing to "mark" on a row/heading/Add-button, so
 		// suppressFallback is set instead of letting the native-dispatch
@@ -1630,6 +1642,25 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		this.titleGoalX = null; // horizontal-intent move, not a vertical-goal continuation
 		this.isKillChaining = false; // see titleMoveToLineBoundary's own comment
 		this.titleSelectionModify(titleEl, forward ? 'right' : 'left', 'character');
+	}
+
+	// Alt-F/Alt-B (Word right/left): entirely new for both the title
+	// field and property-value-editing (the last remaining title/property
+	// command-parity gap). Reuses titleSelectionModify as-is (already
+	// handles the markActive 'extend'/'move' branch internally), same
+	// 'left'/'right' (not 'forward'/'backward') direction convention as
+	// titleMoveChar — confirmed already correct for 'word' granularity by
+	// titleKillWord's own existing call (`sel.modify('extend', forward ?
+	// 'right' : 'left', 'word')`), so no new direction-mapping question
+	// here. Same native word-boundary mechanism already confirmed CJK-safe
+	// without a custom segmenter (see
+	// project_title_field_native_option_arrow_word_boundary memory and
+	// titleKillWord.e2e.ts's own CJK test) — this just moves instead of
+	// killing.
+	private titleMoveWord(titleEl: HTMLElement, forward: boolean) {
+		this.titleGoalX = null; // horizontal-intent move, not a vertical-goal continuation
+		this.isKillChaining = false; // see titleMoveToLineBoundary's own comment
+		this.titleSelectionModify(titleEl, forward ? 'right' : 'left', 'word');
 	}
 
 	// Ctrl-P (up) within the title: no escape case needed going up — the

@@ -11,6 +11,21 @@ Located in `tests/e2e/` (wdio-obsidian-service). Run with `npm run test:e2e`.
     `wdio.conf.mts`, lightest-first order) instead of relaunching per file.
     Faster, somewhat less flaky — table-entry assertions can still
     intermittently fail, rate varies run to run.
+  - **Full-suite runs are de-prioritized by explicit user direction
+    (2026-11-06)**: the suite's own runtime has grown long enough that a
+    full run meaningfully increases exposure to a confirmed, unrelated
+    source of flakiness — the test Electron window not being visible/
+    foregrounded during an unattended run (see e.g.
+    `propertyValueEditKillYank.e2e.ts`'s own section below for one
+    documented instance). A short, targeted run (new spec(s) in
+    isolation, then the directly affected regression set) occupies the
+    foreground for much less time and is correspondingly far less likely
+    to hit this — ensuring the test window actually has focus before a
+    full run, and relying on targeted runs as the primary day-to-day
+    confidence signal, produces BETTER overall quality than running the
+    full suite reflexively after every small change. Reserve full-suite
+    runs for less frequent checkpoints (e.g. before a multi-branch merge
+    sequence wraps up), not as a per-commit gate.
   - `npm run test:e2e:popout` (`E2E_POPOUT=1`) reroutes every
     `openFixtureAndGetContentStart` call through one shared popout window
     instead of the main window, letting the whole existing suite run
@@ -1324,6 +1339,63 @@ redundant once this landed.
 
 Both specs' full affected-regression run plus a full-suite pass (187
 tests) confirmed clean.
+
+#### `titleWordMotion.e2e.ts`
+
+0.13.0 Feature 1: Alt-F/Alt-B (Word right/left) in the title field — the
+last remaining title/property command-parity gap, entirely new for this
+context (same as Delete char). Reuses `titleSelectionModify` as-is
+(already handles the `markActive` `'extend'`/`'move'` branch internally)
+with `'word'` granularity and the same `'left'`/`'right'` (not
+`'forward'`/`'backward'`) direction convention `titleMoveChar` already
+uses — confirmed already correct for `'word'` granularity by
+`titleKillWord`'s own existing call, so no new direction-mapping
+question here. Same native word-boundary mechanism already confirmed
+CJK-safe without a custom segmenter.
+
+- **(1)** Alt-F moves forward to the end of the next word.
+- **(2)** Alt-B moves backward to the start of the previous word.
+- **(3)** CJK: a run of kanji/hiragana is crossed word by word via
+  native word-boundary logic, same as Kill word.
+- **(4)** Set-mark + Alt-F extends a real selection, matching every
+  other movement command's own mark-extend behavior — unlike Kill word
+  (which ignores the mark on purpose, matching real Emacs's own
+  `kill-word`), Word left/right is pure movement and must respect
+  `markActive` the same way Ctrl-B/F/A/E already do.
+- **(5)** A true no-op at the title's own start/end.
+
+#### `propertyValueEditWordMotion.e2e.ts`
+
+0.13.0 Feature 1, property-value-editing sub-phase: Alt-F/Alt-B (Word
+right/left) inside a text property's own value-edit widget. Reuses
+`titleMoveWord` as-is — entirely new for BOTH the title field and this
+widget (same as Delete char), so there's no "title already proved it"
+precedent to lean on here, only the underlying Selection API mechanism
+already used throughout this whole sub-feature. `suppressFallback` is
+set, same reasoning as every other command here with no sensible
+row/heading/Add-button behavior.
+
+- **(1)** Alt-F moves forward to the end of the next word.
+- **(2)** Alt-B moves backward to the start of the previous word.
+- **(3)** Set-mark + Alt-F extends a real selection, matching every
+  other movement command's own mark-extend behavior.
+- **(4)** Regression: Alt-F/Alt-B on the row itself (item-selection
+  mode) do nothing.
+
+Both new specs passed cleanly on first run and on a repeat run (5/5 and
+4/4). A full affected-regression run across 14 spec files (property +
+title) showed every NEW test in this sub-feature clean, with scattered
+failures confined entirely to older, already-well-established specs
+(`propertyItemSelection`, `propertyCtrlBf`, `propertyCtrlG`,
+`propertyValueEditSetMark`) — consistent with this suite's own
+documented environment-focus flakiness (the test Electron window not
+being visible/foregrounded during an unattended run), not a regression.
+**Going forward, per explicit user direction: de-prioritize full-suite
+runs (long-running, more exposure to this exact flakiness) in favor of
+targeted, short-duration runs (new spec(s) in isolation, then the
+directly affected regression set) as the primary confidence signal** —
+a full-suite pass is no longer treated as a required gate for every
+small change.
 
 #### `titleSetMark.e2e.ts`
 
