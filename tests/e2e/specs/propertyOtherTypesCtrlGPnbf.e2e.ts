@@ -8,6 +8,15 @@ import { describe, it, after } from 'mocha'
 // user's own scope decision, see project memory
 // project_property_other_types_ctrl_g_pnbf_scope.
 //
+// number was added to Ctrl-G's own coverage in a follow-up fix — it
+// was never part of this phase's original 6-type list at all (a real
+// gap, not a deliberate exclusion), caught by a user report
+// ("numberでCtrl-Gが効かない") after the rest of this phase shipped.
+// Shares the exact same no-Selection-API wall as date/datetime (see
+// project_frontmatter_property_dom_survey's own Category B finding)
+// and was never in scope for Ctrl-PNBF either way, so it only joins
+// PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR, not PROPERTY_CURSOR_PNBF_SELECTOR.
+//
 // Confirmed live via diagnostic probes BEFORE implementing (not
 // assumed): synthetic dispatchEvent() does NOT trigger date/datetime's
 // own native field-stepping behavior at all (a real browser.keys()
@@ -55,6 +64,7 @@ describe('Property panel: Ctrl-G + Ctrl-PNBF for other property types', function
 myCheckbox: true
 myDate: 2026-01-15
 myDateTime: 2026-01-15T10:30
+myNumber: 42
 myList:
   - item1
 tags:
@@ -97,6 +107,7 @@ first body line
 		['mycheckbox', 'input[type="checkbox"]'],
 		['mydate', 'input[type="date"]'],
 		['mydatetime', 'input[type="datetime-local"]'],
+		['mynumber', 'input[type="number"]'],
 		['mylist', '.multi-select-input'],
 		['tags', '.multi-select-input'],
 		['aliases', '.multi-select-input'],

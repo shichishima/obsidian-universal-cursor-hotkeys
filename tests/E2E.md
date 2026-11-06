@@ -1447,9 +1447,9 @@ phase actually extends. Two new wrapper methods
 date/datetime no-op case before delegating to the existing
 `propertyValueEditMoveLine`/`titleMoveChar` for text/multi-select.
 
-- **(1.\*)** Ctrl-G exits from all 6 types back to item-selection mode
-  — one parameterized test per type (checkbox/date/datetime/list/
-  tags/aliases).
+- **(1.\*)** Ctrl-G exits from all 7 types back to item-selection mode
+  — one parameterized test per type (checkbox/date/datetime/number/
+  list/tags/aliases).
 - **(2)**/**(3)** Ctrl-F/B/P/N on date/datetime are a true no-op — both
   the value and focus stay completely unchanged across all four keys.
 - **(4)** Ctrl-F actually moves the caret within the multi-select
@@ -1460,10 +1460,35 @@ date/datetime no-op case before delegating to the existing
   hits the generic native-dispatch fallback instead — confirmed this is
   harmless, no crash, no unwanted state change).
 
-All 10 tests passed on the first run and a repeat run. Verified via a
-short, targeted affected-regression set (6 spec files, 39 tests, all
-clean) rather than a full-suite pass, per this file's own "Execution"
-policy above.
+**`number` added in a follow-up fix, same day — a real gap, not a
+deliberate exclusion**: `number` was never part of this phase's
+original 6-type list at all (the user's own scope decision only ever
+named checkbox/date/datetime/list/tags/aliases), caught by a real user
+report ("numberでCtrl-Gが効かない") after the rest of this phase had
+already shipped. Shares the exact same no-Selection-API wall as
+date/datetime, and was never in scope for Ctrl-PNBF either way, so it
+only joins `PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR`.
+
+**A second real bug found while adding it, in this phase's own
+already-shipped code, not the new addition itself**:
+`PROPERTY_ANY_VALUE_WIDGET_SELECTOR` had been built as
+`` `${PROPERTY_CURSOR_PNBF_SELECTOR}, input[type="checkbox"]` `` — a
+separate, hardcoded construction that never actually referenced
+`PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR` at all. So adding `number` to
+`PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR` alone had zero effect on the
+selector `keyboard-quit`'s own `bind()` call (and `PROPERTY_PANEL_SCOPE_SELECTOR`)
+actually use — confirmed live test (1.mynumber) still failed
+(`Expected: true, Received: false`) after that first edit. Fixed by
+rebuilding `PROPERTY_ANY_VALUE_WIDGET_SELECTOR` directly from
+`PROPERTY_VALUE_EDIT_SELECTOR` + `PROPERTY_MULTISELECT_INPUT_SELECTOR`
++ `PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR` instead, so any future addition
+to the latter propagates automatically rather than needing a second,
+easy-to-forget manual update.
+
+All 11 tests passed on the first run (after the real fix) and a repeat
+run. Verified via a short, targeted affected-regression set (4 spec
+files, 31 tests, all clean) rather than a full-suite pass, per this
+file's own "Execution" policy above.
 
 #### `titleSetMark.e2e.ts`
 

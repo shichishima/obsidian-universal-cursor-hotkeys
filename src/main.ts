@@ -41,18 +41,25 @@ const PROPERTY_PANEL_FOCUS_SELECTOR =
 const PROPERTY_VALUE_EDIT_SELECTOR = '.metadata-input-longtext';
 
 // 0.13.0 Feature 1, property-value-editing's own follow-up phase:
-// checkbox/date/datetime's own value-edit elements. Confirmed live
-// (diagnostic probes, not assumed) that these three have NO usable
-// Selection API at all AND that a synthetic-dispatched Arrow key does
-// NOT trigger their native stepping behavior either (date/datetime's
+// checkbox/date/datetime/number's own value-edit elements. Confirmed
+// live (diagnostic probes, not assumed) that date/datetime have NO
+// usable Selection API at all AND that a synthetic-dispatched Arrow
+// key does NOT trigger their native stepping behavior either (their
 // own segmented year/month/day stepping is a genuine browser-engine
 // default action, gated on trusted events — same category as plain
-// text-caret movement, confirmed NOT reproducible via
-// dispatchEvent(), only via a real browser.keys() press). So these
-// three get Ctrl-G (exit) only — no Ctrl-PNBF at all, there's
-// nothing a plugin can do here with any public API.
+// text-caret movement, confirmed NOT reproducible via dispatchEvent(),
+// only via a real browser.keys() press). number shares the same
+// no-Selection-API wall (per project_frontmatter_property_dom_survey's
+// own Category B finding) and was never in this phase's own Ctrl-PNBF
+// scope to begin with (the user's own list only ever named date/
+// datetime/list/tags/aliases for that). So all four get Ctrl-G (exit)
+// only — no Ctrl-PNBF at all, there's nothing a plugin can do here
+// with any public API. number was missing from this selector entirely
+// until a real user report ("numberでCtrl-Gが効かない") caught the
+// gap — confirmed live the same manual-Escape-dispatch mechanism
+// already proven for the other three works identically here too.
 const PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR =
-	'input[type="checkbox"], input[type="date"], input[type="datetime-local"]';
+	'input[type="checkbox"], input[type="date"], input[type="datetime-local"], input[type="number"]';
 
 // multitext/tags/aliases all share this one trailing, currently-being-
 // composed chip (a real contenteditable DIV) — confirmed live it DOES
@@ -80,11 +87,18 @@ const PROPERTY_DATE_TYPE_SELECTOR = 'input[type="date"], input[type="datetime-lo
 const PROPERTY_CURSOR_PNBF_SELECTOR =
 	`${PROPERTY_VALUE_EDIT_SELECTOR}, ${PROPERTY_MULTISELECT_INPUT_SELECTOR}, ${PROPERTY_DATE_TYPE_SELECTOR}`;
 
-// Ctrl-G's own matching selector: every value-widget type, including
-// checkbox (the one type excluded from PROPERTY_CURSOR_PNBF_SELECTOR
-// above) — Ctrl-G's own scope is strictly broader than Ctrl-PNBF's.
+// Ctrl-G's own matching selector: every value-widget type, built
+// directly from PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR (not derived from
+// PROPERTY_CURSOR_PNBF_SELECTOR + a hardcoded checkbox addendum, which
+// is how a real bug slipped in here — adding `number` to
+// PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR alone had NO effect on this
+// constant, since it never referenced that one at all, confirmed live
+// when Ctrl-G still didn't work for number even after that edit).
+// Ctrl-G's own scope is strictly broader than Ctrl-PNBF's (includes
+// every type in PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR, not just the two
+// PROPERTY_CURSOR_PNBF_SELECTOR happens to also cover).
 const PROPERTY_ANY_VALUE_WIDGET_SELECTOR =
-	`${PROPERTY_CURSOR_PNBF_SELECTOR}, input[type="checkbox"]`;
+	`${PROPERTY_VALUE_EDIT_SELECTOR}, ${PROPERTY_MULTISELECT_INPUT_SELECTOR}, ${PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR}`;
 
 // The combined set of elements that keep propertyRowScope pushed.
 // Exact-match only (not .closest()) throughout — every element in both
