@@ -1238,6 +1238,93 @@ on its own, same as physical Option-←/→ in the title.
   over from the first) DOES pull that space in, a common word-delete
   convention (e.g. Ctrl+Backspace in many editors) rather than a bug.
 
+#### `titleDeleteChar.e2e.ts`
+
+0.13.0 Feature 1: Ctrl-D (Delete char) in the title field — entirely new
+for this context, unlike every other command added to the title field
+so far (all of which already existed on at least the body side before
+being ported here, giving an existing implementation to reuse). Unlike
+Kill line/word (which always collapse to point first, discarding any
+active selection on purpose), Delete char does NOT touch the mark's own
+extend/move distinction and deletes whatever's already selected if a
+selection exists — matching real Emacs's `delete-char`, which also
+ignores the mark, and matching the body's own `deleteChar`
+(`deleteCharForward`), which never checks `markActive` either.
+
+A real subtlety found while implementing (not a bug, a genuine platform
+behavior to guard against): `document.execCommand('delete')` on a
+COLLAPSED selection defaults to a BACKWARD (backspace-like) deletion,
+not a no-op. Naively extending-then-deleting (`Selection.modify('extend',
+'forward', 'character')` then `execCommand('delete')`) would therefore
+delete the WRONG (preceding) character at the title's own absolute end,
+where there's nothing to extend into and the selection stays collapsed.
+Fixed by checking whether the extend attempt actually left the collapsed
+state before calling `execCommand` at all — test (2) below is the direct
+regression coverage.
+
+- **(1)** Deletes the character after the cursor.
+- **(2)** A true no-op at the title's own end — the specific regression
+  this command's own implementation needed to guard against.
+- **(3)** Deletes an entire active (non-collapsed) selection, not one
+  extra character past it.
+- **(4)** Integrates with the title's own native undo stack.
+
+#### `propertyValueEditDeleteChar.e2e.ts`
+
+0.13.0 Feature 1, property-value-editing sub-phase: Ctrl-D (Delete char)
+inside a text property's own value-edit widget. Reuses `titleDeleteChar`
+as-is — entirely new for BOTH the title field and this widget (unlike
+Kill word, which already existed on the title side before this phase),
+so there's no "title already proved it" precedent to lean on here, only
+the underlying Selection API mechanism already used throughout this
+whole sub-feature. `suppressFallback` is set, same reasoning as every
+other mutating value-edit command here.
+
+- **(1)** Deletes the character after the cursor.
+- **(2)** A true no-op at the value's own end.
+- **(3)** Deletes an entire active (non-collapsed) selection, not one
+  extra character past it.
+- **(4)** Regression: Ctrl-D on the row itself (item-selection mode)
+  does nothing.
+
+**(5), added after a real post-ship bug report from real-machine
+usage**: rapid Ctrl-D ×3 then physical Cmd-Z ×3 left the widget
+unresponsive — Ctrl-G didn't even work. Confirmed this needed real
+`browser.keys()` to reproduce at all (synthetic `dispatchEvent()`
+didn't trigger it during investigation, same lesson as every other
+Keymap-adjacent investigation in this sub-feature) and specifically
+needed a starting offset of 1+ (not the value's very first character —
+reported by the user, not root-caused why offset 0 doesn't trigger it,
+but irrelevant to the fix below).
+
+**Root cause**: native Undo (Cmd-Z) mutates the widget via the
+browser's own undo manager — confirmed live it still fires a real
+`input` event (3 rapid Cmd-Z presses → 3 `input` events, same count as
+3 rapid Ctrl-D presses). Obsidian's own property-value suggestion
+dropdown reacts to THAT exactly the same way it reacts to this plugin's
+own mutating commands (see this file's own `propertyValueEditKillYank.
+e2e.ts` section for the original finding) — but Undo is never
+dispatched by this plugin itself, so the original fix (an explicit
+`reclaimPropertyRowScopeAfterMutation()` call added individually after
+each mutating command) had no command-level call site to attach to for
+Undo/Redo at all.
+
+**Fix, more general than the original**: moved the reclaim logic out
+of each individual command and into a single document-level `input`
+listener (`registerWindowDomListeners`), scoped to
+`PROPERTY_VALUE_EDIT_SELECTOR` targets. Reacting to the real `input`
+event itself, regardless of cause, covers every mutation path
+uniformly — this plugin's own commands, native Undo/Redo, and even
+plain typing — rather than requiring every future mutating command to
+remember to add its own reclaim call. The individual
+`reclaimPropertyRowScopeAfterMutation()` calls previously scattered
+across `kill-line`/`kill-region`/`kill-word-left`/`kill-word-right`/
+`yank`/`delete-char` in `buildPropertyRowScope` were all removed as
+redundant once this landed.
+
+Both specs' full affected-regression run plus a full-suite pass (187
+tests) confirmed clean.
+
 #### `titleSetMark.e2e.ts`
 
 Set-mark (Ctrl-Space) in the title field. Unlike the body's own CM6-based
