@@ -36,9 +36,47 @@ const PROPERTY_PANEL_FOCUS_SELECTOR =
 // cells use for inline text editing too, so this covers both for free.
 // Deliberately narrower than PROPERTY_PANEL_FOCUS_SELECTOR (item
 // selection mode, the row itself) — this is the row's VALUE actually
-// being edited. Does NOT match the name/key-edit INPUT (a separate,
-// later phase — see PROPERTY_PANEL_SCOPE_SELECTOR's own comment).
+// being edited. Does NOT match the name/key-edit INPUT — see
+// PROPERTY_KEY_EDIT_SELECTOR below, its own later phase.
 const PROPERTY_VALUE_EDIT_SELECTOR = '.metadata-input-longtext';
+
+// 0.13.0 Feature 1, property NAME (key) editing phase: the property's
+// own name field, "metadata-property-key-input" — a real <input
+// type="text">, NOT a contenteditable like PROPERTY_VALUE_EDIT_SELECTOR
+// or the title field. Confirmed live this means document.getSelection()
+// doesn't apply to its internal text at all (a plain <input>'s own
+// selection is a separate, form-control-internal model exposed via
+// selectionStart/selectionEnd/setSelectionRange/selectionDirection) —
+// every handler for this selector is its own, new implementation
+// (propertyKeyMoveChar etc.), not a reuse of titleMoveChar/
+// titleSelectionModify. execCommand('delete'/'insertText') DOES still
+// respect this element's own selectionStart/selectionEnd exactly like
+// it respects document.getSelection() for a contenteditable, confirmed
+// live (including persistence to frontmatter after blur) — so Kill/
+// Yank reuse the exact same execCommand technique as the title field,
+// just targeting this element's own selection model instead.
+//
+// A real regression (caught by propertyItemSelection.e2e.ts) was found
+// and fixed while wiring this up: this input has its OWN native
+// two-stage Escape handling (close its own name-suggester dropdown
+// first, exit to the row second). A plain document-level keydown
+// listener (bypassing app.keymap's Scope system entirely) was tried
+// first, reasoning that none of this phase's commands have any
+// pre-existing native/Obsidian claim to lose precedence against — but
+// that assumption was WRONG: Obsidian's own global command-hotkey
+// resolution claims (stops propagation for) ANY key combo that matches
+// a REGISTERED command's hotkey, REGARDLESS of whether an editor is
+// actually focused, confirmed live with a raw addEventListener dump
+// showing the second key of a Ctrl+F combo never arriving at all once
+// cursor-right had a real hotkey assigned — since cursor-left/right/
+// home/end/etc. are the exact same commandIds already used elsewhere in
+// this plugin (all with real, user-assignable hotkeys), a plain
+// listener can never reach them this way. Back to app.keymap's Scope
+// system it is — see UCH_INTERNAL_ESCAPE_REDISPATCH_FLAG's own comment
+// for how the OTHER half of this (not breaking the native two-stage
+// Escape, and not breaking keyboard-quit's own re-dispatch for every
+// OTHER value-widget type sharing the same scope instance) is resolved.
+const PROPERTY_KEY_EDIT_SELECTOR = '.metadata-property-key-input';
 
 // 0.13.0 Feature 1, property-value-editing's own follow-up phase:
 // checkbox/date/datetime/number's own value-edit elements. Confirmed
@@ -87,6 +125,25 @@ const PROPERTY_DATE_TYPE_SELECTOR = 'input[type="date"], input[type="datetime-lo
 const PROPERTY_CURSOR_PNBF_SELECTOR =
 	`${PROPERTY_VALUE_EDIT_SELECTOR}, ${PROPERTY_MULTISELECT_INPUT_SELECTOR}, ${PROPERTY_DATE_TYPE_SELECTOR}`;
 
+// Ctrl-B/F's own matching selector: everything Ctrl-P/N/B/F already
+// covers, PLUS the name/key-edit input — unlike Ctrl-P/N (cursor-up/
+// down), which has no sensible meaning on a single-line field at all
+// and deliberately stays scoped to PROPERTY_CURSOR_PNBF_SELECTOR only
+// (the user's own scope decision when this phase was planned).
+const PROPERTY_CURSOR_LR_SELECTOR =
+	`${PROPERTY_CURSOR_PNBF_SELECTOR}, ${PROPERTY_KEY_EDIT_SELECTOR}`;
+
+// Every command that's meaningful on BOTH the text value-edit widget
+// (contenteditable) and the name/key-edit input (plain <input>) — Home/
+// End, Word left/right, Set-mark, Kill-line/region/Copy-region/Yank,
+// Kill word, Delete char. Each handler bound with this selector
+// branches internally on PROPERTY_KEY_EDIT_SELECTOR to pick the right
+// implementation (propertyKeyXxx for the input, titleXxx reused as-is
+// for the contenteditable) — same text-editing COMMAND set, two
+// different underlying selection models.
+const PROPERTY_TEXT_LIKE_EDIT_SELECTOR =
+	`${PROPERTY_VALUE_EDIT_SELECTOR}, ${PROPERTY_KEY_EDIT_SELECTOR}`;
+
 // Ctrl-G's own matching selector: every value-widget type, built
 // directly from PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR (not derived from
 // PROPERTY_CURSOR_PNBF_SELECTOR + a hardcoded checkbox addendum, which
@@ -96,9 +153,10 @@ const PROPERTY_CURSOR_PNBF_SELECTOR =
 // when Ctrl-G still didn't work for number even after that edit).
 // Ctrl-G's own scope is strictly broader than Ctrl-PNBF's (includes
 // every type in PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR, not just the two
-// PROPERTY_CURSOR_PNBF_SELECTOR happens to also cover).
+// PROPERTY_CURSOR_PNBF_SELECTOR happens to also cover), plus the name/
+// key-edit input.
 const PROPERTY_ANY_VALUE_WIDGET_SELECTOR =
-	`${PROPERTY_VALUE_EDIT_SELECTOR}, ${PROPERTY_MULTISELECT_INPUT_SELECTOR}, ${PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR}`;
+	`${PROPERTY_VALUE_EDIT_SELECTOR}, ${PROPERTY_MULTISELECT_INPUT_SELECTOR}, ${PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR}, ${PROPERTY_KEY_EDIT_SELECTOR}`;
 
 // The combined set of elements that keep propertyRowScope pushed.
 // Exact-match only (not .closest()) throughout — every element in both
@@ -106,6 +164,19 @@ const PROPERTY_ANY_VALUE_WIDGET_SELECTOR =
 // of one, so there's no need to climb the tree.
 const PROPERTY_PANEL_SCOPE_SELECTOR =
 	`${PROPERTY_PANEL_FOCUS_SELECTOR}, ${PROPERTY_ANY_VALUE_WIDGET_SELECTOR}`;
+
+// Tags a synthetic KeyboardEvent as THIS plugin's own internal
+// re-dispatch (the "re-fire a native Escape to drive the actual UI
+// transition" convention keyboard-quit's own bind() handler ends
+// with, below) — distinguishes it from a genuine external bare Escape
+// (a real physical press, or a test's own synthetic simulation of
+// one) at the point buildPropertyRowScope's own bare-Escape pass-
+// through registration sees it. Both kinds of event are equally
+// "synthetic" from the DOM's own perspective (isTrusted: false for
+// both in an E2E harness), so isTrusted can't tell them apart — this
+// explicit tag is the only reliable signal. See that registration's
+// own comment for why this distinction is needed at all.
+const UCH_INTERNAL_ESCAPE_REDISPATCH_FLAG = '__uchInternalEscapeRedispatch';
 
 // Extend the Obsidian Editor interface to include the internal CodeMirror 6 instance (EditorView)
 declare module "obsidian" {
@@ -1148,6 +1219,44 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private buildPropertyRowScope(): Scope {
 		(this.app as any).hotkeyManager.bake();
 		const scope = new Scope();
+		// Unconditional bare-Escape pass-through, registered regardless of
+		// whether 'keyboard-quit' itself has any configured hotkey —
+		// without this, merely having propertyRowScope pushed (for ANY
+		// element, not just the key-edit input) was confirmed live to
+		// collapse the key-edit input's own native two-stage Escape
+		// handling (close its own name-suggester dropdown first, exit to
+		// the row second) into one stage — Obsidian's dispatcher only
+		// ever consults the TOP scope for a given key, so once propertyRowScope
+		// is on top, the key-input's OWN underlying suggester-scope
+		// (further down the stack) stops being reachable at all for
+		// Escape, with or without a registration of our own; registering
+		// one that explicitly defers to native handling is the only way
+		// to get that reachability back.
+		//
+		// Two return values matter here, and conflating them was a real
+		// bug caught by two DIFFERENT, otherwise-unrelated regressions:
+		// - A genuine external bare Escape (real keypress, or a test's
+		//   own simulation of one) while focused on the key-edit input
+		//   must return true (pass through) to preserve that native
+		//   two-stage behavior — confirmed live (propertyItemSelection.e2e.ts).
+		// - keyboard-quit's own bind() handler below ends with a native-
+		//   Escape RE-DISPATCH to drive the actual exit for every OTHER
+		//   value-widget type (checkbox/date/list/etc.) and for item-
+		//   selection mode's own row/heading/Add-button. A Scope handler
+		//   can't otherwise distinguish that re-dispatch from a genuine
+		//   external Escape (both are equally "synthetic" from the DOM's
+		//   own perspective) — returning false unconditionally for
+		//   "not the key-edit input" swallowed that re-dispatch for every
+		//   one of those other types, a second real regression
+		//   (propertyCtrlG.e2e.ts / propertyOtherTypesCtrlGPnbf.e2e.ts)
+		//   caught only after fixing the first one. UCH_INTERNAL_ESCAPE_REDISPATCH_FLAG
+		//   tags that one specific re-dispatch so it can always pass
+		//   through too, regardless of target.
+		scope.register([], 'Escape', (evt) => {
+			if ((evt as any)[UCH_INTERNAL_ESCAPE_REDISPATCH_FLAG]) return true;
+			const target = evt.target as HTMLElement;
+			return !!target?.matches?.(PROPERTY_KEY_EDIT_SELECTOR);
+		});
 		const bind = (
 			commandId: string,
 			key: string,
@@ -1201,7 +1310,20 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 					} else if (addButtonHandler && target.matches('.metadata-add-button')) {
 						addButtonHandler(target);
 					} else if (!suppressFallback) {
-						target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+						// Tagged for the same reason the keyboard-quit
+						// handler's own Escape re-dispatch is (see
+						// UCH_INTERNAL_ESCAPE_REDISPATCH_FLAG's own
+						// comment) — this fallback IS how keyboard-quit
+						// actually reaches item-selection mode's own row/
+						// heading/Add-button (no custom valueEditHandler
+						// is needed there), so it's this exact dispatch,
+						// not the one inside that handler, that needs the
+						// tag for THOSE targets. A real regression
+						// (propertyCtrlG.e2e.ts) was caused by tagging
+						// only the other one.
+						const fallbackEvt = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+						(fallbackEvt as any)[UCH_INTERNAL_ESCAPE_REDISPATCH_FLAG] = true;
+						target.dispatchEvent(fallbackEvt);
 					}
 					return false;
 				});
@@ -1246,10 +1368,19 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		//
 		// Extended to date/datetime/multi-select via
 		// propertyMoveCharOrNoop (same reasoning as cursor-up/down above).
-		bind('cursor-left', 'ArrowLeft', undefined, undefined, (el) => this.propertyMoveCharOrNoop(el, false), undefined, PROPERTY_CURSOR_PNBF_SELECTOR);
-		bind('cursor-right', 'ArrowRight', undefined, undefined, (el) => this.propertyMoveCharOrNoop(el, true), undefined, PROPERTY_CURSOR_PNBF_SELECTOR);
-		bind('cursor-home', 'Home', undefined, undefined, (el) => this.titleMoveToLineBoundary(el, false));
-		bind('cursor-end', 'End', undefined, undefined, (el) => this.titleMoveToLineBoundary(el, true));
+		// Extended to the name/key-edit input via PROPERTY_CURSOR_LR_SELECTOR
+		// (Ctrl-B/F only — Ctrl-P/N above deliberately stays off the name
+		// field). propertyKeyMoveChar is a genuinely new implementation
+		// (plain <input>'s own selectionStart/End, not document.getSelection()
+		// — see PROPERTY_KEY_EDIT_SELECTOR's own comment).
+		bind('cursor-left', 'ArrowLeft', undefined, undefined, (el) => el.matches(PROPERTY_KEY_EDIT_SELECTOR) ? this.propertyKeyMoveChar(el as HTMLInputElement, false) : this.propertyMoveCharOrNoop(el, false), undefined, PROPERTY_CURSOR_LR_SELECTOR);
+		bind('cursor-right', 'ArrowRight', undefined, undefined, (el) => el.matches(PROPERTY_KEY_EDIT_SELECTOR) ? this.propertyKeyMoveChar(el as HTMLInputElement, true) : this.propertyMoveCharOrNoop(el, true), undefined, PROPERTY_CURSOR_LR_SELECTOR);
+		// Extended to the name/key-edit input via PROPERTY_TEXT_LIKE_EDIT_SELECTOR
+		// — every remaining command below that's meaningful on both the
+		// text value-edit widget and the name/key-edit input follows
+		// this same branch-on-PROPERTY_KEY_EDIT_SELECTOR shape.
+		bind('cursor-home', 'Home', undefined, undefined, (el) => el.matches(PROPERTY_KEY_EDIT_SELECTOR) ? this.propertyKeyMoveToLineBoundary(el as HTMLInputElement, false) : this.titleMoveToLineBoundary(el, false), undefined, PROPERTY_TEXT_LIKE_EDIT_SELECTOR);
+		bind('cursor-end', 'End', undefined, undefined, (el) => el.matches(PROPERTY_KEY_EDIT_SELECTOR) ? this.propertyKeyMoveToLineBoundary(el as HTMLInputElement, true) : this.titleMoveToLineBoundary(el, true), undefined, PROPERTY_TEXT_LIKE_EDIT_SELECTOR);
 		// Word left/right (Alt-B/Alt-F): the last remaining title/property
 		// command-parity gap, entirely new for both contexts (same as
 		// Delete char). suppressFallback is set — unlike Ctrl-B/F above
@@ -1258,8 +1389,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// for Alt+letter there, and the fallback dispatch's own
 		// dropped-modifier risk (same class as every other suppressed
 		// command here) applies equally to a bare 'b'/'f' landing on a row.
-		bind('word-left', 'B', undefined, undefined, (el) => this.titleMoveWord(el, false), true);
-		bind('word-right', 'F', undefined, undefined, (el) => this.titleMoveWord(el, true), true);
+		bind('word-left', 'B', undefined, undefined, (el) => el.matches(PROPERTY_KEY_EDIT_SELECTOR) ? this.propertyKeyMoveWord(el as HTMLInputElement, false) : this.titleMoveWord(el, false), true, PROPERTY_TEXT_LIKE_EDIT_SELECTOR);
+		bind('word-right', 'F', undefined, undefined, (el) => el.matches(PROPERTY_KEY_EDIT_SELECTOR) ? this.propertyKeyMoveWord(el as HTMLInputElement, true) : this.titleMoveWord(el, true), true, PROPERTY_TEXT_LIKE_EDIT_SELECTOR);
 		// Ctrl-Space (set-mark): only meaningful in the value-edit widget —
 		// there's nothing to "mark" on a row/heading/Add-button, so
 		// suppressFallback is set instead of letting the native-dispatch
@@ -1274,8 +1405,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// titleMoveToLineBoundary above already check markActive via
 		// titleSelectionModify's own 'extend' vs 'move' branch, so
 		// movement immediately starts extending a real selection once
-		// armed, confirmed live.
-		bind('set-mark', ' ', undefined, undefined, (el) => this.titleSetMark(el), true);
+		// armed, confirmed live. Extended to the name/key-edit input via
+		// propertyKeySetMark (same markActive flag, its own anchor
+		// tracked through the input's own selectionStart/End/Direction
+		// triple instead of a native Selection's anchor/focus).
+		bind('set-mark', ' ', undefined, undefined, (el) => el.matches(PROPERTY_KEY_EDIT_SELECTOR) ? this.propertyKeySetMark(el as HTMLInputElement) : this.titleSetMark(el), true, PROPERTY_TEXT_LIKE_EDIT_SELECTOR);
 		// Ctrl-G (keyboard-quit): a plain native dispatch for
 		// item-selection mode, no handler needed there — confirmed live
 		// that native Escape from ANY of those elements (a row, the
@@ -1306,12 +1440,29 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// specifically (PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR): there's no
 		// mark/Selection concept to clear there at all, and calling
 		// doc.getSelection() while focus is in a plain <input> has
-		// nothing meaningful to collapse anyway.
+		// nothing meaningful to collapse anyway. The name/key-edit input
+		// DOES have a mark concept (propertyKeySetMark above), but it's
+		// a DIFFERENT selection model from titleKeyboardQuit's own
+		// document.getSelection() — propertyKeyKeyboardQuit is its own
+		// parallel implementation, same idea (clear markActive, collapse
+		// to the current caret) via the input's own selectionStart/End.
+		// The native-Escape re-dispatch below is tagged with
+		// UCH_INTERNAL_ESCAPE_REDISPATCH_FLAG — see this scope's own
+		// bare-Escape pass-through registration (right after `const scope
+		// = new Scope()` above) for why: without the tag, that
+		// registration would swallow THIS re-dispatch for every type
+		// other than the key-edit input, breaking the actual exit this
+		// line exists to perform (a real regression, caught by
+		// propertyCtrlG.e2e.ts / propertyOtherTypesCtrlGPnbf.e2e.ts).
 		bind('keyboard-quit', 'Escape', undefined, undefined, (el) => {
-			if (!el.matches(PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR)) {
+			if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) {
+				this.propertyKeyKeyboardQuit(el as HTMLInputElement);
+			} else if (!el.matches(PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR)) {
 				this.titleKeyboardQuit(el);
 			}
-			el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+			const escEvt = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+			(escEvt as any)[UCH_INTERNAL_ESCAPE_REDISPATCH_FLAG] = true;
+			el.dispatchEvent(escEvt);
 		}, undefined, PROPERTY_ANY_VALUE_WIDGET_SELECTOR);
 		// Ctrl-K (kill-line) / Ctrl-W (kill-region) / Alt-W (copy-region) /
 		// Ctrl-Y (yank): only meaningful in the value-edit widget — there's
@@ -1335,21 +1486,32 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// turned out to need the exact same fix with no corresponding
 		// command-level call site to attach it to). copy-region never
 		// mutates the DOM, so it never triggers that listener at all.
-		bind('kill-line', 'K', undefined, undefined, (el) => this.titleKillLine(el), true);
-		bind('kill-region', 'W', undefined, undefined, (el) => this.titleKillRegion(el), true);
-		bind('copy-region', 'W', undefined, undefined, (el) => this.titleCopyRegion(el), true);
-		bind('yank', 'Y', undefined, undefined, (el) => { void this.titleYank(el); }, true);
+		// Extended to the name/key-edit input via PROPERTY_TEXT_LIKE_EDIT_SELECTOR
+		// — propertyKeyKillLine/KillRegion/CopyRegion/Yank reuse the exact
+		// same execCommand('delete'/'insertText') technique as their title
+		// counterparts, confirmed live it respects a plain <input>'s own
+		// selectionStart/End exactly like it respects document.getSelection()
+		// for a contenteditable (including persistence to frontmatter
+		// after blur, no manual 'input'/'change' dispatch needed).
+		bind('kill-line', 'K', undefined, undefined, (el) => el.matches(PROPERTY_KEY_EDIT_SELECTOR) ? this.propertyKeyKillLine(el as HTMLInputElement) : this.titleKillLine(el), true, PROPERTY_TEXT_LIKE_EDIT_SELECTOR);
+		bind('kill-region', 'W', undefined, undefined, (el) => el.matches(PROPERTY_KEY_EDIT_SELECTOR) ? this.propertyKeyKillRegion(el as HTMLInputElement) : this.titleKillRegion(el), true, PROPERTY_TEXT_LIKE_EDIT_SELECTOR);
+		bind('copy-region', 'W', undefined, undefined, (el) => el.matches(PROPERTY_KEY_EDIT_SELECTOR) ? this.propertyKeyCopyRegion(el as HTMLInputElement) : this.titleCopyRegion(el), true, PROPERTY_TEXT_LIKE_EDIT_SELECTOR);
+		bind('yank', 'Y', undefined, undefined, (el) => { if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) { void this.propertyKeyYank(el as HTMLInputElement); } else { void this.titleYank(el); } }, true, PROPERTY_TEXT_LIKE_EDIT_SELECTOR);
 		// Kill word left/right (Alt-Backspace/Alt-D): reuses titleKillWord
 		// as-is, matching the title field's own command set, which already
 		// has this (the earlier "deliberately out of scope" decision for
 		// this sub-feature was revisited once the title/property command
-		// parity gap was noticed).
-		bind('kill-word-left', 'Backspace', undefined, undefined, (el) => this.titleKillWord(el, false), true);
-		bind('kill-word-right', 'D', undefined, undefined, (el) => this.titleKillWord(el, true), true);
+		// parity gap was noticed). propertyKeyKillWord reuses
+		// findWordSpanOnLine (word-segmentation.ts) directly on the
+		// input's own .value string — the body's own word-motion engine,
+		// not titleKillWord's native Selection.modify('word'), since that
+		// API doesn't apply to a plain <input> at all.
+		bind('kill-word-left', 'Backspace', undefined, undefined, (el) => el.matches(PROPERTY_KEY_EDIT_SELECTOR) ? this.propertyKeyKillWord(el as HTMLInputElement, false) : this.titleKillWord(el, false), true, PROPERTY_TEXT_LIKE_EDIT_SELECTOR);
+		bind('kill-word-right', 'D', undefined, undefined, (el) => el.matches(PROPERTY_KEY_EDIT_SELECTOR) ? this.propertyKeyKillWord(el as HTMLInputElement, true) : this.titleKillWord(el, true), true, PROPERTY_TEXT_LIKE_EDIT_SELECTOR);
 		// Delete char (Ctrl-D): reuses titleDeleteChar as-is, entirely new
 		// for both the title field and this widget (unlike every command
 		// above, which already existed on at least one side).
-		bind('delete-char', 'D', undefined, undefined, (el) => this.titleDeleteChar(el), true);
+		bind('delete-char', 'D', undefined, undefined, (el) => el.matches(PROPERTY_KEY_EDIT_SELECTOR) ? this.propertyKeyDeleteChar(el as HTMLInputElement) : this.titleDeleteChar(el), true, PROPERTY_TEXT_LIKE_EDIT_SELECTOR);
 		return scope;
 	}
 
@@ -1460,6 +1622,216 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private propertyMoveCharOrNoop(el: HTMLElement, forward: boolean) {
 		if (el.matches(PROPERTY_DATE_TYPE_SELECTOR)) return;
 		this.titleMoveChar(el, forward);
+	}
+
+	//===========================================================================
+	// Property NAME (key) editing — a plain <input type="text">, NOT a
+	// contenteditable. document.getSelection() doesn't apply to a form
+	// control's own internal text at all; every handler below works
+	// through the input's own selectionStart/selectionEnd/
+	// selectionDirection triple instead, which plays the exact same
+	// anchor/focus role a native Selection's anchor/focus does for the
+	// title field. Confirmed live (diagnostic probe) that
+	// execCommand('delete'/'insertText') still respects this triple
+	// correctly when the input has focus, same mechanism titleKillLine/
+	// titleKillWord/titleKillRegion/titleYank already use for the
+	// contenteditable case — so Kill/Yank below reuse that exact
+	// technique, just reading/writing selectionStart/End instead of a
+	// Range.
+	//===========================================================================
+
+	// The input's own current caret ("focus" in Selection-API terms): the
+	// end of its selectionStart/End pair that selectionDirection says is
+	// the ACTIVE one. When collapsed (no mark active), start===end, so
+	// either one is correct — 'forward'/'none' naturally reads
+	// selectionEnd in that case, which is fine.
+	private propertyKeyCaret(el: HTMLInputElement): number {
+		return el.selectionDirection === 'backward' ? (el.selectionStart ?? 0) : (el.selectionEnd ?? 0);
+	}
+
+	// The mark's anchor (fixed point a Set-mark extension grows from) —
+	// only ever meaningful while markActive is true (propertyKeySelect
+	// below never calls this otherwise). The OTHER end of the current
+	// selectionStart/End pair from whichever one propertyKeyCaret reads,
+	// exactly mirroring how a native Selection's own anchor/focus split
+	// works once Selection.modify('extend', ...) starts being used.
+	private propertyKeyAnchor(el: HTMLInputElement): number {
+		return el.selectionDirection === 'backward' ? (el.selectionEnd ?? 0) : (el.selectionStart ?? 0);
+	}
+
+	// Applies a new caret target to the input's own selection — the
+	// single primitive every movement handler below goes through.
+	// Mirrors Selection.modify's own 'move' vs 'extend' branch exactly:
+	// mark inactive ('move') fully collapses to target, discarding
+	// whatever selection existed before; mark active ('extend') grows
+	// from the existing anchor instead. Collapsing unconditionally in
+	// the 'move' case (rather than computing anchor=target, which looks
+	// equivalent but isn't) matters because the anchor read here is the
+	// OLD position — a one-line plain `el.setSelectionRange(anchor,
+	// target)` would leave a stray one-character-wide range instead of
+	// a true collapsed caret whenever they differ (confirmed live: this
+	// was a real bug in an earlier version of this function, caught by
+	// a failing Ctrl-F test expecting a fully collapsed caret).
+	private propertyKeySelect(el: HTMLInputElement, target: number) {
+		if (!this.markActive) {
+			el.setSelectionRange(target, target);
+			return;
+		}
+		const anchor = this.propertyKeyAnchor(el);
+		const start = Math.min(anchor, target);
+		const end = Math.max(anchor, target);
+		el.setSelectionRange(start, end, target >= anchor ? 'forward' : 'backward');
+	}
+
+	private propertyKeyMoveChar(el: HTMLInputElement, forward: boolean) {
+		this.isKillChaining = false; // see titleMoveToLineBoundary's own comment on why every non-kill move resets this
+		const caret = this.propertyKeyCaret(el);
+		const target = forward ? Math.min(caret + 1, el.value.length) : Math.max(caret - 1, 0);
+		this.propertyKeySelect(el, target);
+	}
+
+	// Home/End: unlike titleMoveToLineBoundary, there's no visual-line
+	// wrapping to worry about at all — a property name is always a
+	// single line, so this is just the input's own start/end offset
+	// directly, no scanning needed.
+	private propertyKeyMoveToLineBoundary(el: HTMLInputElement, forward: boolean) {
+		this.isKillChaining = false;
+		this.propertyKeySelect(el, forward ? el.value.length : 0);
+	}
+
+	// Alt-B/Alt-F: reuses findWordSpanOnLine (word-segmentation.ts) —
+	// the body's own Emacs word-motion engine, operating directly on the
+	// input's .value string — rather than titleMoveWord's native
+	// Selection.modify('word', ...), which has no equivalent for a plain
+	// <input>'s internal text. No-ops at the value's own start/end,
+	// matching titleMoveWord's own boundary behavior there.
+	private propertyKeyMoveWord(el: HTMLInputElement, forward: boolean) {
+		this.isKillChaining = false;
+		const caret = this.propertyKeyCaret(el);
+		const span = findWordSpanOnLine(el.value, caret, forward);
+		const target = span ? (forward ? span.to : span.from) : caret;
+		this.propertyKeySelect(el, target);
+	}
+
+	// Ctrl-Space: arms markActive and collapses to the current caret —
+	// the input-selection equivalent of titleSetMark. Reads the caret
+	// BEFORE collapsing (propertyKeyAnchor/Caret both still read the
+	// pre-arm selection at this point, same ordering as titleSetMark).
+	private propertyKeySetMark(el: HTMLInputElement) {
+		const caret = this.propertyKeyCaret(el);
+		this.markActive = true;
+		el.setSelectionRange(caret, caret);
+	}
+
+	// Ctrl-G: clears markActive and collapses to the current caret — the
+	// input-selection equivalent of titleKeyboardQuit. Does NOT touch
+	// focus itself; the native Escape dispatch at this bind's own call
+	// site handles the actual exit to item-selection mode.
+	private propertyKeyKeyboardQuit(el: HTMLInputElement) {
+		const caret = this.propertyKeyCaret(el);
+		this.markActive = false;
+		el.setSelectionRange(caret, caret);
+	}
+
+	// Ctrl-K: kills from caret to the end of the value, ignoring any
+	// active region — same "always from point" convention as
+	// titleKillLine. Collapses first, so an active mark's own anchor
+	// never affects which text gets killed.
+	private propertyKeyKillLine(el: HTMLInputElement) {
+		this.markActive = false;
+		const caret = this.propertyKeyCaret(el);
+		const doc = el.ownerDocument;
+		if (caret >= el.value.length) { el.setSelectionRange(caret, caret); return; } // already at the end: nothing to kill
+		el.setSelectionRange(caret, el.value.length);
+		const killedText = el.value.slice(caret, el.value.length);
+		doc.execCommand('delete', false);
+		this.updateKillCache(killedText);
+		navigator.clipboard.writeText(this.killCache).catch(() => {});
+		this.isKillChaining = true;
+	}
+
+	// Alt-Backspace/Alt-D: kills one word left/right from the caret,
+	// discarding any active region first (same "from point only"
+	// convention as titleKillWord). prepend = !forward on
+	// updateKillCache, matching titleKillWord's own buffer-order
+	// convention for consecutive kills.
+	private propertyKeyKillWord(el: HTMLInputElement, forward: boolean) {
+		this.markActive = false;
+		const doc = el.ownerDocument;
+		const caret = this.propertyKeyCaret(el);
+		const span = findWordSpanOnLine(el.value, caret, forward);
+		const target = span ? (forward ? span.to : span.from) : caret;
+		if (target === caret) return; // already at the value's own start/end: nothing to kill
+		el.setSelectionRange(Math.min(caret, target), Math.max(caret, target));
+		const killedText = el.value.slice(Math.min(caret, target), Math.max(caret, target));
+		doc.execCommand('delete', false);
+		this.updateKillCache(killedText, !forward);
+		navigator.clipboard.writeText(this.killCache).catch(() => {});
+		this.isKillChaining = true;
+	}
+
+	// Ctrl-D: deletes the character after point, ignoring the mark
+	// entirely (matches real Emacs's delete-char, same as
+	// titleDeleteChar). If a non-empty selection already exists, deletes
+	// exactly that; if collapsed, extends by one character forward
+	// first, then deletes — true no-op at the value's own end rather
+	// than guessing a direction.
+	private propertyKeyDeleteChar(el: HTMLInputElement) {
+		this.markActive = false;
+		const doc = el.ownerDocument;
+		if (el.selectionStart === el.selectionEnd) {
+			const caret = el.selectionStart ?? 0;
+			if (caret >= el.value.length) return; // already at the value's own end: nothing to delete
+			el.setSelectionRange(caret, caret + 1);
+		}
+		doc.execCommand('delete', false);
+	}
+
+	// Alt-W (Copy region): copies the active selection without mutating
+	// the value, same as titleCopyRegion.
+	private propertyKeyCopyRegion(el: HTMLInputElement) {
+		if (el.selectionStart === el.selectionEnd) return; // nothing selected
+		const text = el.value.slice(el.selectionStart ?? 0, el.selectionEnd ?? 0);
+		this.markActive = false;
+		this.isKillChaining = false;
+		this.updateKillCache(text);
+		navigator.clipboard.writeText(this.killCache).catch(() => {});
+	}
+
+	// Ctrl-W (Kill region): same as titleKillRegion, operating on the
+	// input's own active selectionStart/End rather than a native
+	// Selection.
+	private propertyKeyKillRegion(el: HTMLInputElement) {
+		if (el.selectionStart === el.selectionEnd) return; // nothing selected
+		const doc = el.ownerDocument;
+		const text = el.value.slice(el.selectionStart ?? 0, el.selectionEnd ?? 0);
+		doc.execCommand('delete', false);
+		this.markActive = false;
+		this.isKillChaining = false;
+		this.updateKillCache(text);
+		navigator.clipboard.writeText(this.killCache).catch(() => {});
+	}
+
+	// Ctrl-Y (Yank): reads the OS clipboard (falling back to the
+	// kill-ring if that throws, same as titleYank), replacing any active
+	// selection. Strips embedded newlines for the same reason titleYank
+	// does — a property name has even less use for one than the title
+	// does, and execCommand('insertText', ...) on an input mangles a raw
+	// newline rather than silently dropping it the way a contenteditable
+	// does.
+	private async propertyKeyYank(el: HTMLInputElement) {
+		this.markActive = false;
+		this.isKillChaining = false;
+		let raw: string;
+		try {
+			raw = await navigator.clipboard.readText();
+		} catch {
+			raw = this.killCache;
+		}
+		if (!raw) return;
+		const text = raw.replace(/\n/g, '');
+		if (!text) return;
+		el.ownerDocument.execCommand('insertText', false, text);
 	}
 
 	// Properties heading, Ctrl-P: lands a collapsed cursor at the title's
