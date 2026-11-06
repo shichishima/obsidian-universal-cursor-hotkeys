@@ -1510,10 +1510,15 @@ to 3 times, checking after each) instead of a hardcoded count.
 - **(3)** Ctrl-F at the Properties heading expands a collapsed panel, and
   is confirmed a no-op on a second press once already expanded (not a
   toggle).
-- **(4)** Regression: Ctrl-B/F do nothing to row focus while ordinary
-  text editing is active (not item-selection mode) — same exact-match
-  Scope-push guard `propertyItemSelection.e2e.ts`'s test (4) already
-  relies on.
+- **(4)** Regression, **updated 2026-11-05**: Ctrl-B/F while actually
+  editing the value text move the cursor WITHIN it (reusing
+  `titleMoveChar`, same as the title field) rather than doing nothing or
+  changing which element has focus — this used to assert the opposite
+  (did nothing at all) before `propertyRowScope`'s own push/pop condition
+  was broadened to also cover the value-edit widget for
+  `propertyValueEditMovement.e2e.ts`'s own work; the row-focus guard
+  itself (name-edit entry / row navigation NOT triggered) still holds,
+  only the "nothing happens at all" half of the old claim changed.
 - **(5)** Regression: a note WITHOUT frontmatter is unaffected — Ctrl-B
   still moves the body cursor one character left.
 - **(6)** Regression: Ctrl-B/F at the Add-button are a no-op (matches
@@ -1544,32 +1549,21 @@ addition made all 6 pass.
 - **(4)** Ctrl-G at the heading, panel COLLAPSED, still escapes to the
   body the same way — collapsed treated as a normal-case variant from
   the start, not a reactive edge case.
-- **(5)** Regression: Ctrl-G does nothing to row focus while ordinary
-  text editing is active (not item-selection mode) — same exact-match
-  Scope-push guard every other command in this panel already relies on.
+- **(5)** **Updated 2026-11-05**: Ctrl-G also escapes from inside the
+  value-edit widget itself, back to item-selection mode — this used to
+  assert the opposite (scoped out, confirmed unreachable at the time).
+  That earlier finding was based on testing with synthetic
+  `dispatchEvent()` calls, which turned out to be an unreliable way to
+  test anything touching Obsidian's own Keymap resolution; real
+  `browser.keys()` presses, combined with correctly broadening
+  `propertyRowScope`'s own push/pop condition (done for
+  `propertyValueEditMovement.e2e.ts`'s work), show it reaching fine. See
+  that spec's own file-level comment and project memory
+  (`project_property_value_edit_real_key_interception_dead_end`) for the
+  full corrected mechanism.
 - **(6)** Regression: a note WITHOUT frontmatter is unaffected —
   Ctrl-G still clears an active Set-mark selection in the body exactly
   as before.
-
-**Investigated and deferred, not a bug**: whether Ctrl-G could also work
-from inside actual text-editing mode (name/value-edit), matching what
-physical Escape itself already does there (real Emacs's C-g is a
-universal abort, not scoped to one navigation mode). Confirmed live:
-broadening this plugin's `app.keymap.pushScope`-based mechanism (even
-using `.closest()` instead of an exact match) can't reach it — Obsidian
-stops propagation of any Ctrl-modified keydown from inside a
-contenteditable-DIV value-edit widget (e.g. text's own
-`metadata-input-longtext`) somewhere between `document.body` and
-`.workspace-split`, before it ever reaches this plugin's own
-document-level interception, regardless of how broadly the push/pop
-condition is widened. A plain `<input>`-based widget (name-edit always;
-number's own value-edit) does NOT block it — only the richer
-contenteditable-DIV ones do. A listener attached directly on
-`view.containerEl` (confirmed live to still see the event, since it sits
-below `.workspace-split`) does work, but that's a materially different
-mechanism from the Scope-based one everything else in this panel uses —
-left for a separate future branch, needed anyway for the planned
-property-value-editing Ctrl-F/B/A/E/W/Y suite.
 
 #### `propertyKeyUpgradeInterference.e2e.ts`
 
@@ -1615,13 +1609,276 @@ fix made them pass.
   conflating the two, caught by the test itself failing even after the
   real fix landed.
 
-**Not yet investigated**: a separate, likely cosmetic observation from
-the same Windows report — with the Key Upgrade OFF entirely (so Ctrl-N/P
-behaves like the no-Key-Upgrade baseline), the Add-button's own focus
-ring doesn't visually render when it should be focused. Possibly a
-`:focus-visible` heuristic difference (some browsers only show it for
-keyboard-initiated focus, not a programmatic `.focus()` call) rather
-than a functional bug — not yet confirmed either way.
+**Resolved on its own, not investigated further**: a separate, likely
+cosmetic observation from the same Windows report — with the Key Upgrade
+OFF entirely, the Add-button's own focus ring didn't visually render
+when it should be focused. The user confirmed this stopped happening by
+the time this was revisited — no code change was made for it, so it was
+presumably a transient rendering/`:focus-visible` quirk rather than a
+real bug.
+
+#### `propertyValueEditMovement.e2e.ts`
+
+0.13.0 Feature 1, property-value-editing sub-phase, Phase 1: Ctrl-F/B
+(char move) and Ctrl-A/E (line boundary) inside a text property's own
+value-edit widget (`.metadata-input-longtext`, a contenteditable DIV —
+confirmed live this is the exact same widget Bases table cells use for
+inline text editing too, so this feature covers Bases for free, no extra
+code). Reuses `titleMoveChar`/`titleMoveToLineBoundary` as-is from the
+title field's own implementation — both already operate purely through
+`Selection.modify()` on the element's own `ownerDocument`, with no actual
+title-specific assumption baked in.
+
+**A full architecture dead-end, then a correction, on the way here** (see
+project memory `project_property_value_edit_real_key_interception_dead_end`
+for the complete writeup): an EARLIER attempt (Phase 0, on a now-deleted
+branch) built a raw `view.containerEl` keydown listener, based on a
+finding that Obsidian blocks Ctrl-modified keydowns from this widget
+before they reach `app.keymap`. That finding turned out to be a
+**synthetic-`dispatchEvent()` testing artifact** — reading Obsidian's own
+app bundle directly (`strings`/`grep` on the cached `.asar`, no
+extraction tool needed) found its `Keymap` class registers exactly one
+`window`-level capture `keydown` listener (`onKeyEvent`) at app startup;
+it checks the CURRENT scope for the active window, and if nothing is
+pushed, that's the ROOT scope — which already has the real global
+command hotkey registered, so it wins the race before any
+`view.containerEl` listener ever gets a chance, **regardless of widget
+type**. Pushing an actual `Scope` (exactly what `propertyRowScope`
+already does for item-selection mode) gets checked FIRST instead,
+confirmed live with real `browser.keys()` presses (not synthetic
+dispatch, which gave unreliable, inconsistent results for this whole
+investigation).
+
+**A second, real timing bug found building the corrected version**: this
+widget pushes its OWN `Scope` on focus too (bare Arrow/PageUp/PageDown/
+Home, for its own multi-line text navigation) — pushing
+`propertyRowScope` synchronously on `focusin` lost the race against it,
+landing our push BEFORE the widget's own (confirmed live via the window
+scope stack's own `prevScopes`/`scope` state), burying ours underneath
+with no parent-chain fallback to ever reach it. Fixed with the same
+2-RAF defer pattern already used elsewhere in this file for analogous
+focus-settling races (e.g. `addCursorOnView`'s own call site) — deferring
+`propertyRowScope`'s push by one frame, specifically for this widget,
+lets the widget's own push land first.
+
+- **(1)** Ctrl-F moves the cursor one character right.
+- **(2)** Ctrl-B moves the cursor one character left.
+- **(3)** Ctrl-A moves to the start of the value.
+- **(4)** Ctrl-E moves to the end of the value.
+- **(5)** Regression: a bare (no Ctrl) `"f"` keypress still types
+  normally, not intercepted as movement.
+- **(6)** Regression: Ctrl-N/P on a value with only ONE visual line are
+  a true no-op (the cursor doesn't jump to an end) — see below for why
+  this test's own framing changed.
+- **(7)** Ctrl-N/P move by VISUAL line within a wrapped value, and stop
+  at its own first/last visual line.
+- **(8)** Regression: a note WITHOUT frontmatter is unaffected —
+  Ctrl-N/P still move the body cursor between real lines.
+
+Also found and fixed along the way: `propertyCtrlBf.e2e.ts`'s own test
+(4) and `propertyCtrlG.e2e.ts`'s own test (5) both asserted the OLD,
+now-incorrect behavior (Ctrl-B/F/G doing nothing from inside the
+value-edit widget) — both updated to confirm the new, correct behavior
+instead, in the same commit as this spec.
+
+**2026-11-06, Ctrl-N/P added**: the user pointed out a real gap this
+spec's own original test (6) had locked in as "intended" — a text
+property's value-edit widget (`.metadata-input-longtext`, i.e.
+"longtext") genuinely word-wraps across multiple VISUAL lines, so
+Ctrl-N/P (previous/next line) has real meaning there, unlike the
+title field. Added by reusing `titleMoveLine` as-is (already generic
+over any `HTMLElement`), wrapped in a new `propertyValueEditMoveLine`
+that restores the prior anchor/focus pair whenever `titleMoveLine`
+reports no movement.
+
+**A real bug found while adding this**: `titleMoveLine`'s own `false`
+return ("no line to move to") does NOT mean the selection was left
+untouched — confirmed live its internal
+`Selection.modify('move', dir, 'line')` call still mutates the real
+selection (jumping to the value's own end/start) even when the
+function decides afterward there's no visual-line change to finish
+landing on. This was invisible for the title field's own Ctrl-N/P (the
+only existing caller before this): a `false` there always leads to
+escaping to the body/heading, which replaces the selection anyway, so
+the modify() call's own side effect never mattered. The value-edit
+widget has nowhere to escape to (every other command here is
+deliberately within-widget-only), so a boundary press needed a TRUE
+no-op — `propertyValueEditMoveLine` captures the anchor/focus pair
+before calling `titleMoveLine` and restores it via `setBaseAndExtent`
+whenever that call reports no movement. Test (6)'s own original
+assertion (`focusOffset` unchanged) is what caught this — it started
+failing (`Expected: 5, Received: 11`, jumped to the value's own end)
+the moment Ctrl-N/P were first wired up, before this fix landed. Built
+red-green: confirmed failing against the pre-fix build, passing after.
+
+#### `propertyValueEditSetMark.e2e.ts`
+
+0.13.0 Feature 1, property-value-editing sub-phase, Phase 2: Set-mark
+(Ctrl-Space) inside a text property's own value-edit widget. Reuses
+`titleSetMark` as-is from the title field's own implementation — it arms
+`markActive` and collapses the native Selection to its own current focus
+(the anchor point); `titleMoveChar`/`titleMoveToLineBoundary` (shipped in
+`propertyValueEditMovement.e2e.ts` above) already check `markActive` via
+`titleSelectionModify`'s own `'extend'` vs `'move'` branch, so movement
+immediately starts extending a real selection once armed, confirmed live
+before writing these tests by calling the plugin's own private methods
+directly. Also extends `keyboard-quit` (Ctrl-G, already shipped) with a
+value-edit-specific handler: real Emacs's C-g is a universal ABORT, so it
+must also clear any armed mark (reusing `titleKeyboardQuit`) before doing
+the native-Escape exit everything else in this panel already does.
+
+**A real bug found while writing test (6)** (regression: Ctrl-Space on
+the plain row should be a harmless no-op): `bind()`'s native-dispatch
+fallback — used whenever a bound key's target doesn't match any of
+`valueEditHandler`/`headingHandler`/`addButtonHandler` — only ever
+constructed `new KeyboardEvent('keydown', { key, ... })`, dropping every
+modifier flag from the real triggering event. For Arrow/Escape (every
+other command bound here) this went unnoticed, since neither has
+modifier-sensitive native behavior on a row. Set-mark's own key (Space)
+is different: confirmed live via a diagnostic probe (dispatching a bare
+Space directly on a focused row) that Obsidian's own row listener treats
+a bare Space keydown as "start typing," moving focus straight into the
+value-edit widget and inserting it — so a real Ctrl+Space press on the
+row was silently re-dispatching as a bare Space and switching into edit
+mode, the exact "accidental mode switch" this plugin should never cause.
+
+An initial, broader fix attempt (passing the real event's modifier flags
+through on every fallback dispatch, not just this one) was tried and
+reverted — it broke the Arrow/Escape delegation other already-shipped
+tests depend on (native row-to-row navigation and native Escape-exit
+apparently only match an *unmodified* key on their own internal
+listeners; adding `ctrlKey: true` to those dispatches made them silently
+stop working, confirmed by a full regression run before reverting).
+**Final fix**: a new `suppressFallback` parameter on `bind()`, set only
+for the `set-mark` call — when a target matches none of the three
+handlers, the fallback dispatch is skipped entirely (a true no-op)
+instead of falling through to a native dispatch that was never actually
+harmless for this one key.
+
+- **(1)** Ctrl-Space then Ctrl-F extends a real selection forward.
+- **(2)** Ctrl-Space then Ctrl-B extends a real selection backward.
+- **(3)** Ctrl-Space then Ctrl-A extends the selection to the start of
+  the value.
+- **(4)** Ctrl-Space then Ctrl-E extends the selection to the end of the
+  value.
+- **(5)** Ctrl-G clears an active mark AND exits to item-selection mode,
+  in one press.
+- **(6)** Regression: Ctrl-Space on the row itself (item-selection mode)
+  does nothing — the test that caught the fallback-dispatch bug above.
+
+#### `propertyValueEditKillYank.e2e.ts`
+
+0.13.0 Feature 1, property-value-editing sub-phase, Phase 3: Kill-line
+(Ctrl-K), Kill-region (Ctrl-W), Copy-region (Alt-W), and Yank (Ctrl-Y)
+inside a text property's own value-edit widget. Reuses
+`titleKillLine`/`titleKillRegion`/`titleCopyRegion`/`titleYank` as-is
+from the title field's own implementation — all four already operate
+purely through the Selection API on the element's own `ownerDocument`,
+with zero title-specific assumption baked in, same precedent as every
+other value-edit handler shipped in `propertyValueEditMovement.e2e.ts`/
+`propertyValueEditSetMark.e2e.ts`. Kill-word (Alt-D/Alt-Backspace) is
+deliberately NOT included — out of scope per the user's own explicit
+scope decision for this sub-feature. All four are bound with
+`suppressFallback` (see `propertyValueEditSetMark.e2e.ts`'s own section
+above for why) — their base keys are plain letters, same dropped-
+modifier risk Set-mark's own Ctrl-Space already found and fixed.
+
+**Two real bugs found while writing this spec, both in the TEST itself,
+not the implementation**:
+- An initial `pressCtrl` helper hardcoded its dispatch target to the
+  value-edit widget (copied from `titleRegion.e2e.ts`/`titleYank.e2e.ts`'s
+  own pattern, where that's correct — the title only ever has one
+  possible target). Test (6) below (the row no-op regression) focuses
+  the plain row instead, so hardcoding the dispatch target made it
+  silently test the wrong element the whole time, passing for the wrong
+  reason. Fixed by dispatching on `document.activeElement` instead —
+  whatever currently has real DOM focus, matching how a real keypress
+  actually targets.
+- Tests seeding `killCache` directly (to control what Ctrl-Y inserts)
+  forgot that `titleYank` (reused here) prefers the real OS clipboard
+  over `killCache` when they diverge — confirmed behavior, already
+  covered by `titleYank.e2e.ts`'s own test (6). A leftover clipboard
+  value from an earlier test in this same shared instance (Copy
+  region's own `navigator.clipboard.writeText` call) won every time
+  until the test also seeded the clipboard directly, matching
+  `titleYank.e2e.ts`'s own `openNote` precedent.
+
+- **(1)** Ctrl-K kills from the cursor to the value's own end, into the
+  shared kill-ring.
+- **(2)** Ctrl-W (Kill region) deletes the Set-mark selection and clears
+  the mark.
+- **(3)** Alt-W (Copy region) copies the Set-mark selection without
+  mutating the value, and clears the mark.
+- **(4)** Ctrl-Y inserts the kill-ring content at a collapsed cursor.
+- **(5)** Ctrl-Y replaces an active (non-collapsed) selection instead of
+  inserting at a point.
+- **(6)** Regression: Ctrl-K/Ctrl-W/Ctrl-Y on the row itself
+  (item-selection mode) do nothing — the test that caught the
+  hardcoded-dispatch-target bug above.
+- **(7)** Cross-context: Kill line in the body populates the shared
+  kill-ring, Yank in the value-edit widget retrieves it — same
+  shared-kill-ring confirmation as `titleKillLine.e2e.ts`'s own test (3)
+  and `titleYank.e2e.ts`'s own test (3), now for the Properties
+  value-edit widget specifically.
+
+**A real, substantial bug found AFTER this commit shipped, reported by
+the user from real-machine usage**: pressing Ctrl-A → Ctrl-K → Ctrl-Y
+twice in a row left the cursor completely unresponsive — including
+Ctrl-G, which had been working fine up to that point — with only a
+physical Escape press able to recover. Confirmed live via a throwaway
+diagnostic spec (dumping `app.keymap`'s own window-scope stack —
+`getWindowStack(activeWindow).scope` — at every step of the repro, read
+by reconstructing the internal field names
+`.scope`/`.prevScopes`/`.parent` first identified while investigating
+the original property-value-editing architecture, see
+`project_property_value_edit_real_key_interception_dead_end` in the
+assistant's own memory): Obsidian's own property-value suggestion
+dropdown (visible the moment the widget gets focus, suggesting
+previously-used values for that property key) reacts to the real
+`input` event Ctrl-K/Ctrl-Y's own `execCommand` triggers by pushing ITS
+OWN `Scope` on top of `propertyRowScope`. DOM focus never actually left
+the value-edit widget (confirmed: `document.activeElement` stayed the
+same throughout), so `propertyRowScope` was still technically pushed —
+just shadowed underneath the suggester's own scope, silently breaking
+every command bound here until a physical Escape closed the dropdown
+and popped its scope as an unrelated side effect of Obsidian's own
+code.
+
+Also checked and ruled out as a separate concern during the same
+investigation: `titleKillLine`'s own `execCommand('delete')`, when it
+empties this specific widget completely, leaves behind a literal stray
+`"\n"` in the DOM (confirmed live — this widget is Obsidian's own
+multi-line-capable contenteditable, unlike the title field's single-line
+one, where this was never observed) — but this is purely a transient
+DOM-rendering artifact, confirmed NOT to reach the real saved file
+(read back directly via `app.vault.read` after blurring away from the
+widget: the frontmatter correctly serializes to an empty `myText:`,
+with no stray newline). No fix needed for this part.
+
+**Fix**: a new `reclaimPropertyRowScopeAfterMutation` method (see its
+own comment in `main.ts`), called after every mutating value-edit
+command (`kill-line`/`kill-region`/`yank` — `copy-region` never
+mutates the DOM, so it never triggers the dropdown's reactive push and
+needs no reclaim). After a 2-frame defer (same margin used elsewhere in
+this file for analogous focus/render-settling races — long enough for
+the suggester's own reactive push to have already happened), it checks
+whether the window's current scope is still ours; if something else
+has taken over, it pops THAT scope specifically. **Confirmed live this
+is the correct fix shape, not just "any fix that passes"**: an earlier
+attempt that instead force-pushed a fresh copy of `propertyRowScope` on
+top also recovered Ctrl-G, but would have left a stale duplicate
+sitting in `prevScopes` forever (the suggester's own eventual
+`popScope` call for its own scope would then find itself no longer on
+top and silently no-op, leaking the stack) — popping the foreign scope
+directly instead restores `propertyRowScope` to the top cleanly, with
+no leftover growth, confirmed via the same diagnostic's own
+`prevScopes.length` reading before and after.
+
+- **(8)** Regression: repeated Ctrl-A/Ctrl-K/Ctrl-Y cycles don't let the
+  suggestion dropdown shadow the Scope — the round trip stays lossless
+  AND Ctrl-G still works afterward. Built red-green: confirmed failing
+  (`Expected: true, Received: false`) against the pre-fix build before
+  implementing `reclaimPropertyRowScopeAfterMutation`, passing after.
 
 #### `titleCrossingFrontmatter.e2e.ts`
 

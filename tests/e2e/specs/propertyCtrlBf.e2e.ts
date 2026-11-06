@@ -184,23 +184,42 @@ body content
 		await expect(await headingCollapsed()).toBe(false)
 	})
 
-	it('(4) regression: Ctrl-B/F do nothing to row focus while ordinary text editing is active (not item-selection mode)', async function () {
+	it('(4) regression: Ctrl-B/F while editing the value text move the cursor WITHIN it (not row navigation or name-edit entry) — same mechanism as propertyValueEditMovement.e2e.ts\'s own Ctrl-B/F movement tests', async function () {
+		// Previously asserted Ctrl-B/F did nothing at all here — true
+		// before propertyRowScope's own push/pop condition was broadened
+		// to cover this widget for the property-value-editing movement
+		// work (feat/property-value-edit-movement). Once that landed,
+		// Ctrl-B here does real character movement (reusing titleMoveChar,
+		// same as the title field) without changing which element has
+		// focus at all — this test now confirms that, instead of the
+		// opposite.
 		await openNote('PropertyCtrlBfNoInterference.md')
 		await browser.executeObsidian(({ app, obsidian }) => {
 			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
 			const row = view.containerEl.querySelector('.metadata-property[data-property-key="mytext"]') as HTMLElement
-			const target = row.querySelector('[contenteditable="true"]') as HTMLElement
+			const target = row.querySelector('.metadata-input-longtext') as HTMLElement
 			target.focus()
+			const sel = target.ownerDocument.getSelection()!
+			const range = target.ownerDocument.createRange()
+			range.setStart(target.firstChild!, 5)
+			range.collapse(true)
+			sel.removeAllRanges()
+			sel.addRange(range)
 		})
-		await browser.pause(80)
+		await browser.pause(150)
 		const before = await activeDescriptor()
 		await expect(before.isContentEditable).toBe(true)
 		await expect(before.propertyKey).toBe('mytext')
 
-		await pressKey('b', true) // must NOT trigger name-edit entry or row navigation here
+		await pressKey('b', true)
 		const after = await activeDescriptor()
 		await expect(after.isContentEditable).toBe(true)
 		await expect(after.propertyKey).toBe('mytext')
+		const focusOffset = await browser.executeObsidian(({ app, obsidian }) => {
+			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+			return view.containerEl.ownerDocument.getSelection()?.focusOffset
+		})
+		await expect(focusOffset).toBe(4) // "hello world", started at 5, Ctrl-B moved left by one
 	})
 
 	it('(5) regression: a note WITHOUT frontmatter is unaffected — Ctrl-B still moves the body cursor one character left', async function () {
