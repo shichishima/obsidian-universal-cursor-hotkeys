@@ -968,6 +968,36 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				this.propertyRowScope = null;
 			}
 		}, true);
+		// Real bug found from actual daily usage, broader than the
+		// individual-command fix first applied for Kill-line/Kill-region/
+		// Yank (see reclaimPropertyRowScopeAfterMutation's own comment for
+		// that original investigation): native Undo/Redo (Cmd-Z/Cmd-
+		// Shift-Z) also mutates the value-edit widget via the browser's
+		// own undo manager — NOT something this plugin ever dispatches
+		// itself, so there was no natural call site to chain a reclaim
+		// onto. Confirmed live this still fires a real 'input' event (3
+		// rapid Cmd-Z presses -> 3 'input' events, same as 3 rapid
+		// Ctrl-D presses), which Obsidian's own suggestion dropdown reacts
+		// to exactly the same way — pushing its own Scope on top of
+		// propertyRowScope, which native Undo/Redo has no corresponding
+		// "after this" hook to reclaim from, unlike this plugin's own
+		// commands. Repro specifically needed starting from offset 1+
+		// (not the value's very first character) — reported by the user,
+		// not yet root-caused why offset 0 doesn't trigger it, but
+		// irrelevant to the fix: reacting to the real 'input' event
+		// itself, regardless of cause, covers every mutation path
+		// uniformly (this plugin's own commands, native Undo/Redo, and
+		// even plain typing) rather than requiring a reclaim call to be
+		// remembered at every individual mutating command's own call
+		// site — a single listener here replaces every explicit
+		// reclaimPropertyRowScopeAfterMutation() call that used to follow
+		// kill-line/kill-region/kill-word-left/kill-word-right/yank/
+		// delete-char individually in buildPropertyRowScope.
+		this.registerDomEvent(doc, 'input', (e: Event) => {
+			if (!this.propertyRowScope) return;
+			if (!(e.target as HTMLElement)?.matches?.(PROPERTY_VALUE_EDIT_SELECTOR)) return;
+			this.reclaimPropertyRowScopeAfterMutation();
+		}, true);
 	}
 
 	// Scans the baked hotkey table (defaults + user overrides already
@@ -1196,47 +1226,30 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// would equally make a bare letter keydown on a row look like
 		// "start typing" to Obsidian's own row listener.
 		//
-		// kill-line/kill-region/kill-word/yank each call
-		// reclaimPropertyRowScopeAfterMutation afterward — see that
-		// method's own comment for the real bug this guards against
-		// (Obsidian's own property-value suggestion dropdown can shadow
-		// propertyRowScope after a real mutating execCommand).
-		// copy-region never mutates the DOM, so it never triggers the
-		// dropdown's own reactive scope-push and needs no reclaim.
-		bind('kill-line', 'K', undefined, undefined, (el) => {
-			this.titleKillLine(el);
-			this.reclaimPropertyRowScopeAfterMutation();
-		}, true);
-		bind('kill-region', 'W', undefined, undefined, (el) => {
-			this.titleKillRegion(el);
-			this.reclaimPropertyRowScopeAfterMutation();
-		}, true);
+		// kill-line/kill-region/kill-word/yank/delete-char all mutate the
+		// widget's content via execCommand — Obsidian's own property-value
+		// suggestion dropdown can react by shadowing propertyRowScope, but
+		// this is now handled uniformly by a single document-level 'input'
+		// listener (see registerWindowDomListeners's own comment on why a
+		// per-command reclaim call isn't used here, after native Undo/Redo
+		// turned out to need the exact same fix with no corresponding
+		// command-level call site to attach it to). copy-region never
+		// mutates the DOM, so it never triggers that listener at all.
+		bind('kill-line', 'K', undefined, undefined, (el) => this.titleKillLine(el), true);
+		bind('kill-region', 'W', undefined, undefined, (el) => this.titleKillRegion(el), true);
 		bind('copy-region', 'W', undefined, undefined, (el) => this.titleCopyRegion(el), true);
-		bind('yank', 'Y', undefined, undefined, (el) => {
-			void this.titleYank(el).then(() => this.reclaimPropertyRowScopeAfterMutation());
-		}, true);
+		bind('yank', 'Y', undefined, undefined, (el) => { void this.titleYank(el); }, true);
 		// Kill word left/right (Alt-Backspace/Alt-D): reuses titleKillWord
 		// as-is, matching the title field's own command set, which already
 		// has this (the earlier "deliberately out of scope" decision for
 		// this sub-feature was revisited once the title/property command
-		// parity gap was noticed). Same mutating-command treatment as
-		// kill-line/kill-region above (suppressFallback + reclaim).
-		bind('kill-word-left', 'Backspace', undefined, undefined, (el) => {
-			this.titleKillWord(el, false);
-			this.reclaimPropertyRowScopeAfterMutation();
-		}, true);
-		bind('kill-word-right', 'D', undefined, undefined, (el) => {
-			this.titleKillWord(el, true);
-			this.reclaimPropertyRowScopeAfterMutation();
-		}, true);
+		// parity gap was noticed).
+		bind('kill-word-left', 'Backspace', undefined, undefined, (el) => this.titleKillWord(el, false), true);
+		bind('kill-word-right', 'D', undefined, undefined, (el) => this.titleKillWord(el, true), true);
 		// Delete char (Ctrl-D): reuses titleDeleteChar as-is, entirely new
 		// for both the title field and this widget (unlike every command
-		// above, which already existed on at least one side). Same
-		// mutating-command treatment as the kill commands above.
-		bind('delete-char', 'D', undefined, undefined, (el) => {
-			this.titleDeleteChar(el);
-			this.reclaimPropertyRowScopeAfterMutation();
-		}, true);
+		// above, which already existed on at least one side).
+		bind('delete-char', 'D', undefined, undefined, (el) => this.titleDeleteChar(el), true);
 		return scope;
 	}
 
@@ -1271,6 +1284,17 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// then find itself no longer on top and silently no-op, leaking the
 	// stack), while popping the foreign scope directly restores
 	// propertyRowScope to the top cleanly, with no leftover stack growth.
+	//
+	// Originally called individually after each mutating command
+	// (kill-line/kill-region/kill-word/yank/delete-char). Moved to a
+	// single document-level 'input' listener (registerWindowDomListeners)
+	// once native Undo/Redo was found to trigger the exact same bug with
+	// NO command-level call site to attach a reclaim to (Cmd-Z/Cmd-
+	// Shift-Z mutate the widget via the browser's own undo manager, never
+	// through anything this plugin dispatches) — reacting to the real
+	// 'input' event itself, regardless of cause, covers every mutation
+	// path uniformly instead of requiring a reclaim call to be remembered
+	// at each new mutating command's own call site.
 	private reclaimPropertyRowScopeAfterMutation() {
 		requestAnimationFrameOnActiveWindow(() => {
 			requestAnimationFrameOnActiveWindow(() => {

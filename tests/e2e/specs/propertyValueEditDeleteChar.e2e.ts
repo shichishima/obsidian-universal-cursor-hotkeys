@@ -10,10 +10,13 @@ import { describe, it, after } from 'mocha'
 // throughout this whole sub-feature.
 //
 // suppressFallback is set (same reasoning as every other mutating
-// value-edit command here) and reclaimPropertyRowScopeAfterMutation is
-// called afterward (same treatment as kill-line/kill-region/kill-word/
-// yank — see propertyValueEditKillYank.e2e.ts's own section for the full
-// writeup on why).
+// value-edit command here). The scope-shadowing bug this widget can
+// trigger (see propertyValueEditKillYank.e2e.ts's own section) is now
+// handled by a single document-level 'input' listener rather than a
+// reclaim call after each individual mutating command — test (5) below
+// is the regression coverage for WHY that generalization was needed:
+// native Undo (Cmd-Z), never dispatched by this plugin itself, hits the
+// exact same bug with no command-level call site to attach a reclaim to.
 describe('Property value-edit mode: Delete char (Ctrl-D)', function () {
 	const createdPaths: string[] = []
 
@@ -135,5 +138,48 @@ first body line
 		const after = await snap()
 		await expect(after.isRow).toBe(true)
 		await expect(after.valueText).toBe('hello world') // completely unchanged
+	})
+
+	// Real bug, reported by the user from real-machine usage: Ctrl-D x3
+	// then physical Cmd-Z x3 (quickly) left the widget unresponsive —
+	// Ctrl-G didn't even work, only the user's own report of this exact
+	// sequence surfaced it (synthetic dispatchEvent() did NOT reproduce
+	// it during investigation; real browser.keys() was required, same
+	// lesson as this whole sub-feature's other investigations). Root
+	// cause: native Undo mutates the widget via the browser's own undo
+	// manager (confirmed live it still fires a real 'input' event, 3
+	// Cmd-Z presses -> 3 'input' events, same as 3 Ctrl-D presses) and
+	// Obsidian's own suggestion dropdown reacts to THAT the same way it
+	// reacts to this plugin's own mutating commands — but Undo is never
+	// dispatched by this plugin, so there was no command-level call site
+	// to attach the existing per-command reclaim fix to. Fixed by moving
+	// the reclaim logic to a single document-level 'input' listener
+	// (registerWindowDomListeners), which catches every mutation path
+	// uniformly regardless of cause.
+	it('(5) regression: rapid Ctrl-D then native Undo doesn\'t leave the widget unresponsive', async function () {
+		await openNote('PropertyValueEditDeleteCharUndoRegression.md', 'hello world')
+		await browser.executeObsidian(async ({ app }) => {
+			const hm = (app as any).hotkeyManager
+			hm.setHotkeys('universal-cursor-hotkeys:keyboard-quit', [{ modifiers: ['Ctrl'], key: 'G' }])
+			hm.bake()
+		})
+		await focusValueAt(1) // repro specifically needs a non-zero starting offset
+
+		await browser.keys(['Control', 'd'])
+		await browser.keys(['Control', 'd'])
+		await browser.keys(['Control', 'd'])
+		await browser.pause(200)
+
+		await browser.keys(['Meta', 'z'])
+		await browser.keys(['Meta', 'z'])
+		await browser.keys(['Meta', 'z'])
+		await browser.pause(200)
+		const afterUndo = await snap()
+		await expect(afterUndo.valueText).toBe('hello world') // undo round-trip itself still correct
+
+		await browser.keys(['Control', 'g'])
+		await browser.pause(200)
+		const afterQuit = await snap()
+		await expect(afterQuit.isRow).toBe(true) // Ctrl-G still works — the scope wasn't left shadowed
 	})
 })

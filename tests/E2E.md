@@ -1277,9 +1277,8 @@ as-is — entirely new for BOTH the title field and this widget (unlike
 Kill word, which already existed on the title side before this phase),
 so there's no "title already proved it" precedent to lean on here, only
 the underlying Selection API mechanism already used throughout this
-whole sub-feature. `suppressFallback` is set and
-`reclaimPropertyRowScopeAfterMutation` is called afterward, same
-treatment as every other mutating value-edit command here.
+whole sub-feature. `suppressFallback` is set, same reasoning as every
+other mutating value-edit command here.
 
 - **(1)** Deletes the character after the cursor.
 - **(2)** A true no-op at the value's own end.
@@ -1288,12 +1287,43 @@ treatment as every other mutating value-edit command here.
 - **(4)** Regression: Ctrl-D on the row itself (item-selection mode)
   does nothing.
 
-Both specs' full affected-regression run plus a full-suite pass (186
-tests) confirmed clean — one unrelated, pre-existing flake
-(`propertyValueEditSetMark.e2e.ts`'s own test 4) reproduced once in the
-full run and came back green on an isolated single-file re-run,
-consistent with this project's own "isolated re-run is sufficient
-evidence for a flake" convention.
+**(5), added after a real post-ship bug report from real-machine
+usage**: rapid Ctrl-D ×3 then physical Cmd-Z ×3 left the widget
+unresponsive — Ctrl-G didn't even work. Confirmed this needed real
+`browser.keys()` to reproduce at all (synthetic `dispatchEvent()`
+didn't trigger it during investigation, same lesson as every other
+Keymap-adjacent investigation in this sub-feature) and specifically
+needed a starting offset of 1+ (not the value's very first character —
+reported by the user, not root-caused why offset 0 doesn't trigger it,
+but irrelevant to the fix below).
+
+**Root cause**: native Undo (Cmd-Z) mutates the widget via the
+browser's own undo manager — confirmed live it still fires a real
+`input` event (3 rapid Cmd-Z presses → 3 `input` events, same count as
+3 rapid Ctrl-D presses). Obsidian's own property-value suggestion
+dropdown reacts to THAT exactly the same way it reacts to this plugin's
+own mutating commands (see this file's own `propertyValueEditKillYank.
+e2e.ts` section for the original finding) — but Undo is never
+dispatched by this plugin itself, so the original fix (an explicit
+`reclaimPropertyRowScopeAfterMutation()` call added individually after
+each mutating command) had no command-level call site to attach to for
+Undo/Redo at all.
+
+**Fix, more general than the original**: moved the reclaim logic out
+of each individual command and into a single document-level `input`
+listener (`registerWindowDomListeners`), scoped to
+`PROPERTY_VALUE_EDIT_SELECTOR` targets. Reacting to the real `input`
+event itself, regardless of cause, covers every mutation path
+uniformly — this plugin's own commands, native Undo/Redo, and even
+plain typing — rather than requiring every future mutating command to
+remember to add its own reclaim call. The individual
+`reclaimPropertyRowScopeAfterMutation()` calls previously scattered
+across `kill-line`/`kill-region`/`kill-word-left`/`kill-word-right`/
+`yank`/`delete-char` in `buildPropertyRowScope` were all removed as
+redundant once this landed.
+
+Both specs' full affected-regression run plus a full-suite pass (187
+tests) confirmed clean.
 
 #### `titleSetMark.e2e.ts`
 
