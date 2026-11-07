@@ -1595,6 +1595,35 @@ didn't exist yet when that fix shipped) — broadened to
 the fix (reverting the selector back to `PROPERTY_VALUE_EDIT_SELECTOR`
 reproduces test (13) failing) and green after.
 
+#### `basesPropertyEditing.e2e.ts`
+
+0.13.0 Feature 1, Bases re-verification (deferred from the original
+property-value-editing phase, finally picked up once the whole
+property-text-editing surface — including property NAME editing —
+shipped). A DOM survey (temp diagnostic specs, deleted after) confirmed
+live that a Bases table view's own per-cell value widgets reuse the
+EXACT same DOM classes as the single-note Properties panel:
+`.metadata-input-longtext` for text, `input[type="checkbox"/"date"/"number"]`
+for those types, `.multi-select-input` for list/tags/aliases — every
+command bound in `buildPropertyRowScope` matches on these LEAF element
+classes directly, with no dependency on the Properties panel's own
+`.metadata-property` row wrapper existing at all. So none of this
+needed new code — confirmed by this spec exercising real commands
+end-to-end (not just checking DOM classes match): cursor movement,
+Kill-line/Yank round-trip, Ctrl-G exit from text/checkbox/date cells,
+the scope-shadowing fix (same regression class as
+`propertyValueEditDeleteChar.e2e.ts`/`propertyNameEdit.e2e.ts`'s own
+test (13), confirmed it ALSO just works here for free), and
+Selection-API movement in a list cell's own trailing chip.
+
+**Confirmed NOT covered, same DOM survey, test (6)**: a Bases column's
+own header (the property NAME) is a plain, non-editable
+`.bases-table-header-name` div — nothing like
+`.metadata-property-key-input`. Bases renames a column through its own
+menu-based UI, not an inline text input. The property NAME-editing
+phase's commands genuinely don't apply here — not a gap to fix, a real,
+confirmed scope boundary.
+
 #### `titleSetMark.e2e.ts`
 
 Set-mark (Ctrl-Space) in the title field. Unlike the body's own CM6-based
