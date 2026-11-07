@@ -334,4 +334,71 @@ first body line
 		await expect(afterTyped.isInput).toBe(true)
 		await expect(afterTyped.text).toBe('hi')
 	})
+
+	// User's own direct follow-up, same day: "row選択→myList→Ctrl-Fで入
+	// 力モード→Ctrl-Nでプルダウンの1つ目にカーソル(フォーカス)とすると、
+	// Ctrl-PNBFもCtrl-Gも効かなくなる。Escなら抜けられるので、Ctrl-Gは効
+	// くべきだ" -- confirmed live this is the SAME scope-shadowing class
+	// already fixed for the text value-edit widget
+	// (propertyValueEditKillYank.e2e.ts's own test (8)), just triggered
+	// by a DIFFERENT path: typing a character matching an EXISTING value
+	// elsewhere in the vault shows the multi-select's own "previously
+	// used values" suggester, which pushes its own Scope on top of
+	// propertyRowScope WITHOUT producing any 'input' event (Ctrl-N/G
+	// themselves don't mutate text either), so the existing 'input'-only
+	// reclaim listener never covered this path at all. Added a parallel
+	// 'keydown'-based reclaim trigger (covers this and every other
+	// shadowing cause uniformly, the same way the 'input' listener
+	// already covers every MUTATING cause uniformly).
+	it('(9) regression: typing a value that triggers the multi-select suggester does not permanently shadow Ctrl-G', async function () {
+		const notePath = 'PropertyOtherTypesSuggesterShadow.md'
+		const seedPaths = ['PropertyOtherTypesSuggesterSeed0.md', 'PropertyOtherTypesSuggesterSeed1.md']
+		createdPaths.push(notePath, ...seedPaths)
+
+		await browser.executeObsidian(async ({ app }, { notePath2, seedPaths2 }) => {
+			const hm = (app as any).hotkeyManager
+			hm.setHotkeys('universal-cursor-hotkeys:keyboard-quit', [{ modifiers: ['Ctrl'], key: 'G' }])
+			hm.setHotkeys('universal-cursor-hotkeys:cursor-down', [{ modifiers: ['Ctrl'], key: 'N' }])
+			hm.bake()
+			app.workspace.getLeavesOfType('markdown').forEach(leaf => leaf.detach())
+			for (const p of [notePath2, ...seedPaths2]) {
+				const existing = app.vault.getFileByPath(p)
+				if (existing) await app.vault.delete(existing)
+			}
+			// Seed existing values so Obsidian's own suggester actually has
+			// something to show once a matching character is typed.
+			await app.vault.create(seedPaths2[0], `---\nmyList:\n  - seedalpha\n---\nbody\n`)
+			await app.vault.create(seedPaths2[1], `---\nmyList:\n  - seedbeta\n---\nbody\n`)
+			const file = await app.vault.create(notePath2, `---\nmyList:\n  - item1\n---\nbody\n`)
+			await app.workspace.getLeaf(true).openFile(file)
+		}, { notePath2: notePath, seedPaths2: seedPaths })
+		await browser.pause(500)
+
+		const row = await browser.$('.metadata-property')
+		await row.click({ x: 2, y: 2 })
+		await browser.keys(['Escape'])
+		await browser.pause(150)
+		await browser.keys(['Control', 'f'])
+		await browser.pause(150)
+		await browser.keys(['s']) // matches "seedalpha"/"seedbeta" -- triggers the suggester
+		await browser.pause(300)
+
+		const whileShadowed = await browser.executeObsidian(() => ({
+			suggesterVisible: !!document.querySelector('.suggestion-container'),
+		}))
+		await expect(whileShadowed.suggesterVisible).toBe(true) // confirms the suggester genuinely appeared
+
+		await browser.keys(['Control', 'n']) // the user's own exact repro step
+		await browser.pause(300)
+		await browser.keys(['Control', 'g'])
+		await browser.pause(300)
+
+		const after = await browser.executeObsidian(({ app, obsidian }, propertyKey) => {
+			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+			const row = view.containerEl.querySelector(`.metadata-property[data-property-key="${propertyKey}"]`) as HTMLElement
+			const active = row.ownerDocument.activeElement as HTMLElement | null
+			return { isRow: active === row }
+		}, 'mylist')
+		await expect(after.isRow).toBe(true) // Ctrl-G successfully exited to item-selection mode
+	})
 })
