@@ -143,6 +143,33 @@ const PROPERTY_MULTISELECT_INPUT_SELECTOR = '.multi-select-input';
 // ArrowLeft/Right moves focus onto an existing pill, user-reported.
 const PROPERTY_MULTISELECT_PILL_SELECTOR = '.multi-select-pill';
 
+// The multi-select trailing input's own "previously used values"
+// suggester (confirmed live via a DOM dump: a `.suggestion-container
+// mod-property-value` holding `.suggestion-item` DIVs, one of which
+// carries `.is-selected` once more than one item is present — a
+// single-item list doesn't seem to mark anything as selected at all,
+// confirmed live). Scoped to `.mod-property-value` specifically, not
+// every `.suggestion-container` in Obsidian (e.g. the command palette
+// uses the same base class) — this plugin has no business touching
+// any OTHER suggester type.
+//
+// Confirmed live this dropdown supports NO keyboard navigation
+// whatsoever, native OR otherwise: a real physical ArrowDown, this
+// plugin's own Ctrl-N, and a real physical Enter all left
+// `.is-selected` on the exact same item it started on, and Enter
+// didn't commit the highlighted item either — it just inserted
+// whatever was literally typed as a brand-new pill, with the
+// suggester still open afterward. It's a pure mouse-click-only UI
+// component, which is WHY Ctrl-N/P navigation and Enter-to-commit
+// below have to be implemented from scratch (toggling `.is-selected`
+// ourselves, committing via a synthetic click on the highlighted item
+// — confirmed live a synthetic MouseEvent('click') DOES correctly
+// complete the typed prefix to the clicked item's own full value, the
+// same as a real click would).
+const PROPERTY_SUGGESTER_SELECTOR = '.suggestion-container.mod-property-value';
+const PROPERTY_SUGGESTER_ITEM_SELECTOR = '.suggestion-item';
+const PROPERTY_SUGGESTER_SELECTED_CLASS = 'is-selected';
+
 // date/datetime specifically (a subset of PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR) —
 // used by PROPERTY_CURSOR_PNBF_SELECTOR below, which needs these two
 // but NOT checkbox (checkbox has no cursor concept at all, explicitly
@@ -1391,6 +1418,31 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			// propertyItemSelection.e2e.ts's own 2-escape sequence).
 			return !target?.matches?.(PROPERTY_PANEL_FOCUS_SELECTOR);
 		});
+		// Bare Enter, scoped narrowly to ONLY the multi-select trailing
+		// input with its own suggester actually visible AND an item
+		// currently highlighted (see PROPERTY_SUGGESTER_SELECTOR's own
+		// comment for why this needs a from-scratch commit instead of
+		// delegating to any native behavior) — every other context
+		// (every other widget type, or this same input with no
+		// suggester open) passes Enter straight through untouched, same
+		// as if this plugin didn't register anything here at all. This
+		// is NOT wired through the normal hotkey/command system the way
+		// every other binding in this scope is — Enter has no modifier
+		// to distinguish it by, and this plugin's own "ships with no
+		// default hotkeys" convention doesn't really fit a bare,
+		// unmodified key a user would almost never rebind on purpose;
+		// registering it directly here, exactly like the bare-Escape
+		// pass-through just above, keeps it active unconditionally
+		// without needing a settings-exposed command for it.
+		scope.register([], 'Enter', (evt) => {
+			const target = evt.target as HTMLElement;
+			if (!target?.matches?.(PROPERTY_MULTISELECT_INPUT_SELECTOR)) return true;
+			const items = this.getVisibleSuggesterItems(target);
+			const selected = items?.find(item => item.classList.contains(PROPERTY_SUGGESTER_SELECTED_CLASS));
+			if (!selected) return true;
+			selected.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: target.ownerDocument.defaultView ?? undefined }));
+			return false;
+		});
 		const bind = (
 			commandId: string,
 			key: string,
@@ -1742,6 +1794,38 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}
 	}
 
+	// Finds the suggester's own item list, scoped to the SAME document
+	// as el (popout-window safety, same convention as every other
+	// document-scoped lookup in this file) — returns null if no
+	// suggester is currently visible there at all.
+	private getVisibleSuggesterItems(el: HTMLElement): HTMLElement[] | null {
+		const container = el.ownerDocument.querySelector(PROPERTY_SUGGESTER_SELECTOR);
+		if (!container) return null;
+		const items = Array.from(container.querySelectorAll(PROPERTY_SUGGESTER_ITEM_SELECTOR)) as HTMLElement[];
+		return items.length > 0 ? items : null;
+	}
+
+	// Moves PROPERTY_SUGGESTER_SELECTED_CLASS to the next/previous item —
+	// this plugin's own from-scratch replacement for the native up/down
+	// navigation this suggester doesn't support at all (see
+	// PROPERTY_SUGGESTER_SELECTOR's own comment). Clamps at either end
+	// (matching every other Ctrl-N/P boundary in this plugin's own
+	// convention — a true no-op there, not wrapping) rather than
+	// cycling back around. A single-item list never has anything marked
+	// `.is-selected` to begin with (confirmed live) — in that case,
+	// forward selects item 0 and backward does nothing, simplest sane
+	// behavior for a list that was never going to have anywhere else to
+	// go either way.
+	private propertyNavigateSuggester(items: HTMLElement[], forward: boolean) {
+		const currentIndex = items.findIndex(item => item.classList.contains(PROPERTY_SUGGESTER_SELECTED_CLASS));
+		const nextIndex = currentIndex === -1
+			? (forward ? 0 : -1)
+			: currentIndex + (forward ? 1 : -1);
+		if (nextIndex < 0 || nextIndex >= items.length) return;
+		if (currentIndex !== -1) items[currentIndex].classList.remove(PROPERTY_SUGGESTER_SELECTED_CLASS);
+		items[nextIndex].classList.add(PROPERTY_SUGGESTER_SELECTED_CLASS);
+	}
+
 	// Ctrl-P/N's own entry point for PROPERTY_CURSOR_PNBF_SELECTOR
 	// (text/multi-select/date/datetime): date/datetime get a true no-op
 	// here — confirmed live (diagnostic probe, not assumed) that these
@@ -1754,8 +1838,22 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// propertyValueEditMoveLine as-is — multi-select's own trailing chip
 	// is a real contenteditable with the same Selection API, confirmed
 	// live.
+	//
+	// Multi-select gets a further, earlier branch: while its own
+	// suggester is visible, Ctrl-N/P navigate IT instead of moving the
+	// caret — reusing this same command rather than adding a separate
+	// one, matching how the suggester visually COVERS the caret's own
+	// line-movement concern anyway while it's open (there is no second,
+	// independent "move within the input" need at that exact moment).
 	private propertyMoveLineOrNoop(el: HTMLElement, forward: boolean) {
 		if (el.matches(PROPERTY_DATE_TYPE_SELECTOR)) return;
+		if (el.matches(PROPERTY_MULTISELECT_INPUT_SELECTOR)) {
+			const items = this.getVisibleSuggesterItems(el);
+			if (items) {
+				this.propertyNavigateSuggester(items, forward);
+				return;
+			}
+		}
 		this.propertyValueEditMoveLine(el, forward);
 	}
 

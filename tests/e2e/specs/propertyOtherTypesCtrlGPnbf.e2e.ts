@@ -4,13 +4,13 @@ import { describe, it, after } from 'mocha'
 // 0.13.0 Feature 1, property-value-editing follow-up phase: extends
 // Ctrl-G (exit) to checkbox/date/datetime/list(multitext)/tags/aliases
 // (6 types), and Ctrl-P/N/B/F to date/datetime/list/tags/aliases (5,
-// checkbox excluded since it has no cursor concept at all) — the
-// user's own scope decision, see project memory
+// checkbox excluded since it has no cursor concept at all) — a scope
+// decision documented in project memory
 // project_property_other_types_ctrl_g_pnbf_scope.
 //
 // number was added to Ctrl-G's own coverage in a follow-up fix — it
 // was never part of this phase's original 6-type list at all (a real
-// gap, not a deliberate exclusion), caught by a user report
+// gap, not a deliberate exclusion), caught post-release
 // ("numberでCtrl-Gが効かない") after the rest of this phase shipped.
 // Shares the exact same no-Selection-API wall as date/datetime (see
 // project_frontmatter_property_dom_survey's own Category B finding)
@@ -388,7 +388,7 @@ first body line
 		}))
 		await expect(whileShadowed.suggesterVisible).toBe(true) // confirms the suggester genuinely appeared
 
-		await browser.keys(['Control', 'n']) // the user's own exact repro step
+		await browser.keys(['Control', 'n']) // reproduces the exact failing sequence
 		await browser.pause(300)
 		await browser.keys(['Control', 'g'])
 		await browser.pause(300)
@@ -400,5 +400,119 @@ first body line
 			return { isRow: active === row }
 		}, 'mylist')
 		await expect(after.isRow).toBe(true) // Ctrl-G successfully exited to item-selection mode
+	})
+
+	// Separate gap, same investigation: the multi-select "previously used
+	// values" suggester (list/tags/aliases) has ZERO keyboard navigation of
+	// its own -- confirmed live that a real physical ArrowDown, this
+	// plugin's own Ctrl-N, and a real physical Enter all leave its
+	// .is-selected class completely unchanged, and Enter doesn't commit the
+	// highlighted item either, it just inserts the literally-typed prefix
+	// as a brand-new pill with the suggester left open. Ctrl-N/P now drive
+	// a from-scratch highlight (moving the suggester's own .is-selected
+	// class between .suggestion-item siblings, clamped at both ends rather
+	// than wrapping, matching this plugin's convention everywhere else),
+	// and a bare Enter registered directly on propertyRowScope (same
+	// precedent as the existing bare-Escape pass-through) commits the
+	// highlighted item via a synthetic MouseEvent('click') -- confirmed
+	// live this reliably completes the typed prefix to the clicked item's
+	// own full value, unlike synthetic KeyboardEvents elsewhere in this
+	// codebase, which are known-unreliable for anything Keymap-adjacent.
+	it('(10) Ctrl-N/P navigate the multi-select suggester (no native keyboard support of its own); Enter commits the highlighted item', async function () {
+		const notePath = 'PropertyOtherTypesSuggesterNav.md'
+		const seedPaths = [
+			'PropertyOtherTypesSuggesterNavSeed0.md',
+			'PropertyOtherTypesSuggesterNavSeed1.md',
+			'PropertyOtherTypesSuggesterNavSeed2.md',
+		]
+		createdPaths.push(notePath, ...seedPaths)
+
+		await browser.executeObsidian(async ({ app }, { notePath2, seedPaths2 }) => {
+			const hm = (app as any).hotkeyManager
+			hm.setHotkeys('universal-cursor-hotkeys:cursor-up', [{ modifiers: ['Ctrl'], key: 'P' }])
+			hm.setHotkeys('universal-cursor-hotkeys:cursor-down', [{ modifiers: ['Ctrl'], key: 'N' }])
+			hm.bake()
+			app.workspace.getLeavesOfType('markdown').forEach(leaf => leaf.detach())
+			for (const p of [notePath2, ...seedPaths2]) {
+				const existing = app.vault.getFileByPath(p)
+				if (existing) await app.vault.delete(existing)
+			}
+			// Seed 3 existing tag values sharing a common prefix so the
+			// suggester has a genuine multi-item list to navigate.
+			await app.vault.create(seedPaths2[0], `---\ntags:\n  - testbeta\n---\nbody\n`)
+			await app.vault.create(seedPaths2[1], `---\ntags:\n  - testalpha\n---\nbody\n`)
+			await app.vault.create(seedPaths2[2], `---\ntags:\n  - testgamma\n---\nbody\n`)
+			const file = await app.vault.create(notePath2, `---\ntags:\n  - tagone\n---\nbody\n`)
+			await app.workspace.getLeaf(true).openFile(file)
+		}, { notePath2: notePath, seedPaths2: seedPaths })
+		await browser.pause(500)
+
+		const row = await browser.$('.metadata-property')
+		await row.click({ x: 2, y: 2 })
+		await browser.keys(['Escape'])
+		await browser.pause(150)
+		await browser.keys(['Control', 'f'])
+		await browser.pause(150)
+		await browser.keys(['t', 'e', 's', 't']) // matches testalpha/testbeta/testgamma -- triggers the suggester
+		await browser.pause(300)
+
+		const getSelected = async () => browser.executeObsidian(() => {
+			const items = Array.from(document.querySelectorAll('.suggestion-container.mod-property-value .suggestion-item'))
+			return {
+				count: items.length,
+				selectedText: items.find(item => item.classList.contains('is-selected'))?.textContent ?? null,
+			}
+		})
+
+		const initial = await getSelected()
+		await expect(initial.count).toBe(3) // confirms the suggester genuinely has 3 items to navigate
+		await expect(initial.selectedText).toBe('testbeta') // Obsidian's own suggester auto-highlights the first item by default, but (confirmed live) ignores every keyboard input that would normally move it
+
+		await browser.keys(['Control', 'n'])
+		await browser.pause(150)
+		await expect((await getSelected()).selectedText).toBe('testalpha')
+
+		await browser.keys(['Control', 'n'])
+		await browser.pause(150)
+		await expect((await getSelected()).selectedText).toBe('testgamma')
+
+		await browser.keys(['Control', 'n']) // already at the last item -- confirms boundary clamping, not wrap-around
+		await browser.pause(150)
+		await expect((await getSelected()).selectedText).toBe('testgamma')
+
+		await browser.keys(['Control', 'p'])
+		await browser.pause(150)
+		await expect((await getSelected()).selectedText).toBe('testalpha')
+
+		await browser.keys(['Enter']) // commits the currently-highlighted item via a synthetic click
+		await browser.pause(300)
+
+		const committed = await browser.executeObsidian(({ app, obsidian }, propertyKey) => {
+			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+			const row = view.containerEl.querySelector(`.metadata-property[data-property-key="${propertyKey}"]`) as HTMLElement
+			const pills = Array.from(row.querySelectorAll('.multi-select-pill')).map(p => p.textContent)
+			return { pills }
+		}, 'tags')
+		await expect(committed.pills).toContain('testalpha') // the typed "test" prefix completed to the clicked item's own full value
+
+		// Regression: Enter with no suggester visible is completely
+		// untouched native behavior (commits a brand-new pill), not
+		// swallowed by the new bare-Enter handler.
+		await browser.keys(['z', 'z', 'z', 'z', 'z']) // doesn't match any existing value -- no suggester
+		await browser.pause(300)
+		const noSuggester = await browser.executeObsidian(() => ({
+			suggesterVisible: !!document.querySelector('.suggestion-container'),
+		}))
+		await expect(noSuggester.suggesterVisible).toBe(false)
+
+		await browser.keys(['Enter'])
+		await browser.pause(300)
+		const afterPlainEnter = await browser.executeObsidian(({ app, obsidian }, propertyKey) => {
+			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+			const row = view.containerEl.querySelector(`.metadata-property[data-property-key="${propertyKey}"]`) as HTMLElement
+			const pills = Array.from(row.querySelectorAll('.multi-select-pill')).map(p => p.textContent)
+			return { pills }
+		}, 'tags')
+		await expect(afterPlainEnter.pills).toContain('zzzzz')
 	})
 })
