@@ -30,6 +30,27 @@ const TITLE_SELECTOR = ".inline-title[contenteditable='true']";
 const PROPERTY_PANEL_FOCUS_SELECTOR =
 	'.metadata-property, .metadata-properties-heading, .metadata-add-button';
 
+// Bases re-verification follow-up: a Bases table view's own "cell
+// selection mode" (reached via Escape from a cell's edit mode, or by
+// clicking a cell and immediately pressing Escape) keeps real DOM
+// focus on this one container element for the whole table, NEVER on
+// any individual cell — confirmed live that physical arrow keys move
+// an internal "active cell" marker (a CSS class on the relevant
+// `.bases-td`, confirmed present via a DOM search) while this
+// container stays focused throughout. Confirmed live (not assumed)
+// that a SYNTHETIC ArrowUp/Down/Left/Right dispatch on this container,
+// while it has focus, moves that same internal marker exactly like a
+// real press does — verified by pressing Enter afterward and checking
+// which cell actually entered edit mode. This is the same "delegate to
+// native key" mechanism already used throughout this plugin (Key
+// Upgrades, Properties item-selection's own Ctrl-N/P-as-Arrow
+// dispatch) — grouped into PROPERTY_PANEL_FOCUS_SELECTOR alongside
+// Properties' own row/heading/Add-button, since it plays the exact
+// same role (a focused, non-editing "navigation mode" container that
+// Ctrl-P/N/B/F should delegate to a native arrow-key dispatch for),
+// even though it comes from an unrelated feature.
+const BASES_TABLE_CONTAINER_SELECTOR = '.bases-table-container';
+
 // 0.13.0 Feature 1, property-value-editing sub-phase: a text property's
 // own VALUE-edit widget ("metadata-input-longtext", a contenteditable
 // DIV) — confirmed live this is the exact same element Bases table
@@ -163,7 +184,7 @@ const PROPERTY_ANY_VALUE_WIDGET_SELECTOR =
 // selectors above is itself the real focus target, never a descendant
 // of one, so there's no need to climb the tree.
 const PROPERTY_PANEL_SCOPE_SELECTOR =
-	`${PROPERTY_PANEL_FOCUS_SELECTOR}, ${PROPERTY_ANY_VALUE_WIDGET_SELECTOR}`;
+	`${PROPERTY_PANEL_FOCUS_SELECTOR}, ${PROPERTY_ANY_VALUE_WIDGET_SELECTOR}, ${BASES_TABLE_CONTAINER_SELECTOR}`;
 
 // Tags a synthetic KeyboardEvent as THIS plugin's own internal
 // re-dispatch (the "re-fire a native Escape to drive the actual UI

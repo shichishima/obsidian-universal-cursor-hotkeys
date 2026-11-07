@@ -1624,6 +1624,52 @@ menu-based UI, not an inline text input. The property NAME-editing
 phase's commands genuinely don't apply here — not a gap to fix, a real,
 confirmed scope boundary.
 
+**Also found and fixed while running this spec's own first draft,
+unrelated to the DOM-class investigation above**: a bare physical
+Escape, with `keyboard-quit` left completely unmapped (the true
+out-of-the-box default), stopped exiting any property/Bases value
+widget at all — see `propertyCtrlG.e2e.ts` test (7) and
+`project_property_name_edit_scope_dispatch_bug`'s own 5th-bug writeup
+for the full story; this spec's own test (3)/(4) (Ctrl-G, scope-
+shadowing) only pass today because they explicitly map `keyboard-quit`
+to Ctrl-G rather than relying on a bare Escape.
+
+#### `basesCellNavigation.e2e.ts`
+
+0.13.0 Feature 1, Bases follow-up, same day as the re-verification
+above: a Bases table view's own "cell selection mode" (reached via
+Escape from a cell's edit mode — confirmed free of charge via the
+bare-Escape fix above) keeps real DOM focus on one shared
+`.bases-table-container` element for the WHOLE table, never on any
+individual cell. Confirmed live (DOM survey, temp diagnostic specs,
+deleted after) that physical arrow keys move an internal "active cell"
+marker while this container stays focused throughout, and that a
+SYNTHETIC `Arrow*` dispatch on this SAME container reproduces it
+exactly — verified by pressing Enter afterward and checking which cell
+actually entered edit mode, the only reliable way to observe the
+internal marker from outside (it carries no stable, directly-queryable
+attribute of its own, though a `.bases-table-active-cell` CSS class
+does transiently exist on the relevant `.bases-td`).
+
+Implementation: `.bases-table-container` was added to a new
+`BASES_TABLE_CONTAINER_SELECTOR` constant, merged into
+`PROPERTY_PANEL_SCOPE_SELECTOR` (NOT `PROPERTY_PANEL_FOCUS_SELECTOR`
+itself — deliberately kept separate from the bare-Escape pass-through
+registration's own check, since there's no reason to swallow a bare
+Escape on this target). **No new handler code was needed at all**:
+cursor-up/down/left/right's own EXISTING generic native-dispatch
+fallback (the same one Properties' row/heading/Add-button already
+use) picks this target up automatically, since nothing else in
+`buildPropertyRowScope`'s `bind()` calls matches it more specifically.
+
+Built red-green: temporarily removing `BASES_TABLE_CONTAINER_SELECTOR`
+from `PROPERTY_PANEL_SCOPE_SELECTOR` reproduced the test failing
+(Ctrl-F did nothing, cell stayed on `myText` instead of moving to
+`myNumber`), restoring it made it pass. The test itself needed a
+`filters:` clause scoping the `.base` file to just its own 2 notes —
+an earlier, unfiltered draft showed the whole vault's ~40 other files
+too, making row-index-based assertions unreliable.
+
 #### `titleSetMark.e2e.ts`
 
 Set-mark (Ctrl-Space) in the title field. Unlike the body's own CM6-based
