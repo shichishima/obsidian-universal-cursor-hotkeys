@@ -1688,11 +1688,10 @@ ancestor-chain walk: the only element with `overflow: auto` and
 `.bases-table-active-cell`, present directly in the DOM at all times —
 no need to press Enter to detect it.
 
-The scroll-to-Y formula, pixel-verified live: `scrollTop + rect.top -
-targetY` — simpler than the body's own CM6-based `scrollToCursorAtY`,
-whose extra `- scrollRect.top` term happens to cancel out algebraically
-once worked through for this target, so it's skipped entirely here.
-`.bases-view`'s own header (`.bases-thead`) is `position: sticky`,
+The scroll-to-Y formula is `scrollTop + (rect.top - scrollRect.top) -
+targetY` (see the real regression below for why the `- scrollRect.top`
+term is NOT skippable, despite an early, now-corrected belief that it
+canceled out algebraically). `.bases-view`'s own header (`.bases-thead`) is `position: sticky`,
 permanently occupying the top of its viewport — factored into the
 "center" and "top" targets (subtracted from available height / added as
 a floor, respectively), but not "bottom" (unaffected by the sticky
@@ -1765,7 +1764,30 @@ was always the hardcoded `30` fallback — invisible until now because
 the active cell's OWN `getBoundingClientRect().height` directly instead
 of looking for a nonexistent ancestor.
 
-#### `titleSetMark.e2e.ts`
+**Two further live reports, same day, both resolved as expected
+boundary behavior, not bugs**: first "TOP's position should be higher,"
+then (after the margin/rowHeight fix above) "BOTTOM's position isn't
+right." Temporary `console.log` instrumentation was added directly to
+`recenterBasesScrollTo`/`recenterTopBottomBases` (removed again once
+the reports were resolved) to capture real values from the live
+session, rather than relying on E2E reproduction — a dedicated E2E
+diagnostic (both a raw `scrollTop` assignment and the real command,
+polled for 2-3s with zero further input) could NOT reproduce any
+spontaneous drift, so the only way to get real data was logging the
+actual production code path. The captured logs showed the formula's
+own arithmetic was 100% self-consistent in both reports (every
+`beforeScrollTop` matched the previous step's own `newScrollTop`
+exactly, down to sub-pixel precision) — the "wrong" position in both
+cases was `Math.max(0, ...)` correctly clamping a would-be NEGATIVE
+scroll value, meaning the clicked row was too close to one edge of the
+WHOLE table (not the currently-visible screen) for `center` (1st report)
+or `bottom` (2nd report) to be geometrically achievable — the exact
+same boundary behavior `scrollToCursorAtY` already has for the note
+body near the start/end of a document. A single, non-repeating ~130px
+inter-step discrepancy also appeared in the very first captured log
+(contradicting the "self-consistent" pattern above) but never recurred
+in the second capture and couldn't be reproduced by automation either;
+left unexplained, most likely incidental to that one session.
 
 Set-mark (Ctrl-Space) in the title field. Unlike the body's own CM6-based
 Set-mark (which needs its own anchor-tracking machinery), the title's

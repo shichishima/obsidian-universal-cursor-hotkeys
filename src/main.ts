@@ -5264,12 +5264,13 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// against rowHeight (2 full ROWS of margin) read as excessive.
 		const margin = this.RECENTER_TOP_BOTTOM_MARGIN_ROWS_BASES * rowHeight;
 
-		const targetY = this._recenterStep === 0 ? headerHeight + (h - headerHeight) / 2
-		              : this._recenterStep === 1 ? headerHeight + margin
-		              :                            h - margin - rowHeight;
+		const step = this._recenterStep;
+		const targetY = step === 0 ? headerHeight + (h - headerHeight) / 2
+		              : step === 1 ? headerHeight + margin
+		              :              h - margin - rowHeight;
 
 		this.recenterBasesScrollTo(container, targetY);
-		this._recenterStep = (this._recenterStep + 1) % 3;
+		this._recenterStep = (step + 1) % 3;
 	}
 
 
