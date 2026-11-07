@@ -962,6 +962,16 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 		this.registerEvent(this.app.workspace.on('active-leaf-change', () => {
 			this.markActive = false;
+			this.reconcileScopesWithFocus();
+		}));
+		// Extra safety net alongside active-leaf-change above: opening a
+		// NEW FILE into the leaf that's ALREADY active doesn't fire
+		// active-leaf-change at all (confirmed live — that event is about
+		// which LEAF has focus, not which file is open in it), so
+		// file-open is the one workspace-level signal that reliably fires
+		// for that specific transition too.
+		this.registerEvent(this.app.workspace.on('file-open', () => {
+			this.reconcileScopesWithFocus();
 		}));
 
 		// registerWindowDomListeners below is registered once here for the
@@ -982,6 +992,42 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}));
 
 		this.vimSupport.setup();
+	}
+
+	// Safety net for propertyRowScope/titleScope: both are pushed/popped
+	// purely by focusin/focusout (see registerWindowDomListeners below) —
+	// no code anywhere forces a pop independent of that pair actually
+	// firing in the expected order. Live testing across several switching
+	// scenarios (same-leaf openFile, repeated rapid switches across
+	// widget types, a real file-explorer click, switching away from a
+	// Bases cell-selection view, switching ACTIVE LEAF to an already-open
+	// split) all fired focusout correctly and left no stale scope behind
+	// — but none of those tests could fully rule out some other, rarer
+	// path where focusout genuinely never fires (e.g. if Obsidian ever
+	// tears down a leaf's DOM without that side effect, or a timing edge
+	// this session's testing didn't happen to hit). Rather than keep
+	// chasing an unconfirmed exact trigger, this reconciles both scopes
+	// against whatever document.activeElement actually is, on every
+	// 'active-leaf-change' AND 'file-open' (file-open fires even when a
+	// new file replaces the CURRENTLY active leaf's own content, which
+	// active-leaf-change alone does NOT cover — confirmed live those are
+	// genuinely different events). Deferred by two frames (same margin
+	// used elsewhere in this file for analogous focus-settling checks)
+	// so this doesn't act on a still-mid-transition activeElement.
+	private reconcileScopesWithFocus() {
+		requestAnimationFrameOnActiveWindow(() => {
+			requestAnimationFrameOnActiveWindow(() => {
+				const active = activeDocument.activeElement as HTMLElement | null;
+				if (this.propertyRowScope && !active?.matches?.(PROPERTY_PANEL_SCOPE_SELECTOR)) {
+					this.app.keymap.popScope(this.propertyRowScope);
+					this.propertyRowScope = null;
+				}
+				if (this.titleScope && !active?.closest?.(TITLE_SELECTOR)) {
+					this.app.keymap.popScope(this.titleScope);
+					this.titleScope = null;
+				}
+			});
+		});
 	}
 
 	// See onload's own call site for why this exists per-window rather than
