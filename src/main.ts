@@ -1690,11 +1690,59 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		this.propertyValueEditMoveLine(el, forward);
 	}
 
+	// True when the Selection's own focus sits at the very start of el's
+	// text content (no characters between el's own start and the focus
+	// position) — used to detect the multi-select trailing input's own
+	// left boundary below, where native ArrowLeft hands focus off to the
+	// preceding pill instead of just staying in place the way
+	// Selection.modify does at any other character boundary.
+	private isSelectionAtStartOf(el: HTMLElement): boolean {
+		const sel = el.ownerDocument.getSelection();
+		if (!sel || !sel.focusNode) return false;
+		const range = el.ownerDocument.createRange();
+		range.selectNodeContents(el);
+		try {
+			range.setEnd(sel.focusNode, sel.focusOffset);
+		} catch {
+			return false;
+		}
+		return range.toString().length === 0;
+	}
+
 	// Ctrl-B/F's own entry point for PROPERTY_CURSOR_PNBF_SELECTOR — same
 	// reasoning as propertyMoveLineOrNoop above, reusing titleMoveChar
 	// as-is for text/multi-select.
+	//
+	// list/tags/aliases' own trailing input is a special case at its
+	// OWN left boundary: confirmed live that a real ArrowLeft there
+	// hands focus to the preceding pill (PROPERTY_MULTISELECT_PILL_SELECTOR,
+	// the input's own immediately preceding DOM sibling when the pill
+	// list is non-empty, not part of this input's own text at all) --
+	// titleMoveChar's own Selection.modify('move', 'left', ...) has
+	// nothing to move INTO at that same boundary, so it's a true no-op
+	// there, unlike every other character position. Focuses the
+	// preceding pill DIRECTLY (previousElementSibling, confirmed live
+	// to be exactly the pill) rather than delegating to a native-
+	// equivalent dispatch the way other cross-element escapes in this
+	// plugin do -- confirmed live that a synthetic ArrowLeft dispatch
+	// here is UNRELIABLE (worked once in isolated testing, consistently
+	// failed once real Ctrl+B keypresses were already flowing through
+	// Obsidian's own Keymap dispatch earlier in the same session,
+	// matching this project's own established "synthetic dispatchEvent()
+	// gives unreliable results for anything touching Keymap" lesson) --
+	// so this reimplements the actual target-finding instead of hoping
+	// the dispatch reaches the same native handler reliably. Skipped
+	// while a mark is active -- extending a marked selection across this
+	// boundary has no defined meaning (same "stay in place" convention a
+	// marked selection already has at every other cross-widget boundary
+	// in this plugin).
 	private propertyMoveCharOrNoop(el: HTMLElement, forward: boolean) {
 		if (el.matches(PROPERTY_DATE_TYPE_SELECTOR)) return;
+		if (!forward && !this.markActive && el.matches(PROPERTY_MULTISELECT_INPUT_SELECTOR) && this.isSelectionAtStartOf(el)) {
+			const prevPill = el.previousElementSibling as HTMLElement | null;
+			if (prevPill?.matches(PROPERTY_MULTISELECT_PILL_SELECTOR)) prevPill.focus();
+			return;
+		}
 		this.titleMoveChar(el, forward);
 	}
 

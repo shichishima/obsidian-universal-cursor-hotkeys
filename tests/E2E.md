@@ -180,8 +180,8 @@ In a word-wrapped (long, single hard-line) table cell, double-click a
 word on the first visual line → Ctrl-W → Cmd-Z → Ctrl-N stays in the same
 cell instead of exiting to the (empty) cell below.
 
-- Real bug, found by investigating a user report — reproduced first with
-  the exact content copied from their own repro note (not kept as the
+- Real bug, found via live testing — reproduced first with the exact
+  content copied from the original repro note (not kept as the
   fixture; later replaced with a minimal built-for-this-test table). An
   even earlier, `<br>`-created-sub-lines fixture did *not* reproduce it —
   plain soft-wrap within one hard line is the specific condition.
@@ -442,15 +442,15 @@ while jumping the selection to an unrelated position.
   table cell** — corrected after an initial implementation clamped to
   the cell's own content edge instead (reasoning that "buffer edge" has
   no meaning inside a cell's separate `EditorState`, same as every other
-  in-cell extend command's own clamp policy). The user pointed out this
-  doesn't match real usage: extending from inside a cell should exit the
+  in-cell extend command's own clamp policy). That doesn't match real
+  usage: extending from inside a cell should exit the
   cell and reach the true document boundary, including the whole
   containing table in the result — the mirror case of Ctrl-N/P's own
   `moveVertically`-based extend, which already treats an unfocused table
   as one atomic block when crossing INTO it from outside.
 - **The "whole table, atomic" policy also means the anchor can't stay at
   the exact character position Set-mark was pressed at in-cell** —
-  spotted by the user after the first version of this fix shipped:
+  spotted after the first version of this fix shipped:
   marking inside a table's own last row, then BOTTOM, left the header
   and delimiter rows *above* the marked row out of the selection, only
   extending forward from that one exact spot. Fixed by snapping the
@@ -489,7 +489,7 @@ while jumping the selection to an unrelated position.
   design question, deliberately deferred.
 - **A table sitting directly at the document's own start/end, with no
   buffering blank line, used to leave `inTableCell` permanently stuck
-  `true` after an in-cell extend** — found by the user after the above
+  `true` after an in-cell extend** — found after the above
   shipped. Root cause: the cell-exit mechanism's own throwaway collapse
   dispatch (see above) used the real target position (`0`/`doc.length`)
   as its landing spot, which — only when a table happens to occupy that
@@ -526,7 +526,7 @@ Page Up/Down now extends the mark instead of collapsing/clearing it (see
 `setMarkBufferEdge.e2e.ts`'s own note above — this was the "separate,
 still-open design question" deferred from that increment).
 
-- Policy, per the user's own breakdown: (1) outer source, outer landing —
+- Policy: (1) outer source, outer landing —
   any table crossed along the way is swept in atomically, free via the
   same pixel-block mechanism Ctrl-N/P's own vertical extend already
   relies on; (2) outer source, landing inside a table — snaps past that
@@ -638,8 +638,8 @@ without log evidence" rule).
 
 #### `recenterWithSetMark.e2e.ts`
 
-A real bug found right after 0.12.0 shipped (2026-10-22), reported by the user
-from real-machine usage: Recenter/Recenter top-bottom centered on the
+A real bug found right after 0.12.0 shipped (2026-10-22) from
+real-machine usage: Recenter/Recenter top-bottom centered on the
 Set-mark anchor (mark) instead of the actual cursor (head) whenever a real
 selection was active.
 
@@ -1093,7 +1093,7 @@ colliding with the dynamically-created note's own path — several of these
 specs name their note very close to the fixture it reads from.
 
 This plugin ships with no default hotkeys, and the title-field Scope
-specifically reads the user's own current bindings
+specifically reads whatever bindings are currently configured
 (`hotkeyManager.bakedHotkeys`), so these specs call
 `hotkeyManager.setHotkeys`/`bake()` before dispatching a real
 `KeyboardEvent` (bubbles:true) to whichever element has focus — same
@@ -1309,8 +1309,8 @@ unresponsive — Ctrl-G didn't even work. Confirmed this needed real
 didn't trigger it during investigation, same lesson as every other
 Keymap-adjacent investigation in this sub-feature) and specifically
 needed a starting offset of 1+ (not the value's very first character —
-reported by the user, not root-caused why offset 0 doesn't trigger it,
-but irrelevant to the fix below).
+why offset 0 doesn't trigger it was never root-caused, but irrelevant
+to the fix below).
 
 **Root cause**: native Undo (Cmd-Z) mutates the widget via the
 browser's own undo manager — confirmed live it still fires a real
@@ -1403,8 +1403,8 @@ small change.
 Ctrl-G (exit) to checkbox/date/datetime/list(multitext)/tags/aliases (6
 types), and Ctrl-P/N/B/F to date/datetime/list/tags/aliases (5, checkbox
 excluded — no cursor concept at all). See project memory
-`project_property_other_types_ctrl_g_pnbf_scope` for the user's own
-original scope decision.
+`project_property_other_types_ctrl_g_pnbf_scope` for the original
+scope decision.
 
 **A major, scope-correcting finding from live diagnostic probes run
 BEFORE implementing anything** (per this project's own "no
@@ -1462,9 +1462,9 @@ date/datetime no-op case before delegating to the existing
 
 **`number` added in a follow-up fix, same day — a real gap, not a
 deliberate exclusion**: `number` was never part of this phase's
-original 6-type list at all (the user's own scope decision only ever
-named checkbox/date/datetime/list/tags/aliases), caught by a real user
-report ("numberでCtrl-Gが効かない") after the rest of this phase had
+original 6-type list at all (the original scope decision only ever
+named checkbox/date/datetime/list/tags/aliases) — found that Ctrl-G
+didn't work on the number type after the rest of this phase had
 already shipped. Shares the exact same no-Selection-API wall as
 date/datetime, and was never in scope for Ctrl-PNBF either way, so it
 only joins `PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR`.
@@ -1517,9 +1517,9 @@ red-green twice — once for a speculative special-case branch (removed
 after confirming it was unnecessary), once for the actual selector
 fix.
 
-**Test (7), same day, user's own follow-up question**: "pillフォーカス
-状態からCtrl-Gが処理できるのであれば、Ctrl-FBも処理できるのではない？"
-Confirmed live BEFORE touching any code: a dispatched (synthetic)
+**Test (7), same day, a direct follow-up question**: if Ctrl-G can
+already be handled from a focused pill, shouldn't Ctrl-B/F work from
+there too? Confirmed live BEFORE touching any code: a dispatched (synthetic)
 `ArrowLeft`/`ArrowRight` on a focused pill moves focus to the adjacent
 pill, exactly like a real `browser.keys()` press does — unlike the
 pill's own Escape-to-input step (test (6)'s own finding), pill-to-pill
@@ -1537,6 +1537,58 @@ that was already shipped by test (6)'s own fix, confirmed red-green
 against the SAME selector change (removing `PROPERTY_MULTISELECT_PILL_SELECTOR`
 from `PROPERTY_ANY_VALUE_WIDGET_SELECTOR` reproduces both (6) and (7)
 failing together).
+
+**Test (8), same day, a direct follow-up**: in the crossing
+chain row-selection-mode → Ctrl-F → an unnamed intermediate mode →
+physical-cursor-only ← → pill-selection-mode, could that
+physical-cursor-only leg also become Ctrl-B, and what IS that
+intermediate mode anyway? It's the multi-select
+widget's own trailing input (`.multi-select-input`, the always-present
+contenteditable where a NEW, not-yet-committed item is typed — every
+property type's Ctrl-F from its own row lands in this exact same kind
+of "value-edit" widget, this one's just specific to list/tags/aliases).
+The ONE crossing Ctrl-B/F didn't already cover for free (unlike test
+(7)'s own pill-to-pill and pill-to-input directions) was physical-arrow-
+only: a real ArrowLeft at the input's own start (caret position 0, no
+typed text) hands focus to the preceding pill, but `titleMoveChar`'s own
+`Selection.modify('move', 'left', 'character')` is a true no-op there
+(nothing to move INTO within the input's own text — the pill is a
+separate DOM sibling).
+
+Fixed with a new `isSelectionAtStartOf()` helper (compares a Range from
+the element's own start to the current focus position; empty means "at
+the start") plus a boundary branch in `propertyMoveCharOrNoop` that
+focuses `el.previousElementSibling` DIRECTLY when it matches
+`PROPERTY_MULTISELECT_PILL_SELECTOR`, rather than delegating to a
+native-equivalent `ArrowLeft` dispatch the way other cross-element
+escapes in this plugin do. A dispatch-based version was tried FIRST and
+seemed to fail intermittently depending on test context — turned out to
+be a RED HERRING: extensive live instrumentation (temporary
+`console.log`s and `window` globals in the production code, since
+console output itself proved unreliable to capture reliably mid-
+investigation) confirmed the dispatch-based fix actually worked
+correctly every time; the real bug was in the TEST's own assertion,
+reusing `snap()`'s `row.querySelector('.multi-select-pill')` with a
+TWO-pill list — `querySelector` always resolves to the FIRST pill in
+DOM order, not whichever one actually has focus, so the assertion
+compared against the wrong element even when the fix worked perfectly.
+Switched the fix to direct `.focus()` anyway (simpler, no dependency on
+how Obsidian's own native handler is wired) once this was untangled,
+and fixed the test to check `document.activeElement` directly instead
+of reusing `snap()`.
+
+Also confirmed live, not assumed: this crossing is conditional on the
+input being genuinely EMPTY — a real `ArrowLeft` with uncommitted typed
+text still at caret position 0 stays within the input rather than
+escaping (Obsidian's own native behavior), and `isSelectionAtStartOf()`
+already respects this correctly (it compares actual text content before
+the caret, so typed text there makes it return `false` regardless of
+the caret's own offset being 0 relative to that text). Skipped while a
+mark is active, matching the "stay in place" convention a marked
+selection already has at every other cross-widget boundary in this
+plugin. Built red-green (commenting out the boundary branch entirely
+reproduces the escape not happening, confirmed via the corrected
+assertion).
 
 #### `propertyNameEdit.e2e.ts`
 
@@ -1556,8 +1608,8 @@ contenteditable, including persistence to frontmatter after blur — same
 technique as the title field's own Kill/Yank.
 
 Ctrl-P/N (cursor-up/down) are deliberately NOT covered — a single-line
-field has no "up/down" meaning, matching the user's own scope decision
-for this phase.
+field has no "up/down" meaning, matching this phase's own scope
+decision.
 
 **A real regression was found and fixed while wiring this up, caught
 entirely by re-testing `propertyItemSelection.e2e.ts`** (3/6 tests
@@ -1629,8 +1681,9 @@ sweep (this spec plus `propertyItemSelection`, `propertyCtrlG`,
   item-selection mode on its own, confirming the fix didn't disturb the
   native two-stage behavior it was built to preserve.
 
-**(13) added in a follow-up fix, same day — a real user report**
-("2文字目でCtrl-D→Cmd-Zで入力が効かなくなる"): the exact same
+**(13) added in a follow-up fix, same day — a real bug found live**:
+pressing Ctrl-D at the second character then Cmd-Z left the input
+unresponsive — the exact same
 scope-shadowing bug already fixed for the text value-edit widget
 (`propertyValueEditDeleteChar.e2e.ts`'s own test (5)) — this input's
 own native autocomplete/suggester reacts to the real `input` event
@@ -1954,7 +2007,7 @@ the right thing whether the selection is collapsed or not.
 - **(4)** Yank integrates with the title's own native undo stack (Ctrl-Z
   right after a Yank restores the pre-yank text), same pattern already
   confirmed for Kill line/Kill word/Kill region.
-- **(5)** Regression for a real user-reported bug: a kill-ring entry
+- **(5)** Regression for a real bug found live: a kill-ring entry
   ending in a newline (e.g. two Ctrl-Ks in the body — first kills the
   line's own text, second kills the line break itself) corrupts the
   title's native Selection on insert if the newline reaches
@@ -2041,7 +2094,7 @@ button below. Neither is UCH-authored, just inherited for free.
   the exact-match (not `.closest()`) Scope-push condition.
 - **(5)** Ctrl-N at the Properties heading moves into the first property
   row — confirms the heading is a full member of the navigable chain,
-  not a dead end. **Real user-reported symptom on Windows
+  not a dead end. **Real symptom found on Windows
   (2026-11-04), fix NOT YET CONFIRMED**: the original implementation
   (`bind('cursor-down', 'ArrowDown', undefined, ...)`, no heading
   handler at all — a plain synthetic ArrowDown dispatch on the heading,
@@ -2181,7 +2234,7 @@ passing after.
 
 #### `propertyKeyUpgradeInterference.e2e.ts`
 
-Real user-reported bug, found testing on Windows (2026-11-05) with the
+Real bug found testing on Windows (2026-11-05) with the
 "↓↑ column-aware" Key Upgrade enabled (bare ArrowUp/ArrowDown also bound
 to `cursor-up`/`cursor-down`, alongside Ctrl-N/P). `buildPropertyRowScope`'s
 own `bind()` helper iterates EVERY effective hotkey for a command via
@@ -2295,8 +2348,8 @@ now-incorrect behavior (Ctrl-B/F/G doing nothing from inside the
 value-edit widget) — both updated to confirm the new, correct behavior
 instead, in the same commit as this spec.
 
-**2026-11-06, Ctrl-N/P added**: the user pointed out a real gap this
-spec's own original test (6) had locked in as "intended" — a text
+**2026-11-06, Ctrl-N/P added**: a real gap surfaced in this
+spec's own original test (6), which had locked it in as "intended" — a text
 property's value-edit widget (`.metadata-input-longtext`, i.e.
 "longtext") genuinely word-wraps across multiple VISUAL lines, so
 Ctrl-N/P (previous/next line) has real meaning there, unlike the
@@ -2391,8 +2444,8 @@ purely through the Selection API on the element's own `ownerDocument`,
 with zero title-specific assumption baked in, same precedent as every
 other value-edit handler shipped in `propertyValueEditMovement.e2e.ts`/
 `propertyValueEditSetMark.e2e.ts`. Kill-word (Alt-D/Alt-Backspace) is
-deliberately NOT included — out of scope per the user's own explicit
-scope decision for this sub-feature. All four are bound with
+deliberately NOT included — out of scope per this sub-feature's own
+explicit scope decision. All four are bound with
 `suppressFallback` (see `propertyValueEditSetMark.e2e.ts`'s own section
 above for why) — their base keys are plain letters, same dropped-
 modifier risk Set-mark's own Ctrl-Space already found and fixed.
@@ -2435,8 +2488,8 @@ not the implementation**:
   and `titleYank.e2e.ts`'s own test (3), now for the Properties
   value-edit widget specifically.
 
-**A real, substantial bug found AFTER this commit shipped, reported by
-the user from real-machine usage**: pressing Ctrl-A → Ctrl-K → Ctrl-Y
+**A real, substantial bug found AFTER this commit shipped, from
+real-machine usage**: pressing Ctrl-A → Ctrl-K → Ctrl-Y
 twice in a row left the cursor completely unresponsive — including
 Ctrl-G, which had been working fine up to that point — with only a
 physical Escape press able to recover. Confirmed live via a throwaway
@@ -2502,7 +2555,7 @@ Reuses `titleKillWord` as-is from the title field's own implementation —
 already generic over any `HTMLElement` via its own `ownerDocument`'s
 Selection API, same precedent as every value-edit handler shipped
 earlier in this sub-feature. This command was initially scoped OUT of
-property-value-editing entirely (the user's own explicit decision when
+property-value-editing entirely (an explicit decision when
 the sub-feature was first scoped), then revisited once a side-by-side
 comparison against the title field's own command set surfaced the gap
 — the title already had Kill word, property-value-editing didn't,
@@ -2579,7 +2632,7 @@ fixed along the way, not just new feature code:
   via `getFirstBodyLine() > 0` AND `offsetParent !== null` together
   instead of DOM presence alone), confirming it as a real regression,
   not a hypothetical one.
-- **A third real user-reported bug, found testing with a third-party
+- **A third real bug, found testing with a third-party
   title-caret plugin installed**: focusing the heading alone does NOT
   clear `window.getSelection()` — it silently kept pointing at the
   title's own old position (confirmed live: `rangeCount` stayed `1`,
@@ -2593,7 +2646,7 @@ fixed along the way, not just new feature code:
   for its own rendering would notice. Fixed by explicitly clearing it
   (`removeAllRanges()`) in the same branch that moves focus to the
   heading. Test (1) below asserts this directly.
-- **A fourth real user-reported bug**: the fix for the second bug above
+- **A fourth real bug**: the fix for the second bug above
   only ever checked the Add-button's own visibility to decide "land in
   Properties." Confirmed live that COLLAPSING the Properties panel hides
   the Add-button (and every row) — `offsetParent` becomes `null` — but
@@ -2603,7 +2656,7 @@ fixed along the way, not just new feature code:
   though it's still visibly there, just closed. Fixed by falling back to
   the heading when the Add-button isn't usable but the heading still is.
   Test (3b) below is the direct regression catch.
-- **A fifth real user-reported bug**: `getFirstBodyLine()` read
+- **A fifth real bug**: `getFirstBodyLine()` read
   `frontmatterPosition` unconditionally, regardless of editing mode.
   Source Mode has no Properties GUI panel at all — frontmatter there is
   just plain text, like any other line — but `frontmatterPosition` still
@@ -2617,7 +2670,7 @@ fixed along the way, not just new feature code:
   Source Mode gets zero special-casing, exactly matching how a
   frontmatter-less note already behaved. Test (5) below is the direct
   regression catch.
-- **A sixth real user-reported bug — a pre-existing mechanism bug
+- **A sixth real bug — a pre-existing mechanism bug
   surfaced (not introduced) by this session's work**: the `cursor-up`
   handler read CM6's own `goalColumn` AFTER calling
   `execPreservingGoalColumn(editor, 'goUp')`, but confirmed live that
@@ -2632,7 +2685,7 @@ fixed along the way, not just new feature code:
   column instead of the original wide one. Fixed by capturing
   `goalColumn` BEFORE the exec call, not after. Test (6) below is the
   direct regression catch.
-- **A user-requested symmetry fix (not a bug report)**: crossing via the
+- **A symmetry fix (not a bug)**: crossing via the
   Properties panel originally always landed at a FIXED position on the
   far side — the title's own end going up, `ch=0` going down — instead
   of preserving the goal column the way the existing no-frontmatter
@@ -2645,7 +2698,7 @@ fixed along the way, not just new feature code:
   native `goalColumn` the same way `titleMoveLineOrEscapeToBody` already
   does. Test (7) below is the direct coverage, round-tripping through
   the full panel in both directions.
-- **A seventh real user-reported bug, found right after the symmetry fix
+- **A seventh real bug, found right after the symmetry fix
   above shipped**: `cursor-down`'s `bind()` call for the heading had no
   `headingHandler` at all, only a plain native-dispatch fallback — which
   works fine when the panel is EXPANDED (native ArrowDown already moves
@@ -2669,13 +2722,13 @@ fixed along the way, not just new feature code:
   title (see the third bug above).
 - **(2)** Properties heading, Ctrl-P, lands a collapsed cursor at the
   title's own end — not native ArrowUp's own select-the-whole-title
-  (the design question explicitly discussed with the user; every other
+  (an explicit design decision; every other
   Ctrl-N/P crossing in this plugin lands a collapsed cursor, never a
   selection, so this keeps that convention rather than copying native's
   own divergent behavior here). This test's own repro never establishes
   a goal column first, so it covers the "end" fallback specifically; the
   preserved-goal path is covered separately by test (7).
-- **(2b)** Regression for a real user-reported bug: test (2)'s own
+- **(2b)** Regression for a real bug found live: test (2)'s own
   original landing code used `sel.collapse(title,
   title.childNodes.length)`, which put the selection's focus/anchor on
   the title's own container `<div>` — an ELEMENT, child-index-based

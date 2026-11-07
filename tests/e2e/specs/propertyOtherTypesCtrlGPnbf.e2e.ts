@@ -238,4 +238,100 @@ first body line
 		}, 'mylist')
 		await expect(afterCtrlF.isInput).toBe(true) // Ctrl-F from the only pill moves forward into the trailing input
 	})
+
+	// User's own direct follow-up, same day: "row選択モード→Ctrl-F→(？？モード)
+	// →物理カーソル←→pill選択モード" (the "???" being the trailing
+	// input's own empty composing state) -- this physical-cursor-only
+	// crossing was the one direction Ctrl-B/F DIDN'T already cover for
+	// free, unlike test (7)'s own pill-to-pill and pill-to-input
+	// crossings. Confirmed live before implementing: titleMoveChar's own
+	// Selection.modify('move', 'left', 'character') is a true no-op at
+	// the input's own start (nothing to its own left WITHIN its own text
+	// -- the preceding pill is a separate DOM sibling, not part of this
+	// element's content at all), while a real ArrowLeft there hands
+	// focus to the preceding pill instead. Fixed with a new
+	// isSelectionAtStartOf() boundary check in propertyMoveCharOrNoop,
+	// focusing el.previousElementSibling (the pill) directly rather than
+	// a native-equivalent dispatch -- a synthetic ArrowLeft dispatch was
+	// tried first and SEEMED to fail here, but that was this test's own
+	// bug (see below), not the dispatch itself; direct focus was kept
+	// anyway since it's simpler and has no dependency on how Obsidian's
+	// own native handler happens to be wired. Scoped to going backward
+	// only (Ctrl-F from the input's own end has nothing after it in the
+	// DOM either way) and skipped while a mark is active (no defined
+	// meaning for extending across this boundary).
+	//
+	// Also confirmed live, NOT assumed: this boundary crossing itself is
+	// conditional on the input being genuinely EMPTY -- a real ArrowLeft
+	// with uncommitted typed text still at caret position 0 stays within
+	// the input rather than escaping (Obsidian's own native behavior,
+	// unrelated to this plugin), which this fix's own isSelectionAtStartOf()
+	// check already respects (it only compares text content, so typed
+	// text before the caret makes it return false regardless of caret
+	// offset being 0 relative to that text).
+	//
+	// A real test-authoring bug surfaced while building this red-green:
+	// with TWO pills in the list, snap()'s own el lookup
+	// (row.querySelector('.multi-select-pill')) always resolves to the
+	// FIRST pill in DOM order, not whichever one actually has focus --
+	// made this test's own assertion fail even though the fix worked
+	// correctly (confirmed via direct instrumentation: the handler ran
+	// exactly once, found the right previousElementSibling, and focus
+	// genuinely ended up on the correct pill). Checking
+	// document.activeElement directly, instead of reusing snap(), avoids
+	// this entirely.
+	it('(8) Ctrl-B escapes from the trailing input\'s own start to the preceding pill, but only while the input is genuinely empty', async function () {
+		const notePath = 'PropertyOtherTypesInputBoundary.md'
+		createdPaths.push(notePath)
+		await browser.executeObsidian(async ({ app }, notePath2) => {
+			const hm = (app as any).hotkeyManager
+			hm.setHotkeys('universal-cursor-hotkeys:cursor-left', [{ modifiers: ['Ctrl'], key: 'B' }])
+			hm.setHotkeys('universal-cursor-hotkeys:cursor-right', [{ modifiers: ['Ctrl'], key: 'F' }])
+			hm.bake()
+			app.workspace.getLeavesOfType('markdown').forEach(leaf => leaf.detach())
+			const existing = app.vault.getFileByPath(notePath2)
+			if (existing) await app.vault.delete(existing)
+			const file = await app.vault.create(notePath2, `---\nmylist:\n  - itemOne\n  - itemTwo\n---\nbody\n`)
+			await app.workspace.getLeaf(true).openFile(file)
+		}, notePath)
+		await browser.pause(500)
+
+		async function activeElementState() {
+			return browser.executeObsidian(({ app, obsidian }, propertyKey2) => {
+				const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+				const row = view.containerEl.querySelector(`.metadata-property[data-property-key="${propertyKey2}"]`) as HTMLElement
+				const active = row.ownerDocument.activeElement as HTMLElement | null
+				return { isPill: active?.classList.contains('multi-select-pill') ?? false, isInput: active?.classList.contains('multi-select-input') ?? false, text: active?.textContent }
+			}, 'mylist')
+		}
+
+		const row = await browser.$('.metadata-property')
+		await row.click({ x: 2, y: 2 })
+		await browser.keys(['Escape'])
+		await browser.pause(150)
+		await browser.keys(['Control', 'f'])
+		await browser.pause(150)
+		await browser.keys(['Control', 'b'])
+		await browser.pause(150)
+		const afterEmpty = await activeElementState()
+		await expect(afterEmpty.isPill).toBe(true) // landed on a pill, not stuck on the input
+		await expect(afterEmpty.text).toBe('itemTwo') // specifically the LAST pill (closest to the input)
+
+		// Back into the input, type uncommitted text, confirm Ctrl-B at
+		// position 0 now stays put (matches native) instead of escaping.
+		await focus('mylist', '.multi-select-input')
+		await browser.keys(['h', 'i'])
+		await browser.pause(150)
+		await browser.keys(['Control', 'b'])
+		await browser.keys(['Control', 'b']) // two presses: "hi" -> "h|i" -> "|hi" (now AT position 0, with text present)
+		await browser.pause(150)
+		const afterTyped = await browser.executeObsidian(({ app, obsidian }, propertyKey2) => {
+			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+			const row = view.containerEl.querySelector(`.metadata-property[data-property-key="${propertyKey2}"]`) as HTMLElement
+			const el = row.querySelector('.multi-select-input') as HTMLElement
+			return { isInput: row.ownerDocument.activeElement === el, text: el.textContent }
+		}, 'mylist')
+		await expect(afterTyped.isInput).toBe(true)
+		await expect(afterTyped.text).toBe('hi')
+	})
 })
