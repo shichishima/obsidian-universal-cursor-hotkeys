@@ -192,10 +192,15 @@ first body line
 	// match PROPERTY_PANEL_SCOPE_SELECTOR at all, so propertyRowScope got
 	// torn down (via the focusout handler's own check matching the INPUT
 	// on its way out) the moment a pill gained focus. Ctrl-G (and every
-	// other command) did nothing at all from there. A pill's own native
-	// Escape only steps back to the trailing input (one level), so the
-	// fix focuses the row directly instead of chaining a synthetic
-	// Escape through the input's own native handling.
+	// other command) did nothing at all from there. Fixed with a single
+	// selector addition (.multi-select-pill -> PROPERTY_MULTISELECT_PILL_SELECTOR
+	// -> PROPERTY_ANY_VALUE_WIDGET_SELECTOR) -- the EXISTING generic
+	// Ctrl-G handler's own synthetic Escape redispatch already reaches
+	// the row directly from a pill once the scope simply stays alive; no
+	// special pill-only handler was actually needed (a pill's own
+	// native Escape only steps back to the input, one level short, but
+	// that behavior turned out to be trusted-events-only, so it never
+	// interferes with the redispatch).
 	it('(6) regression: Ctrl-G exits from a multi-select pill (not just the trailing input) straight to item-selection mode', async function () {
 		await openNote('PropertyOtherTypesPillCtrlG.md')
 		await focus('mylist', '.multi-select-pill')
@@ -203,5 +208,34 @@ first body line
 		await browser.pause(150)
 		const after = await snap('mylist', '.multi-select-pill')
 		await expect(after.isRow).toBe(true)
+	})
+
+	// Follow-up, same day: once a pill simply stays within
+	// PROPERTY_PANEL_SCOPE_SELECTOR (the fix above), Ctrl-B/F pill-to-
+	// pill navigation came for free too -- no new code at all. The
+	// cursor-left/right bind() calls' own EXISTING generic native-
+	// dispatch fallback (same mechanism item-selection mode's own row/
+	// heading/Add-button already rely on) picks up a focused pill
+	// automatically, since nothing in PROPERTY_CURSOR_LR_SELECTOR
+	// matches it more specifically. Confirmed live a real browser
+	// ArrowLeft/Right already moves between pills on its own; this test
+	// confirms the PLUGIN's own Ctrl-B/F hotkeys reach the exact same
+	// native behavior via the fallback dispatch.
+	it('(7) Ctrl-B/F move between pills in a multi-select widget, for free via the existing fallback dispatch', async function () {
+		await openNote('PropertyOtherTypesPillCtrlBF.md')
+		await focus('mylist', '.multi-select-input')
+		await browser.keys(['ArrowLeft']) // real native press: lands on the last pill ("item1")
+		await browser.pause(150)
+		const onPill = await snap('mylist', '.multi-select-pill')
+		await expect(onPill.isRow).toBe(false) // confirms we're actually on the pill, not bounced out
+		await browser.keys(['Control', 'f'])
+		await browser.pause(150)
+		const afterCtrlF = await browser.executeObsidian(({ app, obsidian }, propertyKey2) => {
+			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+			const row = view.containerEl.querySelector(`.metadata-property[data-property-key="${propertyKey2}"]`) as HTMLElement
+			const active = row.ownerDocument.activeElement as HTMLElement | null
+			return { isInput: active?.classList.contains('multi-select-input') ?? false }
+		}, 'mylist')
+		await expect(afterCtrlF.isInput).toBe(true) // Ctrl-F from the only pill moves forward into the trailing input
 	})
 })

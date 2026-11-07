@@ -1517,6 +1517,27 @@ red-green twice — once for a speculative special-case branch (removed
 after confirming it was unnecessary), once for the actual selector
 fix.
 
+**Test (7), same day, user's own follow-up question**: "pillフォーカス
+状態からCtrl-Gが処理できるのであれば、Ctrl-FBも処理できるのではない？"
+Confirmed live BEFORE touching any code: a dispatched (synthetic)
+`ArrowLeft`/`ArrowRight` on a focused pill moves focus to the adjacent
+pill, exactly like a real `browser.keys()` press does — unlike the
+pill's own Escape-to-input step (test (6)'s own finding), pill-to-pill
+arrow navigation is NOT trusted-events-only. Once confirmed, checked
+whether the plugin's own Ctrl-B/F hotkeys already reached this via
+`cursor-left`/`cursor-right`'s existing generic native-dispatch
+fallback (the same mechanism item-selection mode's own row/heading/
+Add-button already rely on, and the same one that made test (6)'s own
+fix a single selector addition) — they did, with ZERO code changes at
+all, since test (6)'s own fix already put pills inside
+`PROPERTY_PANEL_SCOPE_SELECTOR`, and nothing in
+`PROPERTY_CURSOR_LR_SELECTOR` matches a pill more specifically to
+intercept the fallback. This test exists purely to lock in behavior
+that was already shipped by test (6)'s own fix, confirmed red-green
+against the SAME selector change (removing `PROPERTY_MULTISELECT_PILL_SELECTOR`
+from `PROPERTY_ANY_VALUE_WIDGET_SELECTOR` reproduces both (6) and (7)
+failing together).
+
 #### `propertyNameEdit.e2e.ts`
 
 0.13.0 Feature 1, property NAME (key) editing phase: the property's own
