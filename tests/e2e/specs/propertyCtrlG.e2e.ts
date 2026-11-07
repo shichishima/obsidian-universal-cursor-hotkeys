@@ -211,4 +211,51 @@ second body line
 		await expect(result.beforeCollapsed).toBe(false) // confirm a real selection existed first
 		await expect(result.afterAnchor).toEqual(result.afterHead) // Ctrl-G collapsed it
 	})
+
+	// A real regression found while verifying Bases support (not Bases-
+	// specific, caught in the plain Properties panel too): the
+	// property-name-edit phase's own bare-Escape pass-through
+	// registration (added to buildPropertyRowScope to preserve the
+	// name/key-edit input's native two-stage Escape handling) was
+	// checking "is this the key-edit input?" and swallowing (returning
+	// false for) every other target otherwise -- including a text value
+	// widget with NO hotkey assigned to keyboard-quit at all, the true
+	// out-of-the-box default state. Before the name-edit phase shipped,
+	// nothing was registered for bare Escape unless keyboard-quit itself
+	// had a hotkey, so a genuine external Escape always fell through to
+	// each widget's own native handling untouched. Fixed by checking the
+	// OPPOSITE condition instead: swallow ONLY for item-selection mode's
+	// own row/heading/Add-button (still required by this file's own
+	// tests above and propertyItemSelection.e2e.ts), defer to native for
+	// every other value-editing widget regardless of type -- this also
+	// covers Bases' own cells for free, since they share the same
+	// classes (see basesPropertyEditing.e2e.ts).
+	it('(7) regression: a bare Escape (keyboard-quit left UNMAPPED) still exits a text value widget natively', async function () {
+		createdPaths.push('PropertyCtrlGBareEscape.md')
+		await browser.executeObsidian(async ({ app }, path) => {
+			// Deliberately does NOT call hm.setHotkeys for keyboard-quit --
+			// testing the true default, no-hotkey-configured state.
+			app.workspace.getLeavesOfType('markdown').forEach(leaf => leaf.detach())
+			const existing = app.vault.getFileByPath(path)
+			if (existing) await app.vault.delete(existing)
+			const file = await app.vault.create(path, `---\nmyText: hello world\n---\nbody\n`)
+			await app.workspace.getLeaf(true).openFile(file)
+		}, 'PropertyCtrlGBareEscape.md')
+		await browser.pause(400)
+
+		await browser.executeObsidian(({ app, obsidian }) => {
+			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+			const row = view.containerEl.querySelector('.metadata-property[data-property-key="mytext"]') as HTMLElement
+			const target = row.querySelector('.metadata-input-longtext') as HTMLElement
+			target.focus()
+		})
+		await browser.pause(150)
+
+		await browser.keys(['Escape'])
+		await browser.pause(300)
+
+		const after = await snap()
+		await expect(after.propertyKey).toBe('mytext')
+		await expect(after.isContentEditable).toBe(false) // landed on the row itself, not still editing
+	})
 })

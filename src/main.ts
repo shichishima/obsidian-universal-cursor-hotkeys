@@ -30,6 +30,27 @@ const TITLE_SELECTOR = ".inline-title[contenteditable='true']";
 const PROPERTY_PANEL_FOCUS_SELECTOR =
 	'.metadata-property, .metadata-properties-heading, .metadata-add-button';
 
+// Bases re-verification follow-up: a Bases table view's own "cell
+// selection mode" (reached via Escape from a cell's edit mode, or by
+// clicking a cell and immediately pressing Escape) keeps real DOM
+// focus on this one container element for the whole table, NEVER on
+// any individual cell — confirmed live that physical arrow keys move
+// an internal "active cell" marker (a CSS class on the relevant
+// `.bases-td`, confirmed present via a DOM search) while this
+// container stays focused throughout. Confirmed live (not assumed)
+// that a SYNTHETIC ArrowUp/Down/Left/Right dispatch on this container,
+// while it has focus, moves that same internal marker exactly like a
+// real press does — verified by pressing Enter afterward and checking
+// which cell actually entered edit mode. This is the same "delegate to
+// native key" mechanism already used throughout this plugin (Key
+// Upgrades, Properties item-selection's own Ctrl-N/P-as-Arrow
+// dispatch) — grouped into PROPERTY_PANEL_FOCUS_SELECTOR alongside
+// Properties' own row/heading/Add-button, since it plays the exact
+// same role (a focused, non-editing "navigation mode" container that
+// Ctrl-P/N/B/F should delegate to a native arrow-key dispatch for),
+// even though it comes from an unrelated feature.
+const BASES_TABLE_CONTAINER_SELECTOR = '.bases-table-container';
+
 // 0.13.0 Feature 1, property-value-editing sub-phase: a text property's
 // own VALUE-edit widget ("metadata-input-longtext", a contenteditable
 // DIV) — confirmed live this is the exact same element Bases table
@@ -163,7 +184,7 @@ const PROPERTY_ANY_VALUE_WIDGET_SELECTOR =
 // selectors above is itself the real focus target, never a descendant
 // of one, so there's no need to climb the tree.
 const PROPERTY_PANEL_SCOPE_SELECTOR =
-	`${PROPERTY_PANEL_FOCUS_SELECTOR}, ${PROPERTY_ANY_VALUE_WIDGET_SELECTOR}`;
+	`${PROPERTY_PANEL_FOCUS_SELECTOR}, ${PROPERTY_ANY_VALUE_WIDGET_SELECTOR}, ${BASES_TABLE_CONTAINER_SELECTOR}`;
 
 // Tags a synthetic KeyboardEvent as THIS plugin's own internal
 // re-dispatch (the "re-fire a native Escape to drive the actual UI
@@ -308,6 +329,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private readonly TABLE_DELIMITER_REGEX = /^\s*\|?[:\s]*?-+[:\s-]*\|[:\s-|]*$/;
 	// Lines of margin above/below cursor for recenter-top-bottom top/bottom positions.
 	private readonly RECENTER_TOP_BOTTOM_MARGIN_LINES = 2;
+	// Bases table rows are much taller than a text line, so reusing
+	// RECENTER_TOP_BOTTOM_MARGIN_LINES directly against rowHeight (2 full
+	// ROWS of margin) read as excessive -- a separate, smaller margin for
+	// the Bases table's own top/bottom positions.
+	private readonly RECENTER_TOP_BOTTOM_MARGIN_ROWS_BASES = 1;
 
 	vimSupport: VimSupport;
 
@@ -1269,7 +1295,19 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		scope.register([], 'Escape', (evt) => {
 			if ((evt as any)[UCH_INTERNAL_ESCAPE_REDISPATCH_FLAG]) return true;
 			const target = evt.target as HTMLElement;
-			return !!target?.matches?.(PROPERTY_KEY_EDIT_SELECTOR);
+			// Pass through (defer to native handling) for ANY value-editing
+			// widget, regardless of type -- a real, separate regression
+			// (caught the same day, by a direct check rather than a test
+			// failure) found that the original isKeyEdit-only condition
+			// swallowed a genuine external bare Escape on every OTHER
+			// widget type too (text/checkbox/date/list, and Bases' own
+			// cells, which share these same classes) whenever
+			// 'keyboard-quit' has no hotkey assigned — including the
+			// out-of-the-box default, no-hotkey-configured state. Only
+			// item-selection mode's own row/heading/Add-button need this
+			// swallowed (confirmed still required by
+			// propertyItemSelection.e2e.ts's own 2-escape sequence).
+			return !target?.matches?.(PROPERTY_PANEL_FOCUS_SELECTOR);
 		});
 		const bind = (
 			commandId: string,
@@ -1526,6 +1564,15 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// for both the title field and this widget (unlike every command
 		// above, which already existed on at least one side).
 		bind('delete-char', 'D', undefined, undefined, (el) => el.matches(PROPERTY_KEY_EDIT_SELECTOR) ? this.propertyKeyDeleteChar(el as HTMLInputElement) : this.titleDeleteChar(el), true, PROPERTY_TEXT_LIKE_EDIT_SELECTOR);
+		// Recenter / Recenter top-bottom (Ctrl-L) in a Bases table
+		// view's own cell-selection mode -- see recenterBases/
+		// recenterTopBottomBases's own comment for the full mechanism.
+		// suppressFallback is set: there's no meaningful native
+		// behavior for Ctrl-L to delegate to here (unlike cursor-up/
+		// down/left/right above), so a bare native-dispatch fallback
+		// would risk triggering something unrelated and unintended.
+		bind('recenter', 'L', undefined, undefined, (el) => this.recenterBases(el), true, BASES_TABLE_CONTAINER_SELECTOR);
+		bind('recenter-top-bottom', 'L', undefined, undefined, (el) => this.recenterTopBottomBases(el), true, BASES_TABLE_CONTAINER_SELECTOR);
 		return scope;
 	}
 
@@ -5126,6 +5173,104 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 		this.scrollToCursorAtY(editor, targetY);
 		this._recenterStep = (this._recenterStep + 1) % 3;
+	}
+
+	// Ctrl-L (recenter/recenter-top-bottom) in a Bases table view's own
+	// cell-selection mode, matching the note body's own convention. Not
+	// a "delegate to native key" dispatch like cursor-up/down/left/right
+	// above — Bases has no native equivalent for Ctrl-L at all, so this
+	// is a genuinely new implementation, confirmed live before writing
+	// it (same discipline as every other Bases investigation this
+	// session): `.bases-table-container` (the element that stays
+	// focused throughout cell-selection mode, see
+	// BASES_TABLE_CONTAINER_SELECTOR's own comment) is NOT itself the
+	// scrollable element — its own scrollHeight/clientHeight are always
+	// equal — the real scrollable ancestor is its own parent,
+	// `.bases-view` (confirmed via a live ancestor-chain walk: the only
+	// element with `overflow: auto` and `scrollHeight > clientHeight`).
+	// The currently-selected cell is found via `.bases-table-active-cell`,
+	// present directly in the DOM at all times (no need to press Enter
+	// to detect it, unlike how this was first investigated).
+	//
+	// The scroll-to-Y formula is `scrollTop + (rect.top - scrollRect.top) -
+	// targetY` — the same shape as this.scrollToCursorAtY's own `docY`-
+	// based version above. An earlier draft dropped the `- scrollRect.top`
+	// term, reasoning it canceled out algebraically — that only held in
+	// the E2E smoke vault, where `.bases-view` happened to sit at page
+	// y=0 (a single, unsplit leaf with no tab bar above it), making
+	// `scrollRect.top` ~0 there by coincidence. In a real vault with a
+	// tab bar/split layout above the table, `scrollRect.top` is nonzero,
+	// and dropping the term made every target land `scrollRect.top`
+	// pixels too high on screen — "top" went clear behind the sticky
+	// header, "bottom" stopped short with visible slack beneath it.
+	// Confirmed live via a diagnostic that forced a nonzero
+	// `scrollRect.top` (splitting a markdown leaf above the Bases leaf):
+	// the drift matched `-scrollRect.top` pixel-for-pixel. `targetY`
+	// itself stays in `.bases-view`-local coordinates (0 at its own top
+	// edge) — `.bases-thead` is `position: sticky`, permanently
+	// occupying the TOP of its viewport regardless of scroll position —
+	// confirmed live this needs to be subtracted from the available
+	// height for "center" and added as a floor for "top," or the row
+	// lands exactly one header's-height too high; "bottom" needs no such
+	// adjustment, since the sticky header never affects the viewport's
+	// own bottom edge.
+	private recenterBasesScrollTo(container: HTMLElement, targetY: number) {
+		const scrollEl = container.closest('.bases-view') as HTMLElement | null;
+		const cellEl = container.querySelector('.bases-table-active-cell') as HTMLElement | null;
+		if (!scrollEl || !cellEl) return;
+		const rect = cellEl.getBoundingClientRect();
+		const scrollRect = scrollEl.getBoundingClientRect();
+		scrollEl.scrollTop = Math.max(0, scrollEl.scrollTop + (rect.top - scrollRect.top) - targetY);
+	}
+
+	private getBasesHeaderHeight(scrollEl: HTMLElement): number {
+		const headerEl = scrollEl.querySelector('.bases-thead') as HTMLElement | null;
+		return headerEl?.getBoundingClientRect().height ?? 0;
+	}
+
+	private recenterBases(container: HTMLElement) {
+		const scrollEl = container.closest('.bases-view') as HTMLElement | null;
+		if (!scrollEl) return;
+		const headerHeight = this.getBasesHeaderHeight(scrollEl);
+		this.recenterBasesScrollTo(container, headerHeight + (scrollEl.clientHeight - headerHeight) / 2);
+	}
+
+	// Cycles center → top → bottom on successive presses, same
+	// `_recenterStep` state the note body's own recenterTopBottom
+	// shares — a user is only ever in one context (body or Bases) at a
+	// time, so sharing this one counter is simpler than a second,
+	// parallel one and behaves the same either way.
+	//
+	// rowHeight uses the active CELL's own getBoundingClientRect().height
+	// directly, not a `.bases-tr` ancestor lookup -- confirmed live that
+	// `.bases-table-active-cell` has no `.bases-tr` ancestor at all in
+	// this Obsidian version's own Bases DOM (`.bases-tbody` contains
+	// `.bases-td` cells directly; `.bases-tr` exists elsewhere in the DOM,
+	// used for click-targeting in E2E specs, but isn't a parent of the
+	// cells themselves). An earlier draft's `.closest('.bases-tr')` always
+	// silently returned null and fell back to a hardcoded 30, which
+	// happened to be close enough to the real ~28px row height to look
+	// right in casual testing.
+	private recenterTopBottomBases(container: HTMLElement) {
+		const scrollEl = container.closest('.bases-view') as HTMLElement | null;
+		const cellEl = container.querySelector('.bases-table-active-cell') as HTMLElement | null;
+		if (!scrollEl || !cellEl) return;
+		const h = scrollEl.clientHeight;
+		const headerHeight = this.getBasesHeaderHeight(scrollEl);
+		const rowHeight = cellEl.getBoundingClientRect().height || 30;
+		// A separate, smaller margin than the note body's own
+		// RECENTER_TOP_BOTTOM_MARGIN_LINES -- a table row is a much taller
+		// unit than a text line, so reusing the same line-count directly
+		// against rowHeight (2 full ROWS of margin) read as excessive.
+		const margin = this.RECENTER_TOP_BOTTOM_MARGIN_ROWS_BASES * rowHeight;
+
+		const step = this._recenterStep;
+		const targetY = step === 0 ? headerHeight + (h - headerHeight) / 2
+		              : step === 1 ? headerHeight + margin
+		              :              h - margin - rowHeight;
+
+		this.recenterBasesScrollTo(container, targetY);
+		this._recenterStep = (step + 1) % 3;
 	}
 
 

@@ -1595,7 +1595,199 @@ didn't exist yet when that fix shipped) — broadened to
 the fix (reverting the selector back to `PROPERTY_VALUE_EDIT_SELECTOR`
 reproduces test (13) failing) and green after.
 
-#### `titleSetMark.e2e.ts`
+#### `basesPropertyEditing.e2e.ts`
+
+0.13.0 Feature 1, Bases re-verification (deferred from the original
+property-value-editing phase, finally picked up once the whole
+property-text-editing surface — including property NAME editing —
+shipped). A DOM survey (temp diagnostic specs, deleted after) confirmed
+live that a Bases table view's own per-cell value widgets reuse the
+EXACT same DOM classes as the single-note Properties panel:
+`.metadata-input-longtext` for text, `input[type="checkbox"/"date"/"number"]`
+for those types, `.multi-select-input` for list/tags/aliases — every
+command bound in `buildPropertyRowScope` matches on these LEAF element
+classes directly, with no dependency on the Properties panel's own
+`.metadata-property` row wrapper existing at all. So none of this
+needed new code — confirmed by this spec exercising real commands
+end-to-end (not just checking DOM classes match): cursor movement,
+Kill-line/Yank round-trip, Ctrl-G exit from text/checkbox/date cells,
+the scope-shadowing fix (same regression class as
+`propertyValueEditDeleteChar.e2e.ts`/`propertyNameEdit.e2e.ts`'s own
+test (13), confirmed it ALSO just works here for free), and
+Selection-API movement in a list cell's own trailing chip.
+
+**Confirmed NOT covered, same DOM survey, test (6)**: a Bases column's
+own header (the property NAME) is a plain, non-editable
+`.bases-table-header-name` div — nothing like
+`.metadata-property-key-input`. Bases renames a column through its own
+menu-based UI, not an inline text input. The property NAME-editing
+phase's commands genuinely don't apply here — not a gap to fix, a real,
+confirmed scope boundary.
+
+**Also found and fixed while running this spec's own first draft,
+unrelated to the DOM-class investigation above**: a bare physical
+Escape, with `keyboard-quit` left completely unmapped (the true
+out-of-the-box default), stopped exiting any property/Bases value
+widget at all — see `propertyCtrlG.e2e.ts` test (7) and
+`project_property_name_edit_scope_dispatch_bug`'s own 5th-bug writeup
+for the full story; this spec's own test (3)/(4) (Ctrl-G, scope-
+shadowing) only pass today because they explicitly map `keyboard-quit`
+to Ctrl-G rather than relying on a bare Escape.
+
+#### `basesCellNavigation.e2e.ts`
+
+0.13.0 Feature 1, Bases follow-up, same day as the re-verification
+above: a Bases table view's own "cell selection mode" (reached via
+Escape from a cell's edit mode — confirmed free of charge via the
+bare-Escape fix above) keeps real DOM focus on one shared
+`.bases-table-container` element for the WHOLE table, never on any
+individual cell. Confirmed live (DOM survey, temp diagnostic specs,
+deleted after) that physical arrow keys move an internal "active cell"
+marker while this container stays focused throughout, and that a
+SYNTHETIC `Arrow*` dispatch on this SAME container reproduces it
+exactly — verified by pressing Enter afterward and checking which cell
+actually entered edit mode, the only reliable way to observe the
+internal marker from outside (it carries no stable, directly-queryable
+attribute of its own, though a `.bases-table-active-cell` CSS class
+does transiently exist on the relevant `.bases-td`).
+
+Implementation: `.bases-table-container` was added to a new
+`BASES_TABLE_CONTAINER_SELECTOR` constant, merged into
+`PROPERTY_PANEL_SCOPE_SELECTOR` (NOT `PROPERTY_PANEL_FOCUS_SELECTOR`
+itself — deliberately kept separate from the bare-Escape pass-through
+registration's own check, since there's no reason to swallow a bare
+Escape on this target). **No new handler code was needed at all**:
+cursor-up/down/left/right's own EXISTING generic native-dispatch
+fallback (the same one Properties' row/heading/Add-button already
+use) picks this target up automatically, since nothing else in
+`buildPropertyRowScope`'s `bind()` calls matches it more specifically.
+
+Built red-green: temporarily removing `BASES_TABLE_CONTAINER_SELECTOR`
+from `PROPERTY_PANEL_SCOPE_SELECTOR` reproduced the test failing
+(Ctrl-F did nothing, cell stayed on `myText` instead of moving to
+`myNumber`), restoring it made it pass. The test itself needed a
+`filters:` clause scoping the `.base` file to just its own 2 notes —
+an earlier, unfiltered draft showed the whole vault's ~40 other files
+too, making row-index-based assertions unreliable.
+
+#### `basesRecenter.e2e.ts`
+
+0.13.0 Feature 1, Bases follow-up, same day as the cell-navigation spec
+above: Ctrl-L (recenter / recenter-top-bottom) in cell-selection mode.
+Unlike cell navigation, Bases has NO native equivalent for Ctrl-L at
+all — this is a genuinely new implementation, not a native-dispatch
+delegation, and needed real custom scroll-math code.
+
+Confirmed live (temp diagnostic specs, deleted after) that
+`.bases-table-container` (the element that stays focused throughout
+cell-selection mode) is NOT itself the scrollable element — its own
+`scrollHeight`/`clientHeight` are always equal, even with 200 rows. The
+real scrollable ancestor is its own PARENT, `.bases-view` (found via an
+ancestor-chain walk: the only element with `overflow: auto` and
+`scrollHeight > clientHeight`). The active cell is found via
+`.bases-table-active-cell`, present directly in the DOM at all times —
+no need to press Enter to detect it.
+
+The scroll-to-Y formula is `scrollTop + (rect.top - scrollRect.top) -
+targetY` (see the real regression below for why the `- scrollRect.top`
+term is NOT skippable, despite an early, now-corrected belief that it
+canceled out algebraically). `.bases-view`'s own header (`.bases-thead`) is `position: sticky`,
+permanently occupying the top of its viewport — factored into the
+"center" and "top" targets (subtracted from available height / added as
+a floor, respectively), but not "bottom" (unaffected by the sticky
+header).
+
+Two new commands reuse this same scroll math:
+`recenterBases`/`recenterTopBottomBases`, bound via two new `bind()`
+calls in `buildPropertyRowScope` on `BASES_TABLE_CONTAINER_SELECTOR`
+with `suppressFallback` set (unlike cursor-up/down/left/right, there's
+no meaningful native Ctrl-L behavior to fall back to, so a bare
+native-dispatch fallback would risk triggering something unrelated).
+`recenter-top-bottom` shares the body's own `_recenterStep` counter — a
+user is only ever in one context (body or Bases) at a time, so one
+counter behaves the same as a separate per-context one would, with less
+code.
+
+Built red-green: temporarily commenting out both new `bind()` calls
+reproduced both tests failing (the active cell stayed at its original
+scroll position instead of moving to center/top/bottom), restoring them
+made both pass.
+
+**Real regression, found live right after this feature first shipped**:
+"top" landed clear behind the sticky header, "bottom" stopped short
+with visible slack beneath it. Root cause: `recenterBasesScrollTo`'s
+scroll-to-Y formula (`scrollTop + rect.top - targetY`) treated `rect.top`
+(page-viewport-relative) and `targetY` (computed in `.bases-view`-LOCAL
+coordinates, 0 at its own top edge) as the same coordinate frame — only
+true when `.bases-view` itself sits at page y=0. The very first draft of
+this spec opened the Bases leaf as the window's ONLY leaf, where that
+happened to hold (coincidentally — the earlier pixel-exact diagnostic
+confirmation was tautological, not genuine evidence `.bases-view` was at
+y=0; the formula lands the cell's page-relative top AT `targetY` by
+construction, regardless of where `.bases-view` itself sits), so the
+bug was invisible to it. In a real vault (or this spec's own now-split
+setup below a markdown leaf) `.bases-view`'s own
+`getBoundingClientRect().top` is nonzero, and the missing
+`- scrollRect.top` term made every target land that many pixels too
+high on screen. Fixed by adding it back:
+`scrollTop + (rect.top - scrollRect.top) - targetY`, confirmed live via
+a temp diagnostic (forcing a split leaf) showing the drift tracked
+`-scrollRect.top` exactly, and zero drift after the fix.
+
+This spec was rewritten to open the Bases leaf in a split below a
+markdown leaf specifically so `.bases-view`'s own offset is nonzero
+going forward, and its own assertions now compare a `localTop`
+(`rect.top - scrollRect.top`) against the local target instead of
+`rect.top` directly — the same latent assumption had leaked into the
+spec's own checks, not just the production code. Re-verified red-green
+again after the fix: temporarily removing the `- scrollRect.top` term
+reproduced both tests failing by the same ~116px drift the live report
+described, restoring it made both pass again, confirmed alongside
+`basesCellNavigation.e2e.ts`/`basesPropertyEditing.e2e.ts`/
+`recenterWithSetMark.e2e.ts`.
+
+**Second live report, same day**: the top/bottom margin felt too
+generous. Cause: `recenterTopBottomBases` reused the note body's own
+`RECENTER_TOP_BOTTOM_MARGIN_LINES` (2) directly against `rowHeight` —
+2 full table ROWS of margin, not 2 text lines, reads as excessive for a
+table. Fixed with a separate, smaller
+`RECENTER_TOP_BOTTOM_MARGIN_ROWS_BASES` (1). While investigating this,
+a live DOM dump also found a real latent bug in the SAME line:
+`rowHeight` was computed via `cellEl.closest('.bases-tr')
+?.getBoundingClientRect().height ?? 30` — but `.bases-table-active-cell`
+has NO `.bases-tr` ancestor at all in this Obsidian version's Bases DOM
+(`.bases-tbody` holds `.bases-td` cells directly; `.bases-tr` exists
+elsewhere, used only for click-targeting in these specs' own
+selectors). `closest()` always silently returned `null`, so `rowHeight`
+was always the hardcoded `30` fallback — invisible until now because
+30 happens to be close to the real ~28px row height. Fixed by reading
+the active cell's OWN `getBoundingClientRect().height` directly instead
+of looking for a nonexistent ancestor.
+
+**Two further live reports, same day, both resolved as expected
+boundary behavior, not bugs**: first "TOP's position should be higher,"
+then (after the margin/rowHeight fix above) "BOTTOM's position isn't
+right." Temporary `console.log` instrumentation was added directly to
+`recenterBasesScrollTo`/`recenterTopBottomBases` (removed again once
+the reports were resolved) to capture real values from the live
+session, rather than relying on E2E reproduction — a dedicated E2E
+diagnostic (both a raw `scrollTop` assignment and the real command,
+polled for 2-3s with zero further input) could NOT reproduce any
+spontaneous drift, so the only way to get real data was logging the
+actual production code path. The captured logs showed the formula's
+own arithmetic was 100% self-consistent in both reports (every
+`beforeScrollTop` matched the previous step's own `newScrollTop`
+exactly, down to sub-pixel precision) — the "wrong" position in both
+cases was `Math.max(0, ...)` correctly clamping a would-be NEGATIVE
+scroll value, meaning the clicked row was too close to one edge of the
+WHOLE table (not the currently-visible screen) for `center` (1st report)
+or `bottom` (2nd report) to be geometrically achievable — the exact
+same boundary behavior `scrollToCursorAtY` already has for the note
+body near the start/end of a document. A single, non-repeating ~130px
+inter-step discrepancy also appeared in the very first captured log
+(contradicting the "self-consistent" pattern above) but never recurred
+in the second capture and couldn't be reproduced by automation either;
+left unexplained, most likely incidental to that one session.
 
 Set-mark (Ctrl-Space) in the title field. Unlike the body's own CM6-based
 Set-mark (which needs its own anchor-tracking machinery), the title's
@@ -1921,6 +2113,23 @@ addition made all 6 pass.
 - **(6)** Regression: a note WITHOUT frontmatter is unaffected —
   Ctrl-G still clears an active Set-mark selection in the body exactly
   as before.
+
+**(7) added 2026-11-07, found while verifying Bases support**: the
+property-name-edit phase's own bare-Escape pass-through registration in
+`buildPropertyRowScope` checked "is this the key-edit input?" and
+swallowed every other target otherwise — including a text value widget
+with NO hotkey assigned to `keyboard-quit` at all, the true
+out-of-the-box default. Before that phase shipped, nothing was
+registered for bare Escape unless `keyboard-quit` itself had a hotkey,
+so a genuine external Escape always fell through to each widget's own
+native handling untouched. Fixed by checking the OPPOSITE condition:
+swallow ONLY for item-selection mode's own row/heading/Add-button
+(still required by tests (1)-(6) above and
+`propertyItemSelection.e2e.ts`), defer to native for every other
+value-editing widget regardless of type — this also covers Bases' own
+cells for free (same classes, see `basesPropertyEditing.e2e.ts`). Built
+red-green: confirmed failing against the old (key-edit-only) condition,
+passing after.
 
 #### `propertyKeyUpgradeInterference.e2e.ts`
 
