@@ -1269,7 +1269,19 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		scope.register([], 'Escape', (evt) => {
 			if ((evt as any)[UCH_INTERNAL_ESCAPE_REDISPATCH_FLAG]) return true;
 			const target = evt.target as HTMLElement;
-			return !!target?.matches?.(PROPERTY_KEY_EDIT_SELECTOR);
+			// Pass through (defer to native handling) for ANY value-editing
+			// widget, regardless of type -- a real, separate regression
+			// (caught the same day, by a direct check rather than a test
+			// failure) found that the original isKeyEdit-only condition
+			// swallowed a genuine external bare Escape on every OTHER
+			// widget type too (text/checkbox/date/list, and Bases' own
+			// cells, which share these same classes) whenever
+			// 'keyboard-quit' has no hotkey assigned — including the
+			// out-of-the-box default, no-hotkey-configured state. Only
+			// item-selection mode's own row/heading/Add-button need this
+			// swallowed (confirmed still required by
+			// propertyItemSelection.e2e.ts's own 2-escape sequence).
+			return !target?.matches?.(PROPERTY_PANEL_FOCUS_SELECTOR);
 		});
 		const bind = (
 			commandId: string,

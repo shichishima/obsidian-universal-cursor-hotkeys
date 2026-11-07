@@ -1951,6 +1951,23 @@ addition made all 6 pass.
   Ctrl-G still clears an active Set-mark selection in the body exactly
   as before.
 
+**(7) added 2026-11-07, found while verifying Bases support**: the
+property-name-edit phase's own bare-Escape pass-through registration in
+`buildPropertyRowScope` checked "is this the key-edit input?" and
+swallowed every other target otherwise — including a text value widget
+with NO hotkey assigned to `keyboard-quit` at all, the true
+out-of-the-box default. Before that phase shipped, nothing was
+registered for bare Escape unless `keyboard-quit` itself had a hotkey,
+so a genuine external Escape always fell through to each widget's own
+native handling untouched. Fixed by checking the OPPOSITE condition:
+swallow ONLY for item-selection mode's own row/heading/Add-button
+(still required by tests (1)-(6) above and
+`propertyItemSelection.e2e.ts`), defer to native for every other
+value-editing widget regardless of type — this also covers Bases' own
+cells for free (same classes, see `basesPropertyEditing.e2e.ts`). Built
+red-green: confirmed failing against the old (key-edit-only) condition,
+passing after.
+
 #### `propertyKeyUpgradeInterference.e2e.ts`
 
 Real user-reported bug, found testing on Windows (2026-11-05) with the
