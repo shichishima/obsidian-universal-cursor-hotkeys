@@ -329,6 +329,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private readonly TABLE_DELIMITER_REGEX = /^\s*\|?[:\s]*?-+[:\s-]*\|[:\s-|]*$/;
 	// Lines of margin above/below cursor for recenter-top-bottom top/bottom positions.
 	private readonly RECENTER_TOP_BOTTOM_MARGIN_LINES = 2;
+	// Bases table rows are much taller than a text line, so reusing
+	// RECENTER_TOP_BOTTOM_MARGIN_LINES directly against rowHeight (2 full
+	// ROWS of margin) read as excessive -- a separate, smaller margin for
+	// the Bases table's own top/bottom positions.
+	private readonly RECENTER_TOP_BOTTOM_MARGIN_ROWS_BASES = 1;
 
 	vimSupport: VimSupport;
 
@@ -1559,6 +1564,15 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// for both the title field and this widget (unlike every command
 		// above, which already existed on at least one side).
 		bind('delete-char', 'D', undefined, undefined, (el) => el.matches(PROPERTY_KEY_EDIT_SELECTOR) ? this.propertyKeyDeleteChar(el as HTMLInputElement) : this.titleDeleteChar(el), true, PROPERTY_TEXT_LIKE_EDIT_SELECTOR);
+		// Recenter / Recenter top-bottom (Ctrl-L) in a Bases table
+		// view's own cell-selection mode -- see recenterBases/
+		// recenterTopBottomBases's own comment for the full mechanism.
+		// suppressFallback is set: there's no meaningful native
+		// behavior for Ctrl-L to delegate to here (unlike cursor-up/
+		// down/left/right above), so a bare native-dispatch fallback
+		// would risk triggering something unrelated and unintended.
+		bind('recenter', 'L', undefined, undefined, (el) => this.recenterBases(el), true, BASES_TABLE_CONTAINER_SELECTOR);
+		bind('recenter-top-bottom', 'L', undefined, undefined, (el) => this.recenterTopBottomBases(el), true, BASES_TABLE_CONTAINER_SELECTOR);
 		return scope;
 	}
 
@@ -5158,6 +5172,103 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		              :                            h - margin - cm.defaultLineHeight;
 
 		this.scrollToCursorAtY(editor, targetY);
+		this._recenterStep = (this._recenterStep + 1) % 3;
+	}
+
+	// Ctrl-L (recenter/recenter-top-bottom) in a Bases table view's own
+	// cell-selection mode, matching the note body's own convention. Not
+	// a "delegate to native key" dispatch like cursor-up/down/left/right
+	// above — Bases has no native equivalent for Ctrl-L at all, so this
+	// is a genuinely new implementation, confirmed live before writing
+	// it (same discipline as every other Bases investigation this
+	// session): `.bases-table-container` (the element that stays
+	// focused throughout cell-selection mode, see
+	// BASES_TABLE_CONTAINER_SELECTOR's own comment) is NOT itself the
+	// scrollable element — its own scrollHeight/clientHeight are always
+	// equal — the real scrollable ancestor is its own parent,
+	// `.bases-view` (confirmed via a live ancestor-chain walk: the only
+	// element with `overflow: auto` and `scrollHeight > clientHeight`).
+	// The currently-selected cell is found via `.bases-table-active-cell`,
+	// present directly in the DOM at all times (no need to press Enter
+	// to detect it, unlike how this was first investigated).
+	//
+	// The scroll-to-Y formula is `scrollTop + (rect.top - scrollRect.top) -
+	// targetY` — the same shape as this.scrollToCursorAtY's own `docY`-
+	// based version above. An earlier draft dropped the `- scrollRect.top`
+	// term, reasoning it canceled out algebraically — that only held in
+	// the E2E smoke vault, where `.bases-view` happened to sit at page
+	// y=0 (a single, unsplit leaf with no tab bar above it), making
+	// `scrollRect.top` ~0 there by coincidence. In a real vault with a
+	// tab bar/split layout above the table, `scrollRect.top` is nonzero,
+	// and dropping the term made every target land `scrollRect.top`
+	// pixels too high on screen — "top" went clear behind the sticky
+	// header, "bottom" stopped short with visible slack beneath it.
+	// Confirmed live via a diagnostic that forced a nonzero
+	// `scrollRect.top` (splitting a markdown leaf above the Bases leaf):
+	// the drift matched `-scrollRect.top` pixel-for-pixel. `targetY`
+	// itself stays in `.bases-view`-local coordinates (0 at its own top
+	// edge) — `.bases-thead` is `position: sticky`, permanently
+	// occupying the TOP of its viewport regardless of scroll position —
+	// confirmed live this needs to be subtracted from the available
+	// height for "center" and added as a floor for "top," or the row
+	// lands exactly one header's-height too high; "bottom" needs no such
+	// adjustment, since the sticky header never affects the viewport's
+	// own bottom edge.
+	private recenterBasesScrollTo(container: HTMLElement, targetY: number) {
+		const scrollEl = container.closest('.bases-view') as HTMLElement | null;
+		const cellEl = container.querySelector('.bases-table-active-cell') as HTMLElement | null;
+		if (!scrollEl || !cellEl) return;
+		const rect = cellEl.getBoundingClientRect();
+		const scrollRect = scrollEl.getBoundingClientRect();
+		scrollEl.scrollTop = Math.max(0, scrollEl.scrollTop + (rect.top - scrollRect.top) - targetY);
+	}
+
+	private getBasesHeaderHeight(scrollEl: HTMLElement): number {
+		const headerEl = scrollEl.querySelector('.bases-thead') as HTMLElement | null;
+		return headerEl?.getBoundingClientRect().height ?? 0;
+	}
+
+	private recenterBases(container: HTMLElement) {
+		const scrollEl = container.closest('.bases-view') as HTMLElement | null;
+		if (!scrollEl) return;
+		const headerHeight = this.getBasesHeaderHeight(scrollEl);
+		this.recenterBasesScrollTo(container, headerHeight + (scrollEl.clientHeight - headerHeight) / 2);
+	}
+
+	// Cycles center → top → bottom on successive presses, same
+	// `_recenterStep` state the note body's own recenterTopBottom
+	// shares — a user is only ever in one context (body or Bases) at a
+	// time, so sharing this one counter is simpler than a second,
+	// parallel one and behaves the same either way.
+	//
+	// rowHeight uses the active CELL's own getBoundingClientRect().height
+	// directly, not a `.bases-tr` ancestor lookup -- confirmed live that
+	// `.bases-table-active-cell` has no `.bases-tr` ancestor at all in
+	// this Obsidian version's own Bases DOM (`.bases-tbody` contains
+	// `.bases-td` cells directly; `.bases-tr` exists elsewhere in the DOM,
+	// used for click-targeting in E2E specs, but isn't a parent of the
+	// cells themselves). An earlier draft's `.closest('.bases-tr')` always
+	// silently returned null and fell back to a hardcoded 30, which
+	// happened to be close enough to the real ~28px row height to look
+	// right in casual testing.
+	private recenterTopBottomBases(container: HTMLElement) {
+		const scrollEl = container.closest('.bases-view') as HTMLElement | null;
+		const cellEl = container.querySelector('.bases-table-active-cell') as HTMLElement | null;
+		if (!scrollEl || !cellEl) return;
+		const h = scrollEl.clientHeight;
+		const headerHeight = this.getBasesHeaderHeight(scrollEl);
+		const rowHeight = cellEl.getBoundingClientRect().height || 30;
+		// A separate, smaller margin than the note body's own
+		// RECENTER_TOP_BOTTOM_MARGIN_LINES -- a table row is a much taller
+		// unit than a text line, so reusing the same line-count directly
+		// against rowHeight (2 full ROWS of margin) read as excessive.
+		const margin = this.RECENTER_TOP_BOTTOM_MARGIN_ROWS_BASES * rowHeight;
+
+		const targetY = this._recenterStep === 0 ? headerHeight + (h - headerHeight) / 2
+		              : this._recenterStep === 1 ? headerHeight + margin
+		              :                            h - margin - rowHeight;
+
+		this.recenterBasesScrollTo(container, targetY);
 		this._recenterStep = (this._recenterStep + 1) % 3;
 	}
 

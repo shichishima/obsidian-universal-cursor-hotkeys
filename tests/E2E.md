@@ -1670,6 +1670,101 @@ from `PROPERTY_PANEL_SCOPE_SELECTOR` reproduced the test failing
 an earlier, unfiltered draft showed the whole vault's ~40 other files
 too, making row-index-based assertions unreliable.
 
+#### `basesRecenter.e2e.ts`
+
+0.13.0 Feature 1, Bases follow-up, same day as the cell-navigation spec
+above: Ctrl-L (recenter / recenter-top-bottom) in cell-selection mode.
+Unlike cell navigation, Bases has NO native equivalent for Ctrl-L at
+all — this is a genuinely new implementation, not a native-dispatch
+delegation, and needed real custom scroll-math code.
+
+Confirmed live (temp diagnostic specs, deleted after) that
+`.bases-table-container` (the element that stays focused throughout
+cell-selection mode) is NOT itself the scrollable element — its own
+`scrollHeight`/`clientHeight` are always equal, even with 200 rows. The
+real scrollable ancestor is its own PARENT, `.bases-view` (found via an
+ancestor-chain walk: the only element with `overflow: auto` and
+`scrollHeight > clientHeight`). The active cell is found via
+`.bases-table-active-cell`, present directly in the DOM at all times —
+no need to press Enter to detect it.
+
+The scroll-to-Y formula, pixel-verified live: `scrollTop + rect.top -
+targetY` — simpler than the body's own CM6-based `scrollToCursorAtY`,
+whose extra `- scrollRect.top` term happens to cancel out algebraically
+once worked through for this target, so it's skipped entirely here.
+`.bases-view`'s own header (`.bases-thead`) is `position: sticky`,
+permanently occupying the top of its viewport — factored into the
+"center" and "top" targets (subtracted from available height / added as
+a floor, respectively), but not "bottom" (unaffected by the sticky
+header).
+
+Two new commands reuse this same scroll math:
+`recenterBases`/`recenterTopBottomBases`, bound via two new `bind()`
+calls in `buildPropertyRowScope` on `BASES_TABLE_CONTAINER_SELECTOR`
+with `suppressFallback` set (unlike cursor-up/down/left/right, there's
+no meaningful native Ctrl-L behavior to fall back to, so a bare
+native-dispatch fallback would risk triggering something unrelated).
+`recenter-top-bottom` shares the body's own `_recenterStep` counter — a
+user is only ever in one context (body or Bases) at a time, so one
+counter behaves the same as a separate per-context one would, with less
+code.
+
+Built red-green: temporarily commenting out both new `bind()` calls
+reproduced both tests failing (the active cell stayed at its original
+scroll position instead of moving to center/top/bottom), restoring them
+made both pass.
+
+**Real regression, found live right after this feature first shipped**:
+"top" landed clear behind the sticky header, "bottom" stopped short
+with visible slack beneath it. Root cause: `recenterBasesScrollTo`'s
+scroll-to-Y formula (`scrollTop + rect.top - targetY`) treated `rect.top`
+(page-viewport-relative) and `targetY` (computed in `.bases-view`-LOCAL
+coordinates, 0 at its own top edge) as the same coordinate frame — only
+true when `.bases-view` itself sits at page y=0. The very first draft of
+this spec opened the Bases leaf as the window's ONLY leaf, where that
+happened to hold (coincidentally — the earlier pixel-exact diagnostic
+confirmation was tautological, not genuine evidence `.bases-view` was at
+y=0; the formula lands the cell's page-relative top AT `targetY` by
+construction, regardless of where `.bases-view` itself sits), so the
+bug was invisible to it. In a real vault (or this spec's own now-split
+setup below a markdown leaf) `.bases-view`'s own
+`getBoundingClientRect().top` is nonzero, and the missing
+`- scrollRect.top` term made every target land that many pixels too
+high on screen. Fixed by adding it back:
+`scrollTop + (rect.top - scrollRect.top) - targetY`, confirmed live via
+a temp diagnostic (forcing a split leaf) showing the drift tracked
+`-scrollRect.top` exactly, and zero drift after the fix.
+
+This spec was rewritten to open the Bases leaf in a split below a
+markdown leaf specifically so `.bases-view`'s own offset is nonzero
+going forward, and its own assertions now compare a `localTop`
+(`rect.top - scrollRect.top`) against the local target instead of
+`rect.top` directly — the same latent assumption had leaked into the
+spec's own checks, not just the production code. Re-verified red-green
+again after the fix: temporarily removing the `- scrollRect.top` term
+reproduced both tests failing by the same ~116px drift the live report
+described, restoring it made both pass again, confirmed alongside
+`basesCellNavigation.e2e.ts`/`basesPropertyEditing.e2e.ts`/
+`recenterWithSetMark.e2e.ts`.
+
+**Second live report, same day**: the top/bottom margin felt too
+generous. Cause: `recenterTopBottomBases` reused the note body's own
+`RECENTER_TOP_BOTTOM_MARGIN_LINES` (2) directly against `rowHeight` —
+2 full table ROWS of margin, not 2 text lines, reads as excessive for a
+table. Fixed with a separate, smaller
+`RECENTER_TOP_BOTTOM_MARGIN_ROWS_BASES` (1). While investigating this,
+a live DOM dump also found a real latent bug in the SAME line:
+`rowHeight` was computed via `cellEl.closest('.bases-tr')
+?.getBoundingClientRect().height ?? 30` — but `.bases-table-active-cell`
+has NO `.bases-tr` ancestor at all in this Obsidian version's Bases DOM
+(`.bases-tbody` holds `.bases-td` cells directly; `.bases-tr` exists
+elsewhere, used only for click-targeting in these specs' own
+selectors). `closest()` always silently returned `null`, so `rowHeight`
+was always the hardcoded `30` fallback — invisible until now because
+30 happens to be close to the real ~28px row height. Fixed by reading
+the active cell's OWN `getBoundingClientRect().height` directly instead
+of looking for a nonexistent ancestor.
+
 #### `titleSetMark.e2e.ts`
 
 Set-mark (Ctrl-Space) in the title field. Unlike the body's own CM6-based
