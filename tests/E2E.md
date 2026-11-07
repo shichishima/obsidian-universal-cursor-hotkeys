@@ -1490,6 +1490,111 @@ run. Verified via a short, targeted affected-regression set (4 spec
 files, 31 tests, all clean) rather than a full-suite pass, per this
 file's own "Execution" policy above.
 
+#### `propertyNameEdit.e2e.ts`
+
+0.13.0 Feature 1, property NAME (key) editing phase: the property's own
+name field (`.metadata-property-key-input`) is a real `<input
+type="text">`, unlike the title field and the text value-edit widget
+(both contenteditable) — `document.getSelection()` doesn't apply to a
+form control's internal text at all, so every handler
+(`propertyKeyMoveChar`/`MoveToLineBoundary`/`MoveWord`/`SetMark`/
+`KeyboardQuit`/`KillLine`/`KillWord`/`DeleteChar`/`CopyRegion`/
+`KillRegion`/`Yank`) is its own new implementation working through the
+input's own `selectionStart`/`selectionEnd`/`selectionDirection` triple
+instead of a Range. Confirmed live (temp diagnostic, deleted after)
+that `execCommand('delete'/'insertText')` still respects that triple
+exactly like it respects `document.getSelection()` for a
+contenteditable, including persistence to frontmatter after blur — same
+technique as the title field's own Kill/Yank.
+
+Ctrl-P/N (cursor-up/down) are deliberately NOT covered — a single-line
+field has no "up/down" meaning, matching the user's own scope decision
+for this phase.
+
+**A real regression was found and fixed while wiring this up, caught
+entirely by re-testing `propertyItemSelection.e2e.ts`** (3/6 tests
+failing, confirmed NOT pre-existing via a clean-`develop` A/B
+comparison): this input has its own native two-stage Escape handling
+(close its own name-suggester dropdown first, exit to the row second).
+Live diagnostics (scope-stack depth dumps, `plugin.propertyRowScope`
+identity checks) traced this to a genuine Obsidian dispatcher behavior:
+merely having `propertyRowScope` pushed on TOP of the window stack —
+regardless of what, if anything, it registers for bare Escape —
+collapses that native two-stage behavior into one stage, because the
+dispatcher only ever consults the TOP scope for a given key; the
+input's own underlying suggester-scope (further down the stack) stops
+being reachable at all once ours is on top.
+
+A plain, non-Scope `keydown` listener was tried next, reasoning that
+none of this phase's commands (Ctrl-B/F/Home/End/Alt-B/F/Ctrl-Space/
+Ctrl-G/K/W/Y/Alt-Backspace/D/Ctrl-D) have any pre-existing native claim
+to lose precedence against — confirmed live this assumption was WRONG:
+Obsidian's own global command-hotkey resolution claims (stops
+propagation for) ANY key combo matching a REGISTERED command's hotkey
+REGARDLESS of whether an editor is focused, since cursor-left/right/
+home/end/etc. are the exact same commandIds already used elsewhere in
+this plugin. A raw `addEventListener` dump showed the second key of a
+real `Ctrl+F` combo never arriving at the document level at all once
+`cursor-right` had a real hotkey assigned. Back to `app.keymap`'s Scope
+system.
+
+The actual fix: an unconditional `scope.register([], 'Escape', ...)`
+pass-through registration in `buildPropertyRowScope`, returning `true`
+(defer to native handling) specifically when the target matches
+`PROPERTY_KEY_EDIT_SELECTOR`. This alone caused a SECOND real
+regression (`propertyCtrlG.e2e.ts` / `propertyOtherTypesCtrlGPnbf.e2e.ts`,
+4-7 tests failing depending on the exact variant tried): `false`
+(swallow) for every other target broke `keyboard-quit`'s own
+internal native-Escape RE-DISPATCH, which every OTHER value-widget type
+(checkbox/date/list/etc.) and item-selection mode's own row/heading/
+Add-button rely on to actually perform their exit — a Scope handler
+can't otherwise distinguish that re-dispatch from a genuine external
+Escape (both are equally synthetic from the DOM's own perspective, so
+not even `isTrusted` helps). Fixed by tagging the re-dispatch with a
+custom property (`UCH_INTERNAL_ESCAPE_REDISPATCH_FLAG`) at BOTH
+dispatch sites that needed it — `bind()`'s own generic native-dispatch
+fallback (the one item-selection mode's row/heading/Add-button
+actually go through) and `keyboard-quit`'s own handler (the one
+checkbox/date/list/key-edit go through) — and checking for that tag
+first, unconditionally returning `true` when present. Missing either
+tag site reproduced one of the two regressions; both tagged together
+resolved both with no further regressions found across a 7-file/49-test
+sweep (this spec plus `propertyItemSelection`, `propertyCtrlG`,
+`propertyOtherTypesCtrlGPnbf`, `propertyValueEditMovement`,
+`titleCrossingShort`, `titleKillWord`).
+
+- **(1)**/**(2)**/**(3)** Ctrl-B/F, Home/End, Alt-F/Alt-B move the caret
+  by character/line-boundary/word respectively, reusing
+  `findWordSpanOnLine` (word-segmentation.ts) directly on `.value` for
+  word motion (CJK-safe, same engine as the body's own Emacs word
+  motion) rather than any Selection-API mechanism.
+- **(4)**/**(5)** Ctrl-Space arms the mark and Ctrl-F extends a real
+  selection; Ctrl-G clears it without exiting the field.
+- **(6)**/**(7)** Ctrl-K kills from caret to end (persisting the rename
+  after blur, confirming `execCommand` + `selectionStart`/`End` really
+  does reach Obsidian's own commit-on-blur logic); Ctrl-Y yanks it back.
+- **(8)**/**(9)** Alt-Backspace/Alt-D kill one word at a time; Ctrl-D
+  deletes the character after point.
+- **(10)**/**(11)** Alt-W copies the active selection without deleting
+  it; Ctrl-W kills it.
+- **(12)** A real Escape (no Ctrl-G at all) still exits to
+  item-selection mode on its own, confirming the fix didn't disturb the
+  native two-stage behavior it was built to preserve.
+
+**(13) added in a follow-up fix, same day — a real user report**
+("2文字目でCtrl-D→Cmd-Zで入力が効かなくなる"): the exact same
+scope-shadowing bug already fixed for the text value-edit widget
+(`propertyValueEditDeleteChar.e2e.ts`'s own test (5)) — this input's
+own native autocomplete/suggester reacts to the real `input` event
+from `execCommand('delete')` or the browser's own native Undo by
+pushing its OWN Scope on top of `propertyRowScope`, exactly like the
+text widget's suggester. The existing document-level `input` reclaim
+listener was scoped to `PROPERTY_VALUE_EDIT_SELECTOR` only (this input
+didn't exist yet when that fix shipped) — broadened to
+`PROPERTY_TEXT_LIKE_EDIT_SELECTOR` to cover both. Confirmed red before
+the fix (reverting the selector back to `PROPERTY_VALUE_EDIT_SELECTOR`
+reproduces test (13) failing) and green after.
+
 #### `titleSetMark.e2e.ts`
 
 Set-mark (Ctrl-Space) in the title field. Unlike the body's own CM6-based
