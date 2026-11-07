@@ -4,7 +4,7 @@
 
 ### Added
 
-_Key combos below (Ctrl-B/F, Ctrl-A/E, and so on) are this plugin's own macOS-style defaults — each command's actual hotkey always follows whatever's assigned in Settings → Hotkeys, not a hardcoded key._
+_Key combos below (Ctrl-B/F, Ctrl-A/E, and so on) are this plugin's own recommended macOS-style mapping — none of these commands come with a hotkey pre-assigned; each one only responds to whatever's actually assigned in Settings → Hotkeys (or the Quick setup assistant's "Apply recommended")._
 
 - **Emacs-style keybindings now work directly in the note title field** (not just the note body): previously, pressing any of these keys while focused in the title simply did nothing — Obsidian's own command dispatch doesn't fire for these commands unless real DOM focus is in the note body's own editor.
   - **Cursor movement:** Ctrl-B/F (left/right character), Ctrl-A/E (Home/End), Ctrl-P/N (up/down), Alt-B/F (left/right word) — including crossing the boundary between the title and the first line of the body in either direction, with the goal column preserved across the crossing. Ctrl-A/E honors the Visual line movement setting the same way the note body's own Home/End does: moves to the start/end of the current visual line first on a wrapped title, escalating to the title's own absolute start/end only once already there.
