@@ -185,4 +185,23 @@ first body line
 		await expect(after.elValue).toBe('on') // checkbox state unchanged
 		await expect(after.isRow).toBe(false) // focus stayed on the checkbox
 	})
+
+	// Real regression: ArrowLeft/Right from the multi-select trailing
+	// input moves real DOM focus onto an already-committed pill
+	// (.multi-select-pill), confirmed live -- a focus target that didn't
+	// match PROPERTY_PANEL_SCOPE_SELECTOR at all, so propertyRowScope got
+	// torn down (via the focusout handler's own check matching the INPUT
+	// on its way out) the moment a pill gained focus. Ctrl-G (and every
+	// other command) did nothing at all from there. A pill's own native
+	// Escape only steps back to the trailing input (one level), so the
+	// fix focuses the row directly instead of chaining a synthetic
+	// Escape through the input's own native handling.
+	it('(6) regression: Ctrl-G exits from a multi-select pill (not just the trailing input) straight to item-selection mode', async function () {
+		await openNote('PropertyOtherTypesPillCtrlG.md')
+		await focus('mylist', '.multi-select-pill')
+		await browser.keys(['Control', 'g'])
+		await browser.pause(150)
+		const after = await snap('mylist', '.multi-select-pill')
+		await expect(after.isRow).toBe(true)
+	})
 })

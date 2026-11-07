@@ -130,6 +130,19 @@ const PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR =
 // unexplored question, out of scope for this phase.
 const PROPERTY_MULTISELECT_INPUT_SELECTOR = '.multi-select-input';
 
+// A committed list/tags/aliases "pill" (chip) — opaque, non-editable,
+// confirmed live to receive real DOM focus when ArrowLeft/Right is
+// pressed from the trailing input at its own start/end (see
+// PROPERTY_MULTISELECT_INPUT_SELECTOR's own comment on why pill-to-pill
+// navigation itself stays out of scope). Added to
+// PROPERTY_ANY_VALUE_WIDGET_SELECTOR below purely so propertyRowScope
+// doesn't get torn down while a pill has focus — confirmed live it
+// otherwise does (via the focusout handler's own
+// PROPERTY_PANEL_SCOPE_SELECTOR check matching the INPUT on its way
+// out), silently breaking Ctrl-G (and every other command) the moment
+// ArrowLeft/Right moves focus onto an existing pill, user-reported.
+const PROPERTY_MULTISELECT_PILL_SELECTOR = '.multi-select-pill';
+
 // date/datetime specifically (a subset of PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR) —
 // used by PROPERTY_CURSOR_PNBF_SELECTOR below, which needs these two
 // but NOT checkbox (checkbox has no cursor concept at all, explicitly
@@ -177,7 +190,7 @@ const PROPERTY_TEXT_LIKE_EDIT_SELECTOR =
 // PROPERTY_CURSOR_PNBF_SELECTOR happens to also cover), plus the name/
 // key-edit input.
 const PROPERTY_ANY_VALUE_WIDGET_SELECTOR =
-	`${PROPERTY_VALUE_EDIT_SELECTOR}, ${PROPERTY_MULTISELECT_INPUT_SELECTOR}, ${PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR}, ${PROPERTY_KEY_EDIT_SELECTOR}`;
+	`${PROPERTY_VALUE_EDIT_SELECTOR}, ${PROPERTY_MULTISELECT_INPUT_SELECTOR}, ${PROPERTY_MULTISELECT_PILL_SELECTOR}, ${PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR}, ${PROPERTY_KEY_EDIT_SELECTOR}`;
 
 // The combined set of elements that keep propertyRowScope pushed.
 // Exact-match only (not .closest()) throughout — every element in both

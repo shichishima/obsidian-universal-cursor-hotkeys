@@ -1490,6 +1490,33 @@ run. Verified via a short, targeted affected-regression set (4 spec
 files, 31 tests, all clean) rather than a full-suite pass, per this
 file's own "Execution" policy above.
 
+**Test (6) added later, same phase: a real gap in list/tags/aliases'
+own multi-select widget**: ArrowLeft/Right from the trailing input
+moves real DOM focus onto an already-committed "pill" (chip,
+`.multi-select-pill`) — confirmed live, a focus target that didn't
+match `PROPERTY_PANEL_SCOPE_SELECTOR` at all. The `focusout` handler's
+own check (matching the INPUT on its way out of focus) popped
+`propertyRowScope` the moment a pill gained focus, and nothing re-pushed
+it (pills weren't in the selector either), leaving Ctrl-G — and every
+other command — completely dead from there. Confirmed live that a
+pill's own native Escape only steps back to the trailing input (one
+level), different from every other type's "Ctrl-G always exits
+straight to item selection" convention — this made a special pill-only
+exit handler SEEM necessary at first, but turned out not to be: the
+existing generic handler's own synthetic Escape redispatch, once the
+scope simply stays alive, already reaches the row directly on its own
+(the pill's native "step back to input" behavior only fires for
+TRUSTED keydowns, confirmed by this redispatch reaching the row instead
+— a real, live-confirmed example of the "synthetic dispatch behaves
+differently from a trusted press" wall cutting the OTHER way for once,
+simplifying the fix rather than complicating it). Fixed with a single
+selector addition: `.multi-select-pill` added to
+`PROPERTY_ANY_VALUE_WIDGET_SELECTOR` (new constant
+`PROPERTY_MULTISELECT_PILL_SELECTOR`), no handler changes at all. Built
+red-green twice — once for a speculative special-case branch (removed
+after confirming it was unnecessary), once for the actual selector
+fix.
+
 #### `propertyNameEdit.e2e.ts`
 
 0.13.0 Feature 1, property NAME (key) editing phase: the property's own
