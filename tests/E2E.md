@@ -50,6 +50,52 @@ Located in `tests/e2e/` (wdio-obsidian-service). Run with `npm run test:e2e`.
 
 Plugin loads, commands register.
 
+#### `scopeReconciliation.e2e.ts`
+
+A real concern raised about `propertyRowScope`/`titleScope` (0.13.0
+Feature 1's own custom Scope-push mechanism): both are pushed/popped
+PURELY by `focusin`/`focusout` (see `registerWindowDomListeners`) —
+nothing anywhere forces a pop independent of that pair actually firing
+in the expected order. If a stuck scope ever sat permanently on top of
+`app.keymap`'s own window stack, EVERY hotkey (not just this plugin's
+own) would be affected — confirmed from first principles (see
+`project_property_name_edit_scope_dispatch_bug`'s own "Scope-push beats
+global command resolution; only the TOP scope is ever consulted"
+finding): a stuck custom Scope on top means the dispatcher never even
+reaches Obsidian's own global command resolution for anything that
+Scope doesn't explicitly register, since a non-`false` return defers to
+NATIVE handling directly, not to a lower scope.
+
+Live testing across five real switching scenarios — a same-leaf
+`openFile`, repeated rapid switches across widget types (text/pill/
+multi-select-input) in a loop, a REAL file-explorer click, switching
+away from a Bases cell-selection-mode view, and switching ACTIVE LEAF
+to an already-open split (never destroying the first leaf's own DOM at
+all) — could NOT reproduce a stuck scope; `focusout` fired correctly
+and popped cleanly in every one. Since a genuinely stuck scope
+requires `focusout` to NOT fire at all, which can't be forced via any
+real, browser-faithful focus change (any real focus change fires it),
+this spec tests the safety net directly instead of the exact
+real-world trigger: manually puts `propertyRowScope` into the precise
+"stuck" state (re-pushed onto the real Keymap stack and reassigned on
+the plugin instance, with `document.activeElement` already pointing
+elsewhere) and confirms `reconcileScopesWithFocus()` — wired to both
+`active-leaf-change` and `file-open` (file-open specifically covers
+opening a new file into the leaf that's ALREADY active, which
+`active-leaf-change` alone does NOT fire for, confirmed live) — pops
+and clears it.
+
+- **(1)** The stuck-scope state is cleaned up.
+- **(2)** Regression: firing `file-open` for an UNRELATED second leaf
+  does not tear down a different leaf's own genuinely-still-valid,
+  currently-focused `propertyRowScope` — confirms the reconciler
+  checks the right document/window's own `activeElement`, not a global
+  "any scope exists" check that would be too aggressive.
+
+Built red-green: temporarily removing the `active-leaf-change`/
+`file-open` listeners reproduces test (1) failing (the manually-stuck
+scope stays stuck forever), restoring them makes both pass.
+
 ### Multi-cursor
 
 #### `multiCursorHome.e2e.ts`

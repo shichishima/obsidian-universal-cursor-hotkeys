@@ -85,6 +85,7 @@ export const config: WebdriverIO.Config = {
 		'./specs/basesPropertyEditing.e2e.ts',
 		'./specs/basesCellNavigation.e2e.ts',
 		'./specs/basesRecenter.e2e.ts',
+		'./specs/scopeReconciliation.e2e.ts',
 		'./specs/titleCrossingFrontmatter.e2e.ts',
 	]],
 
