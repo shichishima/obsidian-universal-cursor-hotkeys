@@ -1228,6 +1228,29 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			if (!(e.target as HTMLElement)?.matches?.(PROPERTY_TEXT_LIKE_EDIT_SELECTOR)) return;
 			this.reclaimPropertyRowScopeAfterMutation();
 		}, true);
+		// Real gap found live: the multi-select (list/tags/aliases) trailing
+		// input's own "previously used values" suggester can push its OWN
+		// shadowing scope on top of propertyRowScope WITHOUT any 'input'
+		// event at all — simply typing a character that matches existing
+		// values is enough, and even just focusing the field already
+		// shows it for `tags` specifically if the vault has existing
+		// tags. Ctrl-N (this plugin's own cursor-down) produces no text
+		// mutation either way, so the 'input' listener above never fires
+		// for this path regardless. Reacting to 'keydown' instead — a plain DOM event
+		// Keymap's own dispatch doesn't suppress, confirmed live it still
+		// fires even while a foreign scope is on top — covers this and
+		// every other shadowing trigger uniformly, the same way the
+		// 'input' listener already covers every MUTATING trigger
+		// uniformly. The reclaim itself is still deferred by 2 frames (see
+		// reclaimPropertyRowScopeAfterMutation's own comment), so this
+		// particular keypress doesn't recover immediately — same
+		// characteristic already accepted for the 'input'-triggered case
+		// — but the very next keypress onward works correctly again.
+		this.registerDomEvent(doc, 'keydown', (e: KeyboardEvent) => {
+			if (!this.propertyRowScope) return;
+			if (!(e.target as HTMLElement)?.matches?.(PROPERTY_PANEL_SCOPE_SELECTOR)) return;
+			this.reclaimPropertyRowScopeAfterMutation();
+		}, true);
 	}
 
 	// Scans the baked hotkey table (defaults + user overrides already

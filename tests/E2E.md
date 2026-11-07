@@ -1636,6 +1636,29 @@ plugin. Built red-green (commenting out the boundary branch entirely
 reproduces the escape not happening, confirmed via the corrected
 assertion).
 
+**Test (9), same day, another direct follow-up**: a report that
+pressing Ctrl-N inside `myList`'s own trailing input (which highlights
+Obsidian's own "previously used values" suggester once it's showing)
+left Ctrl-P/N/B/F AND Ctrl-G unresponsive, recoverable only via a real
+physical Escape. Confirmed live this is the SAME scope-shadowing class
+already fixed for the text value-edit widget
+(`propertyValueEditKillYank.e2e.ts`'s own test (8)) — the suggester
+pushes its own Scope on top of `propertyRowScope` — but triggered by a
+DIFFERENT path this time: simply typing a character matching an
+EXISTING value elsewhere in the vault shows the suggester, and neither
+that keystroke nor Ctrl-N/G themselves produce any `input` event (no
+text mutation happens), so the EXISTING `'input'`-only reclaim listener
+never covered this path at all, regardless of widget type.
+
+Fixed with a parallel `'keydown'`-based reclaim trigger (same
+underlying `reclaimPropertyRowScopeAfterMutation()` as the existing
+`'input'` listener, just triggered on a broader, non-mutation-specific
+event) — covers this and every other shadowing cause uniformly, the
+same way the `'input'` listener already covers every MUTATING cause
+uniformly. Built red-green (commenting out the new listener reproduces
+Ctrl-G staying permanently stuck even after two presses; restoring it
+makes a single Ctrl-G press after the typed character work correctly).
+
 #### `propertyNameEdit.e2e.ts`
 
 0.13.0 Feature 1, property NAME (key) editing phase: the property's own
