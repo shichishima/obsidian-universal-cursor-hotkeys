@@ -15,6 +15,18 @@ import { describe, it, after } from 'mocha'
 // pushed onto the real Keymap stack, but with document.activeElement
 // already pointing somewhere unrelated) and confirms the reconciler
 // -- triggered via a real 'file-open' event -- cleans it up.
+//
+// Test (3), added later, covers a DIFFERENT (and this time, actually
+// CONFIRMED LIVE via [UCH-propscope-debug] console logging in a real
+// vault) leak mechanism: a focusin event arriving while propertyRowScope
+// is still set, before focusout for the previous target ever ran. The
+// real trigger -- Ctrl-G's own internal tagged Escape re-dispatch
+// synchronously kicking off Obsidian's own blur -> focusProperty chain
+// BEFORE the original element's focusout bubbles up to this plugin's
+// document-level listener -- could not be reproduced via browser.keys()
+// in this harness either, same category as tests (1)/(2)'s own "can't
+// force a real focus change to skip focusout" limitation. So, same
+// precedent as those two, this dispatches the focusin event directly.
 describe('Scope reconciliation safety net (propertyRowScope/titleScope)', function () {
 	const createdPaths: string[] = []
 
@@ -149,5 +161,60 @@ describe('Scope reconciliation safety net (propertyRowScope/titleScope)', functi
 		await expect(after.stillFocused).toBe(true)
 		await expect(after.hasPropertyRowScope).toBe(true)
 		await expect(after.topIsPropertyRowScope).toBe(true)
+	})
+
+	it('(3) a focusin while propertyRowScope is already set does not orphan the first scope', async function () {
+		const notePath = 'ScopeReconcileDoubleFocusin.md'
+		createdPaths.push(notePath)
+
+		await browser.executeObsidian(async ({ app }, notePath2) => {
+			app.workspace.getLeavesOfType('markdown').forEach(leaf => leaf.detach())
+			const existing = app.vault.getFileByPath(notePath2)
+			if (existing) await app.vault.delete(existing)
+			const file = await app.vault.create(notePath2, `---\ntags:\n  - existingtag\n---\nbody line\n`)
+			await app.workspace.getLeaf(true).openFile(file)
+		}, notePath)
+		await browser.pause(500)
+
+		const row = await browser.$('.metadata-property')
+		await row.click({ x: 2, y: 2 })
+		await browser.pause(150)
+
+		const result = await browser.executeObsidian(({ app }) => {
+			const plugin = (app as any).plugins.plugins['universal-cursor-hotkeys']
+			const keymap = (app as any).keymap
+			const rowEl = document.querySelector('.metadata-property') as HTMLElement
+
+			rowEl.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
+			const scope1 = plugin.propertyRowScope
+			const afterFirstPush = { scope1Exists: !!scope1, topIsScope1: keymap.getWindowStack(window).scope === scope1 }
+
+			// Force the exact leak shape: a SECOND focusin arrives while
+			// propertyRowScope is still scope1, with no focusout dispatched
+			// in between.
+			rowEl.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
+			const scope2 = plugin.propertyRowScope
+			const afterSecondPush = { scope2DiffersFromScope1: scope2 !== scope1, topIsScope2: keymap.getWindowStack(window).scope === scope2 }
+
+			// A normal focusout pops whatever propertyRowScope currently
+			// points to (scope2). If scope1 was never popped, it resurfaces
+			// as the new top once scope2 is gone.
+			rowEl.dispatchEvent(new FocusEvent('focusout', { bubbles: true }))
+			const topAfterPop = keymap.getWindowStack(window).scope
+
+			return {
+				afterFirstPush,
+				afterSecondPush,
+				scope1LeakedAsNewTop: topAfterPop === scope1,
+				pluginScopeNowNull: plugin.propertyRowScope === null,
+			}
+		})
+
+		await expect(result.afterFirstPush.scope1Exists).toBe(true)
+		await expect(result.afterFirstPush.topIsScope1).toBe(true)
+		await expect(result.afterSecondPush.scope2DiffersFromScope1).toBe(true)
+		await expect(result.afterSecondPush.topIsScope2).toBe(true)
+		await expect(result.scope1LeakedAsNewTop).toBe(false) // the actual regression check
+		await expect(result.pluginScopeNowNull).toBe(true)
 	})
 })

@@ -96,6 +96,72 @@ Built red-green: temporarily removing the `active-leaf-change`/
 `file-open` listeners reproduces test (1) failing (the manually-stuck
 scope stays stuck forever), restoring them makes both pass.
 
+**Test (3), added later — a DIFFERENT leak mechanism, this time
+CONFIRMED LIVE** (not just a theoretical concern): a real freeze was
+reported (tags row → Ctrl-F → type a character → Ctrl-G → Ctrl-G again
+→ cursor escapes to the note body, but Ctrl-PNBF and even `Cmd-,`
+(Obsidian's own global Open Settings command) stop working from there).
+Added `[UCH-propscope-debug]` console logging (DevTools-only, not
+piped to the E2E runner) and asked for a live capture from the real
+vault — the resulting log pinpointed the exact mechanism via its own
+call stack:
+
+```
+keyboard-quit firing {target: multi-select-input}
+focusin with propertyRowScope ALREADY set -- pushing without a prior pop {target: metadata-property}
+  (anonymous) @ plugin:universal-cursor-hotkeys
+  focusProperty @ app.js
+  handlePropertyBlur @ app.js
+  (anonymous) @ plugin:universal-cursor-hotkeys   <- our own tagged Escape re-dispatch
+  handleKey @ app.js
+  onKeyEvent @ app.js
+```
+
+Ctrl-G's own internal Escape re-dispatch (tagged
+`UCH_INTERNAL_ESCAPE_REDISPATCH_FLAG`, deferring to native handling) on
+the multi-select trailing input synchronously triggers Obsidian's OWN
+`blur` listener for that element (`handlePropertyBlur`), which itself
+synchronously calls `focusProperty()` to move focus to the next row —
+all BEFORE the original element's own `focusout` (which must still
+bubble all the way up to this plugin's document-level listener) ever
+gets a chance to fire. So the new row's `focusin` ran first, while
+`propertyRowScope` was still set from the input's own still-pending
+push. Pushing a second scope here orphans the first one forever in
+`app.keymap`'s own internal stack — this plugin's own
+`propertyRowScope` reference only ever points to ONE of them. When the
+row's scope eventually pops normally (the second Ctrl-G, row → body),
+that orphaned first scope resurfaces as the new top of
+`app.keymap`'s stack — with no registration for anything outside the
+Properties panel, it silently swallows every key from then on,
+including totally unrelated global commands, exactly matching the
+"ALL hotkeys dead" signature already suspected in this file's own
+tests (1)/(2) above, just via a same-leaf trigger neither
+`active-leaf-change` nor `file-open` would ever catch.
+
+Fixed with a defensive self-heal in the `focusin` handler itself: pop
+whatever `propertyRowScope` already holds BEFORE ever pushing a new
+one (same "self-heal instead of force-push a duplicate" shape
+`reclaimPropertyRowScopeAfterMutation` already uses elsewhere) — this
+doesn't need to understand WHY a `focusout` got skipped, it just
+guarantees this plugin's own bookkeeping can never end up with two
+scopes pushed under one reference, however that happens. The same
+defensive guard was also added to `titleScope`'s own `focusin` handler
+(no confirmed live occurrence there yet, but the fix is a no-op unless
+the exact same race happens, so there's no cost to applying it there
+too).
+
+The real trigger (the nested `handlePropertyBlur`/`focusProperty` call
+chain) could not be reproduced via `browser.keys()` in this harness
+either — same "can't force a real focus change to skip focusout"
+limitation as tests (1)/(2). So, same precedent as those two, test (3)
+dispatches the `focusin`/`focusout` events directly to force the exact
+leak shape deterministically: two `focusin`s on the row with no
+`focusout` in between (reproducing "push without a prior pop"), then
+one real `focusout`, checking whether the FIRST scope resurfaces as
+the new top afterward. Built red-green (commenting out the pop inside
+the self-heal reproduces the first scope resurfacing as the leaked new
+top; restoring it keeps the stack clean).
+
 ### Multi-cursor
 
 #### `multiCursorHome.e2e.ts`
