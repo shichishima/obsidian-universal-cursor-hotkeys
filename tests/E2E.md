@@ -1659,6 +1659,61 @@ uniformly. Built red-green (commenting out the new listener reproduces
 Ctrl-G staying permanently stuck even after two presses; restoring it
 makes a single Ctrl-G press after the typed character work correctly).
 
+**Test (10), same investigation, a separate gap**: `tags`' own "previously
+used values" suggester shows a popup as soon as a matching character is
+typed, but confirmed live it has ZERO keyboard navigation of its own at
+all — a real physical `ArrowDown`, this plugin's own Ctrl-N, and a real
+physical `Enter` all left its `.is-selected` class completely unchanged
+across a multi-item list, and `Enter` didn't commit the highlighted item
+either, it just inserted the literally-typed prefix as a brand-new pill
+with the suggester left open. The physical-arrow gap is an accepted
+platform limitation (same class as date/datetime's own no-op above), but
+Ctrl-N/P having no effect either was a real gap worth closing.
+
+Confirmed live before implementing: a synthetic `MouseEvent('click')`
+dispatched on a `.suggestion-item` DOES reliably complete the typed
+prefix to that item's own full value — unlike synthetic `KeyboardEvent`s
+elsewhere in this codebase, which are well-established as unreliable for
+anything Keymap-adjacent, a synthetic mouse click on this plain DOM list
+behaves exactly like a real one. Built a from-scratch keyboard-navigation
+layer on top of it: `getVisibleSuggesterItems()`/`propertyNavigateSuggester()`
+move the suggester's own `.is-selected` class between `.suggestion-item`
+siblings (Ctrl-N/P, via a new branch in `propertyMoveLineOrNoop`), clamped
+at both ends rather than wrapping — matching this plugin's boundary
+convention everywhere else, not native's own (nonexistent) behavior — and
+a new bare `scope.register([], 'Enter', ...)` directly on
+`propertyRowScope` (same precedent as the existing bare-Escape pass-
+through) commits the highlighted item via that synthetic click, passing
+Enter through untouched whenever no suggester is visible.
+
+One live-confirmed surprise baked into the test: Obsidian's own suggester
+already auto-highlights the FIRST item by default when it renders (`.is-
+selected` is already present on page load), it just ignores every
+keyboard input that would normally move it — so Ctrl-N's own first press
+moves to the SECOND item, not the first; the test's own initial assertion
+reflects this rather than assuming `.is-selected` starts absent. Built
+red-green (commenting out both the new `propertyMoveLineOrNoop` branch
+and the bare-Enter handler reproduces Ctrl-N/P and Enter all doing
+nothing to the suggester; restoring them makes navigation, boundary
+clamping, and Enter-commit all work, while Enter with no suggester
+visible stays completely ordinary native typing).
+
+**Test (11), found while using test (10)'s own feature**: navigating
+past the suggester's own visible window left the newly-highlighted item
+scrolled out of view entirely — toggling `.is-selected` alone doesn't
+auto-scroll the way a real native list's own keyboard navigation would.
+Fixed with `items[nextIndex].scrollIntoView({ block: 'nearest' })` in
+`propertyNavigateSuggester`, right after moving the class (`'nearest'`
+rather than `'center'`/`'start'` so it doesn't scroll at all once the
+item is already fully visible, matching real native list behavior).
+Seeds 15 matching values to force real overflow, then checks the
+highlighted item's own bounding rect stays within the suggester's
+scrollable window after repeated Ctrl-N (with a 1px tolerance —
+confirmed live `scrollIntoView` can leave a sub-pixel gap even when the
+item is fully, visually within view). Built red-green (commenting out
+the `scrollIntoView` call reproduces the item ending up outside the
+visible window after enough presses).
+
 #### `propertyNameEdit.e2e.ts`
 
 0.13.0 Feature 1, property NAME (key) editing phase: the property's own
@@ -1676,9 +1731,12 @@ exactly like it respects `document.getSelection()` for a
 contenteditable, including persistence to frontmatter after blur — same
 technique as the title field's own Kill/Yank.
 
-Ctrl-P/N (cursor-up/down) are deliberately NOT covered — a single-line
-field has no "up/down" meaning, matching this phase's own scope
-decision.
+Ctrl-P/N (cursor-up/down) have no "up/down" meaning on a single-line
+field by itself, matching this phase's own scope decision — EXCEPT
+while this field's own suggester is visible, where they now navigate
+it (test (14), added later alongside the same feature for the
+multi-select value-suggester — see
+`propertyOtherTypesCtrlGPnbf.e2e.ts`'s own test (10)).
 
 **A real regression was found and fixed while wiring this up, caught
 entirely by re-testing `propertyItemSelection.e2e.ts`** (3/6 tests
@@ -1764,6 +1822,25 @@ didn't exist yet when that fix shipped) — broadened to
 `PROPERTY_TEXT_LIKE_EDIT_SELECTOR` to cover both. Confirmed red before
 the fix (reverting the selector back to `PROPERTY_VALUE_EDIT_SELECTOR`
 reproduces test (13) failing) and green after.
+
+**Test (14), added later**: this field's own "previously used property
+names" suggester (`.suggestion-container.mod-property-key`) was
+confirmed live to share the exact same DOM shape and the exact same
+total absence of keyboard support as the multi-select value-
+suggester's own (see `propertyOtherTypesCtrlGPnbf.e2e.ts`'s own test
+(10) for that original investigation) — a real physical ArrowDown,
+Ctrl-N, and Enter all left it completely unresponsive. Fixed for free
+by broadening `PROPERTY_SUGGESTER_SELECTOR` to match both suggester
+types, plus widening cursor-up/down's own `valueEditSelector` to reach
+this input (via `PROPERTY_CURSOR_LR_SELECTOR`, already built for
+Ctrl-B/F) — `propertyMoveLineOrNoop`'s key-edit branch navigates the
+suggester when one is visible and stays a true no-op otherwise
+(preserving the existing scope decision above), and the SAME bare-Enter
+handler on `propertyRowScope` now also matches this input. No new
+commit mechanism needed at all, just broadening three existing
+selectors. Built red-green (reverting cursor-up/down's own selector
+back to `PROPERTY_CURSOR_PNBF_SELECTOR` reproduces Ctrl-N/P doing
+nothing to this suggester).
 
 #### `basesPropertyEditing.e2e.ts`
 
