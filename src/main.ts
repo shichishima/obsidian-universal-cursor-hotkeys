@@ -1151,6 +1151,21 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			if ((e.target as HTMLElement)?.closest?.(TITLE_SELECTOR)) {
 				console.log('[UCH-title-debug] focusin on title -> building+pushing scope', e.target);
 				try {
+					// Defensive self-heal, same shape and same confirmed-live
+					// root cause as propertyRowScope's own fix above (see
+					// project memory project_tags_scope_freeze_same_leaf):
+					// an internal Escape re-dispatch can synchronously
+					// trigger Obsidian's own blur->focus-next chain BEFORE
+					// this element's own focusout ever reaches this
+					// listener, leaking the previous scope. No confirmed
+					// live occurrence for the title specifically yet, but
+					// the fix is a no-op unless this exact race happens, so
+					// applying it here too costs nothing.
+					if (this.titleScope) {
+						console.warn('[UCH-title-debug] focusin with titleScope ALREADY set -- popping it before pushing a new one', this.titleScope);
+						this.app.keymap.popScope(this.titleScope);
+						this.titleScope = null;
+					}
 					this.titleScope = this.buildTitleScope();
 					this.app.keymap.pushScope(this.titleScope);
 					console.log('[UCH-title-debug] pushScope succeeded, titleScope=', this.titleScope);
@@ -1204,6 +1219,40 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// happen first, so ours ends up on top as intended. Item
 		// selection mode's own elements (row/heading/Add-button) don't
 		// have this race — they push synchronously, unchanged.
+		// Real freeze, caught live via [UCH-propscope-debug] (see project
+		// memory project_tags_scope_freeze_same_leaf for the full
+		// investigation): Ctrl-G's own internal Escape re-dispatch on the
+		// multi-select trailing input synchronously triggers Obsidian's
+		// OWN 'blur' listener for that element (handlePropertyBlur), which
+		// itself synchronously calls focusProperty() to move focus to the
+		// NEXT row -- all BEFORE the original element's own 'focusout'
+		// event (which must still bubble up to this document-level
+		// listener) ever gets a chance to fire. So the new row's focusin
+		// here ran first, while propertyRowScope was still set from the
+		// input's own still-pending push -- pushing a SECOND scope
+		// orphans the first one forever in app.keymap's own internal
+		// stack (our own `this.propertyRowScope` reference only ever
+		// pointed to ONE of them). When the row's scope eventually pops
+		// normally, that orphaned FIRST scope resurfaces as the new top
+		// of app.keymap's stack -- with no registration for anything
+		// outside the Properties panel, it silently swallows EVERY key,
+		// including totally unrelated global commands (confirmed live:
+		// Cmd-, stopped working too, exactly the same "ALL hotkeys dead"
+		// signature already suspected in project_scope_stuck_safety_net).
+		//
+		// Fix: pop whatever's already there FIRST, defensively, before
+		// ever pushing a new one here -- the same "self-heal instead of
+		// force-push a duplicate" shape reclaimPropertyRowScopeAfterMutation
+		// already uses. This doesn't need to understand WHY the
+		// focusout was skipped; it just guarantees our own bookkeeping
+		// can never end up with two scopes pushed under one reference,
+		// however that happens.
+		const popStaleRowScopeIfAny = () => {
+			if (!this.propertyRowScope) return;
+			console.warn('[UCH-propscope-debug] focusin with propertyRowScope ALREADY set -- popping it before pushing a new one', { existing: this.propertyRowScope });
+			this.app.keymap.popScope(this.propertyRowScope);
+			this.propertyRowScope = null;
+		};
 		this.registerDomEvent(doc, 'focusin', (e: FocusEvent) => {
 			const target = e.target as HTMLElement;
 			if (!target?.matches?.(PROPERTY_PANEL_SCOPE_SELECTOR)) return;
@@ -1211,17 +1260,23 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				requestAnimationFrameOnActiveWindow(() => {
 					requestAnimationFrameOnActiveWindow(() => {
 						if (doc.activeElement !== target) return;
+						popStaleRowScopeIfAny();
 						this.propertyRowScope = this.buildPropertyRowScope();
 						this.app.keymap.pushScope(this.propertyRowScope);
+						console.log('[UCH-propscope-debug] pushed (deferred, value-edit)', { target, scope: this.propertyRowScope });
 					});
 				});
 				return;
 			}
+			popStaleRowScopeIfAny();
 			this.propertyRowScope = this.buildPropertyRowScope();
 			this.app.keymap.pushScope(this.propertyRowScope);
+			console.log('[UCH-propscope-debug] pushed (immediate)', { target, scope: this.propertyRowScope });
 		}, true);
 		this.registerDomEvent(doc, 'focusout', (e: FocusEvent) => {
-			if (this.propertyRowScope && (e.target as HTMLElement)?.matches?.(PROPERTY_PANEL_SCOPE_SELECTOR)) {
+			const target = e.target as HTMLElement;
+			if (this.propertyRowScope && target?.matches?.(PROPERTY_PANEL_SCOPE_SELECTOR)) {
+				console.log('[UCH-propscope-debug] popped (focusout)', { target, scope: this.propertyRowScope, topBefore: (this.app as any).keymap.getWindowStack(activeWindow).scope });
 				this.app.keymap.popScope(this.propertyRowScope);
 				this.propertyRowScope = null;
 			}
@@ -1657,6 +1712,9 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// line exists to perform (a real regression, caught by
 		// propertyCtrlG.e2e.ts / propertyOtherTypesCtrlGPnbf.e2e.ts).
 		bind('keyboard-quit', 'Escape', undefined, undefined, (el) => {
+			// [UCH-propscope-debug] see focusin's own comment in
+			// registerWindowDomListeners above.
+			console.log('[UCH-propscope-debug] keyboard-quit firing', { target: el, topScope: (this.app as any).keymap.getWindowStack(activeWindow).scope, ours: this.propertyRowScope });
 			if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) {
 				this.propertyKeyKeyboardQuit(el as HTMLInputElement);
 			} else if (!el.matches(PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR)) {
@@ -1775,6 +1833,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				const keymap = (this.app as any).keymap;
 				const current = keymap.getWindowStack(activeWindow).scope;
 				if (current && current !== this.propertyRowScope) {
+					// [UCH-propscope-debug] see focusin's own comment above
+					console.log('[UCH-propscope-debug] reclaim: popping foreign scope', { foreign: current, ours: this.propertyRowScope });
 					keymap.popScope(current);
 				}
 			});
