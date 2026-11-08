@@ -2102,6 +2102,25 @@ inter-step discrepancy also appeared in the very first captured log
 in the second capture and couldn't be reproduced by automation either;
 left unexplained, most likely incidental to that one session.
 
+**Real gap found live, later follow-up**: Ctrl-N/P row navigation
+inside Bases didn't reset the `recenter-top-bottom` cycle
+(`_recenterStep`) at all — pressing it again after moving to a
+different row continued the center→top→bottom cycle from wherever it
+left off, instead of restarting at center. Root cause: cell-to-cell
+navigation reaches Bases through `bind()`'s own generic native-dispatch
+fallback (no dedicated `valueEditHandler` exists for movement there —
+same mechanism item-selection mode's own row navigation uses), which
+produces neither a CM6 transaction nor a `'mousedown'`, the two
+existing triggers that reset `_recenterStep` for the note body. Fixed
+by resetting `_recenterStep` (and `isKillChaining`) directly inside
+that shared fallback branch — not Bases-specific, the identical gap
+exists for item-selection mode's own row navigation too, since both
+share this one dispatch path, so the fix covers both for free. Built
+red-green (commenting out the reset reproduces the second `Ctrl-Shift-L`
+landing on "top" instead of "center" after a `Ctrl-N`; restoring it
+fixes it). Verified alongside `basesCellNavigation.e2e.ts`,
+`propertyItemSelection.e2e.ts`, and `recenterWithSetMark.e2e.ts`.
+
 Set-mark (Ctrl-Space) in the title field. Unlike the body's own CM6-based
 Set-mark (which needs its own anchor-tracking machinery), the title's
 native Selection already distinguishes anchor from focus on its own —

@@ -1578,6 +1578,24 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 						// tag for THOSE targets. A real regression
 						// (propertyCtrlG.e2e.ts) was caused by tagging
 						// only the other one.
+						//
+						// Real gap found live: this fallback is also how
+						// Ctrl-P/N/B/F reach a Bases table's own row/cell
+						// navigation (no dedicated valueEditHandler exists
+						// there either — see BASES_TABLE_CONTAINER_SELECTOR's
+						// own comment) and item-selection mode's own row-
+						// to-row navigation. Neither produces a CM6
+						// transaction or a 'mousedown' (the two existing
+						// triggers that reset _recenterStep for the note
+						// body), so recenter-top-bottom's own cycle kept
+						// advancing from wherever it left off instead of
+						// restarting at "center" after moving — confirmed
+						// live in Bases specifically, but the mechanism
+						// (and the fix) is identical for item-selection
+						// mode's own row navigation too, not something
+						// narrowly Bases-specific.
+						this.isKillChaining = false;
+						this._recenterStep = 0;
 						const fallbackEvt = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
 						(fallbackEvt as any)[UCH_INTERNAL_ESCAPE_REDISPATCH_FLAG] = true;
 						target.dispatchEvent(fallbackEvt);

@@ -176,4 +176,58 @@ describe('Bases table view: Ctrl-L recenter / recenter-top-bottom', function () 
 		const backToCenter = await cellTopAndClientHeight()
 		await expect(Math.abs((backToCenter.localTop ?? 0) - expectedCenter)).toBeLessThan(1)
 	})
+
+	// Real gap found live: Ctrl-N/P row navigation inside Bases goes
+	// through bind()'s own generic native-dispatch fallback (no dedicated
+	// valueEditHandler exists for cell-to-cell movement at all) -- this
+	// produces neither a CM6 transaction nor a 'mousedown', the two
+	// existing triggers that reset _recenterStep for the note body, so
+	// the cycle kept advancing from wherever it left off instead of
+	// restarting at "center" after moving to a different row. Fixed by
+	// resetting _recenterStep (and isKillChaining) inside that same
+	// fallback branch directly -- not Bases-specific, the identical gap
+	// exists for item-selection mode's own row navigation too, since both
+	// share this one dispatch path.
+	it('Ctrl-N (row navigation) resets the recenter-top-bottom cycle back to center', async function () {
+		const basePath = 'BasesRecenterCycleReset.base'
+		const notePaths = Array.from({ length: 200 }, (_, i) => `BasesRecenterCycleResetNote${i}.md`)
+		createdPaths.push(...notePaths, basePath)
+
+		await browser.executeObsidian(({ app }) => {
+			const hm = (app as any).hotkeyManager
+			hm.setHotkeys('universal-cursor-hotkeys:recenter', [])
+			hm.setHotkeys('universal-cursor-hotkeys:recenter-top-bottom', [{ modifiers: ['Ctrl', 'Shift'], key: 'L' }])
+			hm.setHotkeys('universal-cursor-hotkeys:cursor-down', [{ modifiers: ['Ctrl'], key: 'N' }])
+			hm.bake()
+		})
+		await setUpTable(notePaths, basePath)
+
+		await browser.executeObsidian(({ app }) => {
+			const leaf = app.workspace.getLeavesOfType('bases')[0]
+			const container = leaf?.view?.containerEl as HTMLElement
+			const scrollEl = container.querySelector('.bases-view') as HTMLElement
+			scrollEl.scrollTop = 100
+		})
+		await browser.pause(300)
+
+		const cellEl = await browser.$('.bases-tr:nth-of-type(5) [data-property="note.myText"]')
+		await cellEl.click()
+		await browser.pause(200)
+		await browser.keys(['Escape']) // -> cell-selection mode
+		await browser.pause(300)
+
+		await browser.keys(['Control', 'Shift', 'l']) // step 0 (center) -> queues step 1 (top) next
+		await browser.pause(200)
+		const center = await cellTopAndClientHeight()
+		const expectedCenter = (center.headerHeight ?? 0) + ((center.clientHeight ?? 0) - (center.headerHeight ?? 0)) / 2
+		await expect(Math.abs((center.localTop ?? 0) - expectedCenter)).toBeLessThan(1)
+
+		await browser.keys(['Control', 'n']) // row navigation -- should reset the cycle back to step 0
+		await browser.pause(200)
+
+		await browser.keys(['Control', 'Shift', 'l']) // if the cycle reset, this lands on "center" again, not "top"
+		await browser.pause(200)
+		const afterNav = await cellTopAndClientHeight()
+		await expect(Math.abs((afterNav.localTop ?? 0) - expectedCenter)).toBeLessThan(1)
+	})
 })
