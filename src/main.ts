@@ -1207,21 +1207,37 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		this.registerDomEvent(doc, 'focusin', (e: FocusEvent) => {
 			const target = e.target as HTMLElement;
 			if (!target?.matches?.(PROPERTY_PANEL_SCOPE_SELECTOR)) return;
+			if (this.propertyRowScope) {
+				// [UCH-propscope-debug] Temporary, added while chasing an
+				// unreproduced "sudden freeze" report around tag editing
+				// (keep until a live failure is captured, same precedent
+				// as [UCH-title-debug] — see project memory
+				// project_title_scope_intermittent_misfire /
+				// project_scope_stuck_safety_net). A focusin reaching here
+				// while propertyRowScope is ALREADY set means a push is
+				// about to happen without a matching pop having run first
+				// — the exact shape a stuck/leaked scope would have.
+				console.warn('[UCH-propscope-debug] focusin with propertyRowScope ALREADY set — pushing without a prior pop', { target, existing: this.propertyRowScope });
+			}
 			if (target.matches(PROPERTY_VALUE_EDIT_SELECTOR)) {
 				requestAnimationFrameOnActiveWindow(() => {
 					requestAnimationFrameOnActiveWindow(() => {
 						if (doc.activeElement !== target) return;
 						this.propertyRowScope = this.buildPropertyRowScope();
 						this.app.keymap.pushScope(this.propertyRowScope);
+						console.log('[UCH-propscope-debug] pushed (deferred, value-edit)', { target, scope: this.propertyRowScope });
 					});
 				});
 				return;
 			}
 			this.propertyRowScope = this.buildPropertyRowScope();
 			this.app.keymap.pushScope(this.propertyRowScope);
+			console.log('[UCH-propscope-debug] pushed (immediate)', { target, scope: this.propertyRowScope });
 		}, true);
 		this.registerDomEvent(doc, 'focusout', (e: FocusEvent) => {
-			if (this.propertyRowScope && (e.target as HTMLElement)?.matches?.(PROPERTY_PANEL_SCOPE_SELECTOR)) {
+			const target = e.target as HTMLElement;
+			if (this.propertyRowScope && target?.matches?.(PROPERTY_PANEL_SCOPE_SELECTOR)) {
+				console.log('[UCH-propscope-debug] popped (focusout)', { target, scope: this.propertyRowScope, topBefore: (this.app as any).keymap.getWindowStack(activeWindow).scope });
 				this.app.keymap.popScope(this.propertyRowScope);
 				this.propertyRowScope = null;
 			}
@@ -1657,6 +1673,9 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// line exists to perform (a real regression, caught by
 		// propertyCtrlG.e2e.ts / propertyOtherTypesCtrlGPnbf.e2e.ts).
 		bind('keyboard-quit', 'Escape', undefined, undefined, (el) => {
+			// [UCH-propscope-debug] see focusin's own comment in
+			// registerWindowDomListeners above.
+			console.log('[UCH-propscope-debug] keyboard-quit firing', { target: el, topScope: (this.app as any).keymap.getWindowStack(activeWindow).scope, ours: this.propertyRowScope });
 			if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) {
 				this.propertyKeyKeyboardQuit(el as HTMLInputElement);
 			} else if (!el.matches(PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR)) {
@@ -1775,6 +1794,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				const keymap = (this.app as any).keymap;
 				const current = keymap.getWindowStack(activeWindow).scope;
 				if (current && current !== this.propertyRowScope) {
+					// [UCH-propscope-debug] see focusin's own comment above
+					console.log('[UCH-propscope-debug] reclaim: popping foreign scope', { foreign: current, ours: this.propertyRowScope });
 					keymap.popScope(current);
 				}
 			});
