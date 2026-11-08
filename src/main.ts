@@ -1256,6 +1256,19 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		this.registerDomEvent(doc, 'focusin', (e: FocusEvent) => {
 			const target = e.target as HTMLElement;
 			if (!target?.matches?.(PROPERTY_PANEL_SCOPE_SELECTOR)) return;
+			// Real gap found live alongside the Bases/item-selection one
+			// above (see this.bind()'s own fallback-dispatch comment):
+			// moving real DOM focus INTO or OUT OF a value-edit widget
+			// (e.g. Ctrl-F entering the text widget, or Escape exiting
+			// it) never produces a CM6 transaction on the BODY's own
+			// editor (these widgets aren't CM6 at all) or a 'mousedown',
+			// so recenterTopBottomPropertyPanel's own cycle never reset
+			// on this either. Safe to reset unconditionally here — the
+			// recenter commands themselves only ever scroll, they never
+			// call .focus() on anything, so pressing Ctrl-L can never
+			// trigger this listener and self-reset its own cycle.
+			this.isKillChaining = false;
+			this._recenterStep = 0;
 			if (target.matches(PROPERTY_VALUE_EDIT_SELECTOR)) {
 				requestAnimationFrameOnActiveWindow(() => {
 					requestAnimationFrameOnActiveWindow(() => {
@@ -1561,6 +1574,25 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 						? (evt.target as HTMLElement) : null;
 					if (!target) return false;
 					if (valueEditHandler && target.matches(valueEditSelector)) {
+						// Real gap found live while adding frontmatter
+						// recenter support: a value-edit widget can be
+						// focused DIRECTLY (e.g. a click landing inside it,
+						// not on the row's own item-selection container
+						// first), in which case every subsequent command
+						// here (Ctrl-B/F, Home/End, Kill/Yank, etc.) moves
+						// the caret WITHIN an already-focused widget —
+						// no new 'focusin' ever fires, so the focusin-based
+						// reset above never sees it either. Resetting here
+						// too covers it, EXCLUDING recenter/recenter-top-
+						// bottom's own invocation specifically (both also
+						// reach this exact branch for a value-edit widget
+						// target), since otherwise recenter-top-bottom's
+						// own press would immediately undo the very step
+						// advance it's about to make.
+						if (commandId !== 'recenter' && commandId !== 'recenter-top-bottom') {
+							this.isKillChaining = false;
+							this._recenterStep = 0;
+						}
 						valueEditHandler(target);
 					} else if (headingHandler && target.matches('.metadata-properties-heading')) {
 						headingHandler(target);
@@ -1790,15 +1822,24 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// for both the title field and this widget (unlike every command
 		// above, which already existed on at least one side).
 		bind('delete-char', 'D', undefined, undefined, (el) => el.matches(PROPERTY_KEY_EDIT_SELECTOR) ? this.propertyKeyDeleteChar(el as HTMLInputElement) : this.titleDeleteChar(el), true, PROPERTY_TEXT_LIKE_EDIT_SELECTOR);
-		// Recenter / Recenter top-bottom (Ctrl-L) in a Bases table
-		// view's own cell-selection mode -- see recenterBases/
-		// recenterTopBottomBases's own comment for the full mechanism.
+		// Recenter / Recenter top-bottom (Ctrl-L), broadened from Bases-only
+		// to the ENTIRE Properties panel (row/heading/Add-button/every
+		// value-edit widget/the key-edit input) -- see
+		// recenterPropertyPanel/recenterTopBottomPropertyPanel's own
+		// comment for why this works at all: `.metadata-container` sits
+		// INSIDE the same `.cm-scroller` the note body itself scrolls
+		// (confirmed live, not assumed), so the exact same scroll
+		// primitive the body's own recenter uses applies here too, just
+		// targeting the focused property element's own rect instead of
+		// the CM6 cursor's. Internally branches to the existing
+		// recenterBases/recenterTopBottomBases for a Bases container
+		// specifically (same formula, different scroll ancestor).
 		// suppressFallback is set: there's no meaningful native
 		// behavior for Ctrl-L to delegate to here (unlike cursor-up/
 		// down/left/right above), so a bare native-dispatch fallback
 		// would risk triggering something unrelated and unintended.
-		bind('recenter', 'L', undefined, undefined, (el) => this.recenterBases(el), true, BASES_TABLE_CONTAINER_SELECTOR);
-		bind('recenter-top-bottom', 'L', undefined, undefined, (el) => this.recenterTopBottomBases(el), true, BASES_TABLE_CONTAINER_SELECTOR);
+		bind('recenter', 'L', undefined, undefined, (el) => this.recenterPropertyPanel(el), true, PROPERTY_PANEL_SCOPE_SELECTOR);
+		bind('recenter-top-bottom', 'L', undefined, undefined, (el) => this.recenterTopBottomPropertyPanel(el), true, PROPERTY_PANEL_SCOPE_SELECTOR);
 		return scope;
 	}
 
@@ -5576,6 +5617,70 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (!scrollEl) return;
 		const headerHeight = this.getBasesHeaderHeight(scrollEl);
 		this.recenterBasesScrollTo(container, headerHeight + (scrollEl.clientHeight - headerHeight) / 2);
+	}
+
+	// Ctrl-L (recenter/recenter-top-bottom), broadened from Bases-only to
+	// the rest of the Properties panel -- confirmed live via a DOM dump
+	// (not assumed) that `.metadata-container` sits INSIDE the SAME
+	// `.cm-scroller` the note body itself scrolls through (scrolling far
+	// down in the body scrolls the Properties panel out of view right
+	// along with it), unlike Bases' own separate `.bases-view` scroller.
+	// So the exact same scroll primitive this.scrollToCursorAtY uses for
+	// the body's own cursor applies here unchanged -- just targeting the
+	// currently-focused property element's own `getBoundingClientRect()`
+	// instead of the CM6 cursor's screen position. Reuses the active
+	// MarkdownView's own `editor.cm` purely as a handle on the shared
+	// `scrollDOM`/`defaultLineHeight` -- never touches its own cursor or
+	// selection, since nothing here is a CM6-driven position.
+	private recenterPropertyPanel(el: HTMLElement) {
+		if (el.matches(BASES_TABLE_CONTAINER_SELECTOR)) { this.recenterBases(el); return; }
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		const cm = view?.editor.cm;
+		if (!cm) return;
+		this.scrollElementToY(cm, el, cm.scrollDOM.clientHeight / 2);
+	}
+
+	// Cycles center → top → bottom on successive presses, sharing the
+	// SAME `_recenterStep` state as the note body's own recenterTopBottom
+	// and Bases' own recenterTopBottomBases -- a user is only ever in one
+	// context at a time, so one shared counter behaves the same as a
+	// separate per-context one would, with less code (same reasoning
+	// recenterTopBottomBases's own comment already gives for sharing with
+	// the body).
+	//
+	// Reuses RECENTER_TOP_BOTTOM_MARGIN_LINES directly rather than a
+	// third, Bases-style separate margin constant -- confirmed live a
+	// property row's own height (29px) is close enough to
+	// cm.defaultLineHeight (24px) that a dedicated constant isn't
+	// warranted the way Bases' own MUCH taller table rows needed one.
+	private recenterTopBottomPropertyPanel(el: HTMLElement) {
+		if (el.matches(BASES_TABLE_CONTAINER_SELECTOR)) { this.recenterTopBottomBases(el); return; }
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		const cm = view?.editor.cm;
+		if (!cm) return;
+		const h = cm.scrollDOM.clientHeight;
+		const margin = this.RECENTER_TOP_BOTTOM_MARGIN_LINES * cm.defaultLineHeight;
+		const targetY = this._recenterStep === 0 ? h / 2
+		              : this._recenterStep === 1 ? margin
+		              :                            h - margin - cm.defaultLineHeight;
+		this.scrollElementToY(cm, el, targetY);
+		this._recenterStep = (this._recenterStep + 1) % 3;
+	}
+
+	// Shared scroll-to-Y primitive, same formula as this.scrollToCursorAtY
+	// (docY = el's own screen top, converted to scrollDOM-local
+	// coordinates by adding back the current scrollTop and subtracting
+	// the scroller's own page-relative top) but parametrized on an
+	// arbitrary element's rect instead of the CM6 cursor's screen
+	// position -- the body's own cursor-based version is kept separate
+	// rather than unified with this one, since getCursorScreenY's own
+	// popout/table-cell fallback logic has nothing in common with a
+	// plain element rect lookup.
+	private scrollElementToY(cm: EditorView, el: HTMLElement, targetScreenY: number) {
+		const rect = el.getBoundingClientRect();
+		const scrollRect = cm.scrollDOM.getBoundingClientRect();
+		const docY = rect.top - scrollRect.top + cm.scrollDOM.scrollTop;
+		cm.scrollDOM.scrollTop = Math.max(0, docY - targetScreenY);
 	}
 
 	// Cycles center → top → bottom on successive presses, same
