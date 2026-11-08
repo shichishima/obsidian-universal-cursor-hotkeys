@@ -148,10 +148,19 @@ const PROPERTY_MULTISELECT_PILL_SELECTOR = '.multi-select-pill';
 // mod-property-value` holding `.suggestion-item` DIVs, one of which
 // carries `.is-selected` once more than one item is present — a
 // single-item list doesn't seem to mark anything as selected at all,
-// confirmed live). Scoped to `.mod-property-value` specifically, not
-// every `.suggestion-container` in Obsidian (e.g. the command palette
-// uses the same base class) — this plugin has no business touching
-// any OTHER suggester type.
+// confirmed live). Scoped to `.mod-property-value`/`.mod-property-key`
+// specifically, not every `.suggestion-container` in Obsidian (e.g. the
+// command palette uses the same base class) — this plugin has no
+// business touching any OTHER suggester type.
+//
+// `.mod-property-key` (the name/key-edit field's own "previously used
+// property names" suggester) was confirmed live to share the exact
+// same DOM shape and the exact same lack of keyboard support — a real
+// physical ArrowDown, this plugin's own Ctrl-N, and a real physical
+// Enter all left `.is-selected` unchanged, and Enter inserted the
+// literally-typed text instead of committing the highlighted item,
+// same as `.mod-property-value`. So the same from-scratch navigation
+// below covers both for free, just by broadening this one selector.
 //
 // Confirmed live this dropdown supports NO keyboard navigation
 // whatsoever, native OR otherwise: a real physical ArrowDown, this
@@ -166,7 +175,7 @@ const PROPERTY_MULTISELECT_PILL_SELECTOR = '.multi-select-pill';
 // — confirmed live a synthetic MouseEvent('click') DOES correctly
 // complete the typed prefix to the clicked item's own full value, the
 // same as a real click would).
-const PROPERTY_SUGGESTER_SELECTOR = '.suggestion-container.mod-property-value';
+const PROPERTY_SUGGESTER_SELECTOR = '.suggestion-container.mod-property-value, .suggestion-container.mod-property-key';
 const PROPERTY_SUGGESTER_ITEM_SELECTOR = '.suggestion-item';
 const PROPERTY_SUGGESTER_SELECTED_CLASS = 'is-selected';
 
@@ -187,10 +196,16 @@ const PROPERTY_CURSOR_PNBF_SELECTOR =
 	`${PROPERTY_VALUE_EDIT_SELECTOR}, ${PROPERTY_MULTISELECT_INPUT_SELECTOR}, ${PROPERTY_DATE_TYPE_SELECTOR}`;
 
 // Ctrl-B/F's own matching selector: everything Ctrl-P/N/B/F already
-// covers, PLUS the name/key-edit input — unlike Ctrl-P/N (cursor-up/
-// down), which has no sensible meaning on a single-line field at all
-// and deliberately stays scoped to PROPERTY_CURSOR_PNBF_SELECTOR only
-// (the user's own scope decision when this phase was planned).
+// covers, PLUS the name/key-edit input. Also reused as cursor-up/down's
+// own valueEditSelector (see those bind() calls below) — a plain
+// single-line field still has no sensible "move to a different visual
+// line" meaning of its own, so propertyMoveLineOrNoop's own key-edit
+// branch stays a no-op there; the only reason cursor-up/down need to
+// reach this input at all now is to navigate ITS OWN suggester
+// (PROPERTY_SUGGESTER_SELECTOR) when one happens to be open, the exact
+// same "cursor-key commands step in as suggester navigation while a
+// suggester covers the field's own normal meaning" pattern multi-select
+// already has.
 const PROPERTY_CURSOR_LR_SELECTOR =
 	`${PROPERTY_CURSOR_PNBF_SELECTOR}, ${PROPERTY_KEY_EDIT_SELECTOR}`;
 
@@ -1419,16 +1434,17 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return !target?.matches?.(PROPERTY_PANEL_FOCUS_SELECTOR);
 		});
 		// Bare Enter, scoped narrowly to ONLY the multi-select trailing
-		// input with its own suggester actually visible AND an item
-		// currently highlighted (see PROPERTY_SUGGESTER_SELECTOR's own
-		// comment for why this needs a from-scratch commit instead of
-		// delegating to any native behavior) — every other context
-		// (every other widget type, or this same input with no
-		// suggester open) passes Enter straight through untouched, same
-		// as if this plugin didn't register anything here at all. This
-		// is NOT wired through the normal hotkey/command system the way
-		// every other binding in this scope is — Enter has no modifier
-		// to distinguish it by, and this plugin's own "ships with no
+		// input or the name/key-edit input, with its own suggester
+		// actually visible AND an item currently highlighted (see
+		// PROPERTY_SUGGESTER_SELECTOR's own comment for why this needs a
+		// from-scratch commit instead of delegating to any native
+		// behavior) — every other context (every other widget type, or
+		// either of these two inputs with no suggester open) passes
+		// Enter straight through untouched, same as if this plugin
+		// didn't register anything here at all. This is NOT wired
+		// through the normal hotkey/command system the way every other
+		// binding in this scope is — Enter has no modifier to
+		// distinguish it by, and this plugin's own "ships with no
 		// default hotkeys" convention doesn't really fit a bare,
 		// unmodified key a user would almost never rebind on purpose;
 		// registering it directly here, exactly like the bare-Escape
@@ -1436,7 +1452,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// without needing a settings-exposed command for it.
 		scope.register([], 'Enter', (evt) => {
 			const target = evt.target as HTMLElement;
-			if (!target?.matches?.(PROPERTY_MULTISELECT_INPUT_SELECTOR)) return true;
+			if (!target?.matches?.(`${PROPERTY_MULTISELECT_INPUT_SELECTOR}, ${PROPERTY_KEY_EDIT_SELECTOR}`)) return true;
 			const items = this.getVisibleSuggesterItems(target);
 			const selected = items?.find(item => item.classList.contains(PROPERTY_SUGGESTER_SELECTED_CLASS));
 			if (!selected) return true;
@@ -1532,8 +1548,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// (see propertyMoveLineOrNoop's own comment — date/datetime are a
 		// confirmed, true platform wall here, no implementation is
 		// possible for them at all).
-		bind('cursor-up', 'ArrowUp', (heading) => this.propertyHeadingEscapeToTitle(heading), undefined, (el) => this.propertyMoveLineOrNoop(el, false), undefined, PROPERTY_CURSOR_PNBF_SELECTOR);
-		bind('cursor-down', 'ArrowDown', (heading) => this.propertyHeadingCtrlN(heading), (addButton) => this.propertyAddButtonEscapeToBody(addButton), (el) => this.propertyMoveLineOrNoop(el, true), undefined, PROPERTY_CURSOR_PNBF_SELECTOR);
+		bind('cursor-up', 'ArrowUp', (heading) => this.propertyHeadingEscapeToTitle(heading), undefined, (el) => this.propertyMoveLineOrNoop(el, false), undefined, PROPERTY_CURSOR_LR_SELECTOR);
+		bind('cursor-down', 'ArrowDown', (heading) => this.propertyHeadingCtrlN(heading), (addButton) => this.propertyAddButtonEscapeToBody(addButton), (el) => this.propertyMoveLineOrNoop(el, true), undefined, PROPERTY_CURSOR_LR_SELECTOR);
 		// Ctrl-B/F: in item-selection mode, every element already does the
 		// right thing with a plain native dispatch, no handler needed at
 		// all — confirmed live: the heading collapses (Left) / expands
@@ -1816,6 +1832,14 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// forward selects item 0 and backward does nothing, simplest sane
 	// behavior for a list that was never going to have anywhere else to
 	// go either way.
+	//
+	// scrollIntoView({ block: 'nearest' }) afterward — toggling the
+	// class alone doesn't auto-scroll (unlike a real native selection
+	// change), so navigating past the suggester's own visible window
+	// left the newly-highlighted item clipped out of view entirely
+	// without this. 'nearest' (not 'center'/'start') avoids scrolling at
+	// all once the item is already fully visible, matching how a real
+	// native list's own keyboard navigation behaves.
 	private propertyNavigateSuggester(items: HTMLElement[], forward: boolean) {
 		const currentIndex = items.findIndex(item => item.classList.contains(PROPERTY_SUGGESTER_SELECTED_CLASS));
 		const nextIndex = currentIndex === -1
@@ -1824,6 +1848,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (nextIndex < 0 || nextIndex >= items.length) return;
 		if (currentIndex !== -1) items[currentIndex].classList.remove(PROPERTY_SUGGESTER_SELECTED_CLASS);
 		items[nextIndex].classList.add(PROPERTY_SUGGESTER_SELECTED_CLASS);
+		items[nextIndex].scrollIntoView({ block: 'nearest' });
 	}
 
 	// Ctrl-P/N's own entry point for PROPERTY_CURSOR_PNBF_SELECTOR
@@ -1845,8 +1870,20 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// one, matching how the suggester visually COVERS the caret's own
 	// line-movement concern anyway while it's open (there is no second,
 	// independent "move within the input" need at that exact moment).
+	//
+	// The name/key-edit input gets the SAME suggester-navigation branch,
+	// but unconditionally returns either way afterward (never falls
+	// through to propertyValueEditMoveLine, which assumes a
+	// contenteditable's own Selection API — this input is a plain
+	// <input>, with no up/down meaning of its own at all, matching the
+	// existing scope decision for this field).
 	private propertyMoveLineOrNoop(el: HTMLElement, forward: boolean) {
 		if (el.matches(PROPERTY_DATE_TYPE_SELECTOR)) return;
+		if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) {
+			const items = this.getVisibleSuggesterItems(el);
+			if (items) this.propertyNavigateSuggester(items, forward);
+			return;
+		}
 		if (el.matches(PROPERTY_MULTISELECT_INPUT_SELECTOR)) {
 			const items = this.getVisibleSuggesterItems(el);
 			if (items) {

@@ -16,11 +16,16 @@ import { describe, it, after } from 'mocha'
 // frontmatter after blur -- same technique as the title field's own Kill/
 // Yank, just a different underlying selection model.
 //
-// Ctrl-P/N (cursor-up/down) are deliberately NOT covered here -- a
-// single-line field has no sensible "up/down" meaning, matching the
-// user's own scope decision for this phase (see project memory
-// project_property_other_types_ctrl_g_pnbf_scope's sibling note on this
-// phase).
+// Ctrl-P/N (cursor-up/down) have no sensible "up/down" meaning on a
+// plain single-line field by itself (a deliberate scope decision when
+// this phase was planned, see project memory
+// project_property_other_types_ctrl_g_pnbf_scope's sibling note), so
+// they stay a true no-op there -- EXCEPT while this field's own
+// "previously used property names" suggester is visible, where Ctrl-N/P
+// now navigate it and Enter commits the highlighted item (added later,
+// same mechanism as the multi-select value-suggester's own navigation --
+// see test (14) below and PROPERTY_SUGGESTER_SELECTOR's own comment in
+// src/main.ts).
 describe('Property panel: NAME (key) field editing', function () {
 	const createdPaths: string[] = []
 
@@ -229,7 +234,7 @@ first body line
 		await expect(s.value).toBe('Name')
 	})
 
-	it('(12) Ctrl-G then real Escape exits to item-selection mode, and Ctrl-N/P are untouched (no handler bound)', async function () {
+	it('(12) Ctrl-G then real Escape exits to item-selection mode', async function () {
 		await openNote('PropNameEscapeExit.md', 'myName')
 		await focusKeyInput(0)
 		await browser.keys(['Escape'])
@@ -281,5 +286,83 @@ first body line
 			return active?.classList.contains('metadata-property') ?? false
 		})
 		await expect(isRow).toBe(true) // Ctrl-G still works -- the scope wasn't left shadowed
+	})
+
+	// Separate feature, added later: this field's own "previously used
+	// property names" suggester (confirmed live to share the exact same
+	// DOM shape -- `.suggestion-container.mod-property-key` -- and the
+	// exact same lack of any native keyboard support as the multi-select
+	// value-suggester) now gets the SAME from-scratch Ctrl-N/P
+	// navigation and Enter-to-commit already shipped for that one, just
+	// by broadening PROPERTY_SUGGESTER_SELECTOR. See
+	// propertyOtherTypesCtrlGPnbf.e2e.ts's own test (10) for the
+	// original investigation this reuses.
+	it('(14) Ctrl-N/P navigate this field\'s own suggester; Enter commits the highlighted item', async function () {
+		const seedPaths = [
+			'PropNameSuggesterNavSeed0.md',
+			'PropNameSuggesterNavSeed1.md',
+			'PropNameSuggesterNavSeed2.md',
+		]
+		createdPaths.push(...seedPaths)
+		await browser.executeObsidian(async ({ app }, paths) => {
+			for (const p of paths) {
+				const existing = app.vault.getFileByPath(p)
+				if (existing) await app.vault.delete(existing)
+			}
+			await app.vault.create(paths[0], `---\ntestbeta: x\n---\nbody\n`)
+			await app.vault.create(paths[1], `---\ntestalpha: x\n---\nbody\n`)
+			await app.vault.create(paths[2], `---\ntestgamma: x\n---\nbody\n`)
+		}, seedPaths)
+
+		await openNote('PropNameSuggesterNav.md', 'myName')
+		await browser.executeObsidian(({ app }) => {
+			const hm = (app as any).hotkeyManager
+			hm.setHotkeys('universal-cursor-hotkeys:cursor-up', [{ modifiers: ['Ctrl'], key: 'P' }])
+			hm.setHotkeys('universal-cursor-hotkeys:cursor-down', [{ modifiers: ['Ctrl'], key: 'N' }])
+			hm.bake()
+		})
+
+		await focusKeyInput(0)
+		await browser.executeObsidian(({ app, obsidian }) => {
+			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+			const row = view.containerEl.querySelector('.metadata-property') as HTMLElement
+			const input = row.querySelector('.metadata-property-key-input') as HTMLInputElement
+			input.select()
+		})
+		await browser.keys(['t', 'e', 's', 't'])
+		await browser.pause(400)
+
+		const getSelected = async () => browser.executeObsidian(() => {
+			const items = Array.from(document.querySelectorAll('.suggestion-container.mod-property-key .suggestion-item'))
+			return items.find(i => i.classList.contains('is-selected'))?.textContent ?? null
+		})
+
+		await expect(await getSelected()).toBe('testbeta') // Obsidian's own suggester auto-highlights the first item, but ignores keyboard input that would normally move it
+
+		await browser.keys(['Control', 'n'])
+		await browser.pause(150)
+		await expect(await getSelected()).toBe('testalpha')
+
+		await browser.keys(['Control', 'n'])
+		await browser.pause(150)
+		await expect(await getSelected()).toBe('testgamma')
+
+		await browser.keys(['Control', 'n']) // already at the last item -- boundary clamping, not wrap-around
+		await browser.pause(150)
+		await expect(await getSelected()).toBe('testgamma')
+
+		await browser.keys(['Control', 'p'])
+		await browser.pause(150)
+		await expect(await getSelected()).toBe('testalpha')
+
+		await browser.keys(['Enter']) // commits the currently-highlighted item via a synthetic click
+		await browser.pause(300)
+
+		const afterCommit = await browser.executeObsidian(({ app, obsidian }) => {
+			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+			const row = view.containerEl.querySelector('.metadata-property') as HTMLElement
+			return { propertyKey: row.getAttribute('data-property-key') }
+		})
+		await expect(afterCommit.propertyKey).toBe('testalpha')
 	})
 })

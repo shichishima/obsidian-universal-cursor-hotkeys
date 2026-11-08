@@ -515,4 +515,64 @@ first body line
 		}, 'tags')
 		await expect(afterPlainEnter.pills).toContain('zzzzz')
 	})
+
+	// Separate gap found while using test (10)'s own feature: navigating
+	// past the suggester's own visible window left the newly-highlighted
+	// item scrolled out of view entirely -- toggling .is-selected alone
+	// doesn't auto-scroll the way a real native list's own keyboard
+	// navigation would. Fixed with items[nextIndex].scrollIntoView({
+	// block: 'nearest' }) in propertyNavigateSuggester.
+	it('(11) Ctrl-N scrolls the suggester to keep the highlighted item visible past its own window', async function () {
+		const notePath = 'PropertyOtherTypesSuggesterScroll.md'
+		const seedCount = 15
+		const seedPaths = Array.from({ length: seedCount }, (_, i) => `PropertyOtherTypesSuggesterScrollSeed${i}.md`)
+		createdPaths.push(notePath, ...seedPaths)
+
+		await browser.executeObsidian(async ({ app }, { notePath2, seedPaths2, seedCount2 }) => {
+			const hm = (app as any).hotkeyManager
+			hm.setHotkeys('universal-cursor-hotkeys:cursor-down', [{ modifiers: ['Ctrl'], key: 'N' }])
+			hm.bake()
+			app.workspace.getLeavesOfType('markdown').forEach(leaf => leaf.detach())
+			for (const p of [notePath2, ...seedPaths2]) {
+				const existing = app.vault.getFileByPath(p)
+				if (existing) await app.vault.delete(existing)
+			}
+			for (let i = 0; i < seedCount2; i++) {
+				await app.vault.create(seedPaths2[i], `---\ntags:\n  - scrolltest${String(i).padStart(2, '0')}\n---\nbody\n`)
+			}
+			const file = await app.vault.create(notePath2, `---\ntags:\n  - tagone\n---\nbody\n`)
+			await app.workspace.getLeaf(true).openFile(file)
+		}, { notePath2: notePath, seedPaths2: seedPaths, seedCount2: seedCount })
+		await browser.pause(500)
+
+		const row = await browser.$('.metadata-property')
+		await row.click({ x: 2, y: 2 })
+		await browser.keys(['Escape'])
+		await browser.pause(150)
+		await browser.keys(['Control', 'f'])
+		await browser.pause(150)
+		await browser.keys(['s', 'c', 'r', 'o', 'l', 'l', 't', 'e', 's', 't'])
+		await browser.pause(300)
+
+		for (let i = 0; i < 12; i++) {
+			await browser.keys(['Control', 'n'])
+			await browser.pause(80)
+		}
+
+		const after = await browser.executeObsidian(() => {
+			const list = document.querySelector('.suggestion-container.mod-property-value .suggestion') as HTMLElement
+			const selected = list.querySelector('.suggestion-item.is-selected') as HTMLElement | null
+			const listRect = list.getBoundingClientRect()
+			const selRect = selected?.getBoundingClientRect()
+			return {
+				selectedText: selected?.textContent,
+				// 1px tolerance for sub-pixel layout rounding (confirmed
+				// live: scrollIntoView can leave a <0.2px gap even when the
+				// item is fully, visually within the scrollable window).
+				selectedVisible: selRect ? (selRect.top >= listRect.top - 1 && selRect.bottom <= listRect.bottom + 1) : null,
+			}
+		})
+		await expect(after.selectedText).toBe('scrolltest12')
+		await expect(after.selectedVisible).toBe(true)
+	})
 })
