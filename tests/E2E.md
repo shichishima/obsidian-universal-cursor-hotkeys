@@ -2102,6 +2102,117 @@ inter-step discrepancy also appeared in the very first captured log
 in the second capture and couldn't be reproduced by automation either;
 left unexplained, most likely incidental to that one session.
 
+**Real gap found live, later follow-up**: Ctrl-N/P row navigation
+inside Bases didn't reset the `recenter-top-bottom` cycle
+(`_recenterStep`) at all — pressing it again after moving to a
+different row continued the center→top→bottom cycle from wherever it
+left off, instead of restarting at center. Root cause: cell-to-cell
+navigation reaches Bases through `bind()`'s own generic native-dispatch
+fallback (no dedicated `valueEditHandler` exists for movement there —
+same mechanism item-selection mode's own row navigation uses), which
+produces neither a CM6 transaction nor a `'mousedown'`, the two
+existing triggers that reset `_recenterStep` for the note body. Fixed
+by resetting `_recenterStep` (and `isKillChaining`) directly inside
+that shared fallback branch — not Bases-specific, the identical gap
+exists for item-selection mode's own row navigation too, since both
+share this one dispatch path, so the fix covers both for free. Built
+red-green (commenting out the reset reproduces the second `Ctrl-Shift-L`
+landing on "top" instead of "center" after a `Ctrl-N`; restoring it
+fixes it). Verified alongside `basesCellNavigation.e2e.ts`,
+`propertyItemSelection.e2e.ts`, and `recenterWithSetMark.e2e.ts`.
+
+#### `frontmatterRecenter.e2e.ts`
+
+0.13.0 Feature 1, second recenter follow-up, same day: Ctrl-L (recenter/
+recenter-top-bottom), previously wired only to the note body and Bases
+table cell-selection, now also works anywhere in the Properties panel
+(row, heading, Add-button, every value-edit widget, the key-edit
+input).
+
+Confirmed live before implementing (not assumed) that
+`.metadata-container` sits INSIDE the SAME `.cm-scroller` the note body
+itself scrolls through — scrolling far down in the body scrolls the
+Properties panel out of view right along with it, unlike Bases' own
+separate `.bases-view` scroller. So the exact same scroll primitive
+`scrollToCursorAtY` already uses for the body's own cursor applies
+here unchanged — a new `scrollElementToY(cm, el, targetScreenY)`
+shares the identical formula, just parametrized on an arbitrary
+element's own `getBoundingClientRect()` instead of the CM6 cursor's
+screen position. `recenter`/`recenter-top-bottom`'s own `bind()` calls
+were broadened from `BASES_TABLE_CONTAINER_SELECTOR`-only to
+`PROPERTY_PANEL_SCOPE_SELECTOR`, with two new handlers
+(`recenterPropertyPanel`/`recenterTopBottomPropertyPanel`) branching
+internally to the EXISTING `recenterBases`/`recenterTopBottomBases` for
+a Bases container specifically, so Bases itself needed zero changes.
+`recenter-top-bottom`'s own margin reuses
+`RECENTER_TOP_BOTTOM_MARGIN_LINES` directly rather than a third,
+Bases-style separate constant — confirmed live a property row's own
+height (29px) is close enough to `cm.defaultLineHeight` (24px) that a
+dedicated constant isn't warranted the way Bases' own much taller
+table rows needed one.
+
+Centering the FIRST property row specifically is geometrically
+unachievable in most realistic layouts — it sits too close to the very
+top of the whole document (nothing can ever be "above" frontmatter)
+for `scrollTop` to reach a true center without going negative, so it
+clamps to 0 instead (the exact same boundary behavior this plugin's
+own recenter already has for the note body near document start, and
+Bases near the start/end of its own table — confirmed live via a
+diagnostic before writing the permanent tests, not assumed). All of
+this file's own tests use a tall frontmatter block (15+ properties)
+and target its LAST row specifically, which has enough document-
+relative height above it for centering to be genuinely achievable.
+
+**A second real gap, found live while building this**: `_recenterStep`
+(the center→top→bottom cyclic counter, shared with the body and Bases)
+has three existing reset triggers for the note body (a CM6 transaction,
+a `'mousedown'`, and the Bases/item-selection fallback-dispatch fix
+from the FIRST recenter follow-up above) — but entering/exiting a
+value-edit widget via a real DOM focus change, and moving the caret
+WITHIN an already-focused widget (confirmed live: a real click can land
+focus directly inside a widget without ever touching the row's own
+item-selection container at all, so a later keypress there produces no
+focus change whatsoever), are both new paths this feature introduces
+that NONE of the existing triggers cover. Diagnosed via direct,
+temporary instrumentation (a window-global event log inside the actual
+`focusin` handler and `bind()`'s own dispatch wrapper, confirmed live,
+not assumed) after an initial test gave a confusing false reading — the
+real culprit turned out to be the TEST's own setup (a row click landing
+directly inside the value widget rather than the row's own container,
+the same kind of test-authoring pitfall already seen once before in
+this project), not a logic bug in the reset itself.
+
+Fixed with two more reset points: unconditionally at the top of the
+document-level `'focusin'` handler (covers any focus change into/out
+of a widget — safe to do unconditionally since `recenter`/
+`recenter-top-bottom` never call `.focus()` on anything themselves, so
+pressing Ctrl-L can never trigger this listener and self-reset its own
+cycle), and inside `bind()`'s own `valueEditHandler` dispatch branch
+(covers caret movement within an already-focused widget — explicitly
+EXCLUDING `recenter`/`recenter-top-bottom`'s own invocation, since both
+ALSO reach this exact branch for a widget target and would otherwise
+immediately undo their own step advance the instant they ran).
+
+- **(1)** Ctrl-L centers the focused (last) property row.
+- **(2)** Ctrl-Shift-L cycles center→top→bottom→center, same shape as
+  the body's and Bases' own cycling tests.
+- **(3)** Regression: entering a value-edit widget (Ctrl-F) or exiting
+  it back to the row (Ctrl-G) — both real focus changes — reset the
+  cycle.
+- **(4)** Regression: a second Ctrl-F pressed while ALREADY inside the
+  widget (a pure caret move, no focus change at all) also resets the
+  cycle — the specific gap the `bind()`-level fix above closes.
+
+Built red-green for both new reset points independently (commenting
+out either one reproduces its own corresponding test failing — test
+(3) for the `focusin`-level reset, test (4) for the `bind()`-level
+one — restoring each fixes its own test without affecting the other).
+Verified no regression across `basesRecenter.e2e.ts`,
+`basesCellNavigation.e2e.ts`, `basesPropertyEditing.e2e.ts`,
+`propertyItemSelection.e2e.ts`, `recenterWithSetMark.e2e.ts`,
+`propertyOtherTypesCtrlGPnbf.e2e.ts`, `propertyValueEditKillYank.e2e.ts`,
+`propertyNameEdit.e2e.ts`, and `scopeReconciliation.e2e.ts`.
+
 Set-mark (Ctrl-Space) in the title field. Unlike the body's own CM6-based
 Set-mark (which needs its own anchor-tracking machinery), the title's
 native Selection already distinguishes anchor from focus on its own —
