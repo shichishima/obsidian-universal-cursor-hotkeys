@@ -104,6 +104,7 @@ describe('Kill region (Ctrl-W) / Copy region (Alt-W) in the title field', functi
 		await expect(after.titleText).toBe('TitleRegionCopy') // unchanged — non-destructive
 		await expect(after.markActive).toBe(false)
 		await expect(after.killCache).toBe('Tit')
+		await expect(after.selectedText).toBe('') // selection collapses after copying, same as the body's own Copy region
 	})
 
 	it('(2) Kill region deletes the Set-mark selection, kills it (no chaining — overwrites), and clears the mark', async function () {

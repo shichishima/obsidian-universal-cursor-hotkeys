@@ -287,6 +287,28 @@ multi-cursor-safe helper `setMark`/`keyboardQuit` already use.
   expected with the fix line commented out (selection stayed at its
   pre-copy anchor/head), then passed once restored.
 
+**Follow-up, same day**: the user explicitly asked for the same
+collapse-after-copy behavior everywhere Alt-W exists, not just the
+outer/table-cell contexts above — title, property NAME, property VALUE,
+and Bases (which reuses the property VALUE widget's own code path).
+Fixed with the equivalent one-line collapse in each of the two remaining
+functions: `titleCopyRegion` (native Selection — `sel.collapse(sel.focusNode,
+sel.focusOffset)`, the same pattern `titleKeyboardQuit` already uses) and
+`propertyKeyCopyRegion` (an `<input>` element — `el.setSelectionRange(caret,
+caret)` via the existing `propertyKeyCaret` helper, same pattern
+`propertyKeyKeyboardQuit` already uses). `titleCopyRegion` alone covers
+title, property VALUE (text-like widgets dispatch to it directly — see
+`bind('copy-region', ...)` in `main.ts`), and Bases text cells (confirmed
+live: Bases reuses the exact same DOM class/code path as the Properties
+panel's own value widget, same precedent as `basesPropertyEditing.e2e.ts`'s
+own header comment). Added a `selectedText`/`selStart===selEnd` assertion
+to each of the 3 existing permanent copy-region tests this touches
+(`titleRegion.e2e.ts` (1), `propertyNameEdit.e2e.ts` (10),
+`propertyValueEditKillYank.e2e.ts` (3)), plus a brand-new test (7) in
+`basesPropertyEditing.e2e.ts` (Bases had no copy-region coverage at all
+before this). Red-confirmed first: all 4 failed as expected with both new
+collapse lines commented out, then passed once restored.
+
 ### Table navigation
 
 #### `exitTableSmartHome.e2e.ts`

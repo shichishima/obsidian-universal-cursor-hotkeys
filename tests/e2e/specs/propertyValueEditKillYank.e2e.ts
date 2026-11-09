@@ -159,6 +159,7 @@ first body line
 		await expect(after.valueText).toBe('hello world') // unchanged — non-destructive
 		await expect(after.markActive).toBe(false)
 		await expect(after.killCache).toBe('hello')
+		await expect(after.selectedText).toBe('') // selection collapses after copying, same as the body's own Copy region
 	})
 
 	it('(4) Ctrl-Y inserts the kill-ring content at a collapsed cursor', async function () {
