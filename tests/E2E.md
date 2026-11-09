@@ -264,6 +264,29 @@ can't truly verify.
   scenarios, matching the earlier `setMarkPageUpDown.e2e.ts` fix exactly
   — confirmed via log evidence before changing anything, per usual.
 
+#### `copyRegionSelectionCollapse.e2e.ts`
+
+Copy region (Alt-W) set `markActive = false` on copy, but never collapsed
+the CM6 selection itself, leaving the just-copied region still visually
+highlighted afterward — unlike Kill region, which always collapses as a
+side effect of deleting. Fixed with a 1-line
+`this.collapseActiveSelectionToHead(editor)` call in both `copyRegion`
+(outer) and `copyRegionInTableLP` (table cell), right after
+`markActive`/`isKillChaining` are cleared — the same already
+multi-cursor-safe helper `setMark`/`keyboardQuit` already use.
+
+- **(1) Outer, single cursor**: selection collapses to its own head;
+  text and kill-cache unaffected (non-destructive).
+- **(2) Outer, multi-cursor**: each range collapses independently to its
+  own head — confirms `collapseActiveSelectionToHead`'s existing
+  multi-cursor handling applies here too, not just a single-range case.
+- **(3) Table cell**: same collapse confirmed inside the LP table cell's
+  own inner CM6 view, a separate code path (`copyRegionInTableLP`) from
+  the outer one.
+- Red-confirmed before implementing: all three scenarios failed as
+  expected with the fix line commented out (selection stayed at its
+  pre-copy anchor/head), then passed once restored.
+
 ### Table navigation
 
 #### `exitTableSmartHome.e2e.ts`
