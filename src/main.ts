@@ -1112,13 +1112,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// dropped in favor of this simpler unconditional clear.)
 		this.registerDomEvent(doc, 'keydown', (e: KeyboardEvent) => {
 			if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'Delete') this.markActive = false;
-			if (e.key === 'Escape') {
-				const titleAtKeydown = (e.target as HTMLElement)?.closest?.(TITLE_SELECTOR);
-				console.log('[UCH-title-debug] Escape keydown: target=', e.target, 'wasInTitle=', !!titleAtKeydown, 'titleScope(before)=', this.titleScope);
-				setTimeout(() => {
-					console.log('[UCH-title-debug] Escape, 1 tick later: activeElement=', doc.activeElement, 'activeElement is title=', !!doc.activeElement?.closest?.(TITLE_SELECTOR), 'titleScope(after)=', this.titleScope);
-				}, 0);
-			}
 		});
 
 		// copy/cut/paste: same rationale as Backspace/Delete above — these
@@ -1149,34 +1142,26 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// coverage, same as everything else in this method.
 		this.registerDomEvent(doc, 'focusin', (e: FocusEvent) => {
 			if ((e.target as HTMLElement)?.closest?.(TITLE_SELECTOR)) {
-				console.log('[UCH-title-debug] focusin on title -> building+pushing scope', e.target);
-				try {
-					// Defensive self-heal, same shape and same confirmed-live
-					// root cause as propertyRowScope's own fix above (see
-					// project memory project_tags_scope_freeze_same_leaf):
-					// an internal Escape re-dispatch can synchronously
-					// trigger Obsidian's own blur->focus-next chain BEFORE
-					// this element's own focusout ever reaches this
-					// listener, leaking the previous scope. No confirmed
-					// live occurrence for the title specifically yet, but
-					// the fix is a no-op unless this exact race happens, so
-					// applying it here too costs nothing.
-					if (this.titleScope) {
-						console.warn('[UCH-title-debug] focusin with titleScope ALREADY set -- popping it before pushing a new one', this.titleScope);
-						this.app.keymap.popScope(this.titleScope);
-						this.titleScope = null;
-					}
-					this.titleScope = this.buildTitleScope();
-					this.app.keymap.pushScope(this.titleScope);
-					console.log('[UCH-title-debug] pushScope succeeded, titleScope=', this.titleScope);
-				} catch (err) {
-					console.error('[UCH-title-debug] buildTitleScope/pushScope THREW', err);
+				// Defensive self-heal, same shape and same confirmed-live
+				// root cause as propertyRowScope's own fix above (see
+				// project memory project_tags_scope_freeze_same_leaf):
+				// an internal Escape re-dispatch can synchronously
+				// trigger Obsidian's own blur->focus-next chain BEFORE
+				// this element's own focusout ever reaches this
+				// listener, leaking the previous scope. No confirmed
+				// live occurrence for the title specifically yet, but
+				// the fix is a no-op unless this exact race happens, so
+				// applying it here too costs nothing.
+				if (this.titleScope) {
+					this.app.keymap.popScope(this.titleScope);
+					this.titleScope = null;
 				}
+				this.titleScope = this.buildTitleScope();
+				this.app.keymap.pushScope(this.titleScope);
 			}
 		}, true);
 		this.registerDomEvent(doc, 'focusout', (e: FocusEvent) => {
 			if (this.titleScope && (e.target as HTMLElement)?.closest?.(TITLE_SELECTOR)) {
-				console.log('[UCH-title-debug] focusout on title -> popping scope', this.titleScope);
 				this.app.keymap.popScope(this.titleScope);
 				this.titleScope = null;
 				this.titleGoalX = null; // safety net for any exit path titleMoveLineOrEscapeToBody doesn't cover
@@ -1249,7 +1234,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// however that happens.
 		const popStaleRowScopeIfAny = () => {
 			if (!this.propertyRowScope) return;
-			console.warn('[UCH-propscope-debug] focusin with propertyRowScope ALREADY set -- popping it before pushing a new one', { existing: this.propertyRowScope });
 			this.app.keymap.popScope(this.propertyRowScope);
 			this.propertyRowScope = null;
 		};
@@ -1276,7 +1260,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 						popStaleRowScopeIfAny();
 						this.propertyRowScope = this.buildPropertyRowScope();
 						this.app.keymap.pushScope(this.propertyRowScope);
-						console.log('[UCH-propscope-debug] pushed (deferred, value-edit)', { target, scope: this.propertyRowScope });
 					});
 				});
 				return;
@@ -1284,12 +1267,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			popStaleRowScopeIfAny();
 			this.propertyRowScope = this.buildPropertyRowScope();
 			this.app.keymap.pushScope(this.propertyRowScope);
-			console.log('[UCH-propscope-debug] pushed (immediate)', { target, scope: this.propertyRowScope });
 		}, true);
 		this.registerDomEvent(doc, 'focusout', (e: FocusEvent) => {
 			const target = e.target as HTMLElement;
 			if (this.propertyRowScope && target?.matches?.(PROPERTY_PANEL_SCOPE_SELECTOR)) {
-				console.log('[UCH-propscope-debug] popped (focusout)', { target, scope: this.propertyRowScope, topBefore: (this.app as any).keymap.getWindowStack(activeWindow).scope });
 				this.app.keymap.popScope(this.propertyRowScope);
 				this.propertyRowScope = null;
 			}
@@ -1378,7 +1359,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				result.push({ modifiers: hk.modifiers ? hk.modifiers.split(',') : [], key: hk.key });
 			}
 		}
-		console.log('[UCH-title-debug] getEffectiveHotkeysFor', commandId, '->', JSON.stringify(result), 'bakedIds.length=', hm.bakedIds.length);
 		return result;
 	}
 
@@ -1394,13 +1374,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// settings UI, not kept continuously in sync by Obsidian's own
 		// runtime key dispatch — bake() must be called before reading it.
 		(this.app as any).hotkeyManager.bake();
-		console.log('[UCH-title-debug] buildTitleScope: baked, bakedIds.length=', (this.app as any).hotkeyManager.bakedIds.length);
 		const scope = new Scope();
 		const bind = (commandId: string, handler: (titleEl: HTMLElement) => void) => {
 			for (const hk of this.getEffectiveHotkeysFor(commandId)) {
-				console.log('[UCH-title-debug] registering', commandId, hk.modifiers, hk.key);
 				scope.register(hk.modifiers as Modifier[], hk.key, (evt) => {
-					console.log('[UCH-title-debug] SCOPE HANDLER FIRED for', commandId, 'target=', evt.target);
 					const title = (evt.target as HTMLElement)?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
 					if (title) handler(title);
 					return false;
@@ -1762,9 +1739,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// line exists to perform (a real regression, caught by
 		// propertyCtrlG.e2e.ts / propertyOtherTypesCtrlGPnbf.e2e.ts).
 		bind('keyboard-quit', 'Escape', undefined, undefined, (el) => {
-			// [UCH-propscope-debug] see focusin's own comment in
-			// registerWindowDomListeners above.
-			console.log('[UCH-propscope-debug] keyboard-quit firing', { target: el, topScope: (this.app as any).keymap.getWindowStack(activeWindow).scope, ours: this.propertyRowScope });
 			if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) {
 				this.propertyKeyKeyboardQuit(el as HTMLInputElement);
 			} else if (!el.matches(PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR)) {
@@ -1892,8 +1866,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				const keymap = (this.app as any).keymap;
 				const current = keymap.getWindowStack(activeWindow).scope;
 				if (current && current !== this.propertyRowScope) {
-					// [UCH-propscope-debug] see focusin's own comment above
-					console.log('[UCH-propscope-debug] reclaim: popping foreign scope', { foreign: current, ours: this.propertyRowScope });
 					keymap.popScope(current);
 				}
 			});
@@ -2845,7 +2817,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const titleStartX = titleEl.getBoundingClientRect().left;
 		const bodyLineStartX = firstLineCoords.left;
 		const adjustedX = goalX - titleStartX + bodyLineStartX;
-		console.log('[UCH-title-debug] titleMoveLineOrEscapeToBody: goalX=', goalX, 'titleGoalX=', this.titleGoalX, 'beforeRect.left=', beforeRect.left, 'titleStartX=', titleStartX, 'bodyLineStartX=', bodyLineStartX, 'adjustedX=', adjustedX);
 
 		// precise: false — confirmed live that CM6's default (precise)
 		// posAtCoords returns null outright when the point lands right at
@@ -2854,7 +2825,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// caretRangeFromPoint on the title side. false clamps to the
 		// nearest valid position instead of ever returning null.
 		const pos = cm.posAtCoords({ x: adjustedX, y: targetY }, false);
-		console.log('[UCH-title-debug] titleMoveLineOrEscapeToBody: pos=', pos, 'targetY=', targetY);
 		view.editor.focus();
 		this.titleGoalX = null; // leaving the title; the body has its own separate goal-column system
 		if (pos != null) {
@@ -2881,7 +2851,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				scrollIntoView: true,
 				userEvent: 'move',
 			});
-			console.log('[UCH-title-debug] titleMoveLineOrEscapeToBody: dispatched, goalColumnToSeed=', goalColumnToSeed, 'resulting selection.main.goalColumn=', cm.state.selection.main.goalColumn, 'cursor=', view.editor.getCursor());
 		}
 	}
 
@@ -2936,11 +2905,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		doc.execCommand('delete', false);
 
 		this.updateKillCache(killedText);
-		console.log('[UCH-title-debug] titleKillLine: killedText=', JSON.stringify(killedText), 'killCache=', JSON.stringify(this.killCache));
-		navigator.clipboard.writeText(this.killCache).then(
-			() => console.log('[UCH-title-debug] titleKillLine: clipboard.writeText succeeded'),
-			(err) => console.error('[UCH-title-debug] titleKillLine: clipboard.writeText FAILED', err),
-		);
+		navigator.clipboard.writeText(this.killCache).catch(() => {});
 		this.isKillChaining = true;
 	}
 
@@ -3820,7 +3785,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const titleScopeEl = view?.containerEl ?? doc;
 		const title = titleScopeEl.querySelector(TITLE_SELECTOR) as HTMLElement | null;
 		if (!title) return;
-		console.log('[UCH-title-debug] escapeUpToTitle: BEFORE focus() — activeElement===title?', doc.activeElement === title, 'activeElement=', doc.activeElement, 'titleScope(before)=', this.titleScope);
 
 		// The body and the title don't share the same absolute-pixel
 		// coordinate space: the body has its own line-number gutter the
@@ -3837,7 +3801,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const bodyLineStartX = cm.coordsAtPos(0)?.left;
 		const titleStartX = title.getBoundingClientRect().left;
 		const adjustedX = bodyLineStartX != null ? targetX - bodyLineStartX + titleStartX : targetX;
-		console.log('[UCH-title-debug] escapeUpToTitle: targetX=', targetX, 'bodyLineStartX=', bodyLineStartX, 'titleStartX=', titleStartX, 'adjustedX=', adjustedX);
 
 		// Seed the title's own goal-column with the ADJUSTED (title-space)
 		// X, so a Ctrl-P/N chain continuing WITHIN the title (see
@@ -3846,7 +3809,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// is used as-is from here on.
 		this.titleGoalX = adjustedX;
 		title.focus();
-		console.log('[UCH-title-debug] escapeUpToTitle: AFTER focus() — activeElement===title?', doc.activeElement === title, 'titleScope(after)=', this.titleScope, '(if this stayed the same as "before" above, focusin never fired)');
 		const titleRect = title.getBoundingClientRect();
 		const targetY = titleRect.bottom - 1; // aim at the title's last visual line
 		// Clamp to the title's own actual box: a short, unwrapped title
@@ -3860,7 +3822,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const clampedX = Math.min(Math.max(adjustedX, titleRect.left), titleRect.right - 1);
 		const range = (doc as unknown as { caretRangeFromPoint(x: number, y: number): Range | null })
 			.caretRangeFromPoint(clampedX, targetY);
-		console.log('[UCH-title-debug] escapeUpToTitle: titleRect=', JSON.stringify(titleRect), 'targetY=', targetY, 'clampedX=', clampedX, 'range=', range, 'startContainer=', range?.startContainer, 'contained=', range ? title.contains(range.startContainer) : null);
 		if (range && title.contains(range.startContainer)) {
 			const sel = doc.getSelection() as (Selection & {
 				modify(alter: string, direction: string, granularity: string): void;
@@ -3888,7 +3849,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 					sel?.modify('move', 'right', 'character');
 				}
 			}
-			console.log('[UCH-title-debug] escapeUpToTitle: landedRects=', landedRects.map(r => r.top), 'post-nudge rect=', sel?.getRangeAt(0).getClientRects()[0]);
 		}
 	}
 
