@@ -22,6 +22,10 @@ _Key combos below (Ctrl-B/F, Ctrl-A/E, and so on) are this plugin's own recommen
     - Works inside a popout window too.
   - **Bases table views:** the same commands as the frontmatter Properties panel above apply directly to a Bases table's own cells — text/checkbox/date/list cell editing, the "previously used values" suggester and its Ctrl-N/P + Enter support, and Recenter/Recenter top-bottom on the currently-selected cell all work the same way. Cell-to-cell navigation (Ctrl-P/N/B/F) moves the selected cell by row/column, the same as the physical arrow keys already do. A Bases column's own name (its header) is not editable through this plugin — Bases renames a column through its own menu, not an inline text field.
 
+### Fixed
+
+- **Copy region no longer leaves the selection highlighted afterward.** Previously, the selection stayed visually active after copying, so the very next cursor-movement keypress was wasted collapsing it instead of actually moving — now it collapses to the copied region's own end immediately, in every context this works in (the note body, a table cell, the title field, and frontmatter/Bases text values).
+
 ## [0.12.0] - 2026-10-27
 
 ### Added

@@ -44,6 +44,8 @@ describe('Bases table view: property-text-editing command parity', function () {
 			hm.setHotkeys('universal-cursor-hotkeys:kill-line', [{ modifiers: ['Ctrl'], key: 'K' }])
 			hm.setHotkeys('universal-cursor-hotkeys:yank', [{ modifiers: ['Ctrl'], key: 'Y' }])
 			hm.setHotkeys('universal-cursor-hotkeys:delete-char', [{ modifiers: ['Ctrl'], key: 'D' }])
+			hm.setHotkeys('universal-cursor-hotkeys:set-mark', [{ modifiers: ['Ctrl'], key: ' ' }])
+			hm.setHotkeys('universal-cursor-hotkeys:copy-region', [{ modifiers: ['Alt'], key: 'W' }])
 			hm.bake()
 			app.workspace.getLeavesOfType('markdown').forEach(leaf => leaf.detach())
 			app.workspace.getLeavesOfType('bases').forEach(leaf => leaf.detach())
@@ -194,5 +196,40 @@ describe('Bases table view: property-text-editing command parity', function () {
 		await expect(headerInfo.found).toBe(true)
 		await expect(headerInfo.isContentEditable).toBe(false)
 		await expect(headerInfo.tagName).toBe('DIV')
+	})
+
+	// Alt-W (Copy region) in a Bases text cell reuses titleCopyRegion
+	// exactly like the Properties panel's own text-like value widget does
+	// (same DOM class, same code path) -- so the same collapse-after-copy
+	// fix applies here for free. See copyRegionSelectionCollapse.e2e.ts
+	// for the equivalent outer/table-cell coverage.
+	it('(7) Alt-W (Copy region) copies a text cell\'s selection without mutating it, and collapses the selection', async function () {
+		await openBase('BasesCopyRegion.md', 'BasesCopyRegion.base', `---\nmyText: hello world\n---\nbody\n`, ['file.name', 'myText'])
+		await focusCell('BasesCopyRegion', 'note.myText')
+
+		await browser.keys(['Control', 'a']) // -> start
+		await browser.keys(['Control', ' ']) // set-mark
+		await browser.keys(['Control', 'f'])
+		await browser.keys(['Control', 'f'])
+		await browser.keys(['Control', 'f'])
+		await browser.keys(['Control', 'f'])
+		await browser.keys(['Control', 'f']) // selects "hello"
+		await browser.pause(150)
+
+		await browser.keys(['Alt', 'w'])
+		await browser.pause(150)
+
+		const after = await getCellState('BasesCopyRegion', 'note.myText')
+		await expect(after.text).toBe('hello world') // unchanged -- copy, not kill
+
+		const selectedText = await browser.executeObsidian(({ app }) => {
+			const leaf = app.workspace.getLeavesOfType('bases')[0]
+			const container = leaf?.view?.containerEl as HTMLElement
+			return container.ownerDocument.getSelection()!.toString()
+		})
+		await expect(selectedText).toBe('') // collapses after copying, same as the body's own Copy region
+
+		const killCache = await browser.executeObsidian(({ app }) => (app as any).plugins.plugins['universal-cursor-hotkeys'].killCache)
+		await expect(killCache).toBe('hello')
 	})
 })

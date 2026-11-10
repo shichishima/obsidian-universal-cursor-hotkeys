@@ -2239,6 +2239,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const text = el.value.slice(el.selectionStart ?? 0, el.selectionEnd ?? 0);
 		this.markActive = false;
 		this.isKillChaining = false;
+		const caret = this.propertyKeyCaret(el);
+		el.setSelectionRange(caret, caret);
 		this.updateKillCache(text);
 		navigator.clipboard.writeText(this.killCache).catch(() => {});
 	}
@@ -3079,6 +3081,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const text = sel.toString();
 		this.markActive = false;
 		this.isKillChaining = false;
+		if (sel.focusNode) sel.collapse(sel.focusNode, sel.focusOffset);
 		this.updateKillCache(text);
 		navigator.clipboard.writeText(this.killCache).catch(() => {});
 	}
@@ -7597,6 +7600,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 		this.markActive = false;
 		this.isKillChaining = false;
+		this.collapseActiveSelectionToHead(editor);
 		this.updateKillCache(texts.join('\n'));
 		navigator.clipboard.writeText(this.killCache).catch(() => {});
 	}
@@ -7619,6 +7623,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 		this.markActive = false;
 		this.isKillChaining = false;
+		this.collapseActiveSelectionToHead(editor);
 		this.updateKillCache(texts.join('\n'));
 		navigator.clipboard.writeText(this.killCache).catch(() => {});
 	}

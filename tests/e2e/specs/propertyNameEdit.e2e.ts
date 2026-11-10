@@ -220,6 +220,7 @@ first body line
 		await browser.pause(150)
 		const s = await getKeyInput()
 		await expect(s.value).toBe('myName') // unchanged -- copy, not kill
+		await expect(s.selStart).toBe(s.selEnd) // selection collapses after copying, same as the body's own Copy region
 	})
 
 	it('(11) Ctrl-W kills the active selection', async function () {
