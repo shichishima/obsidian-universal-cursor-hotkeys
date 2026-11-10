@@ -81,6 +81,8 @@ There's also Markdown-aware smart behavior built in — give Smart home and Smar
 
 **Getting started:** Open **Settings → Universal Cursor Hotkeys → macOS (Emacs) style** and click **Apply recommended** for each of the three command groups — three clicks and you're done. (Manual setup via **Settings → Hotkeys** works too.)
 
+<img width="600" height="392" alt="macOS (Emacs) style settings tab, with the Apply recommended buttons highlighted" src="https://github.com/user-attachments/assets/ac964e76-0880-473b-8871-4d85cdec4a07" />
+
 Also worth a look: turn on **Smart home (advanced)** to cleanly skip past Markdown headings, or **Smart join** if you often use Kill line on list items.
 
 **What it does:**
