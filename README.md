@@ -29,7 +29,7 @@ You don't need Vim mode or Emacs-style keybindings to benefit from this plugin.
 
 **Getting started:** Open **Settings → Universal Cursor Hotkeys → For everyone** and click **Apply all**.
 
-<img width="600" height="342" alt="For everyone settings tab, with the Apply all button highlighted" src="https://github.com/user-attachments/assets/408de3d4-d2e7-48e9-8083-719c773da77b" />
+<img width="600" height="392" alt="For everyone settings tab, with the Apply all button highlighted" src="https://github.com/user-attachments/assets/b7e1fe6b-bac9-4b29-aae2-1bc1b4b201a1" />
 
 **What it does:**
 - **↑ / ↓** — column-aware: keeps your column position across table rows instead of snapping to a cell's start.
@@ -66,9 +66,9 @@ Everything above is scoped to table cells — outside a table, Vim mode behaves 
 
 ## macOS-style (Emacs keybindings)
 
-On macOS, Ctrl+P/N/B/F move the cursor everywhere in your notes — except inside tables. Once bound to hotkeys, this plugin's commands make that movement work inside tables too.
+On macOS, Ctrl+P/N/B/F move the cursor everywhere in your notes — except inside tables, the title field, and frontmatter. Once bound to hotkeys, this plugin's commands make that movement work in all of those too.
 
-Kill & Yank and a full set of Emacs-style cursor and editing commands bring the complete workflow to macOS and Windows alike.
+Set-mark, Kill & Yank, and a full set of Emacs-style cursor and editing commands bring the complete workflow to macOS and Windows alike.
 
 There's also Markdown-aware smart behavior built in — give Smart home and Smart join a try.
 
@@ -84,8 +84,9 @@ There's also Markdown-aware smart behavior built in — give Smart home and Smar
 Also worth a look: turn on **Smart home (advanced)** to cleanly skip past Markdown headings, or **Smart join** if you often use Kill line on list items.
 
 **What it does:**
-- **Ctrl+P/N/B/F/A/E** move like physical cursor keys, even inside tables.
-- **Kill & Yank (Ctrl+K/Y)** — consecutive kills accumulate; **Kill Region (Ctrl+W)** handles table cell newlines and pipe characters automatically too.
+- **Ctrl+P/N/B/F/A/E** move like physical cursor keys, even inside tables — and now in the title field, frontmatter, and Bases table views too.
+- **Set-mark (Ctrl+Space)** — mark a point, then move the cursor to extend a real selection from it, Emacs-style; also works in the title field and frontmatter.
+- **Kill & Yank (Ctrl+K/Y)** — consecutive kills accumulate; **Kill Region (Ctrl+W)** handles table cell newlines and pipe characters automatically too; now supports multiple cursors, and also reaches the title field and frontmatter.
 - **Case conversion** (dwim-style upcase/downcase/capitalize), **Transpose chars**, **Recenter-top-bottom**, and more round out the full Emacs editing workflow.
 
 Like For everyone, these are ordinary Obsidian Commands bound to real hotkeys — visible and reassignable any time in **Settings → Hotkeys**.
