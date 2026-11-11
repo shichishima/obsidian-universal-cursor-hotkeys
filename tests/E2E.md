@@ -162,6 +162,42 @@ the new top afterward. Built red-green (commenting out the pop inside
 the self-heal reproduces the first scope resurfacing as the leaked new
 top; restoring it keeps the stack clean).
 
+**Test (4), added later — the OPPOSITE direction of the safety net was
+missing entirely.** `reconcileScopesWithFocus()` only ever handled
+"pop a scope that's stuck pushed" — never "push a scope that's
+missing even though focus already belongs to it." User-reported: a
+Ctrl-PNBF/Recenter in a Bases table embedded inside a note (via
+`![[some.base]]`) worked normally, then stopped responding entirely
+after disabling and re-enabling this plugin via the Community plugins
+toggle — with no focus change of any kind in between. Root cause,
+confirmed by reading the code (not yet the exact Settings-UI toggle
+sequence itself — `app.setting.open()` never produced a queryable
+modal in this harness): `propertyRowScope`/`titleScope` are pushed
+PURELY by a real `focusin` event firing. A fresh plugin instance
+(`onload()` running again after re-enabling) starts with both `null`,
+and since focus itself never changes across a reload, no NEW `focusin`
+ever fires to populate them — every one of this plugin's own commands
+silently does nothing until focus happens to move away and back on
+its own. Same precedent as the rest of this file's own safety net:
+shipped the fix for the confirmed GAP itself (onload never reconciling
+against whatever's already focused) rather than chasing the exact
+Settings-UI click sequence that triggers it in practice.
+
+Fixed by extending `reconcileScopesWithFocus()` itself to also push a
+missing scope (not just pop a stale one), and calling it once more, at
+the very end of `onload()`, in addition to its existing
+`active-leaf-change`/`file-open` wiring.
+
+Test (4) forces the identical end state directly: establishes a real
+`propertyRowScope` via a real `focusin`, then manually pops it and
+nulls the plugin's own reference WITHOUT any focus change at all
+(`document.activeElement` stays on the same row throughout), then
+calls `reconcileScopesWithFocus()` (deferred by its own two animation
+frames) and confirms the scope comes back and is on top again. Built
+red-green (temporarily reverting `reconcileScopesWithFocus()` to its
+old pop-only shape reproduces the scope staying gone forever; restoring
+the push-missing branch heals it).
+
 ### Multi-cursor
 
 #### `multiCursorHome.e2e.ts`

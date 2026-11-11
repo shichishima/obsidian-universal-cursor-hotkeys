@@ -217,4 +217,83 @@ describe('Scope reconciliation safety net (propertyRowScope/titleScope)', functi
 		await expect(result.scope1LeakedAsNewTop).toBe(false) // the actual regression check
 		await expect(result.pluginScopeNowNull).toBe(true)
 	})
+
+	// Real gap found live: reconcileScopesWithFocus only ever handled
+	// "pop a scope that's stuck pushed" -- never the OTHER direction
+	// ("push a scope that's missing even though focus already belongs to
+	// it"). User-reported: disabling and re-enabling this plugin (e.g.
+	// via the Community plugins toggle) while focus is ALREADY sitting on
+	// a Bases/Properties element leaves every one of this plugin's own
+	// commands (Ctrl-PNBF, Recenter, etc.) silently doing nothing there,
+	// since a fresh plugin instance starts with propertyRowScope null and
+	// no NEW focusin ever fires to populate it (focus itself never
+	// changes across the reload). Couldn't reproduce the exact Settings-
+	// UI toggle sequence in this harness (app.setting.open() never
+	// produced a queryable modal here), so this forces the identical
+	// end state directly -- propertyRowScope cleared and popped off the
+	// real Keymap stack, with document.activeElement left completely
+	// unchanged throughout, exactly matching what a reloaded plugin
+	// instance would see. onload() now calls reconcileScopesWithFocus()
+	// once at the end for exactly this reason.
+	it('(4) reconcileScopesWithFocus pushes a missing propertyRowScope back, not just pops a stale one', async function () {
+		const notePath = 'ScopeReconcileMissingPush.md'
+		createdPaths.push(notePath)
+
+		await browser.executeObsidian(async ({ app }, notePath2) => {
+			app.workspace.getLeavesOfType('markdown').forEach(leaf => leaf.detach())
+			const existing = app.vault.getFileByPath(notePath2)
+			if (existing) await app.vault.delete(existing)
+			const file = await app.vault.create(notePath2, `---\nmyText: hello\n---\nbody line\n`)
+			await app.workspace.getLeaf(true).openFile(file)
+		}, notePath)
+		await browser.pause(500)
+
+		const row = await browser.$('.metadata-property')
+		await row.click({ x: 2, y: 2 })
+		await browser.pause(150)
+
+		const result = await browser.executeObsidian(({ app }) => {
+			const plugin = (app as any).plugins.plugins['universal-cursor-hotkeys']
+			const keymap = (app as any).keymap;
+
+			// Establish a real scope via a real focusin first.
+			(document.querySelector('.metadata-property') as HTMLElement)
+				.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+			const scopeBefore = plugin.propertyRowScope;
+
+			// Simulate the exact post-reload gap: clear it WITHOUT any
+			// focus change at all -- document.activeElement stays on the
+			// same row element throughout this whole block.
+			const activeElementBefore = document.activeElement;
+			keymap.popScope(scopeBefore);
+			plugin.propertyRowScope = null;
+			const clearedWhileStillFocused = {
+				scopeIsNull: plugin.propertyRowScope === null,
+				// The whole point: NO focus change happens here, unlike
+				// every other path that pushes/pops this scope -- confirm
+				// that holds, whatever document.activeElement actually is.
+				activeElementUnchanged: document.activeElement === activeElementBefore,
+			};
+
+			plugin.reconcileScopesWithFocus();
+			return { clearedWhileStillFocused, scopeBefore: !!scopeBefore };
+		})
+		await expect(result.scopeBefore).toBe(true)
+		await expect(result.clearedWhileStillFocused.scopeIsNull).toBe(true)
+		await expect(result.clearedWhileStillFocused.activeElementUnchanged).toBe(true)
+
+		// reconcileScopesWithFocus defers by two animation frames.
+		await browser.pause(200)
+
+		const healed = await browser.executeObsidian(({ app }) => {
+			const plugin = (app as any).plugins.plugins['universal-cursor-hotkeys']
+			const keymap = (app as any).keymap
+			return {
+				scopeRestored: !!plugin.propertyRowScope,
+				topIsOurs: keymap.getWindowStack(window).scope === plugin.propertyRowScope,
+			}
+		})
+		await expect(healed.scopeRestored).toBe(true)
+		await expect(healed.topIsOurs).toBe(true)
+	})
 })

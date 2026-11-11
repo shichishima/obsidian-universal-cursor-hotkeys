@@ -1034,6 +1034,16 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}));
 
 		this.vimSupport.setup();
+
+		// Covers the plugin-reload gap documented on reconcileScopesWithFocus
+		// itself: if focus is ALREADY sitting on a Bases/Properties/title
+		// element at the moment this plugin loads (e.g. re-enabled via the
+		// Community plugins toggle while such an element was focused), no
+		// focusin ever fires to push a scope for it, since focus itself
+		// never changes. Without this call, every one of this plugin's own
+		// commands silently does nothing there until focus happens to move
+		// away and back on its own.
+		this.reconcileScopesWithFocus();
 	}
 
 	// Safety net for propertyRowScope/titleScope: both are pushed/popped
@@ -1056,6 +1066,24 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// genuinely different events). Deferred by two frames (same margin
 	// used elsewhere in this file for analogous focus-settling checks)
 	// so this doesn't act on a still-mid-transition activeElement.
+	//
+	// Also handles the OTHER direction (push a missing scope, not just
+	// pop a stale one) — see this method's own onload() call site for the
+	// concrete gap this closes: disabling and re-enabling this plugin
+	// (e.g. via the Community plugins toggle) while focus is ALREADY
+	// sitting on a Bases/Properties/title element never fires a NEW
+	// focusin at all (focus itself never changes across the reload), so
+	// a fresh plugin instance starts with propertyRowScope/titleScope
+	// both null and no event left to populate them — Ctrl-PNBF and every
+	// other command silently does nothing until focus happens to move
+	// away and back. User-reported, not yet reproduced through the
+	// Settings UI's own real toggle switch in this plugin's own E2E
+	// harness (app.setting.open() never produced a queryable modal
+	// there), but the gap itself — onload() never reconciling against
+	// whatever's already focused — is real and confirmed by reading the
+	// code alone, independent of pinning down that exact repro: same
+	// precedent as project_scope_stuck_safety_net's own original safety
+	// net, shipped defensively for the identical reason.
 	private reconcileScopesWithFocus() {
 		requestAnimationFrameOnActiveWindow(() => {
 			requestAnimationFrameOnActiveWindow(() => {
@@ -1063,10 +1091,16 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				if (this.propertyRowScope && !active?.matches?.(PROPERTY_PANEL_SCOPE_SELECTOR)) {
 					this.app.keymap.popScope(this.propertyRowScope);
 					this.propertyRowScope = null;
+				} else if (!this.propertyRowScope && active?.matches?.(PROPERTY_PANEL_SCOPE_SELECTOR)) {
+					this.propertyRowScope = this.buildPropertyRowScope();
+					this.app.keymap.pushScope(this.propertyRowScope);
 				}
 				if (this.titleScope && !active?.closest?.(TITLE_SELECTOR)) {
 					this.app.keymap.popScope(this.titleScope);
 					this.titleScope = null;
+				} else if (!this.titleScope && active?.closest?.(TITLE_SELECTOR)) {
+					this.titleScope = this.buildTitleScope();
+					this.app.keymap.pushScope(this.titleScope);
 				}
 			});
 		});
