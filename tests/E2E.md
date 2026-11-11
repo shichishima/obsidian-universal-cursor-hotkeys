@@ -198,6 +198,49 @@ red-green (temporarily reverting `reconcileScopesWithFocus()` to its
 old pop-only shape reproduces the scope staying gone forever; restoring
 the push-missing branch heals it).
 
+**Test (5), added the same day — the OTHER half of a reload was still
+broken even after fixing test (4)'s own gap.** `onunload()` never
+popped `propertyRowScope`/`titleScope` if either was pushed at the
+moment the plugin gets disabled — the Scope object (with its own
+handler closures still referencing the about-to-be-discarded instance)
+stayed physically orphaned on `app.keymap`'s real stack forever, buried
+underneath whatever a fresh reload's own `onload()` pushes on top via
+test (4)'s own fix. Works fine as long as the fresh scope STAYS on top
+— but resurfaces the moment anything pops it, now dispatching through
+a dead instance whose own bookkeeping no longer matches reality.
+User-reported symptom matched this exactly: intermittent, inconsistent
+behavior after a disable/re-enable cycle (Ctrl-P sometimes escaping the
+whole Bases table instead of moving one row, sometimes doing nothing
+at all) — exactly what two scopes silently fighting over the same
+stack position looks like from the outside.
+
+Fixed by extracting the scope-popping into its own
+`cleanupScopesOnUnload()` method (called from `onunload()`, which still
+also calls `vimSupport.teardown()`). Test (5) calls that extracted
+method directly rather than the real, full `onunload()` itself —
+confirmed live that invoking the real `onunload()` in this harness
+destabilizes the WebDriver session entirely (`vimSupport.teardown()`'s
+own side effects, unrelated to scope bookkeeping, aren't safe to
+exercise this way) — but it's still the actual code path under test,
+not a reimplementation of it.
+
+A real false-negative was caught while building this test: an initial
+version compared stack DEPTH before/after (same shape as test (4)'s own
+assertions) rather than scope OBJECT IDENTITY — in the still-broken
+state, `reconcileScopesWithFocus()`'s own push-if-missing branch never
+fires at all (since `this.propertyRowScope` still truthily points at
+the orphaned scope, never nulled), so no second scope ever gets pushed
+— meaning the test's own final cleanup step ends up popping the
+ORIGINAL orphaned scope directly, coincidentally landing at the exact
+same final depth as the genuinely-fixed case and masking the bug
+entirely. Rewritten to track the scope's own object reference across
+calls instead (stashed on `window` to survive separate
+`executeObsidian` calls) and assert both that a NEW scope object was
+actually pushed (`!== scopeA`) and that the old one is gone from every
+level of the real stack (`stack.scope`+`stack.prevScopes`), not just
+"depth returned to some number." Built red-green with this corrected
+version.
+
 ### Multi-cursor
 
 #### `multiCursorHome.e2e.ts`

@@ -3143,6 +3143,45 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	onunload() {
 		this.vimSupport.teardown();
+		this.cleanupScopesOnUnload();
+	}
+
+	// Real gap found live: nothing ever popped propertyRowScope/titleScope
+	// if either was currently pushed at the moment this plugin gets
+	// disabled (e.g. via the Community plugins toggle). Left unpopped,
+	// the Scope object -- with its own handler closures still
+	// referencing THIS (about to be discarded) instance -- stays
+	// physically on app.keymap's real stack forever; Obsidian's own
+	// Keymap has no way to know it should be removed just because the
+	// plugin that pushed it unloaded. A freshly re-enabled instance's
+	// own onload() (see reconcileScopesWithFocus's own onload call site)
+	// pushes a NEW, correctly-wired scope on top, which works fine as
+	// long as it STAYS on top -- but the orphaned old one is still
+	// buried underneath, and resurfaces the moment anything pops the
+	// new one, now dispatching through a dead instance whose own
+	// propertyRowScope/titleScope bookkeeping no longer matches reality
+	// at all. Matches a real, user-reported symptom: intermittent,
+	// inconsistent behavior after a disable/re-enable cycle (Ctrl-P
+	// sometimes escaping the whole Bases table instead of moving one
+	// row, sometimes doing nothing at all) -- exactly what two scopes
+	// silently fighting over the same stack position would look like
+	// from the outside.
+	//
+	// Pulled out of onunload() itself (rather than inlined there) so
+	// scopeReconciliation.e2e.ts's own test (5) can exercise this exact
+	// real code path directly, without also invoking vimSupport's own
+	// teardown() -- confirmed live that calling the real, full
+	// onunload() destabilizes this harness's own WebDriver session
+	// entirely (unrelated side effects, not safe to exercise this way).
+	private cleanupScopesOnUnload() {
+		if (this.propertyRowScope) {
+			this.app.keymap.popScope(this.propertyRowScope);
+			this.propertyRowScope = null;
+		}
+		if (this.titleScope) {
+			this.app.keymap.popScope(this.titleScope);
+			this.titleScope = null;
+		}
 	}
 
 
