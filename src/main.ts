@@ -117,8 +117,27 @@ const PROPERTY_KEY_EDIT_SELECTOR = '.metadata-property-key-input';
 // until a real user report ("numberでCtrl-Gが効かない") caught the
 // gap — confirmed live the same manual-Escape-dispatch mechanism
 // already proven for the other three works identically here too.
+// Root cause of a real, user-reported "Ctrl-PNBF stops working after
+// disabling/re-enabling the plugin" bug (2026-11-12): this selector
+// matched by bare `type` attribute alone, with no class scoping at all
+// -- unlike every other selector in this file. Obsidian's own generic
+// Setting-API toggle switch (used for the Community plugins enable/
+// disable switch itself, and for every other boolean setting across
+// the whole app, including other plugins' own settings tabs) is also
+// a plain `<input type="checkbox">` with no distinguishing class.
+// Confirmed live via [UCH-reload-diag]: clicking that exact toggle to
+// re-enable this plugin leaves IT focused, `reconcileScopesWithFocus()`
+// (run at the end of onload()) sees it, matches it against this
+// selector, and wrongly pushes propertyRowScope for it -- which then
+// sits on top of the real stack swallowing keys (Ctrl-F included) that
+// should have reached whatever's genuinely focused instead. Scoped to
+// each property-specific class instead (confirmed in Obsidian's own
+// app.js: `metadata-input-checkbox`, `metadata-input-text.mod-date`,
+// `metadata-input-text.mod-datetime`, `metadata-input-number`) so a
+// same-typed input anywhere outside the metadata/Bases editor can never
+// match this again.
 const PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR =
-	'input[type="checkbox"], input[type="date"], input[type="datetime-local"], input[type="number"]';
+	'input.metadata-input-checkbox, input.metadata-input-text.mod-date, input.metadata-input-text.mod-datetime, input.metadata-input-number';
 
 // multitext/tags/aliases all share this one trailing, currently-being-
 // composed chip (a real contenteditable DIV) — confirmed live it DOES
@@ -1109,10 +1128,32 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// See onload's own call site for why this exists per-window rather than
 	// being called once for activeDocument alone.
 	private registerWindowDomListeners(doc: Document) {
+		// Extra, defensive reconcileScopesWithFocus() trigger, alongside
+		// active-leaf-change/file-open/onload's own call sites: confirmed
+		// live (2026-11-12) that after a disable/re-enable cycle, a real
+		// click INTO the title can land real DOM focus there (confirmed
+		// via document.activeElement) without this plugin's own focusin
+		// listener ever running for that click -- console logging showed
+		// the listener fires correctly for the very next unrelated
+		// focusin (e.g. clicking some other element), then never again
+		// for any further focusin at all, title or body alike, for the
+		// rest of that session. The exact mechanism wasn't pinned down
+		// (no other plugin was involved, and the two other real
+		// 'focusin' listeners on this same document — both genuinely
+		// Obsidian's own core, confirmed by reading their source via
+		// getEventListeners — looked unrelated), but manually calling
+		// reconcileScopesWithFocus() from the console immediately fixed
+		// it, confirming the scope-building logic itself was never the
+		// problem, only this listener's reliability after a reload.
+		// Piggybacking onto this existing mousedown listener (already
+		// firing on every real click for unrelated reasons) gives a
+		// second, independent path to the same self-healing check,
+		// cheap enough to run unconditionally.
 		this.registerDomEvent(doc, 'mousedown', () => {
 			this.isKillChaining = false;
 			this._recenterStep = 0;
-		});
+			this.reconcileScopesWithFocus();
+		}, true);
 
 		// A bare-ESC Key Upgrade (app.hotkeyManager.setHotkeys claiming the
 		// key globally) was tried and reverted (2026-10-17): it broke
@@ -1408,7 +1449,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// settings UI, not kept continuously in sync by Obsidian's own
 		// runtime key dispatch — bake() must be called before reading it.
 		(this.app as any).hotkeyManager.bake();
-		const scope = new Scope();
+		// See buildPropertyRowScope's own comment on this same pattern --
+		// without a parent, any key not explicitly registered here
+		// dead-ends instead of reaching Obsidian's global command hotkeys.
+		const scope = new Scope((this.app.keymap as any).getRootScope());
 		const bind = (commandId: string, handler: (titleEl: HTMLElement) => void) => {
 			for (const hk of this.getEffectiveHotkeysFor(commandId)) {
 				scope.register(hk.modifiers as Modifier[], hk.key, (evt) => {
@@ -1461,7 +1505,20 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// (propertyHeadingEscapeToTitle) rather than a plain dispatch.
 	private buildPropertyRowScope(): Scope {
 		(this.app as any).hotkeyManager.bake();
-		const scope = new Scope();
+		// Scope.handleKey only climbs to its OWN constructor-provided
+		// `parent` on an unmatched key (confirmed by reading Obsidian's
+		// own app.js) -- this is a completely separate chain from
+		// pushScope/popScope's own prevScopes stack. Without passing
+		// getRootScope() here, every key this scope doesn't explicitly
+		// register (e.g. a user's own global command hotkey like Cmd-,
+		// for Open Settings) dead-ends at `undefined` the moment this
+		// scope is the active one, instead of reaching Obsidian's own
+		// global command-hotkey resolution at all. getRootScope() isn't
+		// in obsidian.d.ts (same undocumented-internals tier as the
+		// hotkeyManager access above), but is the real fix, not a
+		// workaround -- it's the actual mechanism Scope ships with for
+		// exactly this situation.
+		const scope = new Scope((this.app.keymap as any).getRootScope());
 		// Unconditional bare-Escape pass-through, registered regardless of
 		// whether 'keyboard-quit' itself has any configured hotkey —
 		// without this, merely having propertyRowScope pushed (for ANY
