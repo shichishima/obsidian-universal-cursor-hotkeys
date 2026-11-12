@@ -1904,6 +1904,21 @@ item is fully, visually within view). Built red-green (commenting out
 the `scrollIntoView` call reproduces the item ending up outside the
 visible window after enough presses).
 
+**Test (12), found live 2026-11-12, well after this whole feature's own
+CHANGELOG entry was written**: a plain TEXT value's own "previously
+used values" suggester shares the identical
+`PROPERTY_SUGGESTER_SELECTOR` markup as multi-select's, but
+`propertyMoveLineOrNoop`'s own suggester-navigation branch and the bare
+`Enter` commit handler only ever checked for
+`PROPERTY_MULTISELECT_INPUT_SELECTOR`/`PROPERTY_KEY_EDIT_SELECTOR` — a
+plain text value fell straight through to normal line movement
+instead. Not a regression from anything in this session; the
+CHANGELOG's own wording ("a list/tags/aliases value, or a new property
+name") never claimed text in the first place. Fixed by adding
+`PROPERTY_VALUE_EDIT_SELECTOR` to both checks. Same shape as test (10),
+entering the widget via Ctrl-F instead of a pill/trailing input, and
+checking the committed value directly rather than a pill list.
+
 #### `propertyNameEdit.e2e.ts`
 
 0.13.0 Feature 1, property NAME (key) editing phase: the property's own

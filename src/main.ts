@@ -1581,25 +1581,25 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return !target?.matches?.(PROPERTY_PANEL_FOCUS_SELECTOR);
 		});
 		// Bare Enter, scoped narrowly to ONLY the multi-select trailing
-		// input or the name/key-edit input, with its own suggester
-		// actually visible AND an item currently highlighted (see
-		// PROPERTY_SUGGESTER_SELECTOR's own comment for why this needs a
-		// from-scratch commit instead of delegating to any native
+		// input, the name/key-edit input, or a plain TEXT value, with its
+		// own suggester actually visible AND an item currently highlighted
+		// (see PROPERTY_SUGGESTER_SELECTOR's own comment for why this
+		// needs a from-scratch commit instead of delegating to any native
 		// behavior) — every other context (every other widget type, or
-		// either of these two inputs with no suggester open) passes
-		// Enter straight through untouched, same as if this plugin
-		// didn't register anything here at all. This is NOT wired
-		// through the normal hotkey/command system the way every other
-		// binding in this scope is — Enter has no modifier to
-		// distinguish it by, and this plugin's own "ships with no
-		// default hotkeys" convention doesn't really fit a bare,
-		// unmodified key a user would almost never rebind on purpose;
-		// registering it directly here, exactly like the bare-Escape
-		// pass-through just above, keeps it active unconditionally
-		// without needing a settings-exposed command for it.
+		// any of these three with no suggester open) passes Enter
+		// straight through untouched, same as if this plugin didn't
+		// register anything here at all. This is NOT wired through the
+		// normal hotkey/command system the way every other binding in
+		// this scope is — Enter has no modifier to distinguish it by,
+		// and this plugin's own "ships with no default hotkeys"
+		// convention doesn't really fit a bare, unmodified key a user
+		// would almost never rebind on purpose; registering it directly
+		// here, exactly like the bare-Escape pass-through just above,
+		// keeps it active unconditionally without needing a
+		// settings-exposed command for it.
 		scope.register([], 'Enter', (evt) => {
 			const target = evt.target as HTMLElement;
-			if (!target?.matches?.(`${PROPERTY_MULTISELECT_INPUT_SELECTOR}, ${PROPERTY_KEY_EDIT_SELECTOR}`)) return true;
+			if (!target?.matches?.(`${PROPERTY_MULTISELECT_INPUT_SELECTOR}, ${PROPERTY_KEY_EDIT_SELECTOR}, ${PROPERTY_VALUE_EDIT_SELECTOR}`)) return true;
 			const items = this.getVisibleSuggesterItems(target);
 			const selected = items?.find(item => item.classList.contains(PROPERTY_SUGGESTER_SELECTED_CLASS));
 			if (!selected) return true;
@@ -2085,6 +2085,13 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// one, matching how the suggester visually COVERS the caret's own
 	// line-movement concern anyway while it's open (there is no second,
 	// independent "move within the input" need at that exact moment).
+	// A plain TEXT value gets the exact same branch, for the same
+	// reason — its own "previously used values" suggester shares the
+	// identical PROPERTY_SUGGESTER_SELECTOR markup (confirmed live), but
+	// was missed when this was first wired up (the CHANGELOG entry only
+	// ever named "a list/tags/aliases value, or a new property name" —
+	// text's own suggester just never got the same treatment at the
+	// time, not a deliberate exclusion).
 	//
 	// The name/key-edit input gets the SAME suggester-navigation branch,
 	// but unconditionally returns either way afterward (never falls
@@ -2099,7 +2106,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			if (items) this.propertyNavigateSuggester(items, forward);
 			return;
 		}
-		if (el.matches(PROPERTY_MULTISELECT_INPUT_SELECTOR)) {
+		if (el.matches(`${PROPERTY_MULTISELECT_INPUT_SELECTOR}, ${PROPERTY_VALUE_EDIT_SELECTOR}`)) {
 			const items = this.getVisibleSuggesterItems(el);
 			if (items) {
 				this.propertyNavigateSuggester(items, forward);

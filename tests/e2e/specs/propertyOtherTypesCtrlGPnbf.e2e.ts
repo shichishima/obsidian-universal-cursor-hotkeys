@@ -575,4 +575,99 @@ first body line
 		await expect(after.selectedText).toBe('scrolltest12')
 		await expect(after.selectedVisible).toBe(true)
 	})
+
+	// 2026-11-12: a plain TEXT value's own "previously used values"
+	// suggester shares the identical PROPERTY_SUGGESTER_SELECTOR markup
+	// as multi-select's (confirmed live) but was missed when test (10)
+	// above was first written -- the CHANGELOG entry only ever named "a
+	// list/tags/aliases value, or a new property name," not text. Same
+	// shape as test (10), just entering the widget via Ctrl-F (text's
+	// own value-edit widget, not a multi-select pill/trailing input) and
+	// checking the committed VALUE directly rather than a pill list.
+	it('(12) Ctrl-N/P navigate a plain TEXT value\'s own suggester; Enter commits the highlighted item', async function () {
+		const notePath = 'PropertyOtherTypesTextSuggesterNav.md'
+		const seedPaths = [
+			'PropertyOtherTypesTextSuggesterNavSeed0.md',
+			'PropertyOtherTypesTextSuggesterNavSeed1.md',
+			'PropertyOtherTypesTextSuggesterNavSeed2.md',
+		]
+		createdPaths.push(notePath, ...seedPaths)
+
+		await browser.executeObsidian(async ({ app }, { notePath2, seedPaths2 }) => {
+			const hm = (app as any).hotkeyManager
+			hm.setHotkeys('universal-cursor-hotkeys:cursor-up', [{ modifiers: ['Ctrl'], key: 'P' }])
+			hm.setHotkeys('universal-cursor-hotkeys:cursor-down', [{ modifiers: ['Ctrl'], key: 'N' }])
+			hm.bake()
+			app.workspace.getLeavesOfType('markdown').forEach(leaf => leaf.detach())
+			for (const p of [notePath2, ...seedPaths2]) {
+				const existing = app.vault.getFileByPath(p)
+				if (existing) await app.vault.delete(existing)
+			}
+			// Seed 3 existing text values sharing a common prefix so the
+			// suggester has a genuine multi-item list to navigate.
+			await app.vault.create(seedPaths2[0], `---\nmyText: testbeta\n---\nbody\n`)
+			await app.vault.create(seedPaths2[1], `---\nmyText: testalpha\n---\nbody\n`)
+			await app.vault.create(seedPaths2[2], `---\nmyText: testgamma\n---\nbody\n`)
+			const file = await app.vault.create(notePath2, `---\nmyText: ""\n---\nbody\n`)
+			await app.workspace.getLeaf(true).openFile(file)
+		}, { notePath2: notePath, seedPaths2: seedPaths })
+		await browser.pause(500)
+
+		const row = await browser.$('.metadata-property')
+		await row.click({ x: 2, y: 2 })
+		await browser.keys(['Control', 'f'])
+		await browser.pause(150)
+		await browser.keys(['t', 'e', 's', 't']) // matches testalpha/testbeta/testgamma -- triggers the suggester
+		await browser.pause(300)
+
+		const getSelected = async () => browser.executeObsidian(() => {
+			const items = Array.from(document.querySelectorAll('.suggestion-container.mod-property-value .suggestion-item'))
+			return {
+				count: items.length,
+				selectedText: items.find(item => item.classList.contains('is-selected'))?.textContent ?? null,
+			}
+		})
+
+		const initial = await getSelected()
+		await expect(initial.count).toBe(3)
+		await expect(initial.selectedText).toBe('testbeta') // Obsidian's own suggester auto-highlights the first item by default
+
+		await browser.keys(['Control', 'n'])
+		await browser.pause(150)
+		await expect((await getSelected()).selectedText).toBe('testalpha')
+
+		await browser.keys(['Control', 'n'])
+		await browser.pause(150)
+		await expect((await getSelected()).selectedText).toBe('testgamma')
+
+		await browser.keys(['Control', 'n']) // already at the last item -- confirms boundary clamping, not wrap-around
+		await browser.pause(150)
+		await expect((await getSelected()).selectedText).toBe('testgamma')
+
+		await browser.keys(['Control', 'p'])
+		await browser.pause(150)
+		await expect((await getSelected()).selectedText).toBe('testalpha')
+
+		await browser.keys(['Enter']) // commits the currently-highlighted item via a synthetic click
+		await browser.pause(300)
+
+		const committed = await browser.executeObsidian(({ app, obsidian }, propertyKey) => {
+			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+			const row = view.containerEl.querySelector(`.metadata-property[data-property-key="${propertyKey}"]`) as HTMLElement
+			const value = row.querySelector('.metadata-input-longtext') as HTMLElement
+			return { text: value.textContent }
+		}, 'mytext')
+		await expect(committed.text).toBe('testalpha') // the typed "test" prefix completed to the clicked item's own full value
+
+		// Regression: Enter with no suggester visible is completely
+		// untouched native behavior, not swallowed by the new bare-Enter
+		// handler's extended selector.
+		await browser.keys(['Control', 'a']) // select-all within the widget, so typing below replaces it
+		await browser.keys(['z', 'z', 'z', 'z', 'z']) // doesn't match any existing value -- no suggester
+		await browser.pause(300)
+		const noSuggester = await browser.executeObsidian(() => ({
+			suggesterVisible: !!document.querySelector('.suggestion-container'),
+		}))
+		await expect(noSuggester.suggesterVisible).toBe(false)
+	})
 })
