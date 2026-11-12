@@ -1039,15 +1039,26 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// main window, and again for every popout as it opens (confirmed
 		// live via a dedicated E2E_POPOUT suite pass: without the
 		// 'window-open' half, a popout's own native copy/cut/paste/
-		// Backspace/Delete/Escape never reached these listeners at all,
-		// since registerDomEvent(activeDocument, ...) binds to whichever
-		// document is active at the moment it's called — permanently the
-		// main window's own document, since no popout exists yet when
-		// onload runs. No symmetric 'window-close' teardown needed:
-		// registerDomEvent's own cleanup is tied to this plugin's
-		// lifecycle, not the window's, and a closed popout's listeners
-		// simply stop firing once its document is gone.
-		this.registerWindowDomListeners(activeDocument);
+		// Backspace/Delete/Escape never reached these listeners at all).
+		//
+		// Deliberately the bare global `document`, NOT `activeDocument`,
+		// for this first call -- confirmed live (2026-11-12) this is a
+		// real, user-reported, multi-machine/multi-version bug, not an
+		// edge case: `activeDocument` resolves to "whichever window is
+		// currently active" at the moment it's READ, and if this plugin
+		// gets enabled from the Community plugins toggle in Settings
+		// (Settings has its own, separate document from Obsidian's own
+		// perspective), `activeDocument` at this exact point in onload()
+		// resolves to THAT document, not the main workspace one --
+		// confirmed via a raw, unwrapped addEventListener placed directly
+		// on the value this used to receive, which never once fired for
+		// a real click in the actual workspace afterward. Since this
+		// plugin's own module always executes in the main window's JS
+		// realm regardless of which window Obsidian considers "active"
+		// at any instant, the bare `document`/`window` globals are
+		// always correct here -- only a genuine POPOUT (window-open,
+		// below) actually needs its own, dynamically-obtained document.
+		this.registerWindowDomListeners(document);
 		this.registerEvent(this.app.workspace.on('window-open', (_, win) => {
 			this.registerWindowDomListeners(win.document);
 		}));
@@ -1126,7 +1137,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 	// See onload's own call site for why this exists per-window rather than
-	// being called once for activeDocument alone.
+	// being called once for the main window's document alone.
 	private registerWindowDomListeners(doc: Document) {
 		// Extra, defensive reconcileScopesWithFocus() trigger, alongside
 		// active-leaf-change/file-open/onload's own call sites: confirmed
