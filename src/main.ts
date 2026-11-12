@@ -117,8 +117,27 @@ const PROPERTY_KEY_EDIT_SELECTOR = '.metadata-property-key-input';
 // until a real user report ("numberでCtrl-Gが効かない") caught the
 // gap — confirmed live the same manual-Escape-dispatch mechanism
 // already proven for the other three works identically here too.
+// Root cause of a real, user-reported "Ctrl-PNBF stops working after
+// disabling/re-enabling the plugin" bug (2026-11-12): this selector
+// matched by bare `type` attribute alone, with no class scoping at all
+// -- unlike every other selector in this file. Obsidian's own generic
+// Setting-API toggle switch (used for the Community plugins enable/
+// disable switch itself, and for every other boolean setting across
+// the whole app, including other plugins' own settings tabs) is also
+// a plain `<input type="checkbox">` with no distinguishing class.
+// Confirmed live via [UCH-reload-diag]: clicking that exact toggle to
+// re-enable this plugin leaves IT focused, `reconcileScopesWithFocus()`
+// (run at the end of onload()) sees it, matches it against this
+// selector, and wrongly pushes propertyRowScope for it -- which then
+// sits on top of the real stack swallowing keys (Ctrl-F included) that
+// should have reached whatever's genuinely focused instead. Scoped to
+// each property-specific class instead (confirmed in Obsidian's own
+// app.js: `metadata-input-checkbox`, `metadata-input-text.mod-date`,
+// `metadata-input-text.mod-datetime`, `metadata-input-number`) so a
+// same-typed input anywhere outside the metadata/Bases editor can never
+// match this again.
 const PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR =
-	'input[type="checkbox"], input[type="date"], input[type="datetime-local"], input[type="number"]';
+	'input.metadata-input-checkbox, input.metadata-input-text.mod-date, input.metadata-input-text.mod-datetime, input.metadata-input-number';
 
 // multitext/tags/aliases all share this one trailing, currently-being-
 // composed chip (a real contenteditable DIV) — confirmed live it DOES
@@ -1020,20 +1039,41 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// main window, and again for every popout as it opens (confirmed
 		// live via a dedicated E2E_POPOUT suite pass: without the
 		// 'window-open' half, a popout's own native copy/cut/paste/
-		// Backspace/Delete/Escape never reached these listeners at all,
-		// since registerDomEvent(activeDocument, ...) binds to whichever
-		// document is active at the moment it's called — permanently the
-		// main window's own document, since no popout exists yet when
-		// onload runs. No symmetric 'window-close' teardown needed:
-		// registerDomEvent's own cleanup is tied to this plugin's
-		// lifecycle, not the window's, and a closed popout's listeners
-		// simply stop firing once its document is gone.
-		this.registerWindowDomListeners(activeDocument);
+		// Backspace/Delete/Escape never reached these listeners at all).
+		//
+		// Deliberately the bare global `document`, NOT `activeDocument`,
+		// for this first call -- confirmed live (2026-11-12) this is a
+		// real, user-reported, multi-machine/multi-version bug, not an
+		// edge case: `activeDocument` resolves to "whichever window is
+		// currently active" at the moment it's READ, and if this plugin
+		// gets enabled from the Community plugins toggle in Settings
+		// (Settings has its own, separate document from Obsidian's own
+		// perspective), `activeDocument` at this exact point in onload()
+		// resolves to THAT document, not the main workspace one --
+		// confirmed via a raw, unwrapped addEventListener placed directly
+		// on the value this used to receive, which never once fired for
+		// a real click in the actual workspace afterward. Since this
+		// plugin's own module always executes in the main window's JS
+		// realm regardless of which window Obsidian considers "active"
+		// at any instant, the bare `document`/`window` globals are
+		// always correct here -- only a genuine POPOUT (window-open,
+		// below) actually needs its own, dynamically-obtained document.
+		this.registerWindowDomListeners(document);
 		this.registerEvent(this.app.workspace.on('window-open', (_, win) => {
 			this.registerWindowDomListeners(win.document);
 		}));
 
 		this.vimSupport.setup();
+
+		// Covers the plugin-reload gap documented on reconcileScopesWithFocus
+		// itself: if focus is ALREADY sitting on a Bases/Properties/title
+		// element at the moment this plugin loads (e.g. re-enabled via the
+		// Community plugins toggle while such an element was focused), no
+		// focusin ever fires to push a scope for it, since focus itself
+		// never changes. Without this call, every one of this plugin's own
+		// commands silently does nothing there until focus happens to move
+		// away and back on its own.
+		this.reconcileScopesWithFocus();
 	}
 
 	// Safety net for propertyRowScope/titleScope: both are pushed/popped
@@ -1056,6 +1096,24 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// genuinely different events). Deferred by two frames (same margin
 	// used elsewhere in this file for analogous focus-settling checks)
 	// so this doesn't act on a still-mid-transition activeElement.
+	//
+	// Also handles the OTHER direction (push a missing scope, not just
+	// pop a stale one) — see this method's own onload() call site for the
+	// concrete gap this closes: disabling and re-enabling this plugin
+	// (e.g. via the Community plugins toggle) while focus is ALREADY
+	// sitting on a Bases/Properties/title element never fires a NEW
+	// focusin at all (focus itself never changes across the reload), so
+	// a fresh plugin instance starts with propertyRowScope/titleScope
+	// both null and no event left to populate them — Ctrl-PNBF and every
+	// other command silently does nothing until focus happens to move
+	// away and back. User-reported, not yet reproduced through the
+	// Settings UI's own real toggle switch in this plugin's own E2E
+	// harness (app.setting.open() never produced a queryable modal
+	// there), but the gap itself — onload() never reconciling against
+	// whatever's already focused — is real and confirmed by reading the
+	// code alone, independent of pinning down that exact repro: same
+	// precedent as project_scope_stuck_safety_net's own original safety
+	// net, shipped defensively for the identical reason.
 	private reconcileScopesWithFocus() {
 		requestAnimationFrameOnActiveWindow(() => {
 			requestAnimationFrameOnActiveWindow(() => {
@@ -1063,22 +1121,50 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				if (this.propertyRowScope && !active?.matches?.(PROPERTY_PANEL_SCOPE_SELECTOR)) {
 					this.app.keymap.popScope(this.propertyRowScope);
 					this.propertyRowScope = null;
+				} else if (!this.propertyRowScope && active?.matches?.(PROPERTY_PANEL_SCOPE_SELECTOR)) {
+					this.propertyRowScope = this.buildPropertyRowScope();
+					this.app.keymap.pushScope(this.propertyRowScope);
 				}
 				if (this.titleScope && !active?.closest?.(TITLE_SELECTOR)) {
 					this.app.keymap.popScope(this.titleScope);
 					this.titleScope = null;
+				} else if (!this.titleScope && active?.closest?.(TITLE_SELECTOR)) {
+					this.titleScope = this.buildTitleScope();
+					this.app.keymap.pushScope(this.titleScope);
 				}
 			});
 		});
 	}
 
 	// See onload's own call site for why this exists per-window rather than
-	// being called once for activeDocument alone.
+	// being called once for the main window's document alone.
 	private registerWindowDomListeners(doc: Document) {
+		// Extra, defensive reconcileScopesWithFocus() trigger, alongside
+		// active-leaf-change/file-open/onload's own call sites: confirmed
+		// live (2026-11-12) that after a disable/re-enable cycle, a real
+		// click INTO the title can land real DOM focus there (confirmed
+		// via document.activeElement) without this plugin's own focusin
+		// listener ever running for that click -- console logging showed
+		// the listener fires correctly for the very next unrelated
+		// focusin (e.g. clicking some other element), then never again
+		// for any further focusin at all, title or body alike, for the
+		// rest of that session. The exact mechanism wasn't pinned down
+		// (no other plugin was involved, and the two other real
+		// 'focusin' listeners on this same document — both genuinely
+		// Obsidian's own core, confirmed by reading their source via
+		// getEventListeners — looked unrelated), but manually calling
+		// reconcileScopesWithFocus() from the console immediately fixed
+		// it, confirming the scope-building logic itself was never the
+		// problem, only this listener's reliability after a reload.
+		// Piggybacking onto this existing mousedown listener (already
+		// firing on every real click for unrelated reasons) gives a
+		// second, independent path to the same self-healing check,
+		// cheap enough to run unconditionally.
 		this.registerDomEvent(doc, 'mousedown', () => {
 			this.isKillChaining = false;
 			this._recenterStep = 0;
-		});
+			this.reconcileScopesWithFocus();
+		}, true);
 
 		// A bare-ESC Key Upgrade (app.hotkeyManager.setHotkeys claiming the
 		// key globally) was tried and reverted (2026-10-17): it broke
@@ -1374,7 +1460,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// settings UI, not kept continuously in sync by Obsidian's own
 		// runtime key dispatch — bake() must be called before reading it.
 		(this.app as any).hotkeyManager.bake();
-		const scope = new Scope();
+		// See buildPropertyRowScope's own comment on this same pattern --
+		// without a parent, any key not explicitly registered here
+		// dead-ends instead of reaching Obsidian's global command hotkeys.
+		const scope = new Scope((this.app.keymap as any).getRootScope());
 		const bind = (commandId: string, handler: (titleEl: HTMLElement) => void) => {
 			for (const hk of this.getEffectiveHotkeysFor(commandId)) {
 				scope.register(hk.modifiers as Modifier[], hk.key, (evt) => {
@@ -1427,7 +1516,20 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// (propertyHeadingEscapeToTitle) rather than a plain dispatch.
 	private buildPropertyRowScope(): Scope {
 		(this.app as any).hotkeyManager.bake();
-		const scope = new Scope();
+		// Scope.handleKey only climbs to its OWN constructor-provided
+		// `parent` on an unmatched key (confirmed by reading Obsidian's
+		// own app.js) -- this is a completely separate chain from
+		// pushScope/popScope's own prevScopes stack. Without passing
+		// getRootScope() here, every key this scope doesn't explicitly
+		// register (e.g. a user's own global command hotkey like Cmd-,
+		// for Open Settings) dead-ends at `undefined` the moment this
+		// scope is the active one, instead of reaching Obsidian's own
+		// global command-hotkey resolution at all. getRootScope() isn't
+		// in obsidian.d.ts (same undocumented-internals tier as the
+		// hotkeyManager access above), but is the real fix, not a
+		// workaround -- it's the actual mechanism Scope ships with for
+		// exactly this situation.
+		const scope = new Scope((this.app.keymap as any).getRootScope());
 		// Unconditional bare-Escape pass-through, registered regardless of
 		// whether 'keyboard-quit' itself has any configured hotkey —
 		// without this, merely having propertyRowScope pushed (for ANY
@@ -1545,7 +1647,29 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				// completely unaffected, since dispatching 'ArrowDown'
 				// from a 'j'-triggered handler doesn't re-enter anything
 				// registered under 'j'.
-				if (hk.modifiers.length === 0 && hk.key === key) continue;
+				//
+				// Registering an explicit pass-through handler here
+				// (rather than skipping registration via `continue`, as
+				// before the parent-chain fix below was added) matters
+				// now for a second reason: Scope.handleKey, on no match,
+				// climbs to `this.parent` (now rootScope -- see
+				// buildPropertyRowScope's own comment on why). A Key
+				// Upgrade's bare hotkey is ALSO a real, globally
+				// registered command hotkey, so leaving this combo
+				// entirely unregistered let it reach rootScope and
+				// RE-EXECUTE the same command a second time (confirmed
+				// live via propertyKeyUpgradeInterference.e2e.ts: Ctrl-P
+				// from the last row moved up two rows instead of one).
+				// Returning true (not false, and not leaving it
+				// unregistered) stops the climb to parent while still
+				// deferring to the native default action for this key --
+				// the exact same "fall through to native" behavior this
+				// skip always intended, just explicit now instead of
+				// implicit.
+				if (hk.modifiers.length === 0 && hk.key === key) {
+					scope.register(hk.modifiers as Modifier[], hk.key, () => true);
+					continue;
+				}
 				scope.register(hk.modifiers as Modifier[], hk.key, (evt) => {
 					const target = (evt.target as HTMLElement)?.matches?.(PROPERTY_PANEL_SCOPE_SELECTOR)
 						? (evt.target as HTMLElement) : null;
@@ -3109,6 +3233,45 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	onunload() {
 		this.vimSupport.teardown();
+		this.cleanupScopesOnUnload();
+	}
+
+	// Real gap found live: nothing ever popped propertyRowScope/titleScope
+	// if either was currently pushed at the moment this plugin gets
+	// disabled (e.g. via the Community plugins toggle). Left unpopped,
+	// the Scope object -- with its own handler closures still
+	// referencing THIS (about to be discarded) instance -- stays
+	// physically on app.keymap's real stack forever; Obsidian's own
+	// Keymap has no way to know it should be removed just because the
+	// plugin that pushed it unloaded. A freshly re-enabled instance's
+	// own onload() (see reconcileScopesWithFocus's own onload call site)
+	// pushes a NEW, correctly-wired scope on top, which works fine as
+	// long as it STAYS on top -- but the orphaned old one is still
+	// buried underneath, and resurfaces the moment anything pops the
+	// new one, now dispatching through a dead instance whose own
+	// propertyRowScope/titleScope bookkeeping no longer matches reality
+	// at all. Matches a real, user-reported symptom: intermittent,
+	// inconsistent behavior after a disable/re-enable cycle (Ctrl-P
+	// sometimes escaping the whole Bases table instead of moving one
+	// row, sometimes doing nothing at all) -- exactly what two scopes
+	// silently fighting over the same stack position would look like
+	// from the outside.
+	//
+	// Pulled out of onunload() itself (rather than inlined there) so
+	// scopeReconciliation.e2e.ts's own test (5) can exercise this exact
+	// real code path directly, without also invoking vimSupport's own
+	// teardown() -- confirmed live that calling the real, full
+	// onunload() destabilizes this harness's own WebDriver session
+	// entirely (unrelated side effects, not safe to exercise this way).
+	private cleanupScopesOnUnload() {
+		if (this.propertyRowScope) {
+			this.app.keymap.popScope(this.propertyRowScope);
+			this.propertyRowScope = null;
+		}
+		if (this.titleScope) {
+			this.app.keymap.popScope(this.titleScope);
+			this.titleScope = null;
+		}
 	}
 
 
