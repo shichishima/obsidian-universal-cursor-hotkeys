@@ -1647,7 +1647,29 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				// completely unaffected, since dispatching 'ArrowDown'
 				// from a 'j'-triggered handler doesn't re-enter anything
 				// registered under 'j'.
-				if (hk.modifiers.length === 0 && hk.key === key) continue;
+				//
+				// Registering an explicit pass-through handler here
+				// (rather than skipping registration via `continue`, as
+				// before the parent-chain fix below was added) matters
+				// now for a second reason: Scope.handleKey, on no match,
+				// climbs to `this.parent` (now rootScope -- see
+				// buildPropertyRowScope's own comment on why). A Key
+				// Upgrade's bare hotkey is ALSO a real, globally
+				// registered command hotkey, so leaving this combo
+				// entirely unregistered let it reach rootScope and
+				// RE-EXECUTE the same command a second time (confirmed
+				// live via propertyKeyUpgradeInterference.e2e.ts: Ctrl-P
+				// from the last row moved up two rows instead of one).
+				// Returning true (not false, and not leaving it
+				// unregistered) stops the climb to parent while still
+				// deferring to the native default action for this key --
+				// the exact same "fall through to native" behavior this
+				// skip always intended, just explicit now instead of
+				// implicit.
+				if (hk.modifiers.length === 0 && hk.key === key) {
+					scope.register(hk.modifiers as Modifier[], hk.key, () => true);
+					continue;
+				}
 				scope.register(hk.modifiers as Modifier[], hk.key, (evt) => {
 					const target = (evt.target as HTMLElement)?.matches?.(PROPERTY_PANEL_SCOPE_SELECTOR)
 						? (evt.target as HTMLElement) : null;
