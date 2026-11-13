@@ -2969,6 +2969,38 @@ failing (`Expected: 5, Received: 11`, jumped to the value's own end)
 the moment Ctrl-N/P were first wired up, before this fix landed. Built
 red-green: confirmed failing against the pre-fix build, passing after.
 
+**(9), added 2026-11-13 — a real cross-feature regression, found while
+running the full E2E suite as a 0.13.0 pre-merge checkpoint**: a LATER
+feature (`feat/property-text-suggester-ctrl-np`, merged separately) gave
+a plain text value's own "previously used values" suggester unconditional
+priority over this feature's own Ctrl-N/P visual-line movement, in
+`propertyMoveLineOrNoop`, whenever that suggester happened to be visible.
+That priority order is correct for multi-select/tags (their own suggester
+only ever opens once the user types something matching a candidate), but
+NOT for plain text — confirmed live (direct diagnostic probe, not
+assumed) that its own suggester can be open the INSTANT the field is
+focused, with no typing at all, as soon as this property key has ANY
+saved value anywhere in the vault. That silently broke visual-line
+movement for any property that's ever been reused, which is close to the
+common case, not an edge case — and is exactly why test (7) above started
+failing on every run from some point onward: the e2e vault is persistent
+across runs, so the very first successful run of test (7) left this
+property key's own value in the vault's history, and every run after
+that self-poisoned the same test. Test (6) could never have caught this
+(a swallowed keypress and a genuine no-op are observationally identical
+there). Fixed by swapping the check order specifically for plain text:
+try the real visual-line move first, and only fall through to suggester
+navigation once that move is confirmed impossible (a true no-op) —
+multi-select's own priority is untouched. Test (9) deliberately pre-seeds
+a first note with the same value under the same key before opening the
+real note under test, to make the suggester-open precondition
+deterministic rather than relying on incidental vault history (and
+explicitly asserts the suggester really is open, not just assuming it).
+Built red-green: confirmed both (7) and (9) failing against the pre-fix
+build, both passing after; `propertyOtherTypesCtrlGPnbf.e2e.ts` (12), the
+suggester-navigation test this priority order exists for, re-confirmed
+passing too.
+
 #### `propertyValueEditSetMark.e2e.ts`
 
 0.13.0 Feature 1, property-value-editing sub-phase, Phase 2: Set-mark
