@@ -60,6 +60,7 @@ export const config: WebdriverIO.Config = {
 		'./specs/transposeCharsCellBr.e2e.ts',
 		'./specs/transposeCharsMultiCursor.e2e.ts',
 		'./specs/cjkDoubleClickWordSelect.e2e.ts',
+		'./specs/titleMovement.e2e.ts',
 		'./specs/titleCrossingShort.e2e.ts',
 		'./specs/titleCrossingWrapped.e2e.ts',
 		'./specs/titleCrossingPopout.e2e.ts',
