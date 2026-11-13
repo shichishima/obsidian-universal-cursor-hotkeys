@@ -260,4 +260,57 @@ first body line
 			if (file) await app.vault.delete(file)
 		})
 	})
+
+	it('(9) regression: Ctrl-N/P still move by visual line even while this property key\'s own "previously used values" suggester is genuinely open', async function () {
+		// Real bug found live (2026-11-13): propertyMoveLineOrNoop gave the
+		// text value's own "previously used values" suggester unconditional
+		// priority over visual-line movement whenever that suggester was
+		// visible — correct for multi-select/tags (whose own suggester only
+		// ever opens once the user types something matching a candidate),
+		// but NOT for a plain text value, whose "previously used values"
+		// suggester can be open the INSTANT the field is focused, with no
+		// typing at all, as soon as this property key has ANY saved value
+		// anywhere in the vault. That silently broke this value's own
+		// established Ctrl-N/P meaning for any property that's ever been
+		// reused — close to the common case, not an edge case.
+		//
+		// This note deliberately pre-seeds that exact precondition: a FIRST
+		// note saves this same wrapped value under the same key, guaranteeing
+		// the suggester genuinely has a matching item before the real note
+		// under test is even opened — not relying on incidental history left
+		// behind by other specs sharing this same persistent e2e vault (see
+		// tests/E2E.md: that's exactly how this bug first surfaced, as a
+		// self-poisoning failure in test (7) above).
+		const text = 'aaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbccccccccccccccccccccddddddddddddddddddddeeeeeeeeeeeeeeeeeeee'
+		createdPaths.push('PropertyValueEditMovementSuggesterSeed.md')
+		await browser.executeObsidian(async ({ app }, value2) => {
+			const existing = app.vault.getFileByPath('PropertyValueEditMovementSuggesterSeed.md')
+			if (existing) await app.vault.delete(existing)
+			await app.vault.create('PropertyValueEditMovementSuggesterSeed.md', `---\nmyText: ${value2}\n---\n`)
+		}, text)
+		await browser.pause(300) // let the metadata cache index the seed note's own value
+
+		await openNote('PropertyValueEditMovementSuggesterConflict.md', text)
+		await browser.executeObsidian(async ({ app }) => {
+			const hm = (app as any).hotkeyManager
+			hm.setHotkeys('universal-cursor-hotkeys:cursor-down', [{ modifiers: ['Ctrl'], key: 'N' }])
+			hm.bake()
+		})
+		await focusValueAt(0)
+
+		// Confirm the premise: the suggester is genuinely open before the
+		// keypress under test, not just assumed.
+		const hasSuggester = await browser.executeObsidian(({ app, obsidian }) => {
+			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+			const doc = view.containerEl.ownerDocument
+			const suggester = doc.querySelector('.suggestion-container.mod-property-value')
+			return !!suggester && suggester.querySelectorAll('.suggestion-item').length > 0
+		})
+		await expect(hasSuggester).toBe(true)
+
+		await browser.keys(['Control', 'n'])
+		await browser.pause(200)
+		const after1 = await snap()
+		await expect(after1.focusOffset).toBeGreaterThan(0) // real visual-line move, not swallowed by the suggester
+	})
 })
