@@ -2609,6 +2609,50 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// one fixed anchor rather than collapsing partway through.
 		const alter = this.markActive ? 'extend' : 'move';
 
+		// A Bases cell is always single-line (no wrap to be visual-line-
+		// aware about in the first place), so skip the character-walking
+		// scan below entirely and jump straight to this cell's own
+		// boundary via a single, atomic Range operation. This is the
+		// safe fix for a real, user-reported regression: the walking
+		// scan's own escape-detection-and-recovery (tried first, see that
+		// code's own history further down) still genuinely moved real DOM
+		// focus out to an adjacent cell and back, which was enough to
+		// leak propertyRowScope the exact same way a stuck/orphaned scope
+		// already has elsewhere in this project (see
+		// project_scope_stuck_safety_net) -- Ctrl-G stopped responding
+		// afterward, recoverable only via a real physical Escape.
+		//
+		// Collapses onto titleEl's own first/last TEXT NODE directly,
+		// NOT via selectAllChildren(titleEl) -- that was tried first and
+		// caused a SECOND real regression: selectAllChildren's own
+		// collapsed result sits on titleEl itself (an Element), at a
+		// child-index offset, not on a Text node at a character offset.
+		// titleKillLine (and the same pattern elsewhere: titleKillWord,
+		// titleYank, ...) defensively checks
+		// `container.nodeType !== Node.TEXT_NODE` and no-ops otherwise --
+		// confirmed live this silently broke Ctrl-K immediately after
+		// a Bases cell's own Ctrl-A, with the cell's own text completely
+		// unaffected (basesPropertyEditing.e2e.ts test (2)). A cell's own
+		// text is always one flat text node (same "always flat text"
+		// assumption already baked into every one of those functions),
+		// so landing directly on it needs no scan at all -- this never
+		// leaves titleEl's own subtree either, so there's still nothing
+		// to escape from or recover afterward.
+		if (titleEl.closest(BASES_TABLE_CONTAINER_SELECTOR)) {
+			const textNode = titleEl.firstChild;
+			const markAnchorNode = this.markActive ? sel.anchorNode : null;
+			const markAnchorOffset = this.markActive ? sel.anchorOffset : 0;
+			if (textNode && textNode.nodeType === Node.TEXT_NODE) {
+				sel.collapse(textNode, forward ? (textNode as Text).length : 0);
+			} else {
+				sel.collapse(titleEl, 0); // empty cell -- nothing to land on but titleEl itself
+			}
+			if (markAnchorNode) {
+				sel.setBaseAndExtent(markAnchorNode, markAnchorOffset, sel.focusNode!, sel.focusOffset);
+			}
+			return;
+		}
+
 		if (!this.settings.visualLineMovement) {
 			sel.modify(alter, forward ? 'forward' : 'backward', 'documentboundary');
 			return;
@@ -2624,6 +2668,20 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// modify() — including the one-character "undo" below — which
 		// keeps whatever affinity Chromium's own live-navigation maintains
 		// internally, which does render correctly.
+		// No containment/escape guard needed below: the Bases branch
+		// above already handles the one real case (confirmed live,
+		// 2026-11-13) where this scan could walk out of titleEl's own
+		// subtree into an adjacent cell -- every attempt at detecting and
+		// recovering from that escape in-place (restoring a saved node,
+		// re-focusing + 'documentboundary', ...) kept leaking
+		// propertyRowScope instead, the same way a stuck scope already
+		// has elsewhere in this project (project_scope_stuck_safety_net).
+		// Routing Bases around this scan entirely, rather than hardening
+		// the scan itself, is what actually fixed it. For title/property
+		// text widgets (the only remaining callers here), focusNode never
+		// leaves titleEl in the first place -- confirmed since this scan
+		// first shipped -- so this loop's own simple boundary checks
+		// (below) are sufficient.
 		const startNode = sel.focusNode, startOffset = sel.focusOffset;
 		const startRect = sel.getRangeAt(0).getClientRects()[0] ?? sel.getRangeAt(0).getBoundingClientRect();
 		const stepDir = forward ? 'right' : 'left';
