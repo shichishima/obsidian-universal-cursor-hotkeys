@@ -202,4 +202,58 @@ describe('Recenter (Ctrl-L) inside the Properties panel', function () {
 		await browser.pause(200)
 		await expect(await getStep()).toBe(0)
 	})
+
+	// 0.13.0 release test-matrix audit (tests/E2E.md's own "# 0.13.0"
+	// section) found tests (1)-(4) above only ever exercise a TEXT-type
+	// property's own value-edit widget. recenterPropertyPanel itself
+	// only ever reads the focused element's own getBoundingClientRect()
+	// -- it has no dependency on the property's TYPE at all -- so this
+	// is confirming an already-correct implementation has a direct test,
+	// not fixing a gap in the implementation itself.
+	it('(5) Ctrl-L also centers a non-text (number) property\'s own value-edit widget', async function () {
+		const notePath = 'FrontmatterRecenterNumberType.md'
+		createdPaths.push(notePath)
+		const longBody = Array.from({ length: 100 }, (_, i) => `line ${i}`).join('\n')
+		const frontmatterProps = Array.from({ length: 15 }, (_, i) => `prop${i}: value${i}`).join('\n')
+		await browser.executeObsidian(({ app }) => {
+			const hm = (app as any).hotkeyManager
+			hm.setHotkeys('universal-cursor-hotkeys:recenter', [{ modifiers: ['Ctrl'], key: 'L' }])
+			hm.bake()
+		})
+		await browser.executeObsidian(async ({ app }, { notePath2, longBody2, frontmatterProps2 }) => {
+			app.workspace.getLeavesOfType('markdown').forEach(leaf => leaf.detach())
+			const existing = app.vault.getFileByPath(notePath2)
+			if (existing) await app.vault.delete(existing)
+			const file = await app.vault.create(notePath2, `---\n${frontmatterProps2}\nmyNumber: 42\n---\n${longBody2}\n`)
+			await app.workspace.getLeaf(true).openFile(file)
+		}, { notePath2: notePath, longBody2: longBody, frontmatterProps2: frontmatterProps })
+		await browser.pause(500)
+
+		const rows = await browser.$$('.metadata-property')
+		const row = rows[rows.length - 1] // myNumber, the last property
+		const valueEl = await row.$('input.metadata-input-number')
+		await valueEl.click()
+		await browser.pause(150)
+
+		const localTop = async () => browser.executeObsidian(({ app, obsidian }) => {
+			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+			const cm = (view.editor as any).cm
+			const input = document.querySelector('input.metadata-input-number') as HTMLElement
+			const rect = input.getBoundingClientRect()
+			const scrollRect = cm.scrollDOM.getBoundingClientRect()
+			return rect.top - scrollRect.top
+		})
+		const expectedCenter = await browser.executeObsidian(({ app, obsidian }) => {
+			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+			return (view.editor as any).cm.scrollDOM.clientHeight / 2
+		})
+
+		const before = await localTop()
+		await browser.keys(['Control', 'l'])
+		await browser.pause(200)
+		const after = await localTop()
+
+		await expect(Math.abs(before - expectedCenter)).toBeGreaterThan(20)
+		await expect(Math.abs(after - expectedCenter)).toBeLessThan(1)
+	})
 })

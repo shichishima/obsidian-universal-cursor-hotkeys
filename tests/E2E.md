@@ -65,59 +65,59 @@ way. ✅ = covered by an existing test (file named), ❌ = no coverage.
 
 ## Title
 
-| コマンド | 短いタイトル | 折り返しタイトル | popout | タイトル↔Properties↔本文の境界 |
+| Command | Short title | Wrapped title | Popout | Title↔Properties↔body boundary |
 |---|---|---|---|---|
-| Ctrl-B/F/A/E(基本移動) | ❌ crossingテストの中で間接的にしか触れていない、専用テストなし | ❌ 同上 | — | — |
-| Ctrl-P/N(行移動) | — | ✅ `titleCrossingWrapped.e2e.ts` | ✅ `titleCrossingPopout.e2e.ts` | ✅ `titleCrossingFrontmatter.e2e.ts` (8) |
-| Alt-B/F(単語移動) | ✅ `titleWordMotion.e2e.ts` | ✅ 同上(CJK) | — | — |
-| Set-mark+Ctrl-G | ✅ `titleSetMark.e2e.ts` (6) | ✅ 同上 (2b,2c) | — | — |
+| Ctrl-B/F/A/E (basic movement) | ✅ `titleMovement.e2e.ts` | ❌ (basic movement itself already exercised indirectly by the crossing tests) | — | — |
+| Ctrl-P/N (line movement) | — | ✅ `titleCrossingWrapped.e2e.ts` | ✅ `titleCrossingPopout.e2e.ts` | ✅ `titleCrossingFrontmatter.e2e.ts` (8) |
+| Alt-B/F (word movement) | ✅ `titleWordMotion.e2e.ts` | ✅ same (CJK) | — | — |
+| Set-mark+Ctrl-G | ✅ `titleSetMark.e2e.ts` (6) | ✅ same (2b,2c) | — | — |
 | Kill-line | ✅ `titleKillLine.e2e.ts` (4) | — | — | — |
-| Kill-word | ✅ `titleKillWord.e2e.ts` (4, CJK含む) | — | — | — |
+| Kill-word | ✅ `titleKillWord.e2e.ts` (4, incl. CJK) | — | — | — |
 | Delete-char | ✅ `titleDeleteChar.e2e.ts` (4) | — | — | — |
 | Kill/Copy-region | ✅ `titleRegion.e2e.ts` (3) | — | — | — |
 | Yank | ✅ `titleYank.e2e.ts` (9) | — | — | — |
-| Set-mark+Kill/Yank一式 | — | — | ✅ `titleKillYankPopout.e2e.ts` | — |
+| Set-mark+Kill/Yank round trip | — | — | ✅ `titleKillYankPopout.e2e.ts` | — |
 
-残る唯一の抜け: Ctrl-B/F/A/Eの基本移動(境界を跨がない、ただの1文字移動・行頭行末)を直接検証する専用テストがない。crossingテスト群の前提として間接的にしか動いていない。優先度低(リリースブロッカーではない)。
+2026-11-13: added `titleMovement.e2e.ts` to directly verify basic movement (single-character moves, Home/End) in a short title. Basic movement in a WRAPPED title is already indirectly covered as a precondition of the crossing tests (`titleCrossingWrapped.e2e.ts`), so no dedicated test was added for that case (low priority, not a release blocker).
 
-## フロントマター(Properties panel)
+## Frontmatter (Properties panel)
 
-| コマンド | item-selection(行/見出し/Add) | text値 | name欄 | checkbox/date/datetime/number | list/tags/aliases | サジェスター | 境界(Title↔Properties↔本文) | Source Mode |
+| Command | Item-selection (row/heading/Add) | Text value | Name field | Checkbox/date/datetime/number | List/tags/aliases | Suggester | Boundary (Title↔Properties↔body) | Source Mode |
 |---|---|---|---|---|---|---|---|---|
-| Ctrl-B/F | ✅ `propertyCtrlBf.e2e.ts` | ✅ `propertyValueEditMovement.e2e.ts` | ✅ `propertyNameEdit.e2e.ts` (1) | ✅ `propertyOtherTypesCtrlGPnbf.e2e.ts` (2,3,5) | ✅ 同上 (4,7,8) | — | — | — |
-| Ctrl-A/E | — (行に行頭行末の概念なし、設計上対象外) | ✅ `propertyValueEditMovement.e2e.ts` (3,4) | ✅ `propertyNameEdit.e2e.ts` (2) | N/A | — | — | — | — |
-| Ctrl-P/N | ✅ `propertyItemSelection.e2e.ts` (6) | ✅ `propertyValueEditMovement.e2e.ts` (6,7) | — (単一行なので対象外、設計通り) | N/A(date/datetime)・✅number等 | ✅ (4) | ✅ `propertyOtherTypesCtrlGPnbf.e2e.ts` (10,11,12)・`propertyNameEdit.e2e.ts` (14) | ✅ `titleCrossingFrontmatter.e2e.ts` (8) | ✅ 同上 (5) |
+| Ctrl-B/F | ✅ `propertyCtrlBf.e2e.ts` | ✅ `propertyValueEditMovement.e2e.ts` | ✅ `propertyNameEdit.e2e.ts` (1) | ✅ `propertyOtherTypesCtrlGPnbf.e2e.ts` (2,3,5) | ✅ same (4,7,8) | — | — | — |
+| Ctrl-A/E | — (a row has no notion of start/end, out of scope by design) | ✅ `propertyValueEditMovement.e2e.ts` (3,4) | ✅ `propertyNameEdit.e2e.ts` (2) | N/A | — | — | — | — |
+| Ctrl-P/N | ✅ `propertyItemSelection.e2e.ts` (6) | ✅ `propertyValueEditMovement.e2e.ts` (6,7) | — (always a single line, out of scope by design) | N/A (date/datetime) · ✅ number etc. | ✅ (4) | ✅ `propertyOtherTypesCtrlGPnbf.e2e.ts` (10,11,12) · `propertyNameEdit.e2e.ts` (14) | ✅ `titleCrossingFrontmatter.e2e.ts` (8) | ✅ same (5) |
 | Alt-B/F | — | ✅ `propertyValueEditWordMotion.e2e.ts` | ✅ `propertyNameEdit.e2e.ts` (3) | — | — | — | — | — |
-| Set-mark+Ctrl-G | ✅ `propertyCtrlG.e2e.ts` (7) | ✅ `propertyValueEditSetMark.e2e.ts` (6) | ✅ `propertyNameEdit.e2e.ts` (4,5) | ✅ `propertyOtherTypesCtrlGPnbf.e2e.ts` (1.*) | ✅ 同上 (6,9) | — | — | — |
+| Set-mark+Ctrl-G | ✅ `propertyCtrlG.e2e.ts` (7) | ✅ `propertyValueEditSetMark.e2e.ts` (6) | ✅ `propertyNameEdit.e2e.ts` (4,5) | ✅ `propertyOtherTypesCtrlGPnbf.e2e.ts` (1.*) | ✅ same (6,9) | — | — | — |
 | Kill-line | — | ✅ `propertyValueEditKillYank.e2e.ts` (1) | ✅ `propertyNameEdit.e2e.ts` (6) | — | — | — | — | — |
 | Kill-word | — | ✅ `propertyValueEditKillWord.e2e.ts` | ✅ `propertyNameEdit.e2e.ts` (8) | — | — | — | — | — |
 | Delete-char | — | ✅ `propertyValueEditDeleteChar.e2e.ts` | ✅ `propertyNameEdit.e2e.ts` (9,13) | — | — | — | — | — |
 | Kill/Copy-region | — | ✅ `propertyValueEditKillYank.e2e.ts` (2,3) | ✅ `propertyNameEdit.e2e.ts` (10,11) | — | — | — | — | — |
 | Yank | — | ✅ `propertyValueEditKillYank.e2e.ts` (4,5,7) | ✅ `propertyNameEdit.e2e.ts` (7) | — | — | — | — | — |
-| Recenter | ✅ `frontmatterRecenter.e2e.ts` (1,2) | ✅ 同上 (3,4、ウィジェット遷移でリセット) | — | ❌ text以外のtype専用の確認はない(優先度低) | — | — | — | — |
-| サジェスター Ctrl-N/P+Enter | — | ✅ `propertyOtherTypesCtrlGPnbf.e2e.ts` (12) | ✅ 同上 (14 via `propertyNameEdit.e2e.ts`) | — | ✅ 同上 (10,11) | — | — | — |
+| Recenter | ✅ `frontmatterRecenter.e2e.ts` (1,2) | ✅ same (3,4, reset on widget transition) | — | ✅ same (5, confirmed with a number type) | — | — | — | — |
+| Suggester Ctrl-N/P+Enter | — | ✅ `propertyOtherTypesCtrlGPnbf.e2e.ts` (12) | ✅ same (14 via `propertyNameEdit.e2e.ts`) | — | ✅ same (10,11) | — | — | — |
 
-ほぼ全て埋まっている。唯一の抜けはチェックボックス/日付/数値等でのRecenter専用確認(優先度低)。
+2026-11-13: added `frontmatterRecenter.e2e.ts` (5), directly confirming Recenter with a number-type property too. Everything is covered now.
 
 ## Bases
 
-formula/計算列は`file.name`列と同じ`bases-rendered-value`レンダラー(常に非エディタブル)。ただしEnterで**別UIサーフェス(編集ダイアログ、表示名/数式のテキストエリア)**が開くことが実機確認で判明——未investigate、0.13.0のスコープ外(0.13.x fixリリースで対応検討)。
+A formula/computed column uses the same `bases-rendered-value` renderer as a `file.name` column (always non-editable). Pressing Enter on it, however, was confirmed live to open a SEPARATE UI surface entirely (an edit dialog with its own display-name/formula text areas) — not yet investigated, out of scope for 0.13.0 (candidate for a later 0.13.x fix release).
 
-| コマンド | cell-selection(コンテナ) | text cell | checkbox/date/number cell | list/tags cell | formula列(編集ダイアログ) | 異なる型の隣接(text↔number↔tags等) | サジェスター | embedded vs フルタブ |
+| Command | Cell-selection (container) | Text cell | Checkbox/date/number cell | List/tags cell | Formula column (edit dialog) | Adjacent cells of different types (text↔number↔tags, etc.) | Suggester | Embedded vs. full tab |
 |---|---|---|---|---|---|---|---|---|
-| Ctrl-B/F/P/N(セル移動) | ✅ `basesCellNavigation.e2e.ts` | — | — | — | ❌ 未検証 | ✅ `basesCellNavigation.e2e.ts`(text+number) | — | ❌ embeddedは未テスト |
-| Ctrl-A/E(セル内移動) | — | ✅ `basesPropertyEditing.e2e.ts` (1) | ❌ そもそも対象外のはず、明示的確認なし | — | ❌ 未検証(ダイアログ内) | ✅ `basesPropertyEditing.e2e.ts` (8) — 2026-11-13、実バグ3件修正済み | — | — |
-| Alt-B/F(単語移動) | — | ❌ 未カバー | — | — | — | ❌ 未カバー | — | — |
-| Set-mark+Ctrl-G | — | ❌ Bases専用テストなし(propertyには相当あり) | ✅ `basesPropertyEditing.e2e.ts` (3) | — | ❌ 未検証 | ❌ 未カバー | — | — |
-| Kill-line | — | ❌ 未カバー | — | — | — | — | — | — |
-| Kill-word | — | ❌ 未カバー | — | — | — | — | — | — |
+| Ctrl-B/F/P/N (cell navigation) | ✅ `basesCellNavigation.e2e.ts` | — | — | — | ❌ not verified | ✅ `basesCellNavigation.e2e.ts` (text+number) | — | ❌ embedded not tested |
+| Ctrl-A/E (within-cell movement) | — | ✅ `basesPropertyEditing.e2e.ts` (1) | ❌ presumably out of scope, no explicit confirmation | — | ❌ not verified (inside the dialog) | ✅ `basesPropertyEditing.e2e.ts` (8) — fixed 2026-11-13, after 3 real bugs | — | — |
+| Alt-B/F (word movement) | — | ❌ not covered | — | — | — | ❌ not covered | — | — |
+| Set-mark+Ctrl-G | — | ❌ no Bases-specific test (a property-panel equivalent exists) | ✅ `basesPropertyEditing.e2e.ts` (3) | — | ❌ not verified | ❌ not covered | — | — |
+| Kill-line | — | ❌ not covered | — | — | — | — | — | — |
+| Kill-word | — | ❌ not covered | — | — | — | — | — | — |
 | Delete-char | ✅ `basesPropertyEditing.e2e.ts` (1,4) | — | — | — | — | — | — | — |
-| Kill/Copy-region | ✅ 同上 (7、Copy region) | ❌ Kill regionは未確認 | — | — | — | — | — | — |
-| Yank | ✅ 同上 (2、Kill→Yank往復) | — | — | — | — | — | — | — |
-| サジェスター Ctrl-N/P+Enter | — | — | — | ❌ Bases専用テストなし(propertyには相当あり) | — | — | ❌ 同上 | — |
+| Kill/Copy-region | ✅ same (7, Copy region) | ❌ Kill region not confirmed | — | — | — | — | — | — |
+| Yank | ✅ same (2, Kill→Yank round trip) | — | — | — | — | — | — | — |
+| Suggester Ctrl-N/P+Enter | — | — | — | ❌ no Bases-specific test (a property-panel equivalent exists) | — | — | ❌ same | — |
 | Recenter | ✅ `basesRecenter.e2e.ts` (3) | — | — | — | — | — | — | — |
 
-**Ctrl-A/Eは2026-11-13に実装・テスト完了**(3つの実バグを経て、`basesPropertyEditing.e2e.ts` test (8) 参照)。残る❌(Set-mark+Kill/Copy-region/Yank、サジェスター、formula列の編集ダイアログ、embedded vs フルタブ)は、0.13.0リリースのブロッカーではない——Title/フロントマターの品質で0.13.0は出荷し、残りは0.13.x以降のfixリリースで随時拡充する([[project_bases_release_scope_and_versioning]]参照)。
+**Ctrl-A/E was implemented and tested 2026-11-13** (after 3 real bugs — see `basesPropertyEditing.e2e.ts` test (8)). The remaining ❌ cells (Set-mark+Kill/Copy-region/Yank, the suggester, the formula column's own edit dialog, embedded vs. full-tab) are not 0.13.0 release blockers — 0.13.0 ships on the strength of Title/frontmatter, and the rest gets filled in incrementally in 0.13.x fix releases (see `project_bases_release_scope_and_versioning`).
 
 ## Implemented
 
@@ -1415,6 +1415,17 @@ needed here even for a Ctrl-letter *command* key, since a plain
 `executeObsidianCommand` call bypasses the Scope/Keymap push-stack
 entirely and would never exercise the title-specific handler at all.
 
+#### `titleMovement.e2e.ts`
+
+**Added 2026-11-13** (0.13.0 release test-matrix audit): basic Ctrl-B/F
+(one character) and Ctrl-A/E (Home/End) movement within a short title had
+only ever been exercised INDIRECTLY, as a precondition inside
+`titleCrossingShort.e2e.ts`/`titleCrossingWrapped.e2e.ts` (which care about
+the boundary crossing itself, not plain within-field movement). The
+functionality already worked correctly — this just gives it its own direct,
+minimal test, covering Ctrl-F right, Ctrl-B left, Ctrl-A to start, Ctrl-E to
+end, and both directions' true no-op at the title's own start/end.
+
 #### `titleCrossingShort.e2e.ts`
 
 A short, unwrapped title — isolates the pixel-coordinate math from the
@@ -2480,6 +2491,15 @@ Verified no regression across `basesRecenter.e2e.ts`,
 `propertyItemSelection.e2e.ts`, `recenterWithSetMark.e2e.ts`,
 `propertyOtherTypesCtrlGPnbf.e2e.ts`, `propertyValueEditKillYank.e2e.ts`,
 `propertyNameEdit.e2e.ts`, and `scopeReconciliation.e2e.ts`.
+
+**(5), added 2026-11-13** (0.13.0 release test-matrix audit): tests
+(1)-(4) above only ever exercise a TEXT-type property's own value-edit
+widget. `recenterPropertyPanel` itself only ever reads the focused
+element's own `getBoundingClientRect()` — it has no dependency on the
+property's TYPE at all — so this confirms an already-correct
+implementation with a direct test (a `number`-type property's own
+`input.metadata-input-number`), rather than fixing a gap in the
+implementation itself.
 
 Set-mark (Ctrl-Space) in the title field. Unlike the body's own CM6-based
 Set-mark (which needs its own anchor-tracking machinery), the title's
