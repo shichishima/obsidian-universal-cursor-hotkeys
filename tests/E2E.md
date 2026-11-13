@@ -11,21 +11,27 @@ Located in `tests/e2e/` (wdio-obsidian-service). Run with `npm run test:e2e`.
     `wdio.conf.mts`, lightest-first order) instead of relaunching per file.
     Faster, somewhat less flaky — table-entry assertions can still
     intermittently fail, rate varies run to run.
-  - **Full-suite runs are de-prioritized by explicit user direction
-    (2026-11-06)**: the suite's own runtime has grown long enough that a
-    full run meaningfully increases exposure to a confirmed, unrelated
-    source of flakiness — the test Electron window not being visible/
-    foregrounded during an unattended run (see e.g.
+  - **Full-suite run REQUIRED before every merge to develop (updated
+    2026-11-13, supersedes the 2026-11-06 "de-prioritized" guidance
+    below)**: a merge into develop went out without one on 2026-11-13
+    and sat broken (a real `propertyValueEditKillYank.e2e.ts` regression)
+    undetected for hours. The merge's own size should be chosen so that
+    running the full suite before it is reasonable — "how much work goes
+    into one merge" and "how often the full suite runs" are the same
+    question now, not two separate ones. Targeted runs (new spec(s) in
+    isolation, then the directly affected regression set) are still the
+    right day-to-day signal WHILE iterating — the full suite is the gate
+    right before the merge itself, not a replacement for targeted runs
+    during development.
+  - **2026-11-06 note (still relevant for why targeted runs stay the
+    day-to-day default)**: the suite's own runtime has grown long enough
+    that a full run meaningfully increases exposure to a confirmed,
+    unrelated source of flakiness — the test Electron window not being
+    visible/foregrounded during an unattended run (see e.g.
     `propertyValueEditKillYank.e2e.ts`'s own section below for one
-    documented instance). A short, targeted run (new spec(s) in
-    isolation, then the directly affected regression set) occupies the
-    foreground for much less time and is correspondingly far less likely
-    to hit this — ensuring the test window actually has focus before a
-    full run, and relying on targeted runs as the primary day-to-day
-    confidence signal, produces BETTER overall quality than running the
-    full suite reflexively after every small change. Reserve full-suite
-    runs for less frequent checkpoints (e.g. before a multi-branch merge
-    sequence wraps up), not as a per-commit gate.
+    documented instance). A short, targeted run occupies the foreground
+    for much less time and is correspondingly far less likely to hit
+    this.
   - `npm run test:e2e:popout` (`E2E_POPOUT=1`) reroutes every
     `openFixtureAndGetContentStart` call through one shared popout window
     instead of the main window, letting the whole existing suite run
@@ -41,6 +47,77 @@ Located in `tests/e2e/` (wdio-obsidian-service). Run with `npm run test:e2e`.
 - **Fixtures** (`vaults/smoke/*.md`): `# heading` + `-` bullet(s) + `---` +
   test content. Specs locate the first line after `---` at runtime, so the
   header can be edited freely without shifting a spec's hardcoded offsets.
+
+# 0.13.0
+
+Comprehensive command × context coverage matrix for this version's own
+scope (title field, frontmatter Properties panel, Bases table views),
+built 2026-11-13 — declared as a standing practice for every future
+version going forward: before implementing a new version's own feature
+scope, add a `# <version>` section here with that version's own matrix
+FIRST, fit existing tests into it, and only then look at what's missing.
+Built this way specifically because the alternative — ad-hoc manual
+bug-hunting followed by patching whatever gaps surface — missed an entire
+class of Bases-specific risk (multiple cell TYPES sitting side by side in
+one row, which the Properties panel's own vertical-row layout never
+exercises) until two real bugs were found live, one at a time, the hard
+way. ✅ = covered by an existing test (file named), ❌ = no coverage.
+
+## Title
+
+| コマンド | 短いタイトル | 折り返しタイトル | popout | タイトル↔Properties↔本文の境界 |
+|---|---|---|---|---|
+| Ctrl-B/F/A/E(基本移動) | ❌ crossingテストの中で間接的にしか触れていない、専用テストなし | ❌ 同上 | — | — |
+| Ctrl-P/N(行移動) | — | ✅ `titleCrossingWrapped.e2e.ts` | ✅ `titleCrossingPopout.e2e.ts` | ✅ `titleCrossingFrontmatter.e2e.ts` (8) |
+| Alt-B/F(単語移動) | ✅ `titleWordMotion.e2e.ts` | ✅ 同上(CJK) | — | — |
+| Set-mark+Ctrl-G | ✅ `titleSetMark.e2e.ts` (6) | ✅ 同上 (2b,2c) | — | — |
+| Kill-line | ✅ `titleKillLine.e2e.ts` (4) | — | — | — |
+| Kill-word | ✅ `titleKillWord.e2e.ts` (4, CJK含む) | — | — | — |
+| Delete-char | ✅ `titleDeleteChar.e2e.ts` (4) | — | — | — |
+| Kill/Copy-region | ✅ `titleRegion.e2e.ts` (3) | — | — | — |
+| Yank | ✅ `titleYank.e2e.ts` (9) | — | — | — |
+| Set-mark+Kill/Yank一式 | — | — | ✅ `titleKillYankPopout.e2e.ts` | — |
+
+残る唯一の抜け: Ctrl-B/F/A/Eの基本移動(境界を跨がない、ただの1文字移動・行頭行末)を直接検証する専用テストがない。crossingテスト群の前提として間接的にしか動いていない。優先度低(リリースブロッカーではない)。
+
+## フロントマター(Properties panel)
+
+| コマンド | item-selection(行/見出し/Add) | text値 | name欄 | checkbox/date/datetime/number | list/tags/aliases | サジェスター | 境界(Title↔Properties↔本文) | Source Mode |
+|---|---|---|---|---|---|---|---|---|
+| Ctrl-B/F | ✅ `propertyCtrlBf.e2e.ts` | ✅ `propertyValueEditMovement.e2e.ts` | ✅ `propertyNameEdit.e2e.ts` (1) | ✅ `propertyOtherTypesCtrlGPnbf.e2e.ts` (2,3,5) | ✅ 同上 (4,7,8) | — | — | — |
+| Ctrl-A/E | — (行に行頭行末の概念なし、設計上対象外) | ✅ `propertyValueEditMovement.e2e.ts` (3,4) | ✅ `propertyNameEdit.e2e.ts` (2) | N/A | — | — | — | — |
+| Ctrl-P/N | ✅ `propertyItemSelection.e2e.ts` (6) | ✅ `propertyValueEditMovement.e2e.ts` (6,7) | — (単一行なので対象外、設計通り) | N/A(date/datetime)・✅number等 | ✅ (4) | ✅ `propertyOtherTypesCtrlGPnbf.e2e.ts` (10,11,12)・`propertyNameEdit.e2e.ts` (14) | ✅ `titleCrossingFrontmatter.e2e.ts` (8) | ✅ 同上 (5) |
+| Alt-B/F | — | ✅ `propertyValueEditWordMotion.e2e.ts` | ✅ `propertyNameEdit.e2e.ts` (3) | — | — | — | — | — |
+| Set-mark+Ctrl-G | ✅ `propertyCtrlG.e2e.ts` (7) | ✅ `propertyValueEditSetMark.e2e.ts` (6) | ✅ `propertyNameEdit.e2e.ts` (4,5) | ✅ `propertyOtherTypesCtrlGPnbf.e2e.ts` (1.*) | ✅ 同上 (6,9) | — | — | — |
+| Kill-line | — | ✅ `propertyValueEditKillYank.e2e.ts` (1) | ✅ `propertyNameEdit.e2e.ts` (6) | — | — | — | — | — |
+| Kill-word | — | ✅ `propertyValueEditKillWord.e2e.ts` | ✅ `propertyNameEdit.e2e.ts` (8) | — | — | — | — | — |
+| Delete-char | — | ✅ `propertyValueEditDeleteChar.e2e.ts` | ✅ `propertyNameEdit.e2e.ts` (9,13) | — | — | — | — | — |
+| Kill/Copy-region | — | ✅ `propertyValueEditKillYank.e2e.ts` (2,3) | ✅ `propertyNameEdit.e2e.ts` (10,11) | — | — | — | — | — |
+| Yank | — | ✅ `propertyValueEditKillYank.e2e.ts` (4,5,7) | ✅ `propertyNameEdit.e2e.ts` (7) | — | — | — | — | — |
+| Recenter | ✅ `frontmatterRecenter.e2e.ts` (1,2) | ✅ 同上 (3,4、ウィジェット遷移でリセット) | — | ❌ text以外のtype専用の確認はない(優先度低) | — | — | — | — |
+| サジェスター Ctrl-N/P+Enter | — | ✅ `propertyOtherTypesCtrlGPnbf.e2e.ts` (12) | ✅ 同上 (14 via `propertyNameEdit.e2e.ts`) | — | ✅ 同上 (10,11) | — | — | — |
+
+ほぼ全て埋まっている。唯一の抜けはチェックボックス/日付/数値等でのRecenter専用確認(優先度低)。
+
+## Bases
+
+formula/計算列は`file.name`列と同じ`bases-rendered-value`レンダラー(常に非エディタブル)。ただしEnterで**別UIサーフェス(編集ダイアログ、表示名/数式のテキストエリア)**が開くことが実機確認で判明——未investigate、0.13.0のスコープ外(0.13.x fixリリースで対応検討)。
+
+| コマンド | cell-selection(コンテナ) | text cell | checkbox/date/number cell | list/tags cell | formula列(編集ダイアログ) | 異なる型の隣接(text↔number↔tags等) | サジェスター | embedded vs フルタブ |
+|---|---|---|---|---|---|---|---|---|
+| Ctrl-B/F/P/N(セル移動) | ✅ `basesCellNavigation.e2e.ts` | — | — | — | ❌ 未検証 | ✅ `basesCellNavigation.e2e.ts`(text+number) | — | ❌ embeddedは未テスト |
+| Ctrl-A/E(セル内移動) | — | ✅ `basesPropertyEditing.e2e.ts` (1) | ❌ そもそも対象外のはず、明示的確認なし | — | ❌ 未検証(ダイアログ内) | ✅ `basesPropertyEditing.e2e.ts` (8) — 2026-11-13、実バグ3件修正済み | — | — |
+| Alt-B/F(単語移動) | — | ❌ 未カバー | — | — | — | ❌ 未カバー | — | — |
+| Set-mark+Ctrl-G | — | ❌ Bases専用テストなし(propertyには相当あり) | ✅ `basesPropertyEditing.e2e.ts` (3) | — | ❌ 未検証 | ❌ 未カバー | — | — |
+| Kill-line | — | ❌ 未カバー | — | — | — | — | — | — |
+| Kill-word | — | ❌ 未カバー | — | — | — | — | — | — |
+| Delete-char | ✅ `basesPropertyEditing.e2e.ts` (1,4) | — | — | — | — | — | — | — |
+| Kill/Copy-region | ✅ 同上 (7、Copy region) | ❌ Kill regionは未確認 | — | — | — | — | — | — |
+| Yank | ✅ 同上 (2、Kill→Yank往復) | — | — | — | — | — | — | — |
+| サジェスター Ctrl-N/P+Enter | — | — | — | ❌ Bases専用テストなし(propertyには相当あり) | — | — | ❌ 同上 | — |
+| Recenter | ✅ `basesRecenter.e2e.ts` (3) | — | — | — | — | — | — | — |
+
+**Ctrl-A/Eは2026-11-13に実装・テスト完了**(3つの実バグを経て、`basesPropertyEditing.e2e.ts` test (8) 参照)。残る❌(Set-mark+Kill/Copy-region/Yank、サジェスター、formula列の編集ダイアログ、embedded vs フルタブ)は、0.13.0リリースのブロッカーではない——Title/フロントマターの品質で0.13.0は出荷し、残りは0.13.x以降のfixリリースで随時拡充する([[project_bases_release_scope_and_versioning]]参照)。
 
 ## Implemented
 
@@ -2085,6 +2162,58 @@ widget at all — see `propertyCtrlG.e2e.ts` test (7) and
 for the full story; this spec's own test (3)/(4) (Ctrl-G, scope-
 shadowing) only pass today because they explicitly map `keyboard-quit`
 to Ctrl-G rather than relying on a bare Escape.
+
+**Test (8), real user-reported bug (2026-11-13), found well after this
+spec's own first draft shipped**: `titleMoveToLineBoundary` (Ctrl-A/E,
+shared with the title and property-value cases) walks character-by-
+character to stay visual-line-aware, checking whether each step's own
+rendered `top` coordinate still matches the line it started on. Every
+cell in one Bases row renders at the SAME `top`, so that check alone
+never detects "left this cell" at all — the scan walked straight
+through into whatever cell came next in DOM order, confirmed live to
+sometimes be a COMPLETELY DIFFERENT ROW's own last column, not even
+this row's neighbor (Bases virtualizes rows — each `.bases-tr` is
+absolutely positioned, not DOM-ordered to match visual row order).
+
+Three escape-detect-and-recover attempts were each tried and each
+independently regressed:
+1. Restoring the exact `(beforeNode, beforeOffset)` pair captured one
+   iteration earlier — broke when the next cell over is a number/date
+   `<input>` (no exposed Selection/Range API at all, a confirmed
+   platform wall — see `project_frontmatter_property_dom_survey`), since
+   `'character'` granularity jumps clean OVER it to the first selectable
+   cell beyond, an asymmetric jump a single step back can't retrace.
+2. Re-focusing `titleEl` then `modify(..., 'documentboundary')` — broke
+   a plain single-column case with no number/date neighbor at all
+   (`test (1)` landed Ctrl-A one character off), so `'documentboundary'`
+   granularity's own exact semantics after a fresh `.focus()` aren't
+   trustworthy here.
+3. `selectAllChildren(titleEl)` + `collapseToStart/End()` — fixed the
+   landing position correctly, but broke `test (2)` (Ctrl-K immediately
+   after Ctrl-A silently did nothing): `selectAllChildren`'s own
+   collapsed result sits on `titleEl` itself (an Element), at a child-
+   index offset, not on a Text node at a character offset —
+   `titleKillLine`'s own `container.nodeType !== Node.TEXT_NODE` guard
+   (same "always flat text" assumption `titleKillWord`/`titleYank`
+   share) silently no-ops on that.
+
+**The actual fix**: route a Bases cell around the whole scan, rather
+than hardening the scan's own escape handling — a Bases cell is always
+single-line (nothing to be visual-line-aware about in the first place),
+so `titleMoveToLineBoundary` now checks
+`titleEl.closest(BASES_TABLE_CONTAINER_SELECTOR)` up front and, for
+Bases, collapses directly onto `titleEl.firstChild` (the cell's own
+flat text node) at offset `0` or its own length — one atomic operation
+that never leaves `titleEl`'s own subtree, so there's nothing to escape
+from or recover afterward, and it lands on a real Text node so every
+downstream "always flat text" assumption stays satisfied. Also fixes a
+genuine Ctrl-G-unresponsive-until-physical-Escape symptom every earlier
+attempt produced: each one, even when it got the landing position
+right, still moved real DOM focus out to the foreign cell and back
+(confirmed live via `document.activeElement`), which was enough on its
+own to leak `propertyRowScope` the same way a stuck scope already has
+elsewhere in this project (`project_scope_stuck_safety_net`) — routing
+around the scan means that transient focus churn never happens either.
 
 #### `basesCellNavigation.e2e.ts`
 

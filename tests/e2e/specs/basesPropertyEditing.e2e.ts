@@ -232,4 +232,56 @@ describe('Bases table view: property-text-editing command parity', function () {
 		const killCache = await browser.executeObsidian(({ app }) => (app as any).plugins.plugins['universal-cursor-hotkeys'].killCache)
 		await expect(killCache).toBe('hello')
 	})
+
+	// 2026-11-13, real user-reported bug: a text cell's own Ctrl-A/E
+	// (Home/End) used titleMoveToLineBoundary's character-walking scan
+	// as-is, same as the title/property-value case. A Bases row's own
+	// column types sitting side by side -- and, confirmed live, Bases
+	// virtualizing rows (each `.bases-tr` absolutely positioned, not
+	// DOM-ordered to match visual row order) -- made that scan walk
+	// straight out of this cell into an unrelated cell (sometimes a
+	// DIFFERENT ROW's own last column, not even this row's neighbor).
+	// Several escape-detect-and-recover attempts (restoring a saved
+	// node, re-focusing + 'documentboundary') all independently leaked
+	// propertyRowScope the same way a stuck scope already has elsewhere
+	// in this project (see project_scope_stuck_safety_net) -- real DOM
+	// focus briefly, genuinely left this cell each time, which was
+	// enough to trigger it. Fixed by routing a Bases cell's Ctrl-A/E
+	// around the scan entirely (selectAllChildren + collapseToStart/End,
+	// a single atomic Range operation that never leaves this cell's own
+	// subtree, so there's never anything to escape from).
+	it('(8) Ctrl-A/E land at this cell\'s own start/end without ever touching an adjacent cell, even with a number column neighbor', async function () {
+		await openBase('BasesHomeEndAdjacency.md', 'BasesHomeEndAdjacency.base',
+			`---\ncategory: two\nscore: 1\ntags:\n  - sample\n---\nbody\n`,
+			['file.name', 'category', 'score', 'tags'])
+		await focusCell('BasesHomeEndAdjacency', 'note.category')
+
+		await browser.keys(['Control', 'e']) // end, from wherever focus() left the caret
+		await browser.pause(150)
+		await expect((await getCellState('BasesHomeEndAdjacency', 'note.category')).isActive).toBe(true)
+
+		await browser.keys(['Control', 'a']) // home -- the direction that actually escaped live
+		await browser.pause(150)
+		let state = await getCellState('BasesHomeEndAdjacency', 'note.category')
+		await expect(state.isActive).toBe(true)
+		await expect(state.text).toBe('two') // unchanged -- confirms we're still in the right cell, not a foreign one
+
+		// A second Home press while ALREADY at this cell's own start (so
+		// the very first character step would have escaped immediately,
+		// the exact case that regressed hardest) must also stay put.
+		await browser.keys(['Control', 'a'])
+		await browser.pause(150)
+		state = await getCellState('BasesHomeEndAdjacency', 'note.category')
+		await expect(state.isActive).toBe(true)
+
+		// Ctrl-G must still work afterward -- confirms propertyRowScope
+		// was never shadowed/orphaned by any of the above.
+		await browser.keys(['Control', 'g'])
+		await browser.pause(200)
+		const afterQuit = await browser.executeObsidian(() => {
+			const active = document.activeElement as HTMLElement | null
+			return active?.classList.contains('bases-table-container')
+		})
+		await expect(afterQuit).toBe(true)
+	})
 })
