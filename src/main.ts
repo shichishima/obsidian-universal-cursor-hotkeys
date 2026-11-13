@@ -2013,9 +2013,9 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// must be a TRUE no-op — captures the anchor/focus pair beforehand
 	// and restores it via setBaseAndExtent whenever titleMoveLine reports
 	// no movement.
-	private propertyValueEditMoveLine(valueEl: HTMLElement, forward: boolean) {
+	private propertyValueEditMoveLine(valueEl: HTMLElement, forward: boolean): boolean {
 		const sel = valueEl.ownerDocument.getSelection();
-		if (!sel || sel.rangeCount === 0) return;
+		if (!sel || sel.rangeCount === 0) return false;
 		const anchorNode = sel.anchorNode, anchorOffset = sel.anchorOffset;
 		const focusNode = sel.focusNode, focusOffset = sel.focusOffset;
 		const moved = this.titleMoveLine(valueEl, forward);
@@ -2023,6 +2023,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			(sel as unknown as { setBaseAndExtent(aNode: Node, aOff: number, fNode: Node, fOff: number): void })
 				.setBaseAndExtent(anchorNode, anchorOffset, focusNode, focusOffset);
 		}
+		return moved;
 	}
 
 	// Finds the suggester's own item list, scoped to the SAME document
@@ -2085,20 +2086,34 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// one, matching how the suggester visually COVERS the caret's own
 	// line-movement concern anyway while it's open (there is no second,
 	// independent "move within the input" need at that exact moment).
-	// A plain TEXT value gets the exact same branch, for the same
-	// reason — its own "previously used values" suggester shares the
-	// identical PROPERTY_SUGGESTER_SELECTOR markup (confirmed live), but
-	// was missed when this was first wired up (the CHANGELOG entry only
-	// ever named "a list/tags/aliases value, or a new property name" —
-	// text's own suggester just never got the same treatment at the
-	// time, not a deliberate exclusion).
+	// This is safe for multi-select specifically because its suggester
+	// only ever opens once the user types something matching a candidate
+	// — it never appears from focus alone.
 	//
-	// The name/key-edit input gets the SAME suggester-navigation branch,
-	// but unconditionally returns either way afterward (never falls
-	// through to propertyValueEditMoveLine, which assumes a
-	// contenteditable's own Selection API — this input is a plain
-	// <input>, with no up/down meaning of its own at all, matching the
-	// existing scope decision for this field).
+	// A plain TEXT value's own "previously used values" suggester shares
+	// the identical PROPERTY_SUGGESTER_SELECTOR markup, but does NOT share
+	// that same precondition — confirmed live it can be open the INSTANT
+	// the field is focused, with no typing at all, as long as this
+	// property key has ANY saved value anywhere in the vault (even just
+	// the value's own current content matching itself). Giving it the
+	// same suggester-always-wins priority as multi-select would otherwise
+	// permanently break this value's own established Ctrl-N/P meaning
+	// (moving between visual lines in a wrapped value — see
+	// propertyValueEditMoveLine) for any property that's ever been reused,
+	// which is close to the common case, not an edge case. So text gets
+	// the OPPOSITE order instead: try the real visual-line move first, and
+	// only fall back to navigating the suggester once that move is
+	// confirmed impossible (a true no-op — e.g. a single-visual-line
+	// value, the one case this suggester-interception was actually meant
+	// for in the first place).
+	//
+	// The name/key-edit input gets the SAME suggester-navigation branch as
+	// multi-select (its own suggester has the same "only opens while
+	// typing" precondition), but unconditionally returns either way
+	// afterward (never falls through to propertyValueEditMoveLine, which
+	// assumes a contenteditable's own Selection API — this input is a
+	// plain <input>, with no up/down meaning of its own at all, matching
+	// the existing scope decision for this field).
 	private propertyMoveLineOrNoop(el: HTMLElement, forward: boolean) {
 		if (el.matches(PROPERTY_DATE_TYPE_SELECTOR)) return;
 		if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) {
@@ -2106,12 +2121,18 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			if (items) this.propertyNavigateSuggester(items, forward);
 			return;
 		}
-		if (el.matches(`${PROPERTY_MULTISELECT_INPUT_SELECTOR}, ${PROPERTY_VALUE_EDIT_SELECTOR}`)) {
+		if (el.matches(PROPERTY_MULTISELECT_INPUT_SELECTOR)) {
 			const items = this.getVisibleSuggesterItems(el);
 			if (items) {
 				this.propertyNavigateSuggester(items, forward);
 				return;
 			}
+		}
+		if (el.matches(PROPERTY_VALUE_EDIT_SELECTOR)) {
+			if (this.propertyValueEditMoveLine(el, forward)) return;
+			const items = this.getVisibleSuggesterItems(el);
+			if (items) this.propertyNavigateSuggester(items, forward);
+			return;
 		}
 		this.propertyValueEditMoveLine(el, forward);
 	}
