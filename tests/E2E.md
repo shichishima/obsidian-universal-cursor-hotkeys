@@ -3454,7 +3454,7 @@ branch's own work.
 | Command | Item-selection (row/heading/Add) | Text value | Multi-select/tags | Name field | Checkbox/date/datetime/number | Suggester |
 |---|---|---|---|---|---|---|
 | Ctrl-B/F | ✅ `propertyOtherTypesCtrlGPnbf.e2e.ts` (4,7,8) | ✅ `propertyValueEditMovement.e2e.ts` (1,2) | ✅ same | ✅ `propertyNameEdit.e2e.ts` (1) | ✅ no-op confirmed (2,3) | — |
-| Ctrl-A/E | ✅ no-op (new guard) | ✅ `propertyValueEditMovement.e2e.ts` (3,4) | N/A | 🚫 bare Home/End never reach checkCallback on a plain `<input>` (see below); Ctrl-A/E itself untested here (archive's own test used bare keys) | N/A | — |
+| Ctrl-A/E | ✅ no-op (new guard) | ✅ `propertyValueEditMovement.e2e.ts` (3,4) | N/A | 🚫 bare Home/End (not Ctrl-A/E itself) swallowed by the suggester, same mechanism as Ctrl-N/P below — `propertyNameEdit.e2e.ts`'s own test (2) happens to use the bare keys as its configured hotkey | N/A | — |
 | Ctrl-P/N (line movement + row/heading/Add nav) | ✅ `propertyItemSelection.e2e.ts` (1-6) | ✅ `propertyValueEditMovement.e2e.ts` (6); 🚫 (7,9) suggester swallow | 🚫 suggester swallow | 🚫 suggester swallow (`propertyNameEdit.e2e.ts` (14)) | ✅ no-op confirmed | 🚫 `propertySuggesterScopeLimitation.e2e.ts` is the canary for this limitation |
 | Alt-B/F (word) | ✅ no-op (new guard) | ✅ `propertyValueEditWordMotion.e2e.ts` | N/A | ✅ `propertyNameEdit.e2e.ts` (3) | N/A | — |
 | Set-mark | ✅ no-op (new guard, `propertyValueEditSetMark.e2e.ts` (6)) | ✅ `propertyValueEditSetMark.e2e.ts` (1-4) | N/A | ✅ `propertyNameEdit.e2e.ts` (4) | N/A | — |
@@ -3503,29 +3503,31 @@ the wrong (Properties-style) branch instead of delegating to
 likely resolve for free once the Bases two-stage-Escape fix lands in
 the Bases completion branch.
 
-🚫 Ctrl-N/P (and, newly confirmed, a bare Escape too) never reaches this
-plugin's own commands while a property value's "previously used
-values" suggester dropdown is genuinely visible. Obsidian itself
-registers these on that suggester's own internal Scope, confirmed above
-`rootScope` — this plugin's command resolution is downstream of it and
-structurally cannot win that race, no matter how the command's own
-logic is written. Native physical arrow keys (and mouse) still
-navigate the same suggester regardless, so this narrows an Emacs-key
-alias, it doesn't break a feature. `propertySuggesterScopeLimitation.e2e.ts`
-pins the current swallow behavior and its Escape recovery as a canary —
-if it ever starts failing because Ctrl-N/P unexpectedly moved the
-cursor while the suggester was open, that means Obsidian changed this
-in a later version, and this limitation should be revisited.
-
-🚫 A SECOND, independent confirmed limitation: a bare (unmodified)
-`Home`/`End` keydown on a plain `<input>` element (the name/key-edit
-field specifically) never reaches this plugin's checkCallback at all —
-confirmed live in isolation, unrelated to the suggester. Ctrl-A/Ctrl-E
-(the actual recommended hotkeys, WITH a modifier) are unaffected — this
-only applies to the bare key, which `propertyNameEdit.e2e.ts`'s own
-test (2) happens to use as its configured hotkey. Not investigated
-further (deferred); the practical impact is low since nobody would
-reasonably bind Home/End bare to this command.
+🚫 Ctrl-N/P, a bare Escape, AND a bare Home/End never reach this
+plugin's own commands while a property's "previously used values"
+(or "previously used property names," for the name/key-edit field)
+suggester dropdown is genuinely visible. Obsidian's own generic
+suggester component registers ArrowUp/Down/PageUp/PageDown/Home/End
+(all bare) AND Ctrl-N/Ctrl-P on its own internal Scope the moment the
+field is focused — confirmed live via `app.keymap.getWindowStack()`
+for both the value AND the name/key-edit field's own suggester (one
+new scope pushed on focus, same object persisting across
+typing/re-filtering, popped by Escape without moving DOM focus) — this
+plugin's command resolution is downstream of it and structurally
+cannot win that race, no matter how the command's own logic is
+written, or which of these specific keys is bound to it. Native
+physical arrow keys/Home/End (and mouse) still navigate the same
+suggester regardless, so this narrows an Emacs-key alias, it doesn't
+break a feature. Confirmed for a brand-new, never-before-used property
+key too — the suggester renders from focus alone, not just on an
+actual history match. `propertySuggesterScopeLimitation.e2e.ts` pins
+the current swallow behavior and its Escape recovery as a canary — if
+it ever starts failing because Ctrl-N/P unexpectedly moved the cursor
+while the suggester was open, that means Obsidian changed this in a
+later version, and this limitation should be revisited. Ctrl-A/Ctrl-E
+(the actual recommended hotkeys for Home/End, WITH a modifier) are
+unaffected — only the bare key collides, which `propertyNameEdit.e2e.ts`'s
+own test (2) happens to use as its configured hotkey.
 
 ## Bases
 
