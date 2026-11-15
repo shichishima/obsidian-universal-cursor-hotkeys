@@ -69,6 +69,28 @@ export async function openFixtureAndGetContentStart(path: string): Promise<numbe
 	}, path)
 }
 
+// Sibling of openFixtureAndGetContentStart, for the handful of specs
+// (titleCrossing*.e2e.ts, titleKillLine.e2e.ts) where the NOTE'S OWN
+// FILENAME is itself the thing under test (Obsidian's inline title is
+// derived from it) — the note can't just be opened in place like every
+// other fixture, it has to be created fresh under a dynamically-controlled
+// title via app.vault.create. This reads a committed fixture's own body
+// (everything after its `---` separator, same convention as every other
+// fixture) as a plain string, to pass into that app.vault.create call —
+// keeping the actual test content in an editable, committed .md file
+// rather than an embedded, escaped-newline string in the spec's own
+// source.
+export async function readFixtureBody(path: string): Promise<string> {
+	return browser.executeObsidian(async ({ app }, path2) => {
+		const file = app.vault.getFileByPath(path2)!
+		const content = await app.vault.read(file)
+		const lines = content.split('\n')
+		const sepIndex = lines.findIndex(l => l.trim() === '---')
+		if (sepIndex === -1) throw new Error(`"${path2}": no --- separator found`)
+		return lines.slice(sepIndex + 1).join('\n')
+	}, path)
+}
+
 // E2E_POPOUT path: one popout window is created on the first call and
 // reused (via openFile on its own existing leaf) for every fixture opened
 // for the rest of the run — matching the main-window path's "no lasting
