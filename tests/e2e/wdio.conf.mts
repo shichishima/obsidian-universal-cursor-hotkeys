@@ -77,6 +77,7 @@ export const config: WebdriverIO.Config = {
 		'./specs/propertyCtrlG.e2e.ts',
 		'./specs/propertyKeyUpgradeInterference.e2e.ts',
 		'./specs/propertyValueEditMovement.e2e.ts',
+		'./specs/propertySuggesterScopeLimitation.e2e.ts',
 		'./specs/propertyValueEditSetMark.e2e.ts',
 		'./specs/propertyValueEditKillYank.e2e.ts',
 		'./specs/propertyValueEditKillWord.e2e.ts',

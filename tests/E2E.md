@@ -3413,3 +3413,65 @@ fixed along the way, not just new feature code:
   column established directly in the title (not derived from a prior
   body visit) survives escaping down through a COLLAPSED Properties
   panel into the body, landing well past `ch 0`.
+
+# 0.13.0 (checkCallback architecture)
+
+The Scope-push implementation above (`archive/develop-scope-push-0.13.0`)
+is kept on its own branch as a complete, working reference and as the
+baseline these same imported spec files were originally validated
+against. 0.13.0 actually ships on `checkCallback` +
+`document.activeElement` branching instead. Same practice as above:
+command × context matrix first, ✅ = covered by an existing test (file
+named), ❌ = no coverage, 🚫 = confirmed architectural limitation (not a
+coverage gap — see its own note below each table).
+
+## Title
+
+| Command | Short title | Wrapped title | Title↔Properties↔body boundary |
+|---|---|---|---|
+| Ctrl-B/F | ✅ `titleMovement.e2e.ts` (1,2) | — (same code path, not wrap-specific) | — |
+| Ctrl-P/N (line movement) | — | ✅ `titleCrossingWrapped.e2e.ts` | ✅ `titleCrossingFrontmatter.e2e.ts` (1,2,2b,3,3b,4,5,6); ❌ (7,8) pixel-column preservation across the boundary not ported |
+| Ctrl-A/E, Alt-B/F, Set-mark, Kill/Yank, Ctrl-G | ❌ not yet implemented on this architecture | ❌ | ❌ |
+
+## Frontmatter (Properties panel)
+
+| Command | Item-selection (row/heading/Add) | Text value | Multi-select/tags | Name field | Checkbox/date/datetime/number | Suggester |
+|---|---|---|---|---|---|---|
+| Ctrl-B/F | ✅ `propertyOtherTypesCtrlGPnbf.e2e.ts` (4,7,8) | ✅ `propertyValueEditMovement.e2e.ts` (1,2) | ✅ same | ✅ `propertyNameEdit.e2e.ts` (1) | ✅ no-op confirmed (2,3) | — |
+| Ctrl-P/N (line movement + row/heading/Add nav) | ✅ `propertyItemSelection.e2e.ts` (1-6) | ✅ `propertyValueEditMovement.e2e.ts` (6); 🚫 (7,9) suggester swallow | 🚫 suggester swallow | 🚫 suggester swallow (`propertyNameEdit.e2e.ts` (14)) | ✅ no-op confirmed | 🚫 `propertySuggesterScopeLimitation.e2e.ts` is the canary for this limitation |
+| Ctrl-A/E, Alt-B/F, Set-mark, Kill/Yank, Ctrl-G, Copy/Kill region | ❌ not yet implemented on this architecture | ❌ | ❌ | ❌ | ❌ | — |
+
+🚫 Ctrl-N/P never reaches this plugin's own commands while a property
+value's "previously used values" suggester dropdown is genuinely
+visible. Obsidian itself registers Ctrl-N/P on that suggester's own
+internal Scope, confirmed above `rootScope` — this plugin's command
+resolution is downstream of it and structurally cannot win that race, no
+matter how the command's own logic is written. Native physical arrow
+keys (and mouse) still navigate the same suggester regardless, so this
+narrows an Emacs-key alias, it doesn't break a feature.
+`propertySuggesterScopeLimitation.e2e.ts` pins the current swallow
+behavior and its Escape recovery as a canary — if it ever starts failing
+because Ctrl-N/P unexpectedly moved the cursor while the suggester was
+open, that means Obsidian changed this in a later version, and this
+limitation should be revisited.
+
+## Bases
+
+| Command | Cell-selection (container) | Text cell | List/tags cell | Checkbox/date/number cell |
+|---|---|---|---|---|
+| Ctrl-B/F/P/N (cell navigation) | ❌ no lasting test yet — see note below | — | — | — |
+| Ctrl-B/F (in-cell movement) | — | ✅ `basesPropertyEditing.e2e.ts` (5, list cell) | ✅ same | ✅ same (date/number no-op, checkbox safe fallback) |
+| Ctrl-P/N (in-cell) | — | 🚫 same suggester limitation as Properties applies here too (shared widget classes), not yet covered by a Bases-specific test | — | — |
+| Column header (property name) rename | — (confirmed, deliberate non-goal: plain non-editable div, no PNBF concept) | | | |
+| Ctrl-A/E, Alt-B/F, Set-mark, Kill/Yank, Ctrl-G, Copy/Kill region | ❌ not yet implemented on this architecture | ❌ | ❌ | ❌ |
+
+❌ Cell-to-cell navigation itself (Ctrl-B/F/P/N moving the active cell
+while in cell-selection mode) was confirmed working correctly by hand
+(the active cell/row landed exactly where expected after a Ctrl-F →
+Ctrl-N → Enter chain), but `basesCellNavigation.e2e.ts`'s own imported
+setup can't reach cell-selection mode with a single physical Escape on
+this architecture — that transition needs the same two-stage-Escape
+completion Ctrl-G/keyboard-quit provides, which isn't implemented here
+yet. Not a bug in the navigation code itself; the spec's own
+precondition needs reworking (or Ctrl-G needs implementing first)
+before it can pass as a lasting, committed test.
