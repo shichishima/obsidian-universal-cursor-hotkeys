@@ -54,6 +54,23 @@ const PROPERTY_ADD_BUTTON_SELECTOR = '.metadata-add-button';
 // workaround (see buildPropertyRowScope's own bind() comment in the
 // archive implementation for why THAT needed to exist at all).
 const PROPERTY_ROW_SELECTOR = '.metadata-property';
+// checkCallback-based Bases sample (feat/checkcallback-bases-sample):
+// per the archive implementation's own re-verification memory, Bases
+// table cells reuse the EXACT same DOM classes as the Properties panel
+// for every value type (text/multi-select/date/etc.), so
+// PROPERTY_CURSOR_LR_SELECTOR and friends already cover Bases cell
+// editing for free — no new selector needed there. The ONE genuinely
+// new target is this: a Bases table's own "cell selection mode" (Escape
+// out of a cell's edit mode) keeps real DOM focus on this ONE shared
+// container for the whole table, never on an individual cell — same
+// "delegate to a native arrow-key dispatch" shape as
+// PROPERTY_ROW_SELECTOR/HEADING/ADD_BUTTON/PILL above, so it's added to
+// the same native-fallback branches rather than needing its own
+// handler. Column header (property NAME) rename is a confirmed,
+// deliberate non-goal — Bases renders it as a plain non-editable div
+// with no PNBF concept at all, not something Ctrl-N/P/B/F could ever
+// reach.
+const BASES_TABLE_CONTAINER_SELECTOR = '.bases-table-container';
 // This dropdown (the "previously used values" suggester, shared by a
 // text value's own history and multi-select/tags' own candidate list)
 // supports NO keyboard navigation natively, confirmed live in the
@@ -268,7 +285,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 					if (!checking) this.propertyHeadingEscapeToTitle(el);
 					return true;
 				}
-				if (el?.matches?.(PROPERTY_ROW_SELECTOR) || el?.matches?.(PROPERTY_ADD_BUTTON_SELECTOR)) {
+				if (el?.matches?.(PROPERTY_ROW_SELECTOR) || el?.matches?.(PROPERTY_ADD_BUTTON_SELECTOR) || el?.matches?.(BASES_TABLE_CONTAINER_SELECTOR)) {
 					if (!checking) this.propertyNativeArrowFallback(el, 'ArrowUp');
 					return true;
 				}
@@ -303,7 +320,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 					if (!checking) this.propertyAddButtonEscapeToBody(el);
 					return true;
 				}
-				if (el?.matches?.(PROPERTY_ROW_SELECTOR)) {
+				if (el?.matches?.(PROPERTY_ROW_SELECTOR) || el?.matches?.(BASES_TABLE_CONTAINER_SELECTOR)) {
 					if (!checking) this.propertyNativeArrowFallback(el, 'ArrowDown');
 					return true;
 				}
@@ -333,7 +350,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 					}
 					return true;
 				}
-				if (el?.matches?.(PROPERTY_HEADING_SELECTOR) || el?.matches?.(PROPERTY_ROW_SELECTOR) || el?.matches?.(PROPERTY_ADD_BUTTON_SELECTOR) || el?.matches?.(PROPERTY_MULTISELECT_PILL_SELECTOR)) {
+				if (el?.matches?.(PROPERTY_HEADING_SELECTOR) || el?.matches?.(PROPERTY_ROW_SELECTOR) || el?.matches?.(PROPERTY_ADD_BUTTON_SELECTOR) || el?.matches?.(PROPERTY_MULTISELECT_PILL_SELECTOR) || el?.matches?.(BASES_TABLE_CONTAINER_SELECTOR)) {
 					if (!checking) this.propertyNativeArrowFallback(el, 'ArrowLeft');
 					return true;
 				}
@@ -363,7 +380,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 					}
 					return true;
 				}
-				if (el?.matches?.(PROPERTY_HEADING_SELECTOR) || el?.matches?.(PROPERTY_ROW_SELECTOR) || el?.matches?.(PROPERTY_ADD_BUTTON_SELECTOR) || el?.matches?.(PROPERTY_MULTISELECT_PILL_SELECTOR)) {
+				if (el?.matches?.(PROPERTY_HEADING_SELECTOR) || el?.matches?.(PROPERTY_ROW_SELECTOR) || el?.matches?.(PROPERTY_ADD_BUTTON_SELECTOR) || el?.matches?.(PROPERTY_MULTISELECT_PILL_SELECTOR) || el?.matches?.(BASES_TABLE_CONTAINER_SELECTOR)) {
 					if (!checking) this.propertyNativeArrowFallback(el, 'ArrowRight');
 					return true;
 				}
