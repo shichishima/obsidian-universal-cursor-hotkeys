@@ -4912,6 +4912,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 		this.markActive = false;
 		this.isKillChaining = false;
+		this.collapseActiveSelectionToHead(editor);
 		this.updateKillCache(texts.join('\n'));
 		navigator.clipboard.writeText(this.killCache).catch(() => {});
 	}
@@ -4934,6 +4935,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 		this.markActive = false;
 		this.isKillChaining = false;
+		this.collapseActiveSelectionToHead(editor);
 		this.updateKillCache(texts.join('\n'));
 		navigator.clipboard.writeText(this.killCache).catch(() => {});
 	}
