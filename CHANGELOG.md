@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.12.1] - 2026-11-15
+
+### Fixed
+
+- **Copy region (Alt-W) no longer leaves the selection highlighted afterward.** Previously, the selection stayed visually active after copying, so the very next cursor-movement keypress was wasted collapsing it instead of actually moving — now it collapses to the copied region's own end immediately, in the note body and inside a table cell.
+
 ## [0.12.0] - 2026-10-27
 
 ### Added
