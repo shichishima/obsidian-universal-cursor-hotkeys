@@ -65,29 +65,39 @@ body content
 	}
 
 	// Focuses the given property's text-editing area, then presses
-	// Escape twice to reach item-selection mode on that row. Bundled into
-	// one executeObsidian call rather than three separate round trips
-	// (focus, then two individual pressKey calls) — confirmed live that
-	// the multi-round-trip style can race with the Properties panel still
-	// settling right after a freshly (re-)opened note, intermittently
-	// landing the second Escape's effective target somewhere unexpected.
-	// A single bundled script has no such gap.
+	// Escape twice (real browser.keys(), not a synthetic dispatchEvent)
+	// to reach item-selection mode on that row.
+	//
+	// feat/property-suggester-scope-override: the focused element here
+	// is actually the row's own key/name-edit input (the first element
+	// `querySelector('[contenteditable="true"], input')` finds, ahead of
+	// the value widget later in the row), which always has its own
+	// "previously used property names" suggester visible from focus
+	// alone (confirmed live, independent of this plugin). A synthetic
+	// Escape dispatchEvent reliably reached this field's real exit
+	// mechanism before this scope existed, but confirmed live (via a
+	// scratch diagnostic) it no longer does once our own override scope
+	// also sits on this field's focus lifecycle -- same long-standing
+	// "synthetic dispatchEvent() is unreliable for anything
+	// Keymap-adjacent" lesson as elsewhere in this codebase, now also
+	// covering this specific field. Real browser.keys() reaches it
+	// reliably in every case tried; the original race concern that
+	// motivated bundling everything into one executeObsidian call
+	// (Properties panel settling right after a freshly-opened note)
+	// is covered by its own openNote() pause plus the explicit pauses
+	// below instead.
 	async function enterItemSelectionMode(propertyKey: string) {
-		await browser.executeObsidian(async ({ app, obsidian }, key) => {
+		await browser.executeObsidian(({ app, obsidian }, key) => {
 			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
-			const doc = view.containerEl.ownerDocument
 			const row = view.containerEl.querySelector(`.metadata-property[data-property-key="${key}"]`) as HTMLElement
 			const target = (row.querySelector('[contenteditable="true"], input') as HTMLElement)
 			target.focus()
-			await new Promise(r => setTimeout(r, 80))
-			function press(k: string) {
-				doc.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }))
-			}
-			press('Escape')
-			await new Promise(r => setTimeout(r, 100))
-			press('Escape')
-			await new Promise(r => setTimeout(r, 100))
 		}, propertyKey)
+		await browser.pause(150)
+		await browser.keys(['Escape'])
+		await browser.pause(150)
+		await browser.keys(['Escape'])
+		await browser.pause(150)
 	}
 
 	async function pressKey(key: string, ctrl: boolean) {

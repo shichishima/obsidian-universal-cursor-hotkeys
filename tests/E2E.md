@@ -3454,11 +3454,11 @@ branch's own work.
 | Command | Item-selection (row/heading/Add) | Text value | Multi-select/tags | Name field | Checkbox/date/datetime/number | Suggester |
 |---|---|---|---|---|---|---|
 | Ctrl-B/F | ✅ `propertyOtherTypesCtrlGPnbf.e2e.ts` (4,7,8) | ✅ `propertyValueEditMovement.e2e.ts` (1,2) | ✅ same | ✅ `propertyNameEdit.e2e.ts` (1) | ✅ no-op confirmed (2,3) | — |
-| Ctrl-A/E | ✅ no-op (new guard) | ✅ `propertyValueEditMovement.e2e.ts` (3,4) | N/A | 🚫 bare Home/End (not Ctrl-A/E itself) swallowed by the suggester, same mechanism as Ctrl-N/P below — `propertyNameEdit.e2e.ts`'s own test (2) happens to use the bare keys as its configured hotkey | N/A | — |
-| Ctrl-P/N (line movement + row/heading/Add nav) | ✅ `propertyItemSelection.e2e.ts` (1-6) | ✅ `propertyValueEditMovement.e2e.ts` (6); 🚫 (7,9) suggester swallow | 🚫 suggester swallow | 🚫 suggester swallow (`propertyNameEdit.e2e.ts` (14)) | ✅ no-op confirmed | 🚫 `propertySuggesterScopeLimitation.e2e.ts` is the canary for this limitation |
+| Ctrl-A/E | ✅ no-op (new guard) | ✅ `propertyValueEditMovement.e2e.ts` (3,4) | N/A | 🚫 bare Home/End (not Ctrl-A/E itself) still swallowed by the suggester (narrower scope than Ctrl-N/P below, not yet fixed) — `propertyNameEdit.e2e.ts`'s own test (2) happens to use the bare keys as its configured hotkey | N/A | — |
+| Ctrl-P/N (line movement + row/heading/Add nav) | ✅ `propertyItemSelection.e2e.ts` (1-6) | ✅ `propertyValueEditMovement.e2e.ts` (6); (7) now ✅ via the scope override below, (9)'s own fixture is independently broken (suggester never renders for its 100+-char seed value, confirmed pre-existing, unaffected by this fix) | ✅ FIXED, `propertyOtherTypesCtrlGPnbf.e2e.ts` (10)/(11) | ✅ FIXED, `propertyNameEdit.e2e.ts` (14) | ✅ no-op confirmed | ✅ FIXED (`feat/property-suggester-scope-override`) — see writeup below |
 | Alt-B/F (word) | ✅ no-op (new guard) | ✅ `propertyValueEditWordMotion.e2e.ts` | N/A | ✅ `propertyNameEdit.e2e.ts` (3) | N/A | — |
 | Set-mark | ✅ no-op (new guard, `propertyValueEditSetMark.e2e.ts` (6)) | ✅ `propertyValueEditSetMark.e2e.ts` (1-4) | N/A | ✅ `propertyNameEdit.e2e.ts` (4) | N/A | — |
-| Ctrl-G (keyboard-quit) | ✅ `propertyCtrlG.e2e.ts` (1-4,6) | 🚫 (5) real keypress works (manually confirmed), but the imported test's own synthetic `dispatchEvent()` doesn't reliably trigger the nested native-widget exit — known test-methodology limitation, not a code bug; (7) genuinely fails even with a real keypress, but ONLY because the suggester (same root cause as the Ctrl-N/P limitation) swallows the first Escape too, not just Ctrl-N/P | ✅ `propertyOtherTypesCtrlGPnbf.e2e.ts` (1.*, 6) | 🚫 `propertyNameEdit.e2e.ts` (12) — same suggester-swallows-Escape-too limitation | ✅ `propertyOtherTypesCtrlGPnbf.e2e.ts` (1.*) | — |
+| Ctrl-G (keyboard-quit) | ✅ `propertyCtrlG.e2e.ts` (1-4,6) | ✅ (5) now passing too; 🚫 (7) genuinely fails even with a real keypress, but ONLY because the suggester swallows a bare Escape specifically (a narrower, not-yet-fixed gap than Ctrl-N/P — see below) | ✅ `propertyOtherTypesCtrlGPnbf.e2e.ts` (1.*, 6) | 🚫 `propertyNameEdit.e2e.ts` (12) — same bare-Escape-swallow gap | ✅ `propertyOtherTypesCtrlGPnbf.e2e.ts` (1.*) | — |
 | Kill-line, Kill-word, Delete-char | ✅ no-op (new guard) | ✅ `propertyValueEditKillYank.e2e.ts` (1), `propertyValueEditKillWord.e2e.ts`, `propertyValueEditDeleteChar.e2e.ts` (1-3) | N/A | ✅ `propertyNameEdit.e2e.ts` (6,8,9) | N/A | — |
 | Kill/Copy-region, Yank | ✅ no-op (new guard) | ✅ `propertyValueEditKillYank.e2e.ts` (2-5,7) | N/A | ✅ `propertyNameEdit.e2e.ts` (7,10,11) | N/A | — |
 | Recenter / Recenter top-bottom | ✅ `frontmatterRecenter.e2e.ts` (1-5, all passing) | ✅ same | — | — | ✅ same (5, number type) | — |
@@ -3503,31 +3503,92 @@ the wrong (Properties-style) branch instead of delegating to
 likely resolve for free once the Bases two-stage-Escape fix lands in
 the Bases completion branch.
 
-🚫 Ctrl-N/P, a bare Escape, AND a bare Home/End never reach this
-plugin's own commands while a property's "previously used values"
-(or "previously used property names," for the name/key-edit field)
-suggester dropdown is genuinely visible. Obsidian's own generic
-suggester component registers ArrowUp/Down/PageUp/PageDown/Home/End
-(all bare) AND Ctrl-N/Ctrl-P on its own internal Scope the moment the
-field is focused — confirmed live via `app.keymap.getWindowStack()`
-for both the value AND the name/key-edit field's own suggester (one
-new scope pushed on focus, same object persisting across
-typing/re-filtering, popped by Escape without moving DOM focus) — this
-plugin's command resolution is downstream of it and structurally
-cannot win that race, no matter how the command's own logic is
-written, or which of these specific keys is bound to it. Native
-physical arrow keys/Home/End (and mouse) still navigate the same
-suggester regardless, so this narrows an Emacs-key alias, it doesn't
-break a feature. Confirmed for a brand-new, never-before-used property
-key too — the suggester renders from focus alone, not just on an
-actual history match. `propertySuggesterScopeLimitation.e2e.ts` pins
-the current swallow behavior and its Escape recovery as a canary — if
-it ever starts failing because Ctrl-N/P unexpectedly moved the cursor
-while the suggester was open, that means Obsidian changed this in a
-later version, and this limitation should be revisited. Ctrl-A/Ctrl-E
-(the actual recommended hotkeys for Home/End, WITH a modifier) are
-unaffected — only the bare key collides, which `propertyNameEdit.e2e.ts`'s
-own test (2) happens to use as its configured hotkey.
+✅ FIXED (`feat/property-suggester-scope-override`): Ctrl-N/P no longer
+get swallowed while a property's "previously used values" (or
+"previously used property names," for the name/key-edit field)
+suggester dropdown is genuinely visible. Root cause (unchanged from the
+original finding): Obsidian's own generic suggester component registers
+ArrowUp/Down/PageUp/PageDown/Home/End (all bare) AND Ctrl-N/Ctrl-P on
+its own internal Scope the moment the field is focused — confirmed live
+via `app.keymap.getWindowStack()` that this Scope sits above rootScope,
+so this plugin's own checkCallback-based command resolution never ran
+for Ctrl-N/P at all while it was active, no matter how the command's
+own logic was written.
+
+Fix: `updatePropertySuggesterOverrideScope` (`src/main.ts`) pushes a
+SECOND, minimal `app.keymap.Scope` on top of it from `focusin` on any
+`PROPERTY_CURSOR_LR_SELECTOR` widget, registering ONLY Ctrl-N/Ctrl-P
+(each handler re-invokes the real `cursor-up`/`cursor-down` command via
+the existing `executeObsidianCommand` helper, then returns `false` to
+consume the key) and Enter (commits the currently-`.is-selected`
+suggestion via a synthetic click — confirmed live this suggester's own
+native Enter handling, even once reachable, does NOT commit based on
+the `.is-selected` class our own Ctrl-N/P navigation sets; it tracks the
+highlighted index via its own internal state that our class-only
+navigation never updates, so Enter needed its own explicit commit
+logic, not just unblocking). The new scope's constructor `.parent` is
+set to whatever `getWindowStack()` reports as currently active at push
+time (the suggester's own scope, or rootScope if none) — confirmed live
+this is NOT optional: a parent-less `Scope()` here is a dead end for
+every key it doesn't register itself, silently breaking Ctrl-B/F/K/D/W
+and everything else this plugin already handled correctly in the same
+widgets (caught via `propertyNameEdit.e2e.ts` regressing wholesale
+before this was corrected).
+
+Two re-sync points were needed beyond the initial focusin push, both
+confirmed via live regressions while building this: (1) `input` —
+Obsidian re-filters and re-pushes its OWN internal scope on every
+keystroke that changes the suggester's query, burying this plugin's own
+override scope again without popping it (confirmed via
+`app.keymap.getWindowStack()` identity checks: the override scope still
+existed but was no longer the active top) — this specifically broke the
+multi-select/tags trailing input, whose suggester re-filters as you
+type, unlike the text value/key-edit widgets' own "shows from focus
+alone" suggesters. (2) `keyup` — closing the suggester entirely (e.g.
+Ctrl-G's own internal Escape redispatch) pops Obsidian's own scope, but
+this plugin's override scope's `.parent` reference (fixed at
+construction time) never updates on its own, so a stale reference was
+left pointing at a now-detached scope object — confirmed this left a
+SECOND Ctrl-G press (which correctly exits in the equivalent no-suggester
+case) unable to ever reach item-selection mode at all, however many
+times repeated, until this resync was added.
+
+Applies for free to Bases table cells too (confirmed live via a scratch
+diagnostic) — Bases' own text cell reuses the exact same
+`.metadata-input-longtext` widget class as the Properties panel's own
+value widget, and `registerWindowDomListeners` is already wired to
+every window's document regardless of which view is active in it, so no
+Bases-specific code was needed.
+
+Same-day test-methodology fix, same long-standing "synthetic
+`dispatchEvent()` is unreliable for anything Keymap-adjacent" lesson as
+elsewhere in this project, now also covering this scope:
+`propertyItemSelection.e2e.ts`'s and `propertyCtrlBf.e2e.ts`'s own
+`enterItemSelectionMode`/`returnToRow` helpers used a synthetic Escape
+`dispatchEvent()` to reach item-selection mode from the row's own
+key/name-edit input (the first element `querySelector('[contenteditable=
+"true"], input')` finds in document order, ahead of the value widget) —
+this reliably worked before this scope existed, but no longer does once
+it also sits on that same field's focus lifecycle (confirmed live via a
+scratch diagnostic: stuck on the input, never reaching the row, however
+many synthetic presses). Fixed by switching both helpers to real
+`browser.keys(['Escape'])`, which reaches it reliably in every case
+tried.
+
+**Not yet fixed by this same mechanism, deliberately scoped out of this
+pass** (the original memory's own "minimal fix, Ctrl-N/P only" framing,
+kept rather than expanded): a bare Escape (`propertyCtrlG.e2e.ts` (7),
+`propertyNameEdit.e2e.ts` (12)) and bare Home/End (`propertyNameEdit.e2e.ts`'s
+own test (2), only when configured as a Key Upgrade) are still swallowed
+by the same suggester — these would need the SAME override scope to also
+register Escape/Home/End, re-invoking this plugin's own Ctrl-G/Ctrl-A/
+Ctrl-E logic when a Key Upgrade or Ctrl-G's own internal mechanism needs
+them, while leaving them alone (so nothing falls through incorrectly)
+when nothing is configured for the bare key. A future pass closing this
+remaining gap is still a reasonable follow-up, not ruled out — just not
+part of this one. Ctrl-A/Ctrl-E (the actual recommended hotkeys for
+Home/End, WITH a modifier) are themselves unaffected either way — only
+the bare key collides.
 
 ## Bases (feat/checkcallback-bases-table-completion — COMPLETE)
 
@@ -3537,7 +3598,7 @@ own test (2) happens to use as its configured hotkey.
 | Ctrl-B/F (in-cell movement) | — | ✅ `basesPropertyEditing.e2e.ts` (1) | ✅ same (5, list cell) | ✅ same (date/number no-op, checkbox safe fallback) |
 | Ctrl-A/E (in-cell) | — | ✅ `basesPropertyEditing.e2e.ts` (1, 8) | N/A | N/A |
 | Alt-B/F (word) | — | ✅ `basesPropertyEditing.e2e.ts` (9) | N/A | N/A |
-| Ctrl-P/N (in-cell) | — | 🚫 same suggester limitation as Properties applies here too (shared widget classes) | — | — |
+| Ctrl-P/N (in-cell) | — | ✅ FIXED for free (shared widget classes with Properties' own value widget — confirmed live via a scratch diagnostic, same `feat/property-suggester-scope-override` fix, no Bases-specific code needed) | — | — |
 | Set-mark, Kill-line/Yank, Delete char, Copy region | — | ✅ `basesPropertyEditing.e2e.ts` (1, 2, 4, 7) | — | — |
 | Ctrl-G (keyboard-quit) | — | ✅ `basesPropertyEditing.e2e.ts` (3, 4, 8) | — | ✅ same (3, checkbox/date) |
 | Ctrl-L / Ctrl-Shift-L (recenter / recenter-top-bottom) | ✅ `basesRecenter.e2e.ts` | ✅ same | — | — |

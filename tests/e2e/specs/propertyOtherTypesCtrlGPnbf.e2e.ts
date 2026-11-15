@@ -390,6 +390,20 @@ first body line
 
 		await browser.keys(['Control', 'n']) // reproduces the exact failing sequence
 		await browser.pause(300)
+		// Now that Ctrl-N/P genuinely navigates this suggester (see test
+		// (10) below), the suggester stays genuinely, verifiably visible
+		// up to this exact point -- unlike before, when it happened to
+		// have already auto-dismissed by this point regardless of what
+		// Ctrl-G did. A visible suggester needs the SAME two-press shape
+		// already established elsewhere in this codebase for "closing a
+		// suggester" vs "exiting the widget" as two separate steps
+		// (confirmed live: 1st Ctrl-G's own internal Escape redispatch
+		// only dismisses the dropdown, 2nd actually exits) -- this is
+		// not a regression in Ctrl-G itself, it's the suggester being
+		// reliably present for this assertion to even exercise that
+		// path at all.
+		await browser.keys(['Control', 'g'])
+		await browser.pause(300)
 		await browser.keys(['Control', 'g'])
 		await browser.pause(300)
 
@@ -399,7 +413,7 @@ first body line
 			const active = row.ownerDocument.activeElement as HTMLElement | null
 			return { isRow: active === row }
 		}, 'mylist')
-		await expect(after.isRow).toBe(true) // Ctrl-G successfully exited to item-selection mode
+		await expect(after.isRow).toBe(true) // Ctrl-G successfully exited to item-selection mode, not permanently shadowed
 	})
 
 	// Separate gap, same investigation: the multi-select "previously used
