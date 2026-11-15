@@ -13,6 +13,10 @@ import { getWordSpans, getBigWordSpans, findWordSpanOnLine } from './word-segmen
 import { exitTable, jumpAdjacentCell } from './table-navigation';
 import { cjkWordSelectionStyle } from './cjk-word-select';
 
+// checkCallback-based note title sample (feat/checkcallback-title-sample):
+// the native inline-title element, a plain contenteditable, not CM6-backed.
+const TITLE_SELECTOR = ".inline-title[contenteditable='true']";
+
 // Extend the Obsidian Editor interface to include the internal CodeMirror 6 instance (EditorView)
 declare module "obsidian" {
 	interface Editor {
@@ -219,9 +223,17 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: 'cursor-left',
 			name: 'LEFT',
 			repeatable: true,
-			editorCallback: (editor: Editor, _: MarkdownView) => {
+			checkCallback: (checking: boolean) => {
+				const titleEl = (document.activeElement as HTMLElement | null)?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
+				if (titleEl) {
+					if (!checking) this.titleMoveChar(titleEl, false);
+					return true;
+				}
+				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
+				if (!editor) return false;
+				if (checking) return true;
 				if (this.isComposing(editor)) return;
-				this.moveCursorLeft(editor)
+				this.moveCursorLeft(editor);
 			}
 		});
 
@@ -229,9 +241,17 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: 'cursor-right',
 			name: 'RIGHT',
 			repeatable: true,
-			editorCallback: (editor: Editor, _: MarkdownView) => {
+			checkCallback: (checking: boolean) => {
+				const titleEl = (document.activeElement as HTMLElement | null)?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
+				if (titleEl) {
+					if (!checking) this.titleMoveChar(titleEl, true);
+					return true;
+				}
+				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
+				if (!editor) return false;
+				if (checking) return true;
 				if (this.isComposing(editor)) return;
-				this.moveCursorRight(editor)
+				this.moveCursorRight(editor);
 			}
 		});
 
@@ -862,6 +882,24 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		this.moveCursorEndNonTable(editor);
 	}
 
+
+	// checkCallback-based note title sample: the title is a plain
+	// contenteditable (no CM6 Editor), so cursor movement goes through
+	// the native Selection API instead of editor.exec(). 'extend' while
+	// markActive keeps Selection's own anchor fixed and only moves focus
+	// — the same mechanism a real Shift+Arrow keypress uses, so no
+	// separate anchor-tracking is needed here the way the body's CM6
+	// Set-mark needs.
+	private titleSelectionModify(titleEl: HTMLElement, direction: 'left' | 'right', granularity: 'character' | 'word') {
+		const sel = titleEl.ownerDocument.getSelection() as (Selection & {
+			modify(alter: string, direction: string, granularity: string): void;
+		}) | null;
+		sel?.modify(this.markActive ? 'extend' : 'move', direction, granularity);
+	}
+
+	private titleMoveChar(titleEl: HTMLElement, forward: boolean) {
+		this.titleSelectionModify(titleEl, forward ? 'right' : 'left', 'character');
+	}
 
 	// Wrapper: see reconcileSecondaryRangesAfterTableCrossing's own doc
 	// comment for why this runs after every LEFT/RIGHT/UP/DOWN whose
