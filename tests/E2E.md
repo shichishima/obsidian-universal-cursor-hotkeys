@@ -3461,6 +3461,47 @@ branch's own work.
 | Ctrl-G (keyboard-quit) | ✅ `propertyCtrlG.e2e.ts` (1-4,6) | 🚫 (5) real keypress works (manually confirmed), but the imported test's own synthetic `dispatchEvent()` doesn't reliably trigger the nested native-widget exit — known test-methodology limitation, not a code bug; (7) genuinely fails even with a real keypress, but ONLY because the suggester (same root cause as the Ctrl-N/P limitation) swallows the first Escape too, not just Ctrl-N/P | ✅ `propertyOtherTypesCtrlGPnbf.e2e.ts` (1.*, 6) | 🚫 `propertyNameEdit.e2e.ts` (12) — same suggester-swallows-Escape-too limitation | ✅ `propertyOtherTypesCtrlGPnbf.e2e.ts` (1.*) | — |
 | Kill-line, Kill-word, Delete-char | ✅ no-op (new guard) | ✅ `propertyValueEditKillYank.e2e.ts` (1), `propertyValueEditKillWord.e2e.ts`, `propertyValueEditDeleteChar.e2e.ts` (1-3) | N/A | ✅ `propertyNameEdit.e2e.ts` (6,8,9) | N/A | — |
 | Kill/Copy-region, Yank | ✅ no-op (new guard) | ✅ `propertyValueEditKillYank.e2e.ts` (2-5,7) | N/A | ✅ `propertyNameEdit.e2e.ts` (7,10,11) | N/A | — |
+| Recenter / Recenter top-bottom | ✅ `frontmatterRecenter.e2e.ts` (1-5, all passing) | ✅ same | — | — | ✅ same (5, number type) | — |
+
+⚠️ Found missing from this matrix entirely once Ctrl-L turned out not to
+work — a real process gap, not just a code gap: an earlier planning
+pass incorrectly assumed Recenter was "already implemented," based on
+a STALE memory describing the ARCHIVE branch's own shipped state,
+without verifying against this architecture's own branches. It was
+never ported at all until this point. Added here
+(`recenterPropertyPanel`/`recenterTopBottomPropertyPanel`/`recenterBases`/
+`recenterTopBottomBases`, ported from archive), covering both Properties
+AND Bases in one pass (`recenterPropertyPanel` itself delegates to the
+Bases variant when the target is `.bases-table-container`). Title has
+no Recenter of its own in the archive implementation either (not a gap
+— the title never scrolls independently, so it was never given one).
+
+✅ `frontmatterRecenter.e2e.ts` (3)/(4) (the `_recenterStep` counter not
+resetting on a KEYBOARD-driven focus change into/out of a property
+widget, or on caret movement within an already-focused one) are now
+FIXED too — neither produces a CM6 transaction (these widgets aren't
+CM6) or a `mousedown` (the architecture's two existing global reset
+triggers), so two new global listeners were added
+(`registerWindowDomListeners`'s own `focusin` handler, unconditional,
+same convention as the existing `mousedown` one) PLUS an explicit
+`this._recenterStep = 0` added directly to all 23 title/property-key
+movement and edit functions (`titleMoveChar`, `propertyKeyKillLine`,
+etc.) — `selectionchange` was tried first and confirmed NOT to fire for
+`Selection.modify()`-driven moves (a real, verified Chromium/Electron
+quirk, not assumed), so per-function resets were used instead,
+matching how `isKillChaining`/`titleGoalX` already reset themselves
+inline in every one of these functions.
+
+🚫 `basesRecenter.e2e.ts` (all 3 tests) currently fails, but for the
+SAME reason already documented in [[project_frontmatter_completion_findings]]:
+these tests reach cell-selection mode with a single Escape, which
+(confirmed) doesn't actually land focus on `.bases-table-container` for
+Bases cells (a two-stage Escape is needed) — so `recenterPropertyPanel`
+receives the cell's own widget element, not the container, and takes
+the wrong (Properties-style) branch instead of delegating to
+`recenterBases`. Not a bug in the Recenter port itself; will very
+likely resolve for free once the Bases two-stage-Escape fix lands in
+the Bases completion branch.
 
 🚫 Ctrl-N/P (and, newly confirmed, a bare Escape too) never reaches this
 plugin's own commands while a property value's "previously used
