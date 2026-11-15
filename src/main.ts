@@ -45,6 +45,27 @@ const PROPERTY_DATE_TYPE_SELECTOR = 'input[type="date"], input[type="datetime-lo
 const PROPERTY_CURSOR_PNBF_SELECTOR =
 	`${PROPERTY_VALUE_EDIT_SELECTOR}, ${PROPERTY_MULTISELECT_INPUT_SELECTOR}, ${PROPERTY_DATE_TYPE_SELECTOR}`;
 const PROPERTY_CURSOR_LR_SELECTOR = `${PROPERTY_CURSOR_PNBF_SELECTOR}, ${PROPERTY_KEY_EDIT_SELECTOR}`;
+// feat/checkcallback-frontmatter-completion: every command that's
+// meaningful on BOTH the text value-edit widget (contenteditable) and
+// the name/key-edit input (plain <input>) — Home/End, Word left/right,
+// Set-mark, Kill-line/region/Copy-region/Yank, Kill word, Delete char.
+// Each handler branches internally on PROPERTY_KEY_EDIT_SELECTOR to
+// pick the right implementation (propertyKeyXxx for the input,
+// titleXxx reused as-is for the contenteditable) — same command set,
+// two different underlying selection models. Deliberately NOT extended
+// to multi-select/checkbox/date/row/heading/Add-button — none of these
+// commands have a meaningful "line"/"word"/"region" concept there.
+const PROPERTY_TEXT_LIKE_EDIT_SELECTOR = `${PROPERTY_VALUE_EDIT_SELECTOR}, ${PROPERTY_KEY_EDIT_SELECTOR}`;
+// checkbox/date/datetime/number — Ctrl-G is the ONE command that
+// reaches these too (unlike Ctrl-PNBF above): there's no mark/Selection
+// concept to clear there, just the native-Escape-dispatch exit.
+const PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR =
+	'input.metadata-input-checkbox, input.metadata-input-text.mod-date, input.metadata-input-text.mod-datetime, input.metadata-input-number';
+// Ctrl-G's own matching selector: every value-widget type (broader than
+// Ctrl-PNBF's own PROPERTY_CURSOR_PNBF_SELECTOR, which excludes
+// checkbox and the multiselect pill), plus the name/key-edit input.
+const PROPERTY_ANY_VALUE_WIDGET_SELECTOR =
+	`${PROPERTY_VALUE_EDIT_SELECTOR}, ${PROPERTY_MULTISELECT_INPUT_SELECTOR}, ${PROPERTY_MULTISELECT_PILL_SELECTOR}, ${PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR}, ${PROPERTY_KEY_EDIT_SELECTOR}`;
 const PROPERTY_HEADING_SELECTOR = '.metadata-properties-heading';
 const PROPERTY_ADD_BUTTON_SELECTOR = '.metadata-add-button';
 // Item-selection mode's own row container — native ArrowUp/Down already
@@ -71,6 +92,17 @@ const PROPERTY_ROW_SELECTOR = '.metadata-property';
 // with no PNBF concept at all, not something Ctrl-N/P/B/F could ever
 // reach.
 const BASES_TABLE_CONTAINER_SELECTOR = '.bases-table-container';
+// feat/checkcallback-frontmatter-completion: a real gap found live —
+// every PROPERTY_TEXT_LIKE_EDIT_SELECTOR-scoped command (Home/End, Word
+// motion, Set-mark, Kill-line/word, Delete-char, Kill/Copy-region,
+// Yank) falls through to the body-editor fallback when none of its own
+// checks match, which silently operated on the BODY's current line/mark
+// instead of doing nothing when focus was actually on a plain
+// item-selection target — these commands have no meaning there at all
+// (a row has no "line"/"word"/"region" concept), so they need to be
+// explicitly claimed-and-no-op'd rather than left to fall through.
+const PROPERTY_ANY_ITEM_SELECTION_SELECTOR =
+	`${PROPERTY_ROW_SELECTOR}, ${PROPERTY_HEADING_SELECTOR}, ${PROPERTY_ADD_BUTTON_SELECTOR}, ${BASES_TABLE_CONTAINER_SELECTOR}`;
 // This dropdown (the "previously used values" suggester, shared by a
 // text value's own history and multi-select/tags' own candidate list)
 // supports NO keyboard navigation natively, confirmed live in the
@@ -266,6 +298,16 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 					if (!checking) this.titleMoveToLineBoundary(titleEl, false);
 					return true;
 				}
+				if (el?.matches?.(PROPERTY_TEXT_LIKE_EDIT_SELECTOR)) {
+					if (!checking) {
+						if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) this.propertyKeyMoveToLineBoundary(el as HTMLInputElement, false);
+						else this.titleMoveToLineBoundary(el, false);
+					}
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_ANY_ITEM_SELECTION_SELECTOR)) {
+					return true; // no meaning here; claim the key and do nothing
+				}
 				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
 				if (!editor) return false;
 				if (checking) return true;
@@ -279,10 +321,21 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'END',
 			repeatable: true,
 			checkCallback: (checking: boolean) => {
-				const titleEl = (activeDocument.activeElement as HTMLElement | null)?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
+				const el = activeDocument.activeElement as HTMLElement | null;
+				const titleEl = el?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
 				if (titleEl) {
 					if (!checking) this.titleMoveToLineBoundary(titleEl, true);
 					return true;
+				}
+				if (el?.matches?.(PROPERTY_TEXT_LIKE_EDIT_SELECTOR)) {
+					if (!checking) {
+						if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) this.propertyKeyMoveToLineBoundary(el as HTMLInputElement, true);
+						else this.titleMoveToLineBoundary(el, true);
+					}
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_ANY_ITEM_SELECTION_SELECTOR)) {
+					return true; // no meaning here; claim the key and do nothing
 				}
 				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
 				if (!editor) return false;
@@ -441,10 +494,21 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Word right',
 			repeatable: true,
 			checkCallback: (checking: boolean) => {
-				const titleEl = (activeDocument.activeElement as HTMLElement | null)?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
+				const el = activeDocument.activeElement as HTMLElement | null;
+				const titleEl = el?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
 				if (titleEl) {
 					if (!checking) this.titleMoveWord(titleEl, true);
 					return true;
+				}
+				if (el?.matches?.(PROPERTY_TEXT_LIKE_EDIT_SELECTOR)) {
+					if (!checking) {
+						if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) this.propertyKeyMoveWord(el as HTMLInputElement, true);
+						else this.titleMoveWord(el, true);
+					}
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_ANY_ITEM_SELECTION_SELECTOR)) {
+					return true; // no meaning here; claim the key and do nothing
 				}
 				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
 				if (!editor) return false;
@@ -459,10 +523,21 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Word left',
 			repeatable: true,
 			checkCallback: (checking: boolean) => {
-				const titleEl = (activeDocument.activeElement as HTMLElement | null)?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
+				const el = activeDocument.activeElement as HTMLElement | null;
+				const titleEl = el?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
 				if (titleEl) {
 					if (!checking) this.titleMoveWord(titleEl, false);
 					return true;
+				}
+				if (el?.matches?.(PROPERTY_TEXT_LIKE_EDIT_SELECTOR)) {
+					if (!checking) {
+						if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) this.propertyKeyMoveWord(el as HTMLInputElement, false);
+						else this.titleMoveWord(el, false);
+					}
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_ANY_ITEM_SELECTION_SELECTOR)) {
+					return true; // no meaning here; claim the key and do nothing
 				}
 				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
 				if (!editor) return false;
@@ -486,10 +561,21 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Delete char',
 			repeatable: true,
 			checkCallback: (checking: boolean) => {
-				const titleEl = (activeDocument.activeElement as HTMLElement | null)?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
+				const el = activeDocument.activeElement as HTMLElement | null;
+				const titleEl = el?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
 				if (titleEl) {
 					if (!checking) this.titleDeleteChar(titleEl);
 					return true;
+				}
+				if (el?.matches?.(PROPERTY_TEXT_LIKE_EDIT_SELECTOR)) {
+					if (!checking) {
+						if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) this.propertyKeyDeleteChar(el as HTMLInputElement);
+						else this.titleDeleteChar(el);
+					}
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_ANY_ITEM_SELECTION_SELECTOR)) {
+					return true; // no meaning here; claim the key and do nothing
 				}
 				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
 				if (!editor) return false;
@@ -627,10 +713,21 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: 'kill-region',
 			name: 'Kill region',
 			checkCallback: (checking: boolean) => {
-				const titleEl = (activeDocument.activeElement as HTMLElement | null)?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
+				const el = activeDocument.activeElement as HTMLElement | null;
+				const titleEl = el?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
 				if (titleEl) {
 					if (!checking) this.titleKillRegion(titleEl);
 					return true;
+				}
+				if (el?.matches?.(PROPERTY_TEXT_LIKE_EDIT_SELECTOR)) {
+					if (!checking) {
+						if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) this.propertyKeyKillRegion(el as HTMLInputElement);
+						else this.titleKillRegion(el);
+					}
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_ANY_ITEM_SELECTION_SELECTOR)) {
+					return true; // no meaning here; claim the key and do nothing
 				}
 				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
 				if (!editor) return false;
@@ -644,10 +741,21 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: 'copy-region',
 			name: 'Copy region',
 			checkCallback: (checking: boolean) => {
-				const titleEl = (activeDocument.activeElement as HTMLElement | null)?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
+				const el = activeDocument.activeElement as HTMLElement | null;
+				const titleEl = el?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
 				if (titleEl) {
 					if (!checking) this.titleCopyRegion(titleEl);
 					return true;
+				}
+				if (el?.matches?.(PROPERTY_TEXT_LIKE_EDIT_SELECTOR)) {
+					if (!checking) {
+						if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) this.propertyKeyCopyRegion(el as HTMLInputElement);
+						else this.titleCopyRegion(el);
+					}
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_ANY_ITEM_SELECTION_SELECTOR)) {
+					return true; // no meaning here; claim the key and do nothing
 				}
 				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
 				if (!editor) return false;
@@ -662,10 +770,21 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Kill line',
 			repeatable: true,
 			checkCallback: (checking: boolean) => {
-				const titleEl = (activeDocument.activeElement as HTMLElement | null)?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
+				const el = activeDocument.activeElement as HTMLElement | null;
+				const titleEl = el?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
 				if (titleEl) {
 					if (!checking) this.titleKillLine(titleEl);
 					return true;
+				}
+				if (el?.matches?.(PROPERTY_TEXT_LIKE_EDIT_SELECTOR)) {
+					if (!checking) {
+						if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) this.propertyKeyKillLine(el as HTMLInputElement);
+						else this.titleKillLine(el);
+					}
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_ANY_ITEM_SELECTION_SELECTOR)) {
+					return true; // no meaning here; claim the key and do nothing
 				}
 				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
 				if (!editor) return false;
@@ -680,10 +799,21 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Kill word left',
 			repeatable: true,
 			checkCallback: (checking: boolean) => {
-				const titleEl = (activeDocument.activeElement as HTMLElement | null)?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
+				const el = activeDocument.activeElement as HTMLElement | null;
+				const titleEl = el?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
 				if (titleEl) {
 					if (!checking) this.titleKillWord(titleEl, false);
 					return true;
+				}
+				if (el?.matches?.(PROPERTY_TEXT_LIKE_EDIT_SELECTOR)) {
+					if (!checking) {
+						if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) this.propertyKeyKillWord(el as HTMLInputElement, false);
+						else this.titleKillWord(el, false);
+					}
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_ANY_ITEM_SELECTION_SELECTOR)) {
+					return true; // no meaning here; claim the key and do nothing
 				}
 				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
 				if (!editor) return false;
@@ -698,10 +828,21 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Kill word right',
 			repeatable: true,
 			checkCallback: (checking: boolean) => {
-				const titleEl = (activeDocument.activeElement as HTMLElement | null)?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
+				const el = activeDocument.activeElement as HTMLElement | null;
+				const titleEl = el?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
 				if (titleEl) {
 					if (!checking) this.titleKillWord(titleEl, true);
 					return true;
+				}
+				if (el?.matches?.(PROPERTY_TEXT_LIKE_EDIT_SELECTOR)) {
+					if (!checking) {
+						if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) this.propertyKeyKillWord(el as HTMLInputElement, true);
+						else this.titleKillWord(el, true);
+					}
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_ANY_ITEM_SELECTION_SELECTOR)) {
+					return true; // no meaning here; claim the key and do nothing
 				}
 				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
 				if (!editor) return false;
@@ -746,10 +887,21 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'Yank',
 			repeatable: true,
 			checkCallback: (checking: boolean) => {
-				const titleEl = (activeDocument.activeElement as HTMLElement | null)?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
+				const el = activeDocument.activeElement as HTMLElement | null;
+				const titleEl = el?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
 				if (titleEl) {
 					if (!checking) void this.titleYank(titleEl);
 					return true;
+				}
+				if (el?.matches?.(PROPERTY_TEXT_LIKE_EDIT_SELECTOR)) {
+					if (!checking) {
+						if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) void this.propertyKeyYank(el as HTMLInputElement);
+						else void this.titleYank(el);
+					}
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_ANY_ITEM_SELECTION_SELECTOR)) {
+					return true; // no meaning here; claim the key and do nothing
 				}
 				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
 				if (!editor) return false;
@@ -801,10 +953,21 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: 'set-mark',
 			name: 'Set mark',
 			checkCallback: (checking: boolean) => {
-				const titleEl = (activeDocument.activeElement as HTMLElement | null)?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
+				const el = activeDocument.activeElement as HTMLElement | null;
+				const titleEl = el?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
 				if (titleEl) {
 					if (!checking) this.titleSetMark(titleEl);
 					return true;
+				}
+				if (el?.matches?.(PROPERTY_TEXT_LIKE_EDIT_SELECTOR)) {
+					if (!checking) {
+						if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) this.propertyKeySetMark(el as HTMLInputElement);
+						else this.titleSetMark(el);
+					}
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_ANY_ITEM_SELECTION_SELECTOR)) {
+					return true; // no meaning here; claim the key and do nothing
 				}
 				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
 				if (!editor) return false;
@@ -818,9 +981,34 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: 'keyboard-quit',
 			name: 'Deselect',
 			checkCallback: (checking: boolean) => {
-				const titleEl = (activeDocument.activeElement as HTMLElement | null)?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
+				const el = activeDocument.activeElement as HTMLElement | null;
+				const titleEl = el?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
 				if (titleEl) {
 					if (!checking) this.titleKeyboardQuit(titleEl);
+					return true;
+				}
+				// Broader than Ctrl-PNBF's own scope (also reaches
+				// checkbox/date/datetime/the multiselect pill) — the
+				// native-Escape-dispatch exit mechanism itself works
+				// identically for every value-widget type, confirmed in
+				// the archive implementation. titleKeyboardQuit (via
+				// its own clear-mark/collapse) is skipped for
+				// checkbox/date/datetime: no mark/Selection concept to
+				// clear there at all.
+				if (el?.matches?.(PROPERTY_ANY_VALUE_WIDGET_SELECTOR)) {
+					if (!checking) {
+						if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) this.propertyKeyKeyboardQuit(el as HTMLInputElement);
+						else if (!el.matches(PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR)) this.titleKeyboardQuit(el);
+						el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+					}
+					return true;
+				}
+				// Item-selection row/heading/Add-button and a Bases
+				// table's own cell-selection container only ever respond
+				// to a REAL physical Escape — same translation
+				// propertyNativeArrowFallback already does for Ctrl-N/P/B/F.
+				if (el?.matches?.(PROPERTY_HEADING_SELECTOR) || el?.matches?.(PROPERTY_ROW_SELECTOR) || el?.matches?.(PROPERTY_ADD_BUTTON_SELECTOR) || el?.matches?.(BASES_TABLE_CONTAINER_SELECTOR)) {
+					if (!checking) el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
 					return true;
 				}
 				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
@@ -1792,6 +1980,137 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const caret = this.propertyKeyCaret(el);
 		const target = forward ? Math.min(caret + 1, el.value.length) : Math.max(caret - 1, 0);
 		this.propertyKeySelect(el, target);
+	}
+
+	private propertyKeyMoveToLineBoundary(el: HTMLInputElement, forward: boolean) {
+		this.isKillChaining = false;
+		this.propertyKeySelect(el, forward ? el.value.length : 0);
+	}
+
+	// Alt-B/Alt-F: reuses findWordSpanOnLine (word-segmentation.ts) — the
+	// body's own Emacs word-motion engine, operating directly on the
+	// input's .value string — rather than titleMoveWord's native
+	// Selection.modify('word', ...), which has no equivalent for a plain
+	// <input>'s internal text. No-ops at the value's own start/end.
+	private propertyKeyMoveWord(el: HTMLInputElement, forward: boolean) {
+		this.isKillChaining = false;
+		const caret = this.propertyKeyCaret(el);
+		const span = findWordSpanOnLine(el.value, caret, forward);
+		const target = span ? (forward ? span.to : span.from) : caret;
+		this.propertyKeySelect(el, target);
+	}
+
+	// Ctrl-Space: arms markActive and collapses to the current caret —
+	// the input-selection equivalent of titleSetMark.
+	private propertyKeySetMark(el: HTMLInputElement) {
+		const caret = this.propertyKeyCaret(el);
+		this.markActive = true;
+		el.setSelectionRange(caret, caret);
+	}
+
+	// Ctrl-G: clears markActive and collapses to the current caret — the
+	// input-selection equivalent of titleKeyboardQuit. Does NOT touch
+	// focus itself; the native Escape dispatch at the call site handles
+	// the actual exit to item-selection mode.
+	private propertyKeyKeyboardQuit(el: HTMLInputElement) {
+		const caret = this.propertyKeyCaret(el);
+		this.markActive = false;
+		el.setSelectionRange(caret, caret);
+	}
+
+	// Ctrl-K: kills from caret to the end of the value, ignoring any
+	// active region — same "always from point" convention as
+	// titleKillLine.
+	private propertyKeyKillLine(el: HTMLInputElement) {
+		this.markActive = false;
+		const caret = this.propertyKeyCaret(el);
+		const doc = el.ownerDocument;
+		if (caret >= el.value.length) { el.setSelectionRange(caret, caret); return; } // already at the end
+		el.setSelectionRange(caret, el.value.length);
+		const killedText = el.value.slice(caret, el.value.length);
+		doc.execCommand('delete', false);
+		this.updateKillCache(killedText);
+		navigator.clipboard.writeText(this.killCache).catch(() => {});
+		this.isKillChaining = true;
+	}
+
+	// Alt-Backspace/Alt-D: kills one word left/right from the caret,
+	// discarding any active region first. prepend = !forward matches
+	// titleKillWord's own buffer-order convention for consecutive kills.
+	private propertyKeyKillWord(el: HTMLInputElement, forward: boolean) {
+		this.markActive = false;
+		const doc = el.ownerDocument;
+		const caret = this.propertyKeyCaret(el);
+		const span = findWordSpanOnLine(el.value, caret, forward);
+		const target = span ? (forward ? span.to : span.from) : caret;
+		if (target === caret) return; // already at the value's own start/end
+		el.setSelectionRange(Math.min(caret, target), Math.max(caret, target));
+		const killedText = el.value.slice(Math.min(caret, target), Math.max(caret, target));
+		doc.execCommand('delete', false);
+		this.updateKillCache(killedText, !forward);
+		navigator.clipboard.writeText(this.killCache).catch(() => {});
+		this.isKillChaining = true;
+	}
+
+	// Ctrl-D: deletes the character after point, ignoring the mark
+	// entirely (matches titleDeleteChar). If a non-empty selection
+	// already exists, deletes exactly that; if collapsed, extends one
+	// character forward first, then deletes.
+	private propertyKeyDeleteChar(el: HTMLInputElement) {
+		this.markActive = false;
+		const doc = el.ownerDocument;
+		if (el.selectionStart === el.selectionEnd) {
+			const caret = el.selectionStart ?? 0;
+			if (caret >= el.value.length) return; // already at the value's own end
+			el.setSelectionRange(caret, caret + 1);
+		}
+		doc.execCommand('delete', false);
+	}
+
+	// Alt-W (Copy region): copies the active selection without mutating
+	// the value, same as titleCopyRegion.
+	private propertyKeyCopyRegion(el: HTMLInputElement) {
+		if (el.selectionStart === el.selectionEnd) return; // nothing selected
+		const text = el.value.slice(el.selectionStart ?? 0, el.selectionEnd ?? 0);
+		this.markActive = false;
+		this.isKillChaining = false;
+		const caret = this.propertyKeyCaret(el);
+		el.setSelectionRange(caret, caret);
+		this.updateKillCache(text);
+		navigator.clipboard.writeText(this.killCache).catch(() => {});
+	}
+
+	// Ctrl-W (Kill region): same as titleKillRegion, operating on the
+	// input's own active selectionStart/End rather than a native
+	// Selection.
+	private propertyKeyKillRegion(el: HTMLInputElement) {
+		if (el.selectionStart === el.selectionEnd) return; // nothing selected
+		const doc = el.ownerDocument;
+		const text = el.value.slice(el.selectionStart ?? 0, el.selectionEnd ?? 0);
+		doc.execCommand('delete', false);
+		this.markActive = false;
+		this.isKillChaining = false;
+		this.updateKillCache(text);
+		navigator.clipboard.writeText(this.killCache).catch(() => {});
+	}
+
+	// Ctrl-Y (Yank): reads the OS clipboard (falling back to the
+	// kill-ring if that throws, same as titleYank), replacing any active
+	// selection. Strips embedded newlines for the same reason titleYank
+	// does.
+	private async propertyKeyYank(el: HTMLInputElement) {
+		this.markActive = false;
+		this.isKillChaining = false;
+		let raw: string;
+		try {
+			raw = await navigator.clipboard.readText();
+		} catch {
+			raw = this.killCache;
+		}
+		if (!raw) return;
+		const text = raw.replace(/\n/g, '');
+		if (!text) return;
+		el.ownerDocument.execCommand('insertText', false, text);
 	}
 
 	// Item-selection mode's own row/heading/Add-button targets only ever
