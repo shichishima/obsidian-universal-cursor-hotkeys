@@ -3449,27 +3449,85 @@ not yet a permanent test — see
 check, which has no nudge for this either), not a regression from this
 branch's own work.
 
-## Frontmatter (Properties panel)
+## Frontmatter (Properties panel) — COMPLETE (feat/checkcallback-frontmatter-completion)
 
 | Command | Item-selection (row/heading/Add) | Text value | Multi-select/tags | Name field | Checkbox/date/datetime/number | Suggester |
 |---|---|---|---|---|---|---|
 | Ctrl-B/F | ✅ `propertyOtherTypesCtrlGPnbf.e2e.ts` (4,7,8) | ✅ `propertyValueEditMovement.e2e.ts` (1,2) | ✅ same | ✅ `propertyNameEdit.e2e.ts` (1) | ✅ no-op confirmed (2,3) | — |
+| Ctrl-A/E | ✅ no-op (new guard) | ✅ `propertyValueEditMovement.e2e.ts` (3,4) | N/A | 🚫 bare Home/End (not Ctrl-A/E itself) swallowed by the suggester, same mechanism as Ctrl-N/P below — `propertyNameEdit.e2e.ts`'s own test (2) happens to use the bare keys as its configured hotkey | N/A | — |
 | Ctrl-P/N (line movement + row/heading/Add nav) | ✅ `propertyItemSelection.e2e.ts` (1-6) | ✅ `propertyValueEditMovement.e2e.ts` (6); 🚫 (7,9) suggester swallow | 🚫 suggester swallow | 🚫 suggester swallow (`propertyNameEdit.e2e.ts` (14)) | ✅ no-op confirmed | 🚫 `propertySuggesterScopeLimitation.e2e.ts` is the canary for this limitation |
-| Ctrl-A/E, Alt-B/F, Set-mark, Kill/Yank, Ctrl-G, Copy/Kill region | ❌ not yet implemented on this architecture | ❌ | ❌ | ❌ | ❌ | — |
+| Alt-B/F (word) | ✅ no-op (new guard) | ✅ `propertyValueEditWordMotion.e2e.ts` | N/A | ✅ `propertyNameEdit.e2e.ts` (3) | N/A | — |
+| Set-mark | ✅ no-op (new guard, `propertyValueEditSetMark.e2e.ts` (6)) | ✅ `propertyValueEditSetMark.e2e.ts` (1-4) | N/A | ✅ `propertyNameEdit.e2e.ts` (4) | N/A | — |
+| Ctrl-G (keyboard-quit) | ✅ `propertyCtrlG.e2e.ts` (1-4,6) | 🚫 (5) real keypress works (manually confirmed), but the imported test's own synthetic `dispatchEvent()` doesn't reliably trigger the nested native-widget exit — known test-methodology limitation, not a code bug; (7) genuinely fails even with a real keypress, but ONLY because the suggester (same root cause as the Ctrl-N/P limitation) swallows the first Escape too, not just Ctrl-N/P | ✅ `propertyOtherTypesCtrlGPnbf.e2e.ts` (1.*, 6) | 🚫 `propertyNameEdit.e2e.ts` (12) — same suggester-swallows-Escape-too limitation | ✅ `propertyOtherTypesCtrlGPnbf.e2e.ts` (1.*) | — |
+| Kill-line, Kill-word, Delete-char | ✅ no-op (new guard) | ✅ `propertyValueEditKillYank.e2e.ts` (1), `propertyValueEditKillWord.e2e.ts`, `propertyValueEditDeleteChar.e2e.ts` (1-3) | N/A | ✅ `propertyNameEdit.e2e.ts` (6,8,9) | N/A | — |
+| Kill/Copy-region, Yank | ✅ no-op (new guard) | ✅ `propertyValueEditKillYank.e2e.ts` (2-5,7) | N/A | ✅ `propertyNameEdit.e2e.ts` (7,10,11) | N/A | — |
+| Recenter / Recenter top-bottom | ✅ `frontmatterRecenter.e2e.ts` (1-5, all passing) | ✅ same | — | — | ✅ same (5, number type) | — |
 
-🚫 Ctrl-N/P never reaches this plugin's own commands while a property
-value's "previously used values" suggester dropdown is genuinely
-visible. Obsidian itself registers Ctrl-N/P on that suggester's own
-internal Scope, confirmed above `rootScope` — this plugin's command
-resolution is downstream of it and structurally cannot win that race, no
-matter how the command's own logic is written. Native physical arrow
-keys (and mouse) still navigate the same suggester regardless, so this
-narrows an Emacs-key alias, it doesn't break a feature.
-`propertySuggesterScopeLimitation.e2e.ts` pins the current swallow
-behavior and its Escape recovery as a canary — if it ever starts failing
-because Ctrl-N/P unexpectedly moved the cursor while the suggester was
-open, that means Obsidian changed this in a later version, and this
-limitation should be revisited.
+⚠️ Found missing from this matrix entirely once Ctrl-L turned out not to
+work — a real process gap, not just a code gap: an earlier planning
+pass incorrectly assumed Recenter was "already implemented," based on
+a STALE memory describing the ARCHIVE branch's own shipped state,
+without verifying against this architecture's own branches. It was
+never ported at all until this point. Added here
+(`recenterPropertyPanel`/`recenterTopBottomPropertyPanel`/`recenterBases`/
+`recenterTopBottomBases`, ported from archive), covering both Properties
+AND Bases in one pass (`recenterPropertyPanel` itself delegates to the
+Bases variant when the target is `.bases-table-container`). Title has
+no Recenter of its own in the archive implementation either (not a gap
+— the title never scrolls independently, so it was never given one).
+
+✅ `frontmatterRecenter.e2e.ts` (3)/(4) (the `_recenterStep` counter not
+resetting on a KEYBOARD-driven focus change into/out of a property
+widget, or on caret movement within an already-focused one) are now
+FIXED too — neither produces a CM6 transaction (these widgets aren't
+CM6) or a `mousedown` (the architecture's two existing global reset
+triggers), so two new global listeners were added
+(`registerWindowDomListeners`'s own `focusin` handler, unconditional,
+same convention as the existing `mousedown` one) PLUS an explicit
+`this._recenterStep = 0` added directly to all 23 title/property-key
+movement and edit functions (`titleMoveChar`, `propertyKeyKillLine`,
+etc.) — `selectionchange` was tried first and confirmed NOT to fire for
+`Selection.modify()`-driven moves (a real, verified Chromium/Electron
+quirk, not assumed), so per-function resets were used instead,
+matching how `isKillChaining`/`titleGoalX` already reset themselves
+inline in every one of these functions.
+
+🚫 `basesRecenter.e2e.ts` (all 3 tests) currently fails, but for the
+SAME reason already documented in [[project_frontmatter_completion_findings]]:
+these tests reach cell-selection mode with a single Escape, which
+(confirmed) doesn't actually land focus on `.bases-table-container` for
+Bases cells (a two-stage Escape is needed) — so `recenterPropertyPanel`
+receives the cell's own widget element, not the container, and takes
+the wrong (Properties-style) branch instead of delegating to
+`recenterBases`. Not a bug in the Recenter port itself; will very
+likely resolve for free once the Bases two-stage-Escape fix lands in
+the Bases completion branch.
+
+🚫 Ctrl-N/P, a bare Escape, AND a bare Home/End never reach this
+plugin's own commands while a property's "previously used values"
+(or "previously used property names," for the name/key-edit field)
+suggester dropdown is genuinely visible. Obsidian's own generic
+suggester component registers ArrowUp/Down/PageUp/PageDown/Home/End
+(all bare) AND Ctrl-N/Ctrl-P on its own internal Scope the moment the
+field is focused — confirmed live via `app.keymap.getWindowStack()`
+for both the value AND the name/key-edit field's own suggester (one
+new scope pushed on focus, same object persisting across
+typing/re-filtering, popped by Escape without moving DOM focus) — this
+plugin's command resolution is downstream of it and structurally
+cannot win that race, no matter how the command's own logic is
+written, or which of these specific keys is bound to it. Native
+physical arrow keys/Home/End (and mouse) still navigate the same
+suggester regardless, so this narrows an Emacs-key alias, it doesn't
+break a feature. Confirmed for a brand-new, never-before-used property
+key too — the suggester renders from focus alone, not just on an
+actual history match. `propertySuggesterScopeLimitation.e2e.ts` pins
+the current swallow behavior and its Escape recovery as a canary — if
+it ever starts failing because Ctrl-N/P unexpectedly moved the cursor
+while the suggester was open, that means Obsidian changed this in a
+later version, and this limitation should be revisited. Ctrl-A/Ctrl-E
+(the actual recommended hotkeys for Home/End, WITH a modifier) are
+unaffected — only the bare key collides, which `propertyNameEdit.e2e.ts`'s
+own test (2) happens to use as its configured hotkey.
 
 ## Bases
 
@@ -3485,9 +3543,16 @@ limitation should be revisited.
 while in cell-selection mode) was confirmed working correctly by hand
 (the active cell/row landed exactly where expected after a Ctrl-F →
 Ctrl-N → Enter chain), but `basesCellNavigation.e2e.ts`'s own imported
-setup can't reach cell-selection mode with a single physical Escape on
-this architecture — that transition needs the same two-stage-Escape
-completion Ctrl-G/keyboard-quit provides, which isn't implemented here
-yet. Not a bug in the navigation code itself; the spec's own
-precondition needs reworking (or Ctrl-G needs implementing first)
-before it can pass as a lasting, committed test.
+setup can't reach cell-selection mode with a single physical Escape —
+Ctrl-G/keyboard-quit is now implemented (Frontmatter completion), but
+confirmed live it does NOT complete the exit for a Bases text cell the
+way it does for a Properties text cell: Ctrl-G then a follow-up real
+Escape both leave focus on the cell's own widget, never reaching
+`.bases-table-container` (`basesPropertyEditing.e2e.ts` (3)/(8) fail
+the same way). Properties' text widget only needs ONE Escape to exit to
+item-selection mode (confirmed, and Ctrl-G's own single redispatch
+handles it); Bases cells need a genuine TWO-stage Escape to reach
+cell-selection mode (confirmed separately via `basesCellNavigation`'s
+own investigation) — Ctrl-G's current implementation doesn't know about
+this Bases-specific extra stage. Deferred to the Bases completion
+branch, not fixed here.
