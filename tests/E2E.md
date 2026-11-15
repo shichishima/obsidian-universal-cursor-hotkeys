@@ -3425,13 +3425,29 @@ command × context matrix first, ✅ = covered by an existing test (file
 named), ❌ = no coverage, 🚫 = confirmed architectural limitation (not a
 coverage gap — see its own note below each table).
 
-## Title
+## Title — COMPLETE (feat/checkcallback-title-completion)
 
-| Command | Short title | Wrapped title | Title↔Properties↔body boundary |
-|---|---|---|---|
-| Ctrl-B/F | ✅ `titleMovement.e2e.ts` (1,2) | — (same code path, not wrap-specific) | — |
-| Ctrl-P/N (line movement) | — | ✅ `titleCrossingWrapped.e2e.ts` | ✅ `titleCrossingFrontmatter.e2e.ts` (1,2,2b,3,3b,4,5,6); ❌ (7,8) pixel-column preservation across the boundary not ported |
-| Ctrl-A/E, Alt-B/F, Set-mark, Kill/Yank, Ctrl-G | ❌ not yet implemented on this architecture | ❌ | ❌ |
+| Command | Short title | Wrapped title | Title↔Properties↔body boundary | Popout |
+|---|---|---|---|---|
+| Ctrl-B/F | ✅ `titleMovement.e2e.ts` (1,2) | — (same code path) | — | ✅ `titleCrossingPopout.e2e.ts` |
+| Ctrl-A/E | ✅ same (3,4,5) | ✅ (VL-aware scan) | — | — |
+| Ctrl-P/N (line movement) | — | ✅ `titleCrossingWrapped.e2e.ts` | ✅ `titleCrossingFrontmatter.e2e.ts` (1,2,2b,3,3b,4,5,6,7,8 — goal column round-trip now included) | ✅ same |
+| Alt-B/F (word) | ✅ `titleWordMotion.e2e.ts` | — | — | — |
+| Set-mark, Ctrl-G | ✅ `titleSetMark.e2e.ts` (1-4,2b,2c) | ✅ same | — | — |
+| Kill-line, Kill-word, Delete-char | ✅ `titleKillLine.e2e.ts`/`titleKillWord.e2e.ts`/`titleDeleteChar.e2e.ts` | — | — | — |
+| Kill/Copy-region, Yank | ✅ `titleRegion.e2e.ts`/`titleYank.e2e.ts` | — | — | ✅ `titleKillYankPopout.e2e.ts` |
+
+⚠️ Known remaining item (not a release blocker, not yet fixed): Ctrl-P
+from the body's own wrapped line 0, landed via this plugin's OWN Ctrl-E
+(Smart End) at the exact VL1/VL2 wrap-point offset specifically, needs
+2 presses to escape to the title instead of 1 — the first press moves
+up one real visual line instead (CM6's own `goUp` resolving that one
+ambiguous offset), the second then correctly escapes. Confirmed live,
+not yet a permanent test — see
+`project_body_vl_boundary_escape_offbyone` memory. Likely pre-existing
+(ported byte-for-byte from the archive implementation's own escape
+check, which has no nudge for this either), not a regression from this
+branch's own work.
 
 ## Frontmatter (Properties panel)
 
