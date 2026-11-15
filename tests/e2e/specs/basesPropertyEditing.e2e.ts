@@ -46,6 +46,8 @@ describe('Bases table view: property-text-editing command parity', function () {
 			hm.setHotkeys('universal-cursor-hotkeys:delete-char', [{ modifiers: ['Ctrl'], key: 'D' }])
 			hm.setHotkeys('universal-cursor-hotkeys:set-mark', [{ modifiers: ['Ctrl'], key: ' ' }])
 			hm.setHotkeys('universal-cursor-hotkeys:copy-region', [{ modifiers: ['Alt'], key: 'W' }])
+			hm.setHotkeys('universal-cursor-hotkeys:word-right', [{ modifiers: ['Alt'], key: 'F' }])
+			hm.setHotkeys('universal-cursor-hotkeys:word-left', [{ modifiers: ['Alt'], key: 'B' }])
 			hm.bake()
 			app.workspace.getLeavesOfType('markdown').forEach(leaf => leaf.detach())
 			app.workspace.getLeavesOfType('bases').forEach(leaf => leaf.detach())
@@ -283,5 +285,31 @@ describe('Bases table view: property-text-editing command parity', function () {
 			return active?.classList.contains('bases-table-container')
 		})
 		await expect(afterQuit).toBe(true)
+	})
+
+	// word-left/word-right reuse titleMoveWord via PROPERTY_TEXT_LIKE_EDIT_SELECTOR,
+	// the same shared-class mechanism every other text-cell command here
+	// already rides on -- no Bases-specific code, but not yet exercised
+	// end-to-end for this command pair until now.
+	it('(9) Alt-F/Alt-B (Word right/left) move the caret by word in a text cell', async function () {
+		await openBase('BasesWordMotion.md', 'BasesWordMotion.base', `---\nmyText: hello world there\n---\nbody\n`, ['file.name', 'myText'])
+		await focusCell('BasesWordMotion', 'note.myText')
+
+		await browser.keys(['Control', 'a']) // -> start
+		await browser.keys(['Alt', 'f']) // -> end of "hello"
+		await browser.keys(['Alt', 'f']) // -> end of "world"
+		await browser.pause(150)
+		await browser.keys(['Control', 'd']) // deletes the space right after "world", joining it to "there"
+		await browser.pause(150)
+		let after = await getCellState('BasesWordMotion', 'note.myText')
+		await expect(after.text).toBe('hello worldthere')
+
+		await browser.keys(['Alt', 'b']) // back one word -> start of "worldthere"
+		await browser.keys(['Alt', 'b']) // back another word -> start of "hello"
+		await browser.pause(150)
+		await browser.keys(['Control', 'd']) // deletes the leading "h"
+		await browser.pause(150)
+		after = await getCellState('BasesWordMotion', 'note.myText')
+		await expect(after.text).toBe('ello worldthere')
 	})
 })

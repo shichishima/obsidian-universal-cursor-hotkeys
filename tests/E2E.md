@@ -3529,30 +3529,60 @@ later version, and this limitation should be revisited. Ctrl-A/Ctrl-E
 unaffected — only the bare key collides, which `propertyNameEdit.e2e.ts`'s
 own test (2) happens to use as its configured hotkey.
 
-## Bases
+## Bases (feat/checkcallback-bases-table-completion — COMPLETE)
 
 | Command | Cell-selection (container) | Text cell | List/tags cell | Checkbox/date/number cell |
 |---|---|---|---|---|
-| Ctrl-B/F/P/N (cell navigation) | ❌ no lasting test yet — see note below | — | — | — |
-| Ctrl-B/F (in-cell movement) | — | ✅ `basesPropertyEditing.e2e.ts` (5, list cell) | ✅ same | ✅ same (date/number no-op, checkbox safe fallback) |
-| Ctrl-P/N (in-cell) | — | 🚫 same suggester limitation as Properties applies here too (shared widget classes), not yet covered by a Bases-specific test | — | — |
+| Ctrl-B/F/P/N (cell navigation) | ✅ `basesCellNavigation.e2e.ts` | — | — | — |
+| Ctrl-B/F (in-cell movement) | — | ✅ `basesPropertyEditing.e2e.ts` (1) | ✅ same (5, list cell) | ✅ same (date/number no-op, checkbox safe fallback) |
+| Ctrl-A/E (in-cell) | — | ✅ `basesPropertyEditing.e2e.ts` (1, 8) | N/A | N/A |
+| Alt-B/F (word) | — | ✅ `basesPropertyEditing.e2e.ts` (9) | N/A | N/A |
+| Ctrl-P/N (in-cell) | — | 🚫 same suggester limitation as Properties applies here too (shared widget classes) | — | — |
+| Set-mark, Kill-line/Yank, Delete char, Copy region | — | ✅ `basesPropertyEditing.e2e.ts` (1, 2, 4, 7) | — | — |
+| Ctrl-G (keyboard-quit) | — | ✅ `basesPropertyEditing.e2e.ts` (3, 4, 8) | — | ✅ same (3, checkbox/date) |
+| Ctrl-L / Ctrl-Shift-L (recenter / recenter-top-bottom) | ✅ `basesRecenter.e2e.ts` | ✅ same | — | — |
 | Column header (property name) rename | — (confirmed, deliberate non-goal: plain non-editable div, no PNBF concept) | | | |
-| Ctrl-A/E, Alt-B/F, Set-mark, Kill/Yank, Ctrl-G, Copy/Kill region | ❌ not yet implemented on this architecture | ❌ | ❌ | ❌ |
 
-❌ Cell-to-cell navigation itself (Ctrl-B/F/P/N moving the active cell
-while in cell-selection mode) was confirmed working correctly by hand
-(the active cell/row landed exactly where expected after a Ctrl-F →
-Ctrl-N → Enter chain), but `basesCellNavigation.e2e.ts`'s own imported
-setup can't reach cell-selection mode with a single physical Escape —
-Ctrl-G/keyboard-quit is now implemented (Frontmatter completion), but
-confirmed live it does NOT complete the exit for a Bases text cell the
-way it does for a Properties text cell: Ctrl-G then a follow-up real
-Escape both leave focus on the cell's own widget, never reaching
-`.bases-table-container` (`basesPropertyEditing.e2e.ts` (3)/(8) fail
-the same way). Properties' text widget only needs ONE Escape to exit to
-item-selection mode (confirmed, and Ctrl-G's own single redispatch
-handles it); Bases cells need a genuine TWO-stage Escape to reach
-cell-selection mode (confirmed separately via `basesCellNavigation`'s
-own investigation) — Ctrl-G's current implementation doesn't know about
-this Bases-specific extra stage. Deferred to the Bases completion
-branch, not fixed here.
+Root cause correction (superseding an earlier, wrong theory in this
+section): Ctrl-G's exit from a Bases cell is NOT blocked by a generic
+"two-stage Escape" requirement shared with real physical Escape key
+presses. Two genuinely separate things were conflated:
+
+1. **A real, physical/trusted Escape press reaching `.bases-table-container`
+   at all** is entirely Obsidian's own native behavior, outside this
+   plugin, and DOES need two presses — but only when the cell was
+   entered via a real mouse click or via Enter from cell-selection mode
+   (confirmed live: the first press only clears an inner text-selection
+   sub-state the click/Enter itself created, still on the same widget;
+   the second actually exits). A cell entered by a plain, non-click
+   `.focus()` call needs only one. `basesCellNavigation.e2e.ts` presses
+   Escape twice for exactly this reason (both its initial click-entry
+   and its later Enter-re-entry).
+2. **Ctrl-G (keyboard-quit) itself never goes through this native path
+   at all.** It previously tried to redispatch a *synthetic* Escape
+   `KeyboardEvent` onto the focused widget — confirmed live, via a
+   clean-state diagnostic, that this NEVER reaches Bases' own
+   Keymap/Scope-driven cell-exit handling, even with `code`/`keyCode`/
+   `which` added to the synthetic event (ruling out "missing event
+   property" as the cause; this is the same "synthetic dispatch doesn't
+   reliably trigger anything touching Obsidian's own Keymap" lesson
+   already documented elsewhere in this project, just rediscovered here
+   independently). Fixed by having Ctrl-G, for a Bases cell specifically,
+   directly call `.focus()` on the `.bases-table-container` ancestor
+   instead of dispatching anything — confirmed live this reproduces the
+   exact same end state a successful native exit would (the internal
+   "active cell" marker survives; pressing Enter afterward re-enters the
+   same cell), in a single step, from a clean state, every time. The
+   Properties panel's own (non-Bases) text widget exit is a different,
+   plain DOM-listener-based mechanism that the synthetic dispatch does
+   reach correctly, so only the Bases branch needed this.
+
+Recenter (Ctrl-L) had an analogous, narrower bug: `recenterPropertyPanel`/
+`recenterTopBottomPropertyPanel` checked `el.matches(BASES_TABLE_CONTAINER_SELECTOR)`
+to decide whether to delegate to the Bases-specific scroll formula — but
+`el` (the actually-focused element) is the cell's own value widget while
+editing, nested INSIDE `.bases-table-container`, never equal to it. Fixed
+by switching to `el.closest(...)`, which finds the right ancestor either
+way (confirmed it still has everything `recenterBases`/
+`recenterTopBottomBases` need: a `.bases-view` ancestor and a
+`.bases-table-active-cell` descendant).

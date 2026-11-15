@@ -1020,7 +1020,22 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 					if (!checking) {
 						if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) this.propertyKeyKeyboardQuit(el as HTMLInputElement);
 						else if (!el.matches(PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR)) this.titleKeyboardQuit(el);
-						el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+						// A Bases cell's own edit-mode exit is driven by
+						// Obsidian's native Keymap/Scope handling, confirmed
+						// live to require a genuinely trusted keyboard event
+						// -- a synthetic re-dispatch (with or without
+						// code/keyCode set) never reaches it, even from a
+						// clean state. Focusing .bases-table-container
+						// directly reproduces the same end state instead
+						// (confirmed live: the internal active-cell marker
+						// survives, Enter afterward re-enters the same
+						// cell). The Properties panel's own (non-Bases)
+						// value widgets are a different, DOM-listener-based
+						// exit mechanism that the synthetic dispatch does
+						// reach, so only the Bases case needs this.
+						const basesContainer = el.closest(BASES_TABLE_CONTAINER_SELECTOR) as HTMLElement | null;
+						if (basesContainer) basesContainer.focus();
+						else el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
 					}
 					return true;
 				}
@@ -4607,7 +4622,15 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// targeting the focused property element's own rect instead of the
 	// CM6 cursor's screen position.
 	private recenterPropertyPanel(el: HTMLElement) {
-		if (el.matches(BASES_TABLE_CONTAINER_SELECTOR)) { this.recenterBases(el); return; }
+		// .closest(), not .matches() -- el is whatever's actually focused,
+		// which while editing a Bases cell is the cell's own value widget
+		// nested INSIDE .bases-table-container, never the container
+		// itself. Confirmed live: recenterBases/recenterTopBottomBases
+		// only need an element they can reach .bases-view and
+		// .bases-table-active-cell from, which this ancestor lookup finds
+		// just as well as the container itself would.
+		const basesContainer = el.closest(BASES_TABLE_CONTAINER_SELECTOR) as HTMLElement | null;
+		if (basesContainer) { this.recenterBases(basesContainer); return; }
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 		const cm = view?.editor.cm;
 		if (!cm) return;
@@ -4615,7 +4638,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 	private recenterTopBottomPropertyPanel(el: HTMLElement) {
-		if (el.matches(BASES_TABLE_CONTAINER_SELECTOR)) { this.recenterTopBottomBases(el); return; }
+		const basesContainer = el.closest(BASES_TABLE_CONTAINER_SELECTOR) as HTMLElement | null;
+		if (basesContainer) { this.recenterTopBottomBases(basesContainer); return; }
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 		const cm = view?.editor.cm;
 		if (!cm) return;

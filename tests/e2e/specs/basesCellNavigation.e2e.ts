@@ -23,10 +23,19 @@ import { describe, it, after } from 'mocha'
 // already) picks this target up automatically, since nothing else in
 // buildPropertyRowScope's bind() calls matches it more specifically.
 //
-// Escape (Ctrl-G) from a Bases cell's edit mode already reaches this
-// same cell-selection mode for free, via the bare-Escape pass-through
-// fix shipped in the previous commit (see propertyCtrlG.e2e.ts test
-// (7)) -- no separate test needed here for that half.
+// Reaching cell-selection mode itself (a real, physical Escape) is
+// Obsidian's own native behavior, entirely outside this plugin --
+// confirmed live to need TWO presses from a cell entered by a real
+// mouse click specifically (the first only clears an inner text-
+// selection sub-state the click itself created, still on the same
+// widget; the second actually exits to the container). A
+// programmatically-.focus()ed cell (no click), by contrast, needs
+// only one -- see basesPropertyEditing.e2e.ts and
+// basesRecenter.e2e.ts, both of which focus() rather than click.
+// keyboard-quit (Ctrl-G) only ever targets the latter: it isn't bound
+// to bare Escape, so it never touches this native click-sourced
+// two-stage behavior at all, confirmed via basesPropertyEditing.e2e.ts
+// (3)/(4)/(8).
 describe('Bases table view: Ctrl-P/N/B/F cell navigation', function () {
 	const createdPaths: string[] = []
 
@@ -88,7 +97,9 @@ describe('Bases table view: Ctrl-P/N/B/F cell navigation', function () {
 		const start = await cellState()
 		await expect(start.activeDataProperty).toBe('note.myText')
 
-		await browser.keys(['Escape']) // -> cell-selection mode
+		await browser.keys(['Escape']) // clicked in -> first Escape only clears the click's own text-selection sub-state
+		await browser.pause(200)
+		await browser.keys(['Escape']) // -> cell-selection mode (confirmed live: a click-entered cell needs both)
 		await browser.pause(200)
 
 		await browser.keys(['Control', 'f']) // right: myText -> myNumber, same row
@@ -101,7 +112,9 @@ describe('Bases table view: Ctrl-P/N/B/F cell navigation', function () {
 		await expect(afterForward.activeDataProperty).toBe('note.myNumber')
 		await expect(afterForward.rowIndex).toBe(start.rowIndex + 1)
 
-		await browser.keys(['Escape']) // back to cell-selection mode
+		await browser.keys(['Escape']) // re-entered via Enter -> also click-equivalent, needs both stages
+		await browser.pause(200)
+		await browser.keys(['Escape']) // -> back to cell-selection mode
 		await browser.pause(200)
 		await browser.keys(['Control', 'b']) // left: myNumber -> myText, same row
 		await browser.pause(200)
