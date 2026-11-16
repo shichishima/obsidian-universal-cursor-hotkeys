@@ -13,6 +13,97 @@ import { getWordSpans, getBigWordSpans, findWordSpanOnLine } from './word-segmen
 import { exitTable, jumpAdjacentCell } from './table-navigation';
 import { cjkWordSelectionStyle } from './cjk-word-select';
 
+// checkCallback-based note title sample (feat/checkcallback-title-sample):
+// the native inline-title element, a plain contenteditable, not CM6-backed.
+const TITLE_SELECTOR = ".inline-title[contenteditable='true']";
+
+// checkCallback-based Properties sample (feat/checkcallback-properties-sample):
+// the FULL Ctrl-P/N set for the Properties panel — deliberately broader
+// than Title's own B/F-only sample, to stress-test how complex
+// checkCallback's own dispatch gets when one key has to route to many
+// different target-element types (value-edit widget of several types,
+// heading, Add-button, plain row) instead of just one. Ported from the
+// archive Scope-push implementation's propertyMoveLineOrNoop and its
+// own heading/Add-button escape handlers.
+//
+// Simplified relative to archive: propertyGoalX (the pixel-column
+// round-trip that carries a goal column across the body<->Properties
+// boundary) is NOT ported — that's an orthogonal body-editor/CM6
+// integration concern, not part of the checkCallback-vs-Scope-push
+// question this sample exists to test. Heading/Add-button escapes here
+// land at a fixed position (title's end / body's line 0 ch 0) instead.
+const PROPERTY_VALUE_EDIT_SELECTOR = '.metadata-input-longtext';
+const PROPERTY_MULTISELECT_INPUT_SELECTOR = '.multi-select-input';
+const PROPERTY_MULTISELECT_PILL_SELECTOR = '.multi-select-pill';
+const PROPERTY_KEY_EDIT_SELECTOR = '.metadata-property-key-input';
+// Checkbox deliberately excluded (no cursor concept); date/datetime are
+// a confirmed platform wall (no Selection API, and a synthetic
+// Arrow-key dispatch doesn't trigger their native stepping either) —
+// included here only so Ctrl-P/N still gets cleanly swallowed on them
+// instead of falling through to the body editor underneath.
+const PROPERTY_DATE_TYPE_SELECTOR = 'input[type="date"], input[type="datetime-local"]';
+const PROPERTY_CURSOR_PNBF_SELECTOR =
+	`${PROPERTY_VALUE_EDIT_SELECTOR}, ${PROPERTY_MULTISELECT_INPUT_SELECTOR}, ${PROPERTY_DATE_TYPE_SELECTOR}`;
+const PROPERTY_CURSOR_LR_SELECTOR = `${PROPERTY_CURSOR_PNBF_SELECTOR}, ${PROPERTY_KEY_EDIT_SELECTOR}`;
+// feat/checkcallback-frontmatter-completion: every command that's
+// meaningful on BOTH the text value-edit widget (contenteditable) and
+// the name/key-edit input (plain <input>) — Home/End, Word left/right,
+// Set-mark, Kill-line/region/Copy-region/Yank, Kill word, Delete char.
+// Each handler branches internally on PROPERTY_KEY_EDIT_SELECTOR to
+// pick the right implementation (propertyKeyXxx for the input,
+// titleXxx reused as-is for the contenteditable) — same command set,
+// two different underlying selection models. Deliberately NOT extended
+// to multi-select/checkbox/date/row/heading/Add-button — none of these
+// commands have a meaningful "line"/"word"/"region" concept there.
+const PROPERTY_TEXT_LIKE_EDIT_SELECTOR = `${PROPERTY_VALUE_EDIT_SELECTOR}, ${PROPERTY_KEY_EDIT_SELECTOR}`;
+// checkbox/date/datetime/number — Ctrl-G is the ONE command that
+// reaches these too (unlike Ctrl-PNBF above): there's no mark/Selection
+// concept to clear there, just the native-Escape-dispatch exit.
+const PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR =
+	'input.metadata-input-checkbox, input.metadata-input-text.mod-date, input.metadata-input-text.mod-datetime, input.metadata-input-number';
+// Ctrl-G's own matching selector: every value-widget type (broader than
+// Ctrl-PNBF's own PROPERTY_CURSOR_PNBF_SELECTOR, which excludes
+// checkbox and the multiselect pill), plus the name/key-edit input.
+const PROPERTY_ANY_VALUE_WIDGET_SELECTOR =
+	`${PROPERTY_VALUE_EDIT_SELECTOR}, ${PROPERTY_MULTISELECT_INPUT_SELECTOR}, ${PROPERTY_MULTISELECT_PILL_SELECTOR}, ${PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR}, ${PROPERTY_KEY_EDIT_SELECTOR}`;
+const PROPERTY_HEADING_SELECTOR = '.metadata-properties-heading';
+const PROPERTY_ADD_BUTTON_SELECTOR = '.metadata-add-button';
+// Item-selection mode's own row container — native ArrowUp/Down already
+// drives row-to-row navigation there with no handler needed at all, so
+// checkCallback just has to get out of its way (return false) rather
+// than Scope-push's own synthetic re-dispatch-and-self-collision-avoidance
+// workaround (see buildPropertyRowScope's own bind() comment in the
+// archive implementation for why THAT needed to exist at all).
+const PROPERTY_ROW_SELECTOR = '.metadata-property';
+// checkCallback-based Bases sample (feat/checkcallback-bases-sample):
+// per the archive implementation's own re-verification memory, Bases
+// table cells reuse the EXACT same DOM classes as the Properties panel
+// for every value type (text/multi-select/date/etc.), so
+// PROPERTY_CURSOR_LR_SELECTOR and friends already cover Bases cell
+// editing for free — no new selector needed there. The ONE genuinely
+// new target is this: a Bases table's own "cell selection mode" (Escape
+// out of a cell's edit mode) keeps real DOM focus on this ONE shared
+// container for the whole table, never on an individual cell — same
+// "delegate to a native arrow-key dispatch" shape as
+// PROPERTY_ROW_SELECTOR/HEADING/ADD_BUTTON/PILL above, so it's added to
+// the same native-fallback branches rather than needing its own
+// handler. Column header (property NAME) rename is a confirmed,
+// deliberate non-goal — Bases renders it as a plain non-editable div
+// with no PNBF concept at all, not something Ctrl-N/P/B/F could ever
+// reach.
+const BASES_TABLE_CONTAINER_SELECTOR = '.bases-table-container';
+// feat/checkcallback-frontmatter-completion: a real gap found live —
+// every PROPERTY_TEXT_LIKE_EDIT_SELECTOR-scoped command (Home/End, Word
+// motion, Set-mark, Kill-line/word, Delete-char, Kill/Copy-region,
+// Yank) falls through to the body-editor fallback when none of its own
+// checks match, which silently operated on the BODY's current line/mark
+// instead of doing nothing when focus was actually on a plain
+// item-selection target — these commands have no meaning there at all
+// (a row has no "line"/"word"/"region" concept), so they need to be
+// explicitly claimed-and-no-op'd rather than left to fall through.
+const PROPERTY_ANY_ITEM_SELECTION_SELECTOR =
+	`${PROPERTY_ROW_SELECTOR}, ${PROPERTY_HEADING_SELECTOR}, ${PROPERTY_ADD_BUTTON_SELECTOR}, ${BASES_TABLE_CONTAINER_SELECTOR}`;
+
 // Extend the Obsidian Editor interface to include the internal CodeMirror 6 instance (EditorView)
 declare module "obsidian" {
 	interface Editor {
@@ -148,6 +239,18 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	private isKillChaining: boolean = false;
 	private isDispatchingKill: boolean = false;
+	// Goal column for Ctrl-P/N chains through the title/property value
+	// widget's own wrapped visual lines — see titleMoveLine's own comment.
+	private titleGoalX: number | null = null;
+	// Goal column carried across a title<->body detour THROUGH the
+	// Properties panel (heading/Add-button) — body-space pixels, same
+	// convention CM6's own goalColumn uses, since both landing sides of
+	// a Properties detour eventually need to seed or read it in that
+	// space. titleGoalX/propertyGoalX are deliberately two separate
+	// fields rather than one shared one: whichever side the cursor is
+	// NOT currently on has no meaning for that side's own coordinate
+	// space until actually converted at the point of crossing.
+	private propertyGoalX: number | null = null;
 	private killCache: string = '';
 	private _recenterStep = 0; // 0=center, 1=top, 2=bottom
 
@@ -157,6 +260,22 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// anchor is already sitting at the point Set mark was pressed; motion
 	// commands extend the selection from there while this is true.
 	private markActive: boolean = false;
+
+	// Guards propertyNativeArrowFallback's own synthetic dispatch against
+	// re-entering this SAME checkCallback: a Key Upgrade can bind the exact
+	// bare Arrow key this dispatch uses to the SAME cursor-up/down command
+	// (e.g. the "Column-aware" Key Upgrade), and Obsidian's own Keymap
+	// resolution intercepts a dispatched keydown identically to a real one
+	// -- confirmed live this recurses into checkCallback with activeElement
+	// unchanged (the real native row listener never gets a turn), and since
+	// every nested call also unconditionally returns true, every level
+	// calls preventDefault, so the dispatch never bubbles anywhere either.
+	// Set true immediately before dispatching, checked at the top of the
+	// item-selection-mode native-arrow branch: a re-entrant call returns
+	// false instead of re-dispatching, letting Obsidian's Keymap resolution
+	// treat THIS keydown as unclaimed and continue its own normal bubble
+	// path to whatever native listener actually moves row focus.
+	private suppressNativeArrowFallback: boolean = false;
 
 	// Guards every editorCallback below against firing mid-IME-composition.
 	// Confirmed live (2026-09-26): during active composition, CM6's own
@@ -179,9 +298,28 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: 'cursor-home',
 			name: 'HOME',
 			repeatable: true,
-			editorCallback: (editor: Editor, _: MarkdownView) => {
+			checkCallback: (checking: boolean) => {
+				const el = activeDocument.activeElement as HTMLElement | null;
+				const titleEl = el?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
+				if (titleEl) {
+					if (!checking) this.titleMoveToLineBoundary(titleEl, false);
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_TEXT_LIKE_EDIT_SELECTOR)) {
+					if (!checking) {
+						if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) this.propertyKeyMoveToLineBoundary(el as HTMLInputElement, false);
+						else this.titleMoveToLineBoundary(el, false);
+					}
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_ANY_ITEM_SELECTION_SELECTOR)) {
+					return true; // no meaning here; claim the key and do nothing
+				}
+				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
+				if (!editor) return false;
+				if (checking) return true;
 				if (this.isComposing(editor)) return;
-				this.moveCursorHome(editor)
+				this.moveCursorHome(editor);
 			}
 		});
 
@@ -189,9 +327,28 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: 'cursor-end',
 			name: 'END',
 			repeatable: true,
-			editorCallback: (editor: Editor, _: MarkdownView) => {
+			checkCallback: (checking: boolean) => {
+				const el = activeDocument.activeElement as HTMLElement | null;
+				const titleEl = el?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
+				if (titleEl) {
+					if (!checking) this.titleMoveToLineBoundary(titleEl, true);
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_TEXT_LIKE_EDIT_SELECTOR)) {
+					if (!checking) {
+						if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) this.propertyKeyMoveToLineBoundary(el as HTMLInputElement, true);
+						else this.titleMoveToLineBoundary(el, true);
+					}
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_ANY_ITEM_SELECTION_SELECTOR)) {
+					return true; // no meaning here; claim the key and do nothing
+				}
+				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
+				if (!editor) return false;
+				if (checking) return true;
 				if (this.isComposing(editor)) return;
-				this.moveCursorEnd(editor)
+				this.moveCursorEnd(editor);
 			}
 		});
 
@@ -199,9 +356,44 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: 'cursor-up',
 			name: 'UP',
 			repeatable: true,
-			editorCallback: (editor: Editor, _: MarkdownView) => {
+			checkCallback: (checking: boolean) => {
+				if (this.suppressNativeArrowFallback) return false;
+				const el = activeDocument.activeElement as HTMLElement | null;
+				const titleEl = el?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
+				if (titleEl) {
+					if (!checking) this.titleMoveLine(titleEl, false);
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_CURSOR_LR_SELECTOR)) {
+					if (!checking) this.propertyMoveLineOrNoop(el, false);
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_HEADING_SELECTOR)) {
+					if (!checking) this.propertyHeadingEscapeToTitle(el);
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_ROW_SELECTOR) || el?.matches?.(PROPERTY_ADD_BUTTON_SELECTOR)) {
+					if (!checking) {
+						// A Key Upgrade can bind this exact bare key to this
+						// exact command (see isBareArrowKeyUpgradeSelfBound's
+						// own comment) -- dispatching it then would just
+						// re-intercept itself, never reaching Obsidian's own
+						// native row-navigation listener. Move focus directly
+						// instead, replicating what native would have done.
+						if (this.isBareArrowKeyUpgradeSelfBound('cursor-up')) this.propertyRowMoveUp(el);
+						else this.propertyNativeArrowFallback(el, 'ArrowUp');
+					}
+					return true;
+				}
+				if (el?.matches?.(BASES_TABLE_CONTAINER_SELECTOR)) {
+					if (!checking) this.propertyNativeArrowFallback(el, 'ArrowUp');
+					return true;
+				}
+				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
+				if (!editor) return false;
+				if (checking) return true;
 				if (this.isComposing(editor)) return;
-				this.moveCursorUp(editor)
+				this.moveCursorUp(editor);
 			}
 		});
 
@@ -209,9 +401,42 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: 'cursor-down',
 			name: 'DOWN',
 			repeatable: true,
-			editorCallback: (editor: Editor, _: MarkdownView) => {
+			checkCallback: (checking: boolean) => {
+				if (this.suppressNativeArrowFallback) return false;
+				const el = activeDocument.activeElement as HTMLElement | null;
+				const titleEl = el?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
+				if (titleEl) {
+					if (!checking) this.titleMoveLineOrEscapeToBody(titleEl);
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_CURSOR_LR_SELECTOR)) {
+					if (!checking) this.propertyMoveLineOrNoop(el, true);
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_HEADING_SELECTOR)) {
+					if (!checking) this.propertyHeadingCtrlN(el);
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_ADD_BUTTON_SELECTOR)) {
+					if (!checking) this.propertyAddButtonEscapeToBody(el);
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_ROW_SELECTOR)) {
+					if (!checking) {
+						if (this.isBareArrowKeyUpgradeSelfBound('cursor-down')) this.propertyRowMoveDown(el);
+						else this.propertyNativeArrowFallback(el, 'ArrowDown');
+					}
+					return true;
+				}
+				if (el?.matches?.(BASES_TABLE_CONTAINER_SELECTOR)) {
+					if (!checking) this.propertyNativeArrowFallback(el, 'ArrowDown');
+					return true;
+				}
+				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
+				if (!editor) return false;
+				if (checking) return true;
 				if (this.isComposing(editor)) return;
-				this.moveCursorDown(editor)
+				this.moveCursorDown(editor);
 			}
 		});
 
@@ -219,9 +444,30 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: 'cursor-left',
 			name: 'LEFT',
 			repeatable: true,
-			editorCallback: (editor: Editor, _: MarkdownView) => {
+			checkCallback: (checking: boolean) => {
+				if (this.suppressNativeArrowFallback) return false;
+				const el = activeDocument.activeElement as HTMLElement | null;
+				const titleEl = el?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
+				if (titleEl) {
+					if (!checking) this.titleMoveChar(titleEl, false);
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_CURSOR_LR_SELECTOR)) {
+					if (!checking) {
+						if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) this.propertyKeyMoveChar(el as HTMLInputElement, false);
+						else this.propertyMoveCharOrNoop(el, false);
+					}
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_HEADING_SELECTOR) || el?.matches?.(PROPERTY_ROW_SELECTOR) || el?.matches?.(PROPERTY_ADD_BUTTON_SELECTOR) || el?.matches?.(PROPERTY_MULTISELECT_PILL_SELECTOR) || el?.matches?.(BASES_TABLE_CONTAINER_SELECTOR)) {
+					if (!checking) this.propertyNativeArrowFallback(el, 'ArrowLeft');
+					return true;
+				}
+				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
+				if (!editor) return false;
+				if (checking) return true;
 				if (this.isComposing(editor)) return;
-				this.moveCursorLeft(editor)
+				this.moveCursorLeft(editor);
 			}
 		});
 
@@ -229,9 +475,30 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: 'cursor-right',
 			name: 'RIGHT',
 			repeatable: true,
-			editorCallback: (editor: Editor, _: MarkdownView) => {
+			checkCallback: (checking: boolean) => {
+				if (this.suppressNativeArrowFallback) return false;
+				const el = activeDocument.activeElement as HTMLElement | null;
+				const titleEl = el?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
+				if (titleEl) {
+					if (!checking) this.titleMoveChar(titleEl, true);
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_CURSOR_LR_SELECTOR)) {
+					if (!checking) {
+						if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) this.propertyKeyMoveChar(el as HTMLInputElement, true);
+						else this.propertyMoveCharOrNoop(el, true);
+					}
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_HEADING_SELECTOR) || el?.matches?.(PROPERTY_ROW_SELECTOR) || el?.matches?.(PROPERTY_ADD_BUTTON_SELECTOR) || el?.matches?.(PROPERTY_MULTISELECT_PILL_SELECTOR) || el?.matches?.(BASES_TABLE_CONTAINER_SELECTOR)) {
+					if (!checking) this.propertyNativeArrowFallback(el, 'ArrowRight');
+					return true;
+				}
+				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
+				if (!editor) return false;
+				if (checking) return true;
 				if (this.isComposing(editor)) return;
-				this.moveCursorRight(editor)
+				this.moveCursorRight(editor);
 			}
 		});
 
@@ -257,9 +524,28 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: 'word-right',
 			name: 'Word right',
 			repeatable: true,
-			editorCallback: (editor: Editor, _: MarkdownView) => {
+			checkCallback: (checking: boolean) => {
+				const el = activeDocument.activeElement as HTMLElement | null;
+				const titleEl = el?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
+				if (titleEl) {
+					if (!checking) this.titleMoveWord(titleEl, true);
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_TEXT_LIKE_EDIT_SELECTOR)) {
+					if (!checking) {
+						if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) this.propertyKeyMoveWord(el as HTMLInputElement, true);
+						else this.titleMoveWord(el, true);
+					}
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_ANY_ITEM_SELECTION_SELECTOR)) {
+					return true; // no meaning here; claim the key and do nothing
+				}
+				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
+				if (!editor) return false;
+				if (checking) return true;
 				if (this.isComposing(editor)) return;
-				this.moveCursorWord(editor, true)
+				this.moveCursorWord(editor, true);
 			}
 		});
 
@@ -267,9 +553,28 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: 'word-left',
 			name: 'Word left',
 			repeatable: true,
-			editorCallback: (editor: Editor, _: MarkdownView) => {
+			checkCallback: (checking: boolean) => {
+				const el = activeDocument.activeElement as HTMLElement | null;
+				const titleEl = el?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
+				if (titleEl) {
+					if (!checking) this.titleMoveWord(titleEl, false);
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_TEXT_LIKE_EDIT_SELECTOR)) {
+					if (!checking) {
+						if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) this.propertyKeyMoveWord(el as HTMLInputElement, false);
+						else this.titleMoveWord(el, false);
+					}
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_ANY_ITEM_SELECTION_SELECTOR)) {
+					return true; // no meaning here; claim the key and do nothing
+				}
+				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
+				if (!editor) return false;
+				if (checking) return true;
 				if (this.isComposing(editor)) return;
-				this.moveCursorWord(editor, false)
+				this.moveCursorWord(editor, false);
 			}
 		});
 
@@ -286,7 +591,26 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: 'delete-char',
 			name: 'Delete char',
 			repeatable: true,
-			editorCallback: (editor: Editor) => {
+			checkCallback: (checking: boolean) => {
+				const el = activeDocument.activeElement as HTMLElement | null;
+				const titleEl = el?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
+				if (titleEl) {
+					if (!checking) this.titleDeleteChar(titleEl);
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_TEXT_LIKE_EDIT_SELECTOR)) {
+					if (!checking) {
+						if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) this.propertyKeyDeleteChar(el as HTMLInputElement);
+						else this.titleDeleteChar(el);
+					}
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_ANY_ITEM_SELECTION_SELECTOR)) {
+					return true; // no meaning here; claim the key and do nothing
+				}
+				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
+				if (!editor) return false;
+				if (checking) return true;
 				if (this.isComposing(editor)) return;
 				this.deleteChar(editor);
 			}
@@ -419,7 +743,26 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		this.addCommand({
 			id: 'kill-region',
 			name: 'Kill region',
-			editorCallback: (editor: Editor) => {
+			checkCallback: (checking: boolean) => {
+				const el = activeDocument.activeElement as HTMLElement | null;
+				const titleEl = el?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
+				if (titleEl) {
+					if (!checking) this.titleKillRegion(titleEl);
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_TEXT_LIKE_EDIT_SELECTOR)) {
+					if (!checking) {
+						if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) this.propertyKeyKillRegion(el as HTMLInputElement);
+						else this.titleKillRegion(el);
+					}
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_ANY_ITEM_SELECTION_SELECTOR)) {
+					return true; // no meaning here; claim the key and do nothing
+				}
+				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
+				if (!editor) return false;
+				if (checking) return true;
 				if (this.isComposing(editor)) return;
 				this.killRegion(editor);
 			}
@@ -428,7 +771,26 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		this.addCommand({
 			id: 'copy-region',
 			name: 'Copy region',
-			editorCallback: (editor: Editor) => {
+			checkCallback: (checking: boolean) => {
+				const el = activeDocument.activeElement as HTMLElement | null;
+				const titleEl = el?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
+				if (titleEl) {
+					if (!checking) this.titleCopyRegion(titleEl);
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_TEXT_LIKE_EDIT_SELECTOR)) {
+					if (!checking) {
+						if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) this.propertyKeyCopyRegion(el as HTMLInputElement);
+						else this.titleCopyRegion(el);
+					}
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_ANY_ITEM_SELECTION_SELECTOR)) {
+					return true; // no meaning here; claim the key and do nothing
+				}
+				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
+				if (!editor) return false;
+				if (checking) return true;
 				if (this.isComposing(editor)) return;
 				this.copyRegion(editor);
 			}
@@ -438,7 +800,26 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: 'kill-line',
 			name: 'Kill line',
 			repeatable: true,
-			editorCallback: (editor: Editor, _: MarkdownView) => {
+			checkCallback: (checking: boolean) => {
+				const el = activeDocument.activeElement as HTMLElement | null;
+				const titleEl = el?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
+				if (titleEl) {
+					if (!checking) this.titleKillLine(titleEl);
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_TEXT_LIKE_EDIT_SELECTOR)) {
+					if (!checking) {
+						if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) this.propertyKeyKillLine(el as HTMLInputElement);
+						else this.titleKillLine(el);
+					}
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_ANY_ITEM_SELECTION_SELECTOR)) {
+					return true; // no meaning here; claim the key and do nothing
+				}
+				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
+				if (!editor) return false;
+				if (checking) return true;
 				if (this.isComposing(editor)) return;
 				this.killLine(editor);
 			}
@@ -448,7 +829,26 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: 'kill-word-left',
 			name: 'Kill word left',
 			repeatable: true,
-			editorCallback: (editor: Editor, _: MarkdownView) => {
+			checkCallback: (checking: boolean) => {
+				const el = activeDocument.activeElement as HTMLElement | null;
+				const titleEl = el?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
+				if (titleEl) {
+					if (!checking) this.titleKillWord(titleEl, false);
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_TEXT_LIKE_EDIT_SELECTOR)) {
+					if (!checking) {
+						if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) this.propertyKeyKillWord(el as HTMLInputElement, false);
+						else this.titleKillWord(el, false);
+					}
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_ANY_ITEM_SELECTION_SELECTOR)) {
+					return true; // no meaning here; claim the key and do nothing
+				}
+				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
+				if (!editor) return false;
+				if (checking) return true;
 				if (this.isComposing(editor)) return;
 				this.killWord(editor, false);
 			}
@@ -458,7 +858,26 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: 'kill-word-right',
 			name: 'Kill word right',
 			repeatable: true,
-			editorCallback: (editor: Editor, _: MarkdownView) => {
+			checkCallback: (checking: boolean) => {
+				const el = activeDocument.activeElement as HTMLElement | null;
+				const titleEl = el?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
+				if (titleEl) {
+					if (!checking) this.titleKillWord(titleEl, true);
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_TEXT_LIKE_EDIT_SELECTOR)) {
+					if (!checking) {
+						if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) this.propertyKeyKillWord(el as HTMLInputElement, true);
+						else this.titleKillWord(el, true);
+					}
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_ANY_ITEM_SELECTION_SELECTOR)) {
+					return true; // no meaning here; claim the key and do nothing
+				}
+				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
+				if (!editor) return false;
+				if (checking) return true;
 				if (this.isComposing(editor)) return;
 				this.killWord(editor, true);
 			}
@@ -498,7 +917,26 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: 'yank',
 			name: 'Yank',
 			repeatable: true,
-			editorCallback: (editor: Editor, _: MarkdownView) => {
+			checkCallback: (checking: boolean) => {
+				const el = activeDocument.activeElement as HTMLElement | null;
+				const titleEl = el?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
+				if (titleEl) {
+					if (!checking) void this.titleYank(titleEl);
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_TEXT_LIKE_EDIT_SELECTOR)) {
+					if (!checking) {
+						if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) void this.propertyKeyYank(el as HTMLInputElement);
+						else void this.titleYank(el);
+					}
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_ANY_ITEM_SELECTION_SELECTOR)) {
+					return true; // no meaning here; claim the key and do nothing
+				}
+				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
+				if (!editor) return false;
+				if (checking) return true;
 				if (this.isComposing(editor)) return;
 				void this.yank(editor);
 			}
@@ -527,7 +965,20 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		this.addCommand({
 			id: 'recenter',
 			name: 'Recenter',
-			editorCallback: (editor: Editor) => {
+			checkCallback: (checking: boolean) => {
+				const el = activeDocument.activeElement as HTMLElement | null;
+				// Broadened from Bases-only to the whole Properties panel
+				// (recenterPropertyPanel itself delegates to recenterBases
+				// when el is the Bases container) -- no meaningful native
+				// behavior to fall back to, so this is claimed-and-acted-on
+				// unconditionally rather than falling through anywhere.
+				if (el?.matches?.(PROPERTY_ANY_VALUE_WIDGET_SELECTOR) || el?.matches?.(PROPERTY_ANY_ITEM_SELECTION_SELECTOR)) {
+					if (!checking) this.recenterPropertyPanel(el);
+					return true;
+				}
+				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
+				if (!editor) return false;
+				if (checking) return true;
 				if (this.isComposing(editor)) return;
 				this.recenter(editor);
 			}
@@ -536,7 +987,15 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		this.addCommand({
 			id: 'recenter-top-bottom',
 			name: 'Recenter top-bottom',
-			editorCallback: (editor: Editor) => {
+			checkCallback: (checking: boolean) => {
+				const el = activeDocument.activeElement as HTMLElement | null;
+				if (el?.matches?.(PROPERTY_ANY_VALUE_WIDGET_SELECTOR) || el?.matches?.(PROPERTY_ANY_ITEM_SELECTION_SELECTOR)) {
+					if (!checking) this.recenterTopBottomPropertyPanel(el);
+					return true;
+				}
+				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
+				if (!editor) return false;
+				if (checking) return true;
 				if (this.isComposing(editor)) return;
 				this.recenterTopBottom(editor);
 			}
@@ -545,7 +1004,26 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		this.addCommand({
 			id: 'set-mark',
 			name: 'Set mark',
-			editorCallback: (editor: Editor) => {
+			checkCallback: (checking: boolean) => {
+				const el = activeDocument.activeElement as HTMLElement | null;
+				const titleEl = el?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
+				if (titleEl) {
+					if (!checking) this.titleSetMark(titleEl);
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_TEXT_LIKE_EDIT_SELECTOR)) {
+					if (!checking) {
+						if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) this.propertyKeySetMark(el as HTMLInputElement);
+						else this.titleSetMark(el);
+					}
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_ANY_ITEM_SELECTION_SELECTOR)) {
+					return true; // no meaning here; claim the key and do nothing
+				}
+				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
+				if (!editor) return false;
+				if (checking) return true;
 				if (this.isComposing(editor)) return;
 				this.setMark(editor);
 			}
@@ -554,7 +1032,71 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		this.addCommand({
 			id: 'keyboard-quit',
 			name: 'Deselect',
-			editorCallback: (editor: Editor) => {
+			checkCallback: (checking: boolean) => {
+				const el = activeDocument.activeElement as HTMLElement | null;
+				const titleEl = el?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
+				if (titleEl) {
+					if (!checking) this.titleKeyboardQuit(titleEl);
+					return true;
+				}
+				// Broader than Ctrl-PNBF's own scope (also reaches
+				// checkbox/date/datetime/the multiselect pill) — the
+				// exit mechanism itself works identically for every
+				// value-widget type. titleKeyboardQuit (via its own
+				// clear-mark/collapse) is skipped for checkbox/date/
+				// datetime: no mark/Selection concept to clear there at
+				// all.
+				if (el?.matches?.(PROPERTY_ANY_VALUE_WIDGET_SELECTOR)) {
+					if (!checking) {
+						if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) this.propertyKeyKeyboardQuit(el as HTMLInputElement);
+						else if (!el.matches(PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR)) this.titleKeyboardQuit(el);
+						// A Bases cell's own edit-mode exit is driven by
+						// Obsidian's native Keymap/Scope handling, confirmed
+						// live to require a genuinely trusted keyboard event
+						// -- a synthetic re-dispatch (with or without
+						// code/keyCode set) never reaches it, even from a
+						// clean state. Focusing .bases-table-container
+						// directly reproduces the same end state instead
+						// (confirmed live: the internal active-cell marker
+						// survives, Enter afterward re-enters the same
+						// cell).
+						//
+						// The Properties panel's own (non-Bases) value
+						// widgets were ASSUMED to reach their native exit
+						// via a synthetic Escape dispatch, same as the
+						// comment used to claim -- re-confirmed live this
+						// is wrong whenever the widget's own "previously
+						// used values" suggester is genuinely open (its
+						// own native Scope claims Escape first, same
+						// mechanism documented in
+						// project_checkcallback_property_suggester_ctrl_np_swallowed):
+						// both a synthetic dispatch AND a real trusted
+						// Escape only dismiss the suggester, never exit
+						// the widget. Focusing the row directly sidesteps
+						// the suggester's own Escape-staging entirely --
+						// confirmed live it both exits to item-selection
+						// mode AND cleanly closes a still-open suggester,
+						// with no dependency on whether one happens to be
+						// open. Same fix shape as the Bases case above,
+						// now applied uniformly instead of split by
+						// container type.
+						const basesContainer = el.closest(BASES_TABLE_CONTAINER_SELECTOR) as HTMLElement | null;
+						if (basesContainer) basesContainer.focus();
+						else (el.closest(PROPERTY_ROW_SELECTOR) as HTMLElement | null)?.focus();
+					}
+					return true;
+				}
+				// Item-selection row/heading/Add-button and a Bases
+				// table's own cell-selection container only ever respond
+				// to a REAL physical Escape — same translation
+				// propertyNativeArrowFallback already does for Ctrl-N/P/B/F.
+				if (el?.matches?.(PROPERTY_HEADING_SELECTOR) || el?.matches?.(PROPERTY_ROW_SELECTOR) || el?.matches?.(PROPERTY_ADD_BUTTON_SELECTOR) || el?.matches?.(BASES_TABLE_CONTAINER_SELECTOR)) {
+					if (!checking) el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+					return true;
+				}
+				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
+				if (!editor) return false;
+				if (checking) return true;
 				if (this.isComposing(editor)) return;
 				this.keyboardQuit(editor);
 			}
@@ -747,6 +1289,48 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			this._recenterStep = 0;
 		});
 
+		// Title/Properties widgets aren't CM6 at all, so the updateListener
+		// below (which resets _recenterStep on any real
+		// `update.selectionSet`/`docChanged`) never sees anything happening
+		// inside them — and a KEYBOARD-driven focus change into/out of one
+		// (Ctrl-F entering the text widget, Escape exiting it) produces
+		// neither a CM6 transaction NOR a 'mousedown', so recenter's own
+		// cycle never broke on either until now. 'focusin' fires on ANY
+		// focus change regardless of cause (mouse or keyboard), so this
+		// alone covers entering/exiting a widget; same unconditional-reset
+		// convention as the 'mousedown' listener above —
+		// recenter/recenter-top-bottom themselves only ever scroll, never
+		// touching focus, so pressing Ctrl-L can't self-reset its own cycle
+		// through this.
+		//
+		// isKillChaining is deliberately NOT reset here (confirmed live,
+		// fixing a real regression this introduced): unlike recenter, every
+		// kill-adjacent command already resets isKillChaining explicitly in
+		// its OWN handler (titleMoveChar, propertyKeyMoveChar, etc. — see
+		// their own "this.isKillChaining = false" sites), so a blanket
+		// reset here was pure redundancy for every case EXCEPT one it
+		// wrongly broke: titleKillLine.e2e.ts test (3)'s cross-widget kill
+		// chain (title Ctrl-K -> move focus into the body with no
+		// intervening command -> body Ctrl-K should still chain onto the
+		// SAME kill-ring entry, same as real Emacs). A focus change on its
+		// own was never meant to be "something intervened" for this flag —
+		// only an actual non-kill command is.
+		this.registerDomEvent(doc, 'focusin', () => {
+			this._recenterStep = 0;
+		});
+
+		// Covers the other half 'focusin' above can't: caret movement
+		// WITHIN an already-focused widget (e.g. an arrow key moving the
+		// cursor inside the text value-edit widget, with no focus change
+		// at all) — 'selectionchange' fires for any Selection change
+		// anywhere in the document, native or programmatic, independent
+		// of focus. Recenter/recenter-top-bottom never touch
+		// document.getSelection() either, so this is equally safe from
+		// self-resetting on its own press.
+		this.registerDomEvent(doc, 'selectionchange', () => {
+			this._recenterStep = 0;
+		});
+
 		// A bare-ESC Key Upgrade (app.hotkeyManager.setHotkeys claiming the
 		// key globally) was tried and reverted (2026-10-17): it broke
 		// Escape in non-CM6 contexts that rely on it natively (Excalidraw,
@@ -862,6 +1446,989 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		this.moveCursorEndNonTable(editor);
 	}
 
+
+	// checkCallback-based note title sample: the title is a plain
+	// contenteditable (no CM6 Editor), so cursor movement goes through
+	// the native Selection API instead of editor.exec(). 'extend' while
+	// markActive keeps Selection's own anchor fixed and only moves focus
+	// — the same mechanism a real Shift+Arrow keypress uses, so no
+	// separate anchor-tracking is needed here the way the body's CM6
+	// Set-mark needs.
+	private titleSelectionModify(titleEl: HTMLElement, direction: string, granularity: string) {
+		const sel = titleEl.ownerDocument.getSelection() as (Selection & {
+			modify(alter: string, direction: string, granularity: string): void;
+		}) | null;
+		sel?.modify(this.markActive ? 'extend' : 'move', direction, granularity);
+	}
+
+	// Deliberately does NOT use Selection.modify('lineboundary') —
+	// confirmed live on a wrapped title that it can resolve the
+	// ambiguous wrap-point offset with the WRONG side's affinity (Ctrl-A
+	// on VLn landing on VLn-1's own right edge instead of VLn's left
+	// edge). What actually works: step one character at a time using
+	// the same primitive Ctrl-B/F already use reliably, checking the
+	// vertical (Y) position after each step, and stop as soon as a step
+	// crosses onto a different visual line, using the last position
+	// still on the starting line.
+	//
+	// Also honors Visual line movement (settings.visualLineMovement,
+	// Home/End-only — Ctrl-N/P's line movement is unrelated), mirroring
+	// the body's own Smart Home/End: ON moves to the visual line edge
+	// first, escalating to the title's absolute start/end only once
+	// already there; OFF always goes straight to the absolute start/end.
+	private titleMoveToLineBoundary(titleEl: HTMLElement, forward: boolean) {
+		this._recenterStep = 0; // see onload's own focusin/selectionchange listeners' comment for why keyboard-driven widget entry/caret-move needs an explicit reset too
+		const sel = titleEl.ownerDocument.getSelection() as (Selection & {
+			modify(alter: string, direction: string, granularity: string): void;
+		}) | null;
+		if (!sel || sel.rangeCount === 0) return;
+		this.titleGoalX = null; // horizontal-intent move, not a vertical-goal continuation
+		this.isKillChaining = false;
+		const alter = this.markActive ? 'extend' : 'move';
+
+		// A Bases cell is always single-line (no wrap to be visual-line-
+		// aware about) — jump straight to this cell's own boundary via a
+		// single, atomic Range operation rather than the character-
+		// walking scan below, which was confirmed live to genuinely move
+		// real DOM focus out to an adjacent cell and back on a Bases
+		// cell's own boundary, leaking focus state. Collapses onto
+		// titleEl's own first/last TEXT NODE directly, not via
+		// selectAllChildren(titleEl) — that lands on titleEl itself (an
+		// Element, child-index-based position), not a Text node at a
+		// character offset, which titleKillLine/titleKillWord/titleYank
+		// all defensively no-op against.
+		if (titleEl.closest(BASES_TABLE_CONTAINER_SELECTOR)) {
+			const textNode = titleEl.firstChild;
+			const markAnchorNode = this.markActive ? sel.anchorNode : null;
+			const markAnchorOffset = this.markActive ? sel.anchorOffset : 0;
+			if (textNode && textNode.nodeType === Node.TEXT_NODE) {
+				sel.collapse(textNode, forward ? (textNode as Text).length : 0);
+			} else {
+				sel.collapse(titleEl, 0); // empty cell — nothing to land on but titleEl itself
+			}
+			if (markAnchorNode) {
+				sel.setBaseAndExtent(markAnchorNode, markAnchorOffset, sel.focusNode!, sel.focusOffset);
+			}
+			return;
+		}
+
+		if (!this.settings.visualLineMovement) {
+			sel.modify(alter, forward ? 'forward' : 'backward', 'documentboundary');
+			return;
+		}
+
+		const startNode = sel.focusNode, startOffset = sel.focusOffset;
+		const startRect = sel.getRangeAt(0).getClientRects()[0] ?? sel.getRangeAt(0).getBoundingClientRect();
+		const stepDir = forward ? 'right' : 'left';
+		const backDir = forward ? 'left' : 'right';
+
+		for (let i = 0; i < 2000; i++) {
+			const beforeNode = sel.focusNode, beforeOffset = sel.focusOffset;
+			sel.modify(alter, stepDir, 'character');
+			if (sel.focusNode === beforeNode && sel.focusOffset === beforeOffset) break; // hit the title's absolute start/end
+			// The exact wrap-point character is genuinely ambiguous: a
+			// collapsed caret there always renders on the PREVIOUS
+			// line's side, regardless of direction reached — correct for
+			// End (forward), wrong for Home (backward), which must never
+			// land on that ambiguous offset.
+			const rects = sel.getRangeAt(0).getClientRects();
+			const sameLine = forward
+				? (rects.length > 0
+					? Array.from(rects).some(r => Math.abs(r.top - startRect.top) < 1)
+					: Math.abs(sel.getRangeAt(0).getBoundingClientRect().top - startRect.top) < 1)
+				: (rects.length === 1 && Math.abs(rects[0].top - startRect.top) < 1);
+			if (!sameLine) {
+				sel.modify(alter, backDir, 'character'); // undo the one step that left the line
+				break;
+			}
+		}
+
+		if (sel.focusNode === startNode && sel.focusOffset === startOffset) {
+			// Never actually moved — already at this line's edge.
+			sel.modify(alter, forward ? 'forward' : 'backward', 'documentboundary');
+		}
+	}
+
+	private titleMoveChar(titleEl: HTMLElement, forward: boolean) {
+		this._recenterStep = 0; // see onload's own focusin/selectionchange listeners' comment for why keyboard-driven widget entry/caret-move needs an explicit reset too
+		this.titleGoalX = null; // horizontal-intent move, not a vertical-goal continuation
+		this.isKillChaining = false; // see titleMoveToLineBoundary's own comment
+		this.titleSelectionModify(titleEl, forward ? 'right' : 'left', 'character');
+	}
+
+	// Alt-F/Alt-B (word right/left): reuses titleSelectionModify as-is
+	// (already handles the markActive 'extend'/'move' branch), same
+	// 'left'/'right' direction convention as titleMoveChar. The title's
+	// own native word-boundary resolution for 'word' granularity is
+	// already confirmed CJK-safe without a custom segmenter (same
+	// mechanism physical Option-←/→ in the title already uses).
+	private titleMoveWord(titleEl: HTMLElement, forward: boolean) {
+		this._recenterStep = 0; // see onload's own focusin/selectionchange listeners' comment for why keyboard-driven widget entry/caret-move needs an explicit reset too
+		this.titleGoalX = null; // horizontal-intent move, not a vertical-goal continuation
+		this.isKillChaining = false;
+		this.titleSelectionModify(titleEl, forward ? 'right' : 'left', 'word');
+	}
+
+	// Ported from the archive Scope-push implementation as-is (pure
+	// Selection-API + titleGoalX state, no Scope dependency at all) —
+	// the goal-column tracking and VL-boundary-ambiguity nudge are
+	// orthogonal to the checkCallback-vs-Scope-push question this sample
+	// exists to test, so this is reused rather than reinvented.
+	private titleMoveLine(titleEl: HTMLElement, forward: boolean): boolean {
+		this._recenterStep = 0; // see onload's own focusin/selectionchange listeners' comment for why keyboard-driven widget entry/caret-move needs an explicit reset too
+		const doc = titleEl.ownerDocument;
+		const sel = doc.getSelection();
+		if (!sel || sel.rangeCount === 0) return false;
+		this.isKillChaining = false;
+		const markAnchorNode = sel.anchorNode, markAnchorOffset = sel.anchorOffset;
+		const beforeRect = this.titleFocusRects(doc, sel)[0] ?? sel.getRangeAt(0).getBoundingClientRect();
+		const goalX = this.titleGoalX ?? beforeRect.left;
+
+		this.titleSelectionModify(titleEl, forward ? 'forward' : 'backward', 'line');
+
+		// Set-mark: a reversal-direction chain only retracts to the
+		// anchor on this first modify() call; detect that exact case
+		// (focus landed back on the anchor, same line) and issue a
+		// second call to actually complete the line move.
+		if (this.markActive && markAnchorNode &&
+				sel.focusNode === markAnchorNode && sel.focusOffset === markAnchorOffset &&
+				!this.titleFocusRects(doc, sel).some(r => Math.abs(r.top - beforeRect.top) >= 1)) {
+			this.titleSelectionModify(titleEl, forward ? 'forward' : 'backward', 'line');
+		}
+
+		const afterRects = this.titleFocusRects(doc, sel);
+		const movedRect = afterRects.find(r => Math.abs(r.top - beforeRect.top) >= 1) ?? null;
+		if (!movedRect) return false; // no line to move to; leave as-is
+
+		this.titleGoalX = goalX;
+		const targetY = movedRect.top + movedRect.height / 2;
+		const docCRFP = doc as unknown as { caretRangeFromPoint(x: number, y: number): Range | null };
+		const range = docCRFP.caretRangeFromPoint(goalX, targetY);
+		if (range && titleEl.contains(range.startContainer)) {
+			if (this.markActive && markAnchorNode) {
+				(sel as unknown as { setBaseAndExtent(aNode: Node, aOff: number, fNode: Node, fOff: number): void })
+					.setBaseAndExtent(markAnchorNode, markAnchorOffset, range.startContainer, range.startOffset);
+			} else {
+				sel.removeAllRanges();
+				sel.addRange(range);
+			}
+		}
+
+		// The ambiguous VL-boundary offset always renders via whichever
+		// adjacent line comes first in text order — nudge one character
+		// forward when the landed position doesn't actually match the
+		// target line we just moved to.
+		const landedRects = this.titleFocusRects(doc, sel);
+		if (landedRects.length > 1 && Math.abs(landedRects[0].top - movedRect.top) >= 1) {
+			(sel as unknown as { modify(alter: string, direction: string, granularity: string): void })
+				.modify(this.markActive ? 'extend' : 'move', 'right', 'character');
+		}
+		return true;
+	}
+
+	private titleFocusRects(doc: Document, sel: Selection): DOMRect[] {
+		if (!sel.focusNode) return [];
+		const r = doc.createRange();
+		r.setStart(sel.focusNode, sel.focusOffset);
+		r.collapse(true);
+		return Array.from(r.getClientRects());
+	}
+
+	// Ctrl-N within the title: titleMoveLine itself already handles
+	// "moved to a different visual line" vs "nothing further down" —
+	// this just adds what happens on that second case: escape into
+	// Properties (if a panel is actually visible, not merely present in
+	// the DOM — same offsetParent check used throughout this sample) or
+	// straight into the body otherwise, preserving the goal column
+	// through either crossing (propertyGoalX in body-space, titleGoalX
+	// stays null once we've actually left — it has no meaning outside
+	// the title).
+	private titleMoveLineOrEscapeToBody(titleEl: HTMLElement) {
+		const sel = titleEl.ownerDocument.getSelection();
+		if (!sel || sel.rangeCount === 0) return;
+		const beforeRect = sel.getRangeAt(0).getClientRects()[0] ?? sel.getRangeAt(0).getBoundingClientRect();
+		const goalX = this.titleGoalX ?? beforeRect.left;
+		if (this.titleMoveLine(titleEl, true)) return; // moved to a new visual line, done
+		// Set-mark never crosses the title<->body boundary, in either
+		// direction — a marked selection can't span two separate DOM
+		// editing roots (CM6's own EditorSelection vs the title's native
+		// Selection).
+		if (this.markActive) return;
+
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (!view) return;
+
+		// Checking mere DOM presence isn't enough — heading/Add-button
+		// exist (hidden) even for a note with no frontmatter at all.
+		const heading = (this.getFirstBodyLine() > 0)
+			? view.containerEl.querySelector(PROPERTY_HEADING_SELECTOR) as HTMLElement | null
+			: null;
+		if (heading && heading.offsetParent !== null) {
+			this.titleGoalX = null; // leaving the title; title-local goal has no meaning inside Properties
+			const cmForGoal = view.editor.cm;
+			const firstLineCoordsForGoal = cmForGoal.coordsAtPos(view.editor.posToOffset({ line: this.getFirstBodyLine(), ch: 0 }));
+			if (firstLineCoordsForGoal) {
+				const titleStartXForGoal = titleEl.getBoundingClientRect().left;
+				this.propertyGoalX = goalX - titleStartXForGoal + firstLineCoordsForGoal.left;
+			}
+			heading.focus();
+			// Focusing a non-text element doesn't itself clear
+			// window.getSelection() — the native Selection silently
+			// keeps pointing at wherever it was in the title's own text.
+			titleEl.ownerDocument.getSelection()?.removeAllRanges();
+			return;
+		}
+
+		const cm = view.editor.cm;
+		const firstLineCoords = cm.coordsAtPos(view.editor.posToOffset({ line: this.getFirstBodyLine(), ch: 0 }));
+		if (!firstLineCoords) return;
+		const targetY = (firstLineCoords.top + firstLineCoords.bottom) / 2;
+
+		// The body has its own line-number gutter the title doesn't —
+		// normalize by each side's own line-start X rather than matching
+		// absolute screen pixels.
+		const titleStartX = titleEl.getBoundingClientRect().left;
+		const bodyLineStartX = firstLineCoords.left;
+		const adjustedX = goalX - titleStartX + bodyLineStartX;
+
+		const pos = cm.posAtCoords({ x: adjustedX, y: targetY }, false);
+		view.editor.focus();
+		this.titleGoalX = null; // leaving the title; the body has its own separate goal-column system
+		if (pos != null) {
+			// Seed CM6's own native goalColumn, not a plain
+			// editor.setCursor — a fresh selection dispatch carries no
+			// goalColumn at all, so a Ctrl-P/N chain continuing in the
+			// body right after this landing would otherwise forget the
+			// title's own column.
+			const rect = cm.contentDOM.getBoundingClientRect();
+			const goalColumnToSeed = adjustedX - rect.left;
+			cm.dispatch({
+				selection: EditorSelection.create(
+					[EditorSelection.cursor(pos, 1, undefined, goalColumnToSeed)],
+					0,
+				),
+				scrollIntoView: true,
+				userEvent: 'move',
+			});
+		}
+	}
+
+	// Ctrl-P at the body's own absolute top (line 0, Live Preview only —
+	// Source Mode has no title/Properties crossing concept): the native
+	// 'goUp' exec is tried first just to learn whether anything actually
+	// moved — a wrapped line 0 has further VISUAL lines above that goUp
+	// already handles correctly on its own, which must NOT trigger an
+	// escape. Comparing Y coordinates before/after (not cursor.line,
+	// which goUp's own ch-0 snap-in-place fallback can make look like
+	// "moved" even when it didn't) distinguishes a genuine "nothing
+	// above" from a real within-line-0 visual move. Simplified relative
+	// to the archive implementation: no goal-column preservation across
+	// the boundary, same as titleMoveLineOrEscapeToBody above.
+	// Frontmatter's own lines still exist in the body's real CM6 document
+	// (Live Preview just visually replaces them with the Properties UI)
+	// — the body's real first line is NOT line 0 whenever frontmatter is
+	// present, so title<->body crossing must check against this, not a
+	// hardcoded 0 (confirmed by a real titleCrossingFrontmatter.e2e.ts
+	// failure without it: Ctrl-P at the body's true first line did
+	// nothing at all, since cursor.line !== 0 there).
+	private getFirstBodyLine(): number {
+		if (!this.isLivePreviewMode()) return 0;
+		const file = this.app.workspace.getActiveFile();
+		const fmPos = file ? this.app.metadataCache.getFileCache(file)?.frontmatterPosition : undefined;
+		return fmPos ? fmPos.end.line + 1 : 0;
+	}
+
+	// Ctrl-K in the title: kills from the cursor to the title's own text
+	// end. Title is always logically ONE line — already at the end is
+	// simply a no-op. Shares the exact same kill-ring
+	// (killCache/updateKillCache/navigator.clipboard) as the body's own
+	// Kill line, so Yank and cross-buffer kill-chaining both just work.
+	// Uses document.execCommand('delete', false) rather than
+	// Range.deleteContents() — the former integrates with the title's
+	// own native undo stack (Ctrl-Z correctly restores the killed text),
+	// the latter does not.
+	private titleKillLine(titleEl: HTMLElement) {
+		this._recenterStep = 0; // see onload's own focusin/selectionchange listeners' comment for why keyboard-driven widget entry/caret-move needs an explicit reset too
+		this.titleGoalX = null;
+		this.markActive = false; // kill commands deactivate the mark unconditionally
+		const doc = titleEl.ownerDocument;
+		const sel = doc.getSelection();
+		if (!sel || sel.rangeCount === 0 || !sel.focusNode) return;
+		// Collapse to focus first, discarding any active (marked)
+		// selection — kill-line always goes "from point to end of line."
+		sel.collapse(sel.focusNode, sel.focusOffset);
+		const cur = sel.getRangeAt(0);
+		const container = cur.startContainer;
+		if (container.nodeType !== Node.TEXT_NODE) return; // defensive: the title is always flat text
+		const textLen = (container as Text).length;
+		const cursorOffset = cur.startOffset;
+		if (cursorOffset >= textLen) return; // already at the title's own end
+
+		const range = doc.createRange();
+		range.setStart(container, cursorOffset);
+		range.setEnd(container, textLen);
+		sel.removeAllRanges();
+		sel.addRange(range);
+		const killedText = range.toString();
+
+		doc.execCommand('delete', false);
+
+		this.updateKillCache(killedText);
+		navigator.clipboard.writeText(this.killCache).catch(() => {});
+		this.isKillChaining = true;
+	}
+
+	// Alt-Backspace/Alt-D in the title: kills one word left/right from
+	// the cursor. Collapses to focus first — kill-word operates from
+	// point only, ignoring any active region. Extending with 'word'
+	// granularity and checking range.collapsed afterward tells a genuine
+	// no-op (already at the title's own start/end) apart from a real
+	// kill. prepend = !forward matches the body's own convention: a
+	// backward kill builds the kill-ring in buffer order across
+	// consecutive kills, a forward kill appends.
+	private titleKillWord(titleEl: HTMLElement, forward: boolean) {
+		this._recenterStep = 0; // see onload's own focusin/selectionchange listeners' comment for why keyboard-driven widget entry/caret-move needs an explicit reset too
+		this.titleGoalX = null;
+		this.markActive = false;
+		const doc = titleEl.ownerDocument;
+		const sel = doc.getSelection() as (Selection & {
+			modify(alter: string, direction: string, granularity: string): void;
+		}) | null;
+		if (!sel || sel.rangeCount === 0 || !sel.focusNode) return;
+		sel.collapse(sel.focusNode, sel.focusOffset);
+
+		sel.modify('extend', forward ? 'right' : 'left', 'word');
+		const range = sel.getRangeAt(0);
+		if (range.collapsed) return; // already at the title's own start/end
+		const killedText = range.toString();
+
+		doc.execCommand('delete', false);
+
+		this.updateKillCache(killedText, !forward);
+		navigator.clipboard.writeText(this.killCache).catch(() => {});
+		this.isKillChaining = true;
+	}
+
+	// Ctrl-Space (set-mark) in the title: arms markActive and collapses
+	// any active selection to its own focus point — the native-Selection
+	// equivalent of the body's own collapseActiveSelectionToHead. No
+	// separate anchor-tracking is needed: the title's native Selection
+	// already distinguishes anchor from focus, and every move command
+	// above already calls Selection.modify with 'extend' instead of
+	// 'move' whenever markActive is true (the same mechanism a real
+	// Shift+Arrow keypress uses). The title<->body boundary is never
+	// crossed while a mark is active, in either direction — a marked
+	// selection can't span two separate DOM editing roots.
+	private titleSetMark(titleEl: HTMLElement) {
+		this._recenterStep = 0; // see onload's own focusin/selectionchange listeners' comment for why keyboard-driven widget entry/caret-move needs an explicit reset too
+		this.markActive = true;
+		const sel = titleEl.ownerDocument.getSelection();
+		if (!sel || !sel.focusNode) return;
+		sel.collapse(sel.focusNode, sel.focusOffset);
+	}
+
+	// Ctrl-G (keyboard-quit) in the title: deactivates the mark and
+	// collapses any active selection to its own focus — set-mark
+	// cancellation only. Deliberately does NOT mirror the body's own
+	// keyboardQuit any further (no multi-range concept exists in a
+	// native Selection). Must NOT leave the title the way a bare
+	// physical Escape does (that blurs it entirely, back to wherever the
+	// cursor was in the body) — staying put with only the mark/selection
+	// affected is what distinguishes Ctrl-G from that native behavior.
+	private titleKeyboardQuit(titleEl: HTMLElement) {
+		this._recenterStep = 0; // see onload's own focusin/selectionchange listeners' comment for why keyboard-driven widget entry/caret-move needs an explicit reset too
+		this.markActive = false;
+		const sel = titleEl.ownerDocument.getSelection();
+		if (!sel || !sel.focusNode) return;
+		sel.collapse(sel.focusNode, sel.focusOffset);
+	}
+
+	// Ctrl-D (Delete char) in the title: deletes the character after
+	// point, same as the body's own deleteChar — doesn't collapse to
+	// point first the way Kill line/word do (this command's whole job is
+	// the active region, if any). If a non-empty selection already
+	// exists, deletes exactly that; if collapsed, extends one character
+	// forward first, then deletes. Guards against Selection.modify's own
+	// collapsed-selection fallback for execCommand('delete') (which
+	// defaults to backward/backspace-like deletion when still collapsed)
+	// by checking whether the extend attempt actually left collapsed
+	// state — a true no-op at the title's own end, never a
+	// wrong-direction delete.
+	private titleDeleteChar(titleEl: HTMLElement) {
+		this._recenterStep = 0; // see onload's own focusin/selectionchange listeners' comment for why keyboard-driven widget entry/caret-move needs an explicit reset too
+		this.markActive = false;
+		const doc = titleEl.ownerDocument;
+		const sel = doc.getSelection() as (Selection & {
+			modify(alter: string, direction: string, granularity: string): void;
+		}) | null;
+		if (!sel || sel.rangeCount === 0) return;
+		if (sel.isCollapsed) {
+			sel.modify('extend', 'forward', 'character');
+			if (sel.isCollapsed) return; // already at the title's own end
+		}
+		doc.execCommand('delete', false);
+	}
+
+	private titleCopyRegion(titleEl: HTMLElement) {
+		this._recenterStep = 0; // see onload's own focusin/selectionchange listeners' comment for why keyboard-driven widget entry/caret-move needs an explicit reset too
+		const sel = titleEl.ownerDocument.getSelection();
+		if (!sel || sel.isCollapsed) return; // nothing selected
+		const text = sel.toString();
+		this.markActive = false;
+		this.isKillChaining = false;
+		if (sel.focusNode) sel.collapse(sel.focusNode, sel.focusOffset);
+		this.updateKillCache(text);
+		navigator.clipboard.writeText(this.killCache).catch(() => {});
+	}
+
+	private titleKillRegion(titleEl: HTMLElement) {
+		this._recenterStep = 0; // see onload's own focusin/selectionchange listeners' comment for why keyboard-driven widget entry/caret-move needs an explicit reset too
+		const doc = titleEl.ownerDocument;
+		const sel = doc.getSelection();
+		if (!sel || sel.isCollapsed) return; // nothing selected
+		const text = sel.toString();
+		doc.execCommand('delete', false); // same undo-stack-integrated technique as titleKillLine/titleKillWord
+		this.markActive = false;
+		this.isKillChaining = false;
+		this.updateKillCache(text);
+		navigator.clipboard.writeText(this.killCache).catch(() => {});
+	}
+
+	// Ctrl-Y (Yank) in the title: reads the OS clipboard (falling back to
+	// the kill-ring if that throws, same as the body's own yank), then
+	// inserts via execCommand('insertText', false, raw) — the insertion
+	// counterpart to the 'delete' command used above, same undo-stack
+	// integration. Replaces an active selection automatically.
+	//
+	// Embedded newlines need manual stripping: a kill-ring entry ending
+	// in a newline hits a genuine Chromium contenteditable bug on insert
+	// (confirmed to affect a real native Cmd-V paste identically) — the
+	// selection's focus/anchor land on the title's own container element
+	// instead of its text node afterward, and the title's native undo
+	// stack silently stops working for every subsequent edit.
+	private async titleYank(titleEl: HTMLElement) {
+		this._recenterStep = 0; // see onload's own focusin/selectionchange listeners' comment for why keyboard-driven widget entry/caret-move needs an explicit reset too
+		this.markActive = false;
+		this.isKillChaining = false;
+		let raw: string;
+		try {
+			raw = await navigator.clipboard.readText();
+		} catch {
+			raw = this.killCache;
+		}
+		if (!raw) return;
+		const text = raw.replace(/\n/g, '');
+		if (!text) return;
+
+		this.titleGoalX = null;
+		titleEl.ownerDocument.execCommand('insertText', false, text);
+	}
+
+	// Dispatches to whichever of Add-button/heading/title is actually
+	// reachable, carrying targetX (body-space pixels) through as the
+	// preserved goal column either way. Only reached from within Live
+	// Preview with frontmatter present AND a visible panel (the
+	// hasFrontmatter gate below) — Source Mode has no Properties UI to
+	// route through at all, and escapeUpToTitle is reached directly in
+	// that case.
+	private escapeUpFromBodyToTitleOrProperties(editor: Editor, targetX: number) {
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		const hasFrontmatter = this.getFirstBodyLine() > 0;
+		const addButton = hasFrontmatter
+			? view?.containerEl.querySelector(PROPERTY_ADD_BUTTON_SELECTOR) as HTMLElement | null
+			: null;
+		const heading = hasFrontmatter
+			? view?.containerEl.querySelector(PROPERTY_HEADING_SELECTOR) as HTMLElement | null
+			: null;
+		if (addButton && addButton.offsetParent !== null) {
+			this.propertyGoalX = targetX;
+			addButton.focus();
+			return;
+		}
+		if (heading && heading.offsetParent !== null) {
+			this.propertyGoalX = targetX;
+			heading.focus();
+			heading.ownerDocument.getSelection()?.removeAllRanges();
+			return;
+		}
+		this.escapeUpToTitle(editor, targetX);
+	}
+
+	// The body and the title don't share the same pixel coordinate space
+	// (the body has its own line-number gutter the title doesn't) —
+	// normalize by each side's own line-start X, same convention as
+	// titleMoveLineOrEscapeToBody's own opposite-direction crossing.
+	private escapeUpToTitle(editor: Editor, targetX: number) {
+		const cm = editor.cm;
+		const doc = cm.dom.ownerDocument;
+		// A window can contain more than one `.inline-title` at once
+		// (another leaf/pane, hover preview, linked view) — scope the
+		// lookup to the active view's own container.
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		const titleScopeEl = view?.containerEl ?? doc;
+		const title = titleScopeEl.querySelector(TITLE_SELECTOR) as HTMLElement | null;
+		if (!title) return;
+
+		const bodyLineStartX = cm.coordsAtPos(0)?.left;
+		const titleStartX = title.getBoundingClientRect().left;
+		const adjustedX = bodyLineStartX != null ? targetX - bodyLineStartX + titleStartX : targetX;
+
+		this.titleGoalX = adjustedX;
+		title.focus();
+		const titleRect = title.getBoundingClientRect();
+		const targetY = titleRect.bottom - 1; // aim at the title's last visual line
+		// Clamp to the title's own actual box: a short, unwrapped title
+		// is often narrower than the body.
+		const clampedX = Math.min(Math.max(adjustedX, titleRect.left), titleRect.right - 1);
+		const range = (doc as unknown as { caretRangeFromPoint(x: number, y: number): Range | null })
+			.caretRangeFromPoint(clampedX, targetY);
+		if (range && title.contains(range.startContainer)) {
+			const sel = doc.getSelection() as (Selection & {
+				modify(alter: string, direction: string, granularity: string): void;
+			}) | null;
+			sel?.removeAllRanges();
+			sel?.addRange(range);
+
+			// The ambiguous VL-boundary offset always renders via
+			// whichever adjacent line comes first in text order — we're
+			// always landing on the title's LAST (bottommost) visual
+			// line here, so nudge forward if the default-rendered rect
+			// isn't that one.
+			const landedRects = sel ? Array.from(sel.getRangeAt(0).getClientRects()) : [];
+			if (landedRects.length > 1) {
+				const targetRect = landedRects.reduce((a, b) => (b.top > a.top ? b : a));
+				if (Math.abs(landedRects[0].top - targetRect.top) >= 1) {
+					sel?.modify('move', 'right', 'character');
+				}
+			}
+		}
+	}
+
+	// checkCallback-based Properties sample: reuses titleMoveLine as-is
+	// for the text value-edit widget's own multi-line visual-line move
+	// (same contenteditable + Selection API, no title-specific
+	// assumption baked in) — restores the pre-move selection when it
+	// turns out to be a true no-op, same as the archive implementation.
+	private propertyValueEditMoveLine(valueEl: HTMLElement, forward: boolean): boolean {
+		const sel = valueEl.ownerDocument.getSelection();
+		if (!sel || sel.rangeCount === 0) return false;
+		const anchorNode = sel.anchorNode, anchorOffset = sel.anchorOffset;
+		const focusNode = sel.focusNode, focusOffset = sel.focusOffset;
+		const moved = this.titleMoveLine(valueEl, forward);
+		if (!moved && anchorNode && focusNode) {
+			(sel as unknown as { setBaseAndExtent(aNode: Node, aOff: number, fNode: Node, fOff: number): void })
+				.setBaseAndExtent(anchorNode, anchorOffset, focusNode, focusOffset);
+		}
+		return moved;
+	}
+
+
+	// True when the Selection's own focus sits at the very start of el's
+	// text content — used by propertyMoveCharOrNoop below to detect the
+	// multi-select trailing input's own left boundary, where native
+	// ArrowLeft hands focus off to the preceding pill instead of staying
+	// in place the way Selection.modify does at any other character
+	// boundary.
+	private isSelectionAtStartOf(el: HTMLElement): boolean {
+		const sel = el.ownerDocument.getSelection();
+		if (!sel || !sel.focusNode) return false;
+		const range = el.ownerDocument.createRange();
+		range.selectNodeContents(el);
+		try {
+			range.setEnd(sel.focusNode, sel.focusOffset);
+		} catch {
+			return false;
+		}
+		return range.toString().length === 0;
+	}
+
+	// Ctrl-B/F's own dispatcher for PROPERTY_CURSOR_PNBF_SELECTOR (text/
+	// multi-select/date-type). date/datetime are a true no-op (same
+	// platform wall as Ctrl-P/N). Text and multi-select both reuse
+	// titleMoveChar as-is — both are a real contenteditable with the
+	// same Selection API, no title-specific assumption baked in.
+	// Multi-select additionally hands focus to the preceding pill when
+	// Ctrl-B is pressed at the trailing input's own left boundary
+	// (empty-selection start), matching native ArrowLeft's own behavior
+	// there — skipped while a mark is active, since extending across
+	// this boundary has no defined meaning.
+	private propertyMoveCharOrNoop(el: HTMLElement, forward: boolean) {
+		if (el.matches(PROPERTY_DATE_TYPE_SELECTOR)) return;
+		if (!forward && !this.markActive && el.matches(PROPERTY_MULTISELECT_INPUT_SELECTOR) && this.isSelectionAtStartOf(el)) {
+			const prevPill = el.previousElementSibling as HTMLElement | null;
+			if (prevPill?.matches(PROPERTY_MULTISELECT_PILL_SELECTOR)) prevPill.focus();
+			return;
+		}
+		this.titleMoveChar(el, forward);
+	}
+
+	// Property NAME (key) editing's own char movement — a plain
+	// <input type="text">, NOT a contenteditable, so document.getSelection()
+	// doesn't apply to its internal text at all. Works through the
+	// input's own selectionStart/End/Direction triple instead, which
+	// plays the same anchor/focus role a native Selection's anchor/focus
+	// does for the contenteditable case.
+	private propertyKeyCaret(el: HTMLInputElement): number {
+		return el.selectionDirection === 'backward' ? (el.selectionStart ?? 0) : (el.selectionEnd ?? 0);
+	}
+
+	private propertyKeyAnchor(el: HTMLInputElement): number {
+		return el.selectionDirection === 'backward' ? (el.selectionEnd ?? 0) : (el.selectionStart ?? 0);
+	}
+
+	// Mirrors Selection.modify's own 'move' vs 'extend' branch: mark
+	// inactive fully collapses to target; mark active grows from the
+	// existing anchor instead.
+	private propertyKeySelect(el: HTMLInputElement, target: number) {
+		if (!this.markActive) {
+			el.setSelectionRange(target, target);
+			return;
+		}
+		const anchor = this.propertyKeyAnchor(el);
+		const start = Math.min(anchor, target);
+		const end = Math.max(anchor, target);
+		el.setSelectionRange(start, end, target >= anchor ? 'forward' : 'backward');
+	}
+
+	private propertyKeyMoveChar(el: HTMLInputElement, forward: boolean) {
+		this._recenterStep = 0; // see onload's own focusin/selectionchange listeners' comment for why keyboard-driven widget entry/caret-move needs an explicit reset too
+		this.isKillChaining = false;
+		const caret = this.propertyKeyCaret(el);
+		const target = forward ? Math.min(caret + 1, el.value.length) : Math.max(caret - 1, 0);
+		this.propertyKeySelect(el, target);
+	}
+
+	private propertyKeyMoveToLineBoundary(el: HTMLInputElement, forward: boolean) {
+		this._recenterStep = 0; // see onload's own focusin/selectionchange listeners' comment for why keyboard-driven widget entry/caret-move needs an explicit reset too
+		this.isKillChaining = false;
+		this.propertyKeySelect(el, forward ? el.value.length : 0);
+	}
+
+	// Alt-B/Alt-F: reuses findWordSpanOnLine (word-segmentation.ts) — the
+	// body's own Emacs word-motion engine, operating directly on the
+	// input's .value string — rather than titleMoveWord's native
+	// Selection.modify('word', ...), which has no equivalent for a plain
+	// <input>'s internal text. No-ops at the value's own start/end.
+	private propertyKeyMoveWord(el: HTMLInputElement, forward: boolean) {
+		this._recenterStep = 0; // see onload's own focusin/selectionchange listeners' comment for why keyboard-driven widget entry/caret-move needs an explicit reset too
+		this.isKillChaining = false;
+		const caret = this.propertyKeyCaret(el);
+		const span = findWordSpanOnLine(el.value, caret, forward);
+		const target = span ? (forward ? span.to : span.from) : caret;
+		this.propertyKeySelect(el, target);
+	}
+
+	// Ctrl-Space: arms markActive and collapses to the current caret —
+	// the input-selection equivalent of titleSetMark.
+	private propertyKeySetMark(el: HTMLInputElement) {
+		this._recenterStep = 0; // see onload's own focusin/selectionchange listeners' comment for why keyboard-driven widget entry/caret-move needs an explicit reset too
+		const caret = this.propertyKeyCaret(el);
+		this.markActive = true;
+		el.setSelectionRange(caret, caret);
+	}
+
+	// Ctrl-G: clears markActive and collapses to the current caret — the
+	// input-selection equivalent of titleKeyboardQuit. Does NOT touch
+	// focus itself; the native Escape dispatch at the call site handles
+	// the actual exit to item-selection mode.
+	private propertyKeyKeyboardQuit(el: HTMLInputElement) {
+		this._recenterStep = 0; // see onload's own focusin/selectionchange listeners' comment for why keyboard-driven widget entry/caret-move needs an explicit reset too
+		const caret = this.propertyKeyCaret(el);
+		this.markActive = false;
+		el.setSelectionRange(caret, caret);
+	}
+
+	// Ctrl-K: kills from caret to the end of the value, ignoring any
+	// active region — same "always from point" convention as
+	// titleKillLine.
+	private propertyKeyKillLine(el: HTMLInputElement) {
+		this._recenterStep = 0; // see onload's own focusin/selectionchange listeners' comment for why keyboard-driven widget entry/caret-move needs an explicit reset too
+		this.markActive = false;
+		const caret = this.propertyKeyCaret(el);
+		const doc = el.ownerDocument;
+		if (caret >= el.value.length) { el.setSelectionRange(caret, caret); return; } // already at the end
+		el.setSelectionRange(caret, el.value.length);
+		const killedText = el.value.slice(caret, el.value.length);
+		doc.execCommand('delete', false);
+		this.updateKillCache(killedText);
+		navigator.clipboard.writeText(this.killCache).catch(() => {});
+		this.isKillChaining = true;
+	}
+
+	// Alt-Backspace/Alt-D: kills one word left/right from the caret,
+	// discarding any active region first. prepend = !forward matches
+	// titleKillWord's own buffer-order convention for consecutive kills.
+	private propertyKeyKillWord(el: HTMLInputElement, forward: boolean) {
+		this._recenterStep = 0; // see onload's own focusin/selectionchange listeners' comment for why keyboard-driven widget entry/caret-move needs an explicit reset too
+		this.markActive = false;
+		const doc = el.ownerDocument;
+		const caret = this.propertyKeyCaret(el);
+		const span = findWordSpanOnLine(el.value, caret, forward);
+		const target = span ? (forward ? span.to : span.from) : caret;
+		if (target === caret) return; // already at the value's own start/end
+		el.setSelectionRange(Math.min(caret, target), Math.max(caret, target));
+		const killedText = el.value.slice(Math.min(caret, target), Math.max(caret, target));
+		doc.execCommand('delete', false);
+		this.updateKillCache(killedText, !forward);
+		navigator.clipboard.writeText(this.killCache).catch(() => {});
+		this.isKillChaining = true;
+	}
+
+	// Ctrl-D: deletes the character after point, ignoring the mark
+	// entirely (matches titleDeleteChar). If a non-empty selection
+	// already exists, deletes exactly that; if collapsed, extends one
+	// character forward first, then deletes.
+	private propertyKeyDeleteChar(el: HTMLInputElement) {
+		this._recenterStep = 0; // see onload's own focusin/selectionchange listeners' comment for why keyboard-driven widget entry/caret-move needs an explicit reset too
+		this.markActive = false;
+		const doc = el.ownerDocument;
+		if (el.selectionStart === el.selectionEnd) {
+			const caret = el.selectionStart ?? 0;
+			if (caret >= el.value.length) return; // already at the value's own end
+			el.setSelectionRange(caret, caret + 1);
+		}
+		doc.execCommand('delete', false);
+	}
+
+	// Alt-W (Copy region): copies the active selection without mutating
+	// the value, same as titleCopyRegion.
+	private propertyKeyCopyRegion(el: HTMLInputElement) {
+		this._recenterStep = 0; // see onload's own focusin/selectionchange listeners' comment for why keyboard-driven widget entry/caret-move needs an explicit reset too
+		if (el.selectionStart === el.selectionEnd) return; // nothing selected
+		const text = el.value.slice(el.selectionStart ?? 0, el.selectionEnd ?? 0);
+		this.markActive = false;
+		this.isKillChaining = false;
+		const caret = this.propertyKeyCaret(el);
+		el.setSelectionRange(caret, caret);
+		this.updateKillCache(text);
+		navigator.clipboard.writeText(this.killCache).catch(() => {});
+	}
+
+	// Ctrl-W (Kill region): same as titleKillRegion, operating on the
+	// input's own active selectionStart/End rather than a native
+	// Selection.
+	private propertyKeyKillRegion(el: HTMLInputElement) {
+		this._recenterStep = 0; // see onload's own focusin/selectionchange listeners' comment for why keyboard-driven widget entry/caret-move needs an explicit reset too
+		if (el.selectionStart === el.selectionEnd) return; // nothing selected
+		const doc = el.ownerDocument;
+		const text = el.value.slice(el.selectionStart ?? 0, el.selectionEnd ?? 0);
+		doc.execCommand('delete', false);
+		this.markActive = false;
+		this.isKillChaining = false;
+		this.updateKillCache(text);
+		navigator.clipboard.writeText(this.killCache).catch(() => {});
+	}
+
+	// Ctrl-Y (Yank): reads the OS clipboard (falling back to the
+	// kill-ring if that throws, same as titleYank), replacing any active
+	// selection. Strips embedded newlines for the same reason titleYank
+	// does.
+	private async propertyKeyYank(el: HTMLInputElement) {
+		this._recenterStep = 0; // see onload's own focusin/selectionchange listeners' comment for why keyboard-driven widget entry/caret-move needs an explicit reset too
+		this.markActive = false;
+		this.isKillChaining = false;
+		let raw: string;
+		try {
+			raw = await navigator.clipboard.readText();
+		} catch {
+			raw = this.killCache;
+		}
+		if (!raw) return;
+		const text = raw.replace(/\n/g, '');
+		if (!text) return;
+		el.ownerDocument.execCommand('insertText', false, text);
+	}
+
+	// Item-selection mode's own row/heading/Add-button targets only ever
+	// respond to a REAL physical arrow key (Ctrl-B/F/N/P are this
+	// plugin's own Emacs-style aliases, meaningless to Obsidian's native
+	// row-navigation listener on their own) — so claiming the key here
+	// means translating it ourselves, the same mechanism the archive
+	// Scope-push implementation needed for this exact case (see its own
+	// bind() comment on why a plain "return false" / unclaimed key isn't
+	// enough: there's nothing downstream listening for Ctrl-N itself).
+	private propertyNativeArrowFallback(el: HTMLElement, key: 'ArrowUp' | 'ArrowDown' | 'ArrowLeft' | 'ArrowRight') {
+		this.suppressNativeArrowFallback = true;
+		try {
+			el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+		} finally {
+			this.suppressNativeArrowFallback = false;
+		}
+	}
+
+	// A "Column-aware" Key Upgrade binds a bare Arrow key directly to this
+	// SAME cursor-up/cursor-down command (not just to Ctrl-N/P) -- in that
+	// case propertyNativeArrowFallback's own dispatch is self-defeating: it
+	// re-enters this exact command's checkCallback before reaching
+	// Obsidian's own native row-navigation listener at all (confirmed live;
+	// suppressNativeArrowFallback above only stops the resulting infinite
+	// recursion, it doesn't make the dispatch reach anywhere useful, since
+	// once ANY command claims a hotkey Obsidian's Keymap consumes it
+	// unconditionally regardless of a recursive call's own return value).
+	// Checked once per keypress, not cached -- Key Upgrades can be
+	// toggled live from Settings.
+	private isBareArrowKeyUpgradeSelfBound(commandId: 'cursor-up' | 'cursor-down'): boolean {
+		const hotkeys = (this.app as any).hotkeyManager?.getHotkeys(`${this.manifest.id}:${commandId}`) as { modifiers: string[]; key: string }[] | undefined;
+		const key = commandId === 'cursor-up' ? 'ArrowUp' : 'ArrowDown';
+		return !!hotkeys?.some(hk => hk.modifiers.length === 0 && hk.key === key);
+	}
+
+	// Manual replacement for native row-to-row focus movement, used only
+	// when isBareArrowKeyUpgradeSelfBound makes the dispatch-based fallback
+	// unreachable. Mirrors propertyHeadingCtrlN's own direction (first row
+	// <-> heading) and propertyAddButtonEscapeToBody's sibling (last row <->
+	// Add-button) -- rows are plain DOM siblings within their own shared
+	// container (confirmed live), so previous/nextElementSibling is enough.
+	private propertyRowMoveUp(el: HTMLElement) {
+		if (el.matches(PROPERTY_ADD_BUTTON_SELECTOR)) {
+			const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+			const rows = view?.containerEl.querySelectorAll(PROPERTY_ROW_SELECTOR);
+			(rows?.[rows.length - 1] as HTMLElement | undefined)?.focus();
+			return;
+		}
+		const prevRow = el.previousElementSibling as HTMLElement | null;
+		if (prevRow?.matches(PROPERTY_ROW_SELECTOR)) {
+			prevRow.focus();
+			return;
+		}
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		(view?.containerEl.querySelector(PROPERTY_HEADING_SELECTOR) as HTMLElement | null)?.focus();
+	}
+
+	private propertyRowMoveDown(el: HTMLElement) {
+		const nextRow = el.nextElementSibling as HTMLElement | null;
+		if (nextRow?.matches(PROPERTY_ROW_SELECTOR)) {
+			nextRow.focus();
+			return;
+		}
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		(view?.containerEl.querySelector(PROPERTY_ADD_BUTTON_SELECTOR) as HTMLElement | null)?.focus();
+	}
+
+	// Ctrl-P/N's own dispatcher once we already know focus is somewhere
+	// inside PROPERTY_CURSOR_LR_SELECTOR. date/datetime are a true no-op
+	// (confirmed platform wall). The name/key-edit input and multi-select
+	// have no multi-line concept of their own, so they're a no-op here
+	// too whenever this even runs -- and it only ever does while no
+	// suggester is visibly open: Obsidian's own built-in suggester (the
+	// same one backing the command palette/quick switcher) pushes its
+	// own app.keymap Scope the instant it's shown, registering Ctrl-N/P
+	// itself (see project_checkcallback_property_suggester_ctrl_np_swallowed
+	// memory) -- so this checkCallback never runs while it's up, and
+	// Obsidian's native handling takes over navigating/cycling the
+	// suggester instead, with a correctly-working Enter-commit, confirmed
+	// live to need zero code from this plugin.
+	private propertyMoveLineOrNoop(el: HTMLElement, forward: boolean) {
+		if (el.matches(PROPERTY_DATE_TYPE_SELECTOR)) return;
+		if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) return;
+		if (el.matches(PROPERTY_MULTISELECT_INPUT_SELECTOR)) return;
+		this.propertyValueEditMoveLine(el, forward);
+	}
+
+	// Ctrl-P on the Properties heading: escapes to the title, landing at
+	// its goal-column equivalent if one survived the Properties detour
+	// (propertyGoalX, in body-space), or at the title's own end
+	// otherwise. Mirrors escapeUpToTitle's own landing logic
+	// (caretRangeFromPoint + the ambiguous-VL nudge), just reached from
+	// the heading instead of the body.
+	private propertyHeadingEscapeToTitle(heading: HTMLElement) {
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		const scopeEl = view?.containerEl ?? heading.ownerDocument;
+		const title = scopeEl.querySelector(TITLE_SELECTOR) as HTMLElement | null;
+		if (!title) return;
+		title.focus();
+		const doc = title.ownerDocument;
+		const sel = doc.getSelection() as (Selection & {
+			modify(alter: string, direction: string, granularity: string): void;
+		}) | null;
+
+		if (this.propertyGoalX != null && view) {
+			const cm = view.editor.cm;
+			const bodyLineStartX = cm.coordsAtPos(view.editor.posToOffset({ line: this.getFirstBodyLine(), ch: 0 }))?.left;
+			const titleStartX = title.getBoundingClientRect().left;
+			const adjustedX = bodyLineStartX != null ? this.propertyGoalX - bodyLineStartX + titleStartX : this.propertyGoalX;
+			this.propertyGoalX = null;
+			this.titleGoalX = adjustedX;
+			const titleRect = title.getBoundingClientRect();
+			const targetY = titleRect.bottom - 1;
+			const clampedX = Math.min(Math.max(adjustedX, titleRect.left), titleRect.right - 1);
+			const range = (doc as unknown as { caretRangeFromPoint(x: number, y: number): Range | null })
+				.caretRangeFromPoint(clampedX, targetY);
+			if (range && title.contains(range.startContainer)) {
+				sel?.removeAllRanges();
+				sel?.addRange(range);
+				const landedRects = sel ? Array.from(sel.getRangeAt(0).getClientRects()) : [];
+				if (landedRects.length > 1) {
+					const targetRect = landedRects.reduce((a, b) => (b.top > a.top ? b : a));
+					if (Math.abs(landedRects[0].top - targetRect.top) >= 1) {
+						sel?.modify('move', 'right', 'character');
+					}
+				}
+				return;
+			}
+			// Landing failed (hit-test fell outside the title) — fall
+			// through to the default end-of-title landing below.
+		}
+
+		this.propertyGoalX = null;
+		sel?.modify('move', 'forward', 'documentboundary');
+	}
+
+	// Ctrl-N on the Properties heading: when expanded with at least one
+	// row, focuses the first row directly; otherwise falls back to
+	// propertyAddButtonEscapeToBody (it only ever uses its element
+	// argument for the body-landing fallback, so the heading works just
+	// as well there as the real Add-button). Doesn't itself depend on
+	// propertyGoalX.
+	private propertyHeadingCtrlN(heading: HTMLElement) {
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		const addButton = view?.containerEl.querySelector(PROPERTY_ADD_BUTTON_SELECTOR) as HTMLElement | null;
+		if (addButton && addButton.offsetParent !== null) {
+			const firstRow = view?.containerEl.querySelector(PROPERTY_ROW_SELECTOR) as HTMLElement | null;
+			if (firstRow) {
+				firstRow.focus();
+				return;
+			}
+		}
+		this.propertyAddButtonEscapeToBody(heading);
+	}
+
+	// Ctrl-N on the Properties Add-button: lands in the body at the
+	// preserved goal column (propertyGoalX, already in body-space) if
+	// one survived the Properties detour, reusing the same CM6
+	// goalColumn-seeding technique titleMoveLineOrEscapeToBody's own
+	// body-landing uses. Falls back to plain native ArrowDown delegation
+	// (lands at the body's real first line, ch 0) when there's no
+	// preserved goal.
+	private propertyAddButtonEscapeToBody(addButton: HTMLElement) {
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (this.propertyGoalX == null || !view) {
+			addButton.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+			return;
+		}
+		const cm = view.editor.cm;
+		const firstLineCoords = cm.coordsAtPos(view.editor.posToOffset({ line: this.getFirstBodyLine(), ch: 0 }));
+		if (!firstLineCoords) {
+			addButton.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+			return;
+		}
+		const targetY = (firstLineCoords.top + firstLineCoords.bottom) / 2;
+		const targetX = this.propertyGoalX;
+		this.propertyGoalX = null;
+		const pos = cm.posAtCoords({ x: targetX, y: targetY }, false);
+		view.editor.focus();
+		if (pos == null) return;
+		const rect = cm.contentDOM.getBoundingClientRect();
+		const goalColumnToSeed = targetX - rect.left;
+		cm.dispatch({
+			selection: EditorSelection.create(
+				[EditorSelection.cursor(pos, 1, undefined, goalColumnToSeed)],
+				0,
+			),
+			scrollIntoView: true,
+			userEvent: 'move',
+		});
+	}
 
 	// Wrapper: see reconcileSecondaryRangesAfterTableCrossing's own doc
 	// comment for why this runs after every LEFT/RIGHT/UP/DOWN whose
@@ -1324,8 +2891,29 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private moveCursorUpImpl(editor: Editor) {
 		const cursor = editor.getCursor();
 
-		if (cursor.line === 0 || !this.isLivePreviewMode()) {
+		const firstBodyLine = this.getFirstBodyLine();
+		if (cursor.line === firstBodyLine || !this.isLivePreviewMode()) {
+			const cm = editor.cm;
+			const beforeCoords = cursor.line === firstBodyLine ? cm?.coordsAtPos(editor.posToOffset(cursor)) : null;
+			// Captured BEFORE exec, not after — CM6 resets goalColumn to
+			// null as part of its own top-of-document handling once
+			// 'goUp' hits "nowhere further to go," which would otherwise
+			// silently lose a wide column from an earlier Ctrl-P chain
+			// exactly when escaping to the title needs it most.
+			const goalColumnBeforeExec = cm?.state?.selection?.main?.goalColumn;
 			this.execPreservingGoalColumn(editor, 'goUp');
+			if (beforeCoords) {
+				const afterCoords = cm?.coordsAtPos(editor.posToOffset(editor.getCursor()));
+				if (afterCoords && Math.abs(afterCoords.top - beforeCoords.top) < 1) {
+					// Prefer the pre-exec goal column over the current
+					// cursor's own X — on a short/blank line the current
+					// X may have already collapsed to ch 0, forgetting a
+					// wider column from several Ctrl-P presses back.
+					const rect = cm?.contentDOM.getBoundingClientRect();
+					const targetX = (goalColumnBeforeExec !== undefined && rect) ? rect.left + goalColumnBeforeExec : beforeCoords.left;
+					this.escapeUpFromBodyToTitleOrProperties(editor, targetX);
+				}
+			}
 			return;
 		}
 
@@ -3033,6 +4621,113 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		              :                            h - margin - cm.defaultLineHeight;
 
 		this.scrollToCursorAtY(editor, targetY);
+		this._recenterStep = (this._recenterStep + 1) % 3;
+	}
+
+	// Ctrl-L (recenter/recenter-top-bottom) in a Bases table view's own
+	// cell-selection mode: `.bases-table-container` itself is NOT the
+	// scrollable element (its own scrollHeight/clientHeight are always
+	// equal) — the real scrollable ancestor is its own parent,
+	// `.bases-view`. The scroll-to-Y formula is
+	// `scrollTop + (rect.top - scrollRect.top) - targetY` — the
+	// `- scrollRect.top` term matters once `.bases-view` doesn't sit at
+	// page y=0 (a tab bar/split above it), confirmed live via a forced
+	// nonzero-offset diagnostic — dropping it drifts "top" behind the
+	// sticky header and "bottom" short by exactly that offset.
+	// `.bases-thead` is `position: sticky`, permanently occupying the
+	// top of its own viewport — subtracted from available height for
+	// "center" and added as a floor for "top"; "bottom" needs no such
+	// adjustment since the sticky header never affects the bottom edge.
+	private recenterBasesScrollTo(container: HTMLElement, targetY: number) {
+		const scrollEl = container.closest('.bases-view') as HTMLElement | null;
+		const cellEl = container.querySelector('.bases-table-active-cell') as HTMLElement | null;
+		if (!scrollEl || !cellEl) return;
+		const rect = cellEl.getBoundingClientRect();
+		const scrollRect = scrollEl.getBoundingClientRect();
+		scrollEl.scrollTop = Math.max(0, scrollEl.scrollTop + (rect.top - scrollRect.top) - targetY);
+	}
+
+	private getBasesHeaderHeight(scrollEl: HTMLElement): number {
+		const headerEl = scrollEl.querySelector('.bases-thead') as HTMLElement | null;
+		return headerEl?.getBoundingClientRect().height ?? 0;
+	}
+
+	private recenterBases(container: HTMLElement) {
+		const scrollEl = container.closest('.bases-view') as HTMLElement | null;
+		if (!scrollEl) return;
+		const headerHeight = this.getBasesHeaderHeight(scrollEl);
+		this.recenterBasesScrollTo(container, headerHeight + (scrollEl.clientHeight - headerHeight) / 2);
+	}
+
+	// Cycles center → top → bottom, sharing the SAME `_recenterStep`
+	// state as the note body's own recenterTopBottom — a user is only
+	// ever in one context at a time. rowHeight uses the active cell's
+	// own getBoundingClientRect().height directly — `.bases-table-active-cell`
+	// has no `.bases-tr` ancestor in this Obsidian version's own Bases
+	// DOM (`.bases-tr` is used for click-targeting in E2E specs only,
+	// never a parent of the cells).
+	private recenterTopBottomBases(container: HTMLElement) {
+		const scrollEl = container.closest('.bases-view') as HTMLElement | null;
+		const cellEl = container.querySelector('.bases-table-active-cell') as HTMLElement | null;
+		if (!scrollEl || !cellEl) return;
+		const headerHeight = this.getBasesHeaderHeight(scrollEl);
+		const h = scrollEl.clientHeight;
+		const rowHeight = cellEl.getBoundingClientRect().height || 30;
+		const margin = this.RECENTER_TOP_BOTTOM_MARGIN_LINES * rowHeight;
+		const targetY = this._recenterStep === 0 ? headerHeight + (h - headerHeight) / 2
+		              : this._recenterStep === 1 ? headerHeight + margin
+		              :                            h - margin - rowHeight;
+		this.recenterBasesScrollTo(container, targetY);
+		this._recenterStep = (this._recenterStep + 1) % 3;
+	}
+
+	// Shared scroll-to-Y primitive, same formula as scrollToCursorAtY but
+	// parametrized on an arbitrary element's rect instead of the CM6
+	// cursor's screen position.
+	private scrollElementToY(cm: EditorView, el: HTMLElement, targetScreenY: number) {
+		const rect = el.getBoundingClientRect();
+		const scrollRect = cm.scrollDOM.getBoundingClientRect();
+		const docY = rect.top - scrollRect.top + cm.scrollDOM.scrollTop;
+		cm.scrollDOM.scrollTop = Math.max(0, docY - targetScreenY);
+	}
+
+	// Ctrl-L, broadened from Bases-only to the rest of the Properties
+	// panel: `.metadata-container` sits INSIDE the SAME `.cm-scroller`
+	// the note body itself scrolls through (confirmed live via a DOM
+	// dump — scrolling far down in the body scrolls the Properties panel
+	// out of view right along with it), unlike Bases' own separate
+	// `.bases-view` scroller — so the same scroll primitive the body's
+	// own cursor-based recenter uses applies here unchanged, just
+	// targeting the focused property element's own rect instead of the
+	// CM6 cursor's screen position.
+	private recenterPropertyPanel(el: HTMLElement) {
+		// .closest(), not .matches() -- el is whatever's actually focused,
+		// which while editing a Bases cell is the cell's own value widget
+		// nested INSIDE .bases-table-container, never the container
+		// itself. Confirmed live: recenterBases/recenterTopBottomBases
+		// only need an element they can reach .bases-view and
+		// .bases-table-active-cell from, which this ancestor lookup finds
+		// just as well as the container itself would.
+		const basesContainer = el.closest(BASES_TABLE_CONTAINER_SELECTOR) as HTMLElement | null;
+		if (basesContainer) { this.recenterBases(basesContainer); return; }
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		const cm = view?.editor.cm;
+		if (!cm) return;
+		this.scrollElementToY(cm, el, cm.scrollDOM.clientHeight / 2);
+	}
+
+	private recenterTopBottomPropertyPanel(el: HTMLElement) {
+		const basesContainer = el.closest(BASES_TABLE_CONTAINER_SELECTOR) as HTMLElement | null;
+		if (basesContainer) { this.recenterTopBottomBases(basesContainer); return; }
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		const cm = view?.editor.cm;
+		if (!cm) return;
+		const h = cm.scrollDOM.clientHeight;
+		const margin = this.RECENTER_TOP_BOTTOM_MARGIN_LINES * cm.defaultLineHeight;
+		const targetY = this._recenterStep === 0 ? h / 2
+		              : this._recenterStep === 1 ? margin
+		              :                            h - margin - cm.defaultLineHeight;
+		this.scrollElementToY(cm, el, targetY);
 		this._recenterStep = (this._recenterStep + 1) % 3;
 	}
 
