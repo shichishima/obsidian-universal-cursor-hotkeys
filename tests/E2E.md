@@ -1664,6 +1664,16 @@ redundant once this landed.
 Both specs' full affected-regression run plus a full-suite pass (187
 tests) confirmed clean.
 
+**RE-FIXED 2026-11-16**: the checkCallback rearchitecture removed
+`registerWindowDomListeners`'s document-level `input` listener along
+with the rest of the Scope-push architecture, silently reintroducing
+this exact bug (test (5) started failing again). Fixed for free by the
+same `keyboard-quit` correction described in `propertyCtrlG.e2e.ts`
+test (5)'s own writeup — focusing the row directly instead of
+dispatching a synthetic Escape doesn't care what left the suggester
+open (this plugin's own mutation, or native Undo), so no reclaim
+listener of any kind is needed anymore.
+
 #### `titleWordMotion.e2e.ts`
 
 0.13.0 Feature 1: Alt-F/Alt-B (Word right/left) in the title field — the
@@ -2115,6 +2125,15 @@ didn't exist yet when that fix shipped) — broadened to
 `PROPERTY_TEXT_LIKE_EDIT_SELECTOR` to cover both. Confirmed red before
 the fix (reverting the selector back to `PROPERTY_VALUE_EDIT_SELECTOR`
 reproduces test (13) failing) and green after.
+
+**RE-FIXED 2026-11-16**: this fix's own document-level `input` reclaim
+listener was removed along with the rest of the Scope-push
+architecture during the checkCallback rearchitecture, silently
+reintroducing this exact bug. Fixed for free by the same `keyboard-quit`
+correction described in `propertyCtrlG.e2e.ts` test (5)'s own writeup
+(focus the row directly instead of a synthetic Escape dispatch) — no
+reclaim listener needed anymore, for this input or the text value-edit
+widget.
 
 **Test (14), added later**: this field's own "previously used property
 names" suggester (`.suggestion-container.mod-property-key`) was
@@ -2810,18 +2829,33 @@ addition made all 6 pass.
 - **(4)** Ctrl-G at the heading, panel COLLAPSED, still escapes to the
   body the same way — collapsed treated as a normal-case variant from
   the start, not a reactive edge case.
-- **(5)** **Updated 2026-11-05**: Ctrl-G also escapes from inside the
-  value-edit widget itself, back to item-selection mode — this used to
-  assert the opposite (scoped out, confirmed unreachable at the time).
-  That earlier finding was based on testing with synthetic
-  `dispatchEvent()` calls, which turned out to be an unreliable way to
-  test anything touching Obsidian's own Keymap resolution; real
-  `browser.keys()` presses, combined with correctly broadening
-  `propertyRowScope`'s own push/pop condition (done for
-  `propertyValueEditMovement.e2e.ts`'s work), show it reaching fine. See
-  that spec's own file-level comment and project memory
-  (`project_property_value_edit_real_key_interception_dead_end`) for the
-  full corrected mechanism.
+- **(5)** **Updated 2026-11-05, RE-FIXED 2026-11-16 after the
+  checkCallback rearchitecture**: Ctrl-G also escapes from inside the
+  value-edit widget itself, back to item-selection mode. The
+  2026-11-05 fix (broadening `propertyRowScope`'s own push/pop
+  condition) relied on Scope-push machinery that no longer exists —
+  the checkCallback migration (`feat/checkcallback-rearchitecture`)
+  silently reintroduced this exact regression, caught by a full-suite
+  run before merging to `develop`. Root cause this time: `keyboard-quit`'s
+  checkCallback exited the widget via a synthetic Escape `dispatchEvent()`,
+  which (confirmed live) only dismisses this widget's own "previously
+  used values" suggester when one happens to be open (self-poisoned
+  from the property's own value already being indexed in
+  metadataCache, same mechanism as
+  `project_checkcallback_property_suggester_ctrl_np_swallowed`) —
+  it never reaches the actual exit-to-item-selection behavior, even
+  with a REAL trusted `browser.keys(['Escape'])` press, not just the
+  synthetic one. Fixed by focusing the row directly instead
+  (`el.closest(PROPERTY_ROW_SELECTOR)?.focus()`), mirroring the
+  Bases-cell branch right next to it, which sidesteps the suggester's
+  own Escape-staging entirely and works in one step regardless of
+  suggester state. See `propertyValueEditKillYank.e2e.ts` test (8),
+  `propertyValueEditDeleteChar.e2e.ts` test (5), and
+  `propertyNameEdit.e2e.ts` test (13) below — all three were ALSO
+  silently broken by the same rearchitecture (their own original fix
+  was `reclaimPropertyRowScopeAfterMutation()`, likewise removed) and
+  this single change fixes all four at once; no suggester-dismissal-
+  after-mutation mechanism needed to be reimplemented at all.
 - **(6)** Regression: a note WITHOUT frontmatter is unaffected —
   Ctrl-G still clears an active Set-mark selection in the body exactly
   as before.
@@ -3186,9 +3220,16 @@ no leftover growth, confirmed via the same diagnostic's own
 
 - **(8)** Regression: repeated Ctrl-A/Ctrl-K/Ctrl-Y cycles don't let the
   suggestion dropdown shadow the Scope — the round trip stays lossless
-  AND Ctrl-G still works afterward. Built red-green: confirmed failing
-  (`Expected: true, Received: false`) against the pre-fix build before
-  implementing `reclaimPropertyRowScopeAfterMutation`, passing after.
+  AND Ctrl-G still works afterward. Originally built red-green against
+  `reclaimPropertyRowScopeAfterMutation` (now removed along with the
+  rest of the Scope-push architecture). **RE-FIXED 2026-11-16**: this
+  was one of four tests the checkCallback rearchitecture silently broke
+  by dropping that mechanism without a replacement — now fixed for
+  free by `keyboard-quit`'s own corrected exit mechanism (focus the row
+  directly instead of a synthetic Escape dispatch), which doesn't care
+  whether a suggester happens to be open at all. See
+  `propertyCtrlG.e2e.ts` test (5)'s own writeup above for the full
+  mechanism.
 
 #### `propertyValueEditKillWord.e2e.ts`
 

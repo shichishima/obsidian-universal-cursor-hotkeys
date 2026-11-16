@@ -1001,12 +1001,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				}
 				// Broader than Ctrl-PNBF's own scope (also reaches
 				// checkbox/date/datetime/the multiselect pill) — the
-				// native-Escape-dispatch exit mechanism itself works
-				// identically for every value-widget type, confirmed in
-				// the archive implementation. titleKeyboardQuit (via
-				// its own clear-mark/collapse) is skipped for
-				// checkbox/date/datetime: no mark/Selection concept to
-				// clear there at all.
+				// exit mechanism itself works identically for every
+				// value-widget type. titleKeyboardQuit (via its own
+				// clear-mark/collapse) is skipped for checkbox/date/
+				// datetime: no mark/Selection concept to clear there at
+				// all.
 				if (el?.matches?.(PROPERTY_ANY_VALUE_WIDGET_SELECTOR)) {
 					if (!checking) {
 						if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) this.propertyKeyKeyboardQuit(el as HTMLInputElement);
@@ -1020,13 +1019,30 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 						// directly reproduces the same end state instead
 						// (confirmed live: the internal active-cell marker
 						// survives, Enter afterward re-enters the same
-						// cell). The Properties panel's own (non-Bases)
-						// value widgets are a different, DOM-listener-based
-						// exit mechanism that the synthetic dispatch does
-						// reach, so only the Bases case needs this.
+						// cell).
+						//
+						// The Properties panel's own (non-Bases) value
+						// widgets were ASSUMED to reach their native exit
+						// via a synthetic Escape dispatch, same as the
+						// comment used to claim -- re-confirmed live this
+						// is wrong whenever the widget's own "previously
+						// used values" suggester is genuinely open (its
+						// own native Scope claims Escape first, same
+						// mechanism documented in
+						// project_checkcallback_property_suggester_ctrl_np_swallowed):
+						// both a synthetic dispatch AND a real trusted
+						// Escape only dismiss the suggester, never exit
+						// the widget. Focusing the row directly sidesteps
+						// the suggester's own Escape-staging entirely --
+						// confirmed live it both exits to item-selection
+						// mode AND cleanly closes a still-open suggester,
+						// with no dependency on whether one happens to be
+						// open. Same fix shape as the Bases case above,
+						// now applied uniformly instead of split by
+						// container type.
 						const basesContainer = el.closest(BASES_TABLE_CONTAINER_SELECTOR) as HTMLElement | null;
 						if (basesContainer) basesContainer.focus();
-						else el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+						else (el.closest(PROPERTY_ROW_SELECTOR) as HTMLElement | null)?.focus();
 					}
 					return true;
 				}
