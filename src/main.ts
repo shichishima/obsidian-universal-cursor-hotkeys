@@ -1290,19 +1290,32 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		});
 
 		// Title/Properties widgets aren't CM6 at all, so the updateListener
-		// below (which resets both flags on any real `update.selectionSet`/
-		// `docChanged`) never sees anything happening inside them — and a
-		// KEYBOARD-driven focus change into/out of one (Ctrl-F entering the
-		// text widget, Escape exiting it) produces neither a CM6 transaction
-		// NOR a 'mousedown', so recenter's own cycle and a kill-chain never
-		// broke on either until now. 'focusin' fires on ANY focus change
-		// regardless of cause (mouse or keyboard), so this alone covers
-		// entering/exiting a widget; same unconditional-reset convention as
-		// the 'mousedown' listener above — recenter/recenter-top-bottom
-		// themselves only ever scroll, never touching focus, so pressing
-		// Ctrl-L can't self-reset its own cycle through this.
+		// below (which resets _recenterStep on any real
+		// `update.selectionSet`/`docChanged`) never sees anything happening
+		// inside them — and a KEYBOARD-driven focus change into/out of one
+		// (Ctrl-F entering the text widget, Escape exiting it) produces
+		// neither a CM6 transaction NOR a 'mousedown', so recenter's own
+		// cycle never broke on either until now. 'focusin' fires on ANY
+		// focus change regardless of cause (mouse or keyboard), so this
+		// alone covers entering/exiting a widget; same unconditional-reset
+		// convention as the 'mousedown' listener above —
+		// recenter/recenter-top-bottom themselves only ever scroll, never
+		// touching focus, so pressing Ctrl-L can't self-reset its own cycle
+		// through this.
+		//
+		// isKillChaining is deliberately NOT reset here (confirmed live,
+		// fixing a real regression this introduced): unlike recenter, every
+		// kill-adjacent command already resets isKillChaining explicitly in
+		// its OWN handler (titleMoveChar, propertyKeyMoveChar, etc. — see
+		// their own "this.isKillChaining = false" sites), so a blanket
+		// reset here was pure redundancy for every case EXCEPT one it
+		// wrongly broke: titleKillLine.e2e.ts test (3)'s cross-widget kill
+		// chain (title Ctrl-K -> move focus into the body with no
+		// intervening command -> body Ctrl-K should still chain onto the
+		// SAME kill-ring entry, same as real Emacs). A focus change on its
+		// own was never meant to be "something intervened" for this flag —
+		// only an actual non-kill command is.
 		this.registerDomEvent(doc, 'focusin', () => {
-			this.isKillChaining = false;
 			this._recenterStep = 0;
 		});
 

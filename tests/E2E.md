@@ -1343,6 +1343,28 @@ same kill-ring (`killCache`/`isKillChaining`) as the body's own Kill line.
   entry; **(4)** confirms an intervening title movement between them
   correctly breaks the chain (the body's kill overwrites rather than
   appends).
+- **Regression, fixed on `fix/checkcallback-rearchitecture-scope-push-
+  regressions`**: Full-E2E-before-merge caught test (3) failing after
+  `feat/checkcallback-rearchitecture`. Root cause, confirmed via `git
+  log -S` (not the rearchitecture's Scope-push removal at all — a
+  separate commit in the same branch): `df0cdd1` (adding Recenter) added
+  a document-level `focusin` listener resetting both `_recenterStep`
+  (genuinely needed — Recenter has no CM6 `updateListener` equivalent
+  for title/Properties) AND `isKillChaining` (an unintentional bundling
+  — every kill-adjacent title/property command already resets
+  `isKillChaining` explicitly in its own handler, same design this
+  spec's own (3)/(4) write-up above already describes, so the blanket
+  reset was pure redundancy everywhere EXCEPT here, where it wrongly
+  treated a bare focus change — not an intervening command — as
+  something that breaks the chain). Fixed by removing `isKillChaining`
+  from that listener; `_recenterStep` stays. Re-verified (4) still
+  correctly breaks the chain (its own explicit per-command reset in
+  `titleMoveChar` is untouched), plus a 10-file sweep of every other
+  spec touching `isKillChaining`/`killCache`
+  (`titleKillWord`/`titleRegion`/`titleSetMark`/`titleYank`/
+  `titleKillYankPopout`/`propertyValueEditKillYank`/
+  `propertyValueEditKillWord`/`copyRegionSelectionCollapse`/
+  `basesPropertyEditing`/`basesRecenter`) — no new breakage.
 - Moving focus between the title and the body fires real native
   focus/blur events that push/pop this plugin's own title Scope (same
   wiring the real feature relies on) — `editor.focus()` is required
