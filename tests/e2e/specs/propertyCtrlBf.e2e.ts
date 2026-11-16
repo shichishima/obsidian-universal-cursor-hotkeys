@@ -56,25 +56,31 @@ body content
 		await browser.pause(400)
 	}
 
-	// Mirrors propertyItemSelection.e2e.ts's own helper of the same name —
-	// bundled into one executeObsidian call for the same settle-timing
-	// reason documented there.
+	// Mirrors propertyItemSelection.e2e.ts's own helper of the same name.
+	// feat/property-suggester-scope-override: that file's own version of
+	// this helper needed switching from a synthetic Escape dispatchEvent
+	// to real browser.keys() for the same reason this one does — the
+	// focused element here is the row's own key/name-edit input (the
+	// first match for `querySelector('[contenteditable="true"], input')`
+	// in document order, ahead of the value widget), which always has
+	// its own "previously used property names" suggester visible from
+	// focus alone; a synthetic dispatchEvent no longer reliably reaches
+	// its real exit mechanism once this plugin's own suggester-override
+	// Scope also sits on that field's focus lifecycle (see
+	// propertyItemSelection.e2e.ts's own comment on this exact fix for
+	// the full explanation).
 	async function enterItemSelectionMode(propertyKey: string) {
-		await browser.executeObsidian(async ({ app, obsidian }, key) => {
+		await browser.executeObsidian(({ app, obsidian }, key) => {
 			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
-			const doc = view.containerEl.ownerDocument
 			const row = view.containerEl.querySelector(`.metadata-property[data-property-key="${key}"]`) as HTMLElement
 			const target = (row.querySelector('[contenteditable="true"], input') as HTMLElement)
 			target.focus()
-			await new Promise(r => setTimeout(r, 80))
-			function press(k: string) {
-				doc.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }))
-			}
-			press('Escape')
-			await new Promise(r => setTimeout(r, 100))
-			press('Escape')
-			await new Promise(r => setTimeout(r, 100))
 		}, propertyKey)
+		await browser.pause(150)
+		await browser.keys(['Escape'])
+		await browser.pause(150)
+		await browser.keys(['Escape'])
+		await browser.pause(150)
 	}
 
 	async function pressKey(key: string, ctrl: boolean) {
@@ -105,6 +111,10 @@ body content
 	// given row. The exact count needed varies by property type/direction
 	// (see the file-level comment) — adapting here instead of hardcoding
 	// one keeps this test immune to that native, out-of-scope detail.
+	//
+	// Real browser.keys(), not pressKey's synthetic dispatch -- same
+	// reason as enterItemSelectionMode above: the name-edit input's own
+	// suggester-override Scope needs a genuinely trusted Escape to exit.
 	async function returnToRow(propertyKey: string) {
 		for (let i = 0; i < 3; i++) {
 			const atRow = await browser.executeObsidian(({ app, obsidian }, key) => {
@@ -114,7 +124,8 @@ body content
 				return doc.activeElement === row
 			}, propertyKey)
 			if (atRow) return
-			await pressKey('Escape', false)
+			await browser.keys(['Escape'])
+			await browser.pause(150)
 		}
 	}
 

@@ -103,15 +103,6 @@ const BASES_TABLE_CONTAINER_SELECTOR = '.bases-table-container';
 // explicitly claimed-and-no-op'd rather than left to fall through.
 const PROPERTY_ANY_ITEM_SELECTION_SELECTOR =
 	`${PROPERTY_ROW_SELECTOR}, ${PROPERTY_HEADING_SELECTOR}, ${PROPERTY_ADD_BUTTON_SELECTOR}, ${BASES_TABLE_CONTAINER_SELECTOR}`;
-// This dropdown (the "previously used values" suggester, shared by a
-// text value's own history and multi-select/tags' own candidate list)
-// supports NO keyboard navigation natively, confirmed live in the
-// archive implementation — a real physical ArrowDown/Enter left
-// `.is-selected` untouched and committed nothing. Ctrl-N/P navigation
-// here is a from-scratch replacement: toggle `.is-selected` ourselves.
-const PROPERTY_SUGGESTER_SELECTOR = '.suggestion-container.mod-property-value, .suggestion-container.mod-property-key';
-const PROPERTY_SUGGESTER_ITEM_SELECTOR = '.suggestion-item';
-const PROPERTY_SUGGESTER_SELECTED_CLASS = 'is-selected';
 
 // Extend the Obsidian Editor interface to include the internal CodeMirror 6 instance (EditorView)
 declare module "obsidian" {
@@ -1962,28 +1953,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		return moved;
 	}
 
-	// Scoped to the SAME document as el (popout-window safety) — null
-	// when no suggester is visible there at all.
-	private getVisibleSuggesterItems(el: HTMLElement): HTMLElement[] | null {
-		const container = el.ownerDocument.querySelector(PROPERTY_SUGGESTER_SELECTOR);
-		if (!container) return null;
-		const items = Array.from(container.querySelectorAll(PROPERTY_SUGGESTER_ITEM_SELECTOR)) as HTMLElement[];
-		return items.length > 0 ? items : null;
-	}
-
-	// This plugin's own from-scratch replacement for the up/down
-	// navigation this suggester doesn't support at all natively. Clamps
-	// at either end (a true no-op there, not wrapping).
-	private propertyNavigateSuggester(items: HTMLElement[], forward: boolean) {
-		const currentIndex = items.findIndex(item => item.classList.contains(PROPERTY_SUGGESTER_SELECTED_CLASS));
-		const nextIndex = currentIndex === -1
-			? (forward ? 0 : -1)
-			: currentIndex + (forward ? 1 : -1);
-		if (nextIndex < 0 || nextIndex >= items.length) return;
-		if (currentIndex !== -1) items[currentIndex].classList.remove(PROPERTY_SUGGESTER_SELECTED_CLASS);
-		items[nextIndex].classList.add(PROPERTY_SUGGESTER_SELECTED_CLASS);
-		items[nextIndex].scrollIntoView({ block: 'nearest' });
-	}
 
 	// True when the Selection's own focus sits at the very start of el's
 	// text content — used by propertyMoveCharOrNoop below to detect the
@@ -2214,35 +2183,22 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 	// Ctrl-P/N's own dispatcher once we already know focus is somewhere
-	// inside PROPERTY_CURSOR_LR_SELECTOR — this is the real "complex
-	// branching" this sample exists to exercise: date/datetime are a
-	// true no-op (confirmed platform wall), the name/key-edit input and
-	// multi-select only ever navigate their own suggester (never a line
-	// move — neither has a multi-line concept), and a plain text value
-	// tries the real visual-line move FIRST, falling back to suggester
-	// navigation only once that's confirmed impossible (matches how the
-	// suggester can be open from focus alone for a reused value, unlike
-	// multi-select's own "only opens while typing" suggester).
+	// inside PROPERTY_CURSOR_LR_SELECTOR. date/datetime are a true no-op
+	// (confirmed platform wall). The name/key-edit input and multi-select
+	// have no multi-line concept of their own, so they're a no-op here
+	// too whenever this even runs -- and it only ever does while no
+	// suggester is visibly open: Obsidian's own built-in suggester (the
+	// same one backing the command palette/quick switcher) pushes its
+	// own app.keymap Scope the instant it's shown, registering Ctrl-N/P
+	// itself (see project_checkcallback_property_suggester_ctrl_np_swallowed
+	// memory) -- so this checkCallback never runs while it's up, and
+	// Obsidian's native handling takes over navigating/cycling the
+	// suggester instead, with a correctly-working Enter-commit, confirmed
+	// live to need zero code from this plugin.
 	private propertyMoveLineOrNoop(el: HTMLElement, forward: boolean) {
 		if (el.matches(PROPERTY_DATE_TYPE_SELECTOR)) return;
-		if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) {
-			const items = this.getVisibleSuggesterItems(el);
-			if (items) this.propertyNavigateSuggester(items, forward);
-			return;
-		}
-		if (el.matches(PROPERTY_MULTISELECT_INPUT_SELECTOR)) {
-			const items = this.getVisibleSuggesterItems(el);
-			if (items) {
-				this.propertyNavigateSuggester(items, forward);
-				return;
-			}
-		}
-		if (el.matches(PROPERTY_VALUE_EDIT_SELECTOR)) {
-			if (this.propertyValueEditMoveLine(el, forward)) return;
-			const items = this.getVisibleSuggesterItems(el);
-			if (items) this.propertyNavigateSuggester(items, forward);
-			return;
-		}
+		if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) return;
+		if (el.matches(PROPERTY_MULTISELECT_INPUT_SELECTOR)) return;
 		this.propertyValueEditMoveLine(el, forward);
 	}
 
