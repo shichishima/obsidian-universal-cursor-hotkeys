@@ -261,6 +261,22 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// commands extend the selection from there while this is true.
 	private markActive: boolean = false;
 
+	// Guards propertyNativeArrowFallback's own synthetic dispatch against
+	// re-entering this SAME checkCallback: a Key Upgrade can bind the exact
+	// bare Arrow key this dispatch uses to the SAME cursor-up/down command
+	// (e.g. the "Column-aware" Key Upgrade), and Obsidian's own Keymap
+	// resolution intercepts a dispatched keydown identically to a real one
+	// -- confirmed live this recurses into checkCallback with activeElement
+	// unchanged (the real native row listener never gets a turn), and since
+	// every nested call also unconditionally returns true, every level
+	// calls preventDefault, so the dispatch never bubbles anywhere either.
+	// Set true immediately before dispatching, checked at the top of the
+	// item-selection-mode native-arrow branch: a re-entrant call returns
+	// false instead of re-dispatching, letting Obsidian's Keymap resolution
+	// treat THIS keydown as unclaimed and continue its own normal bubble
+	// path to whatever native listener actually moves row focus.
+	private suppressNativeArrowFallback: boolean = false;
+
 	// Guards every editorCallback below against firing mid-IME-composition.
 	// Confirmed live (2026-09-26): during active composition, CM6's own
 	// `composing` flag stays true even once the IME itself stops consuming
@@ -341,6 +357,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'UP',
 			repeatable: true,
 			checkCallback: (checking: boolean) => {
+				if (this.suppressNativeArrowFallback) return false;
 				const el = activeDocument.activeElement as HTMLElement | null;
 				const titleEl = el?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
 				if (titleEl) {
@@ -355,7 +372,20 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 					if (!checking) this.propertyHeadingEscapeToTitle(el);
 					return true;
 				}
-				if (el?.matches?.(PROPERTY_ROW_SELECTOR) || el?.matches?.(PROPERTY_ADD_BUTTON_SELECTOR) || el?.matches?.(BASES_TABLE_CONTAINER_SELECTOR)) {
+				if (el?.matches?.(PROPERTY_ROW_SELECTOR) || el?.matches?.(PROPERTY_ADD_BUTTON_SELECTOR)) {
+					if (!checking) {
+						// A Key Upgrade can bind this exact bare key to this
+						// exact command (see isBareArrowKeyUpgradeSelfBound's
+						// own comment) -- dispatching it then would just
+						// re-intercept itself, never reaching Obsidian's own
+						// native row-navigation listener. Move focus directly
+						// instead, replicating what native would have done.
+						if (this.isBareArrowKeyUpgradeSelfBound('cursor-up')) this.propertyRowMoveUp(el);
+						else this.propertyNativeArrowFallback(el, 'ArrowUp');
+					}
+					return true;
+				}
+				if (el?.matches?.(BASES_TABLE_CONTAINER_SELECTOR)) {
 					if (!checking) this.propertyNativeArrowFallback(el, 'ArrowUp');
 					return true;
 				}
@@ -372,6 +402,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'DOWN',
 			repeatable: true,
 			checkCallback: (checking: boolean) => {
+				if (this.suppressNativeArrowFallback) return false;
 				const el = activeDocument.activeElement as HTMLElement | null;
 				const titleEl = el?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
 				if (titleEl) {
@@ -390,7 +421,14 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 					if (!checking) this.propertyAddButtonEscapeToBody(el);
 					return true;
 				}
-				if (el?.matches?.(PROPERTY_ROW_SELECTOR) || el?.matches?.(BASES_TABLE_CONTAINER_SELECTOR)) {
+				if (el?.matches?.(PROPERTY_ROW_SELECTOR)) {
+					if (!checking) {
+						if (this.isBareArrowKeyUpgradeSelfBound('cursor-down')) this.propertyRowMoveDown(el);
+						else this.propertyNativeArrowFallback(el, 'ArrowDown');
+					}
+					return true;
+				}
+				if (el?.matches?.(BASES_TABLE_CONTAINER_SELECTOR)) {
 					if (!checking) this.propertyNativeArrowFallback(el, 'ArrowDown');
 					return true;
 				}
@@ -407,6 +445,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'LEFT',
 			repeatable: true,
 			checkCallback: (checking: boolean) => {
+				if (this.suppressNativeArrowFallback) return false;
 				const el = activeDocument.activeElement as HTMLElement | null;
 				const titleEl = el?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
 				if (titleEl) {
@@ -437,6 +476,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			name: 'RIGHT',
 			repeatable: true,
 			checkCallback: (checking: boolean) => {
+				if (this.suppressNativeArrowFallback) return false;
 				const el = activeDocument.activeElement as HTMLElement | null;
 				const titleEl = el?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
 				if (titleEl) {
@@ -2195,7 +2235,61 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// bind() comment on why a plain "return false" / unclaimed key isn't
 	// enough: there's nothing downstream listening for Ctrl-N itself).
 	private propertyNativeArrowFallback(el: HTMLElement, key: 'ArrowUp' | 'ArrowDown' | 'ArrowLeft' | 'ArrowRight') {
-		el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+		this.suppressNativeArrowFallback = true;
+		try {
+			el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+		} finally {
+			this.suppressNativeArrowFallback = false;
+		}
+	}
+
+	// A "Column-aware" Key Upgrade binds a bare Arrow key directly to this
+	// SAME cursor-up/cursor-down command (not just to Ctrl-N/P) -- in that
+	// case propertyNativeArrowFallback's own dispatch is self-defeating: it
+	// re-enters this exact command's checkCallback before reaching
+	// Obsidian's own native row-navigation listener at all (confirmed live;
+	// suppressNativeArrowFallback above only stops the resulting infinite
+	// recursion, it doesn't make the dispatch reach anywhere useful, since
+	// once ANY command claims a hotkey Obsidian's Keymap consumes it
+	// unconditionally regardless of a recursive call's own return value).
+	// Checked once per keypress, not cached -- Key Upgrades can be
+	// toggled live from Settings.
+	private isBareArrowKeyUpgradeSelfBound(commandId: 'cursor-up' | 'cursor-down'): boolean {
+		const hotkeys = (this.app as any).hotkeyManager?.getHotkeys(`${this.manifest.id}:${commandId}`) as { modifiers: string[]; key: string }[] | undefined;
+		const key = commandId === 'cursor-up' ? 'ArrowUp' : 'ArrowDown';
+		return !!hotkeys?.some(hk => hk.modifiers.length === 0 && hk.key === key);
+	}
+
+	// Manual replacement for native row-to-row focus movement, used only
+	// when isBareArrowKeyUpgradeSelfBound makes the dispatch-based fallback
+	// unreachable. Mirrors propertyHeadingCtrlN's own direction (first row
+	// <-> heading) and propertyAddButtonEscapeToBody's sibling (last row <->
+	// Add-button) -- rows are plain DOM siblings within their own shared
+	// container (confirmed live), so previous/nextElementSibling is enough.
+	private propertyRowMoveUp(el: HTMLElement) {
+		if (el.matches(PROPERTY_ADD_BUTTON_SELECTOR)) {
+			const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+			const rows = view?.containerEl.querySelectorAll(PROPERTY_ROW_SELECTOR);
+			(rows?.[rows.length - 1] as HTMLElement | undefined)?.focus();
+			return;
+		}
+		const prevRow = el.previousElementSibling as HTMLElement | null;
+		if (prevRow?.matches(PROPERTY_ROW_SELECTOR)) {
+			prevRow.focus();
+			return;
+		}
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		(view?.containerEl.querySelector(PROPERTY_HEADING_SELECTOR) as HTMLElement | null)?.focus();
+	}
+
+	private propertyRowMoveDown(el: HTMLElement) {
+		const nextRow = el.nextElementSibling as HTMLElement | null;
+		if (nextRow?.matches(PROPERTY_ROW_SELECTOR)) {
+			nextRow.focus();
+			return;
+		}
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		(view?.containerEl.querySelector(PROPERTY_ADD_BUTTON_SELECTOR) as HTMLElement | null)?.focus();
 	}
 
 	// Ctrl-P/N's own dispatcher once we already know focus is somewhere

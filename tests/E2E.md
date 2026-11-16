@@ -2879,36 +2879,55 @@ passing after.
 
 #### `propertyKeyUpgradeInterference.e2e.ts`
 
-Real bug found testing on Windows (2026-11-05) with the
+Real bug, originally found testing on Windows (2026-11-05) with the
 "↓↑ column-aware" Key Upgrade enabled (bare ArrowUp/ArrowDown also bound
-to `cursor-up`/`cursor-down`, alongside Ctrl-N/P). `buildPropertyRowScope`'s
-own `bind()` helper iterates EVERY effective hotkey for a command via
-`getEffectiveHotkeysFor()` — which then also picks up that Key Upgrade's
-own bare-arrow hotkey, registering a Scope handler for it too. Since
-Ctrl-N/P's own native-delegation mechanism is to dispatch a SYNTHETIC
-bare `ArrowDown`/`ArrowUp` as its own last step, that synthetic dispatch
-re-enters this SAME scope's own just-registered handler for that exact
-(no modifiers, key) combo — confirmed live this silently swallows the
-whole chain: the real native row navigation never actually runs at all,
-with symptoms matching exactly what was reported (row-to-row navigation
-completely dead; heading<->first-row only worked in the direction
-`propertyHeadingCtrlN`'s explicit `.focus()` fix from the day before
-happened to sidestep, by coincidence, since it doesn't dispatch anything;
-body<->Add-button worked because that crossing's own code path is
-largely outside this scope). Could not reproduce on macOS until
-deliberately replicating the Key Upgrade's exact hotkey configuration
-via `hm.setHotkeys()` — once replicated, reproduced immediately and
-consistently.
+to `cursor-up`/`cursor-down`, alongside Ctrl-N/P), and originally fixed
+in the Scope-push architecture (`buildPropertyRowScope`'s own `bind()`
+helper skipping registration of the self-colliding hotkey). That fix was
+lost, unported, when `feat/checkcallback-rearchitecture` replaced
+Scope-push with `checkCallback` for this surface — caught again by a
+full-E2E-before-merge run, confirmed as a genuine reproducible
+regression (not flaky), and re-fixed here for the new architecture.
 
-Fixed by skipping registration of exactly the hotkey that would
-self-collide with the dispatch key (`hk.modifiers.length === 0 &&
-hk.key === key`), not bare hotkeys in general — a vim-style bare 'j'/'k'
-binding to the same command is completely unaffected, since dispatching
-`'ArrowDown'` from a `'j'`-triggered handler doesn't re-enter anything
-registered under `'j'`. Built red-green: written and confirmed failing
-against the pre-fix code first (via `git stash`, rebuilding, re-running,
-then restoring the fix), all 3 failing for the right reason before the
-fix made them pass.
+Root cause in `checkCallback` terms, confirmed live via instrumented
+logging: `cursor-up`/`cursor-down`'s own native-delegation mechanism
+(`propertyNativeArrowFallback`) dispatches a SYNTHETIC bare
+`ArrowUp`/`ArrowDown` as its last step, meant to let Obsidian's own
+native row-navigation listener take over. Once the Key Upgrade binds
+that exact bare key to this SAME command, Obsidian's Keymap resolution
+intercepts the synthetic dispatch identically to a real keypress and
+re-invokes this SAME command's `checkCallback` — recursively, since
+`activeElement` hasn't moved yet. Logging showed ~32 levels of this
+before it silently stopped (not a true infinite loop — some engine-level
+re-entrant-dispatch guard, not relied on) — the real native row listener
+never gets a turn, because EVERY nested level also returns `true`,
+so every level calls `preventDefault()` on its own event.
+
+**Two-part fix.** (1) `suppressNativeArrowFallback`, a simple flag set
+around the dispatch, checked at the top of all 4 `cursor-up/down/left/
+right` checkCallbacks — stops the recursion itself (a re-entrant call
+returns `false` immediately instead of dispatching again). (2) That
+alone isn't sufficient: once ANY command claims a bare key via
+`setHotkeys`, Obsidian's Keymap consumes it regardless of what a later
+(even non-recursive) invocation's `checkCallback` returns — the same
+"breakage is at the Keymap *registration* level, not the callback's own
+decision logic" finding already documented for Key Upgrades generally
+(see `project_0_12_1_release_and_checkcallback_investigation` memory).
+So returning `false` on the recursive call does NOT let the dispatched
+event reach native row navigation either — confirmed live (1)/(2) still
+failed with (1) alone. The real fix: detect the self-binding up front
+(`isBareArrowKeyUpgradeSelfBound`, checking `app.hotkeyManager.
+getHotkeys()` for a bare hotkey matching this exact command) and, when
+true, skip the dispatch entirely in favor of direct DOM navigation
+(`propertyRowMoveUp`/`propertyRowMoveDown`) — rows are plain siblings
+within their own shared container (confirmed live), so `previous/
+nextElementSibling`, falling back to the heading/Add-button at the
+boundary, replicates what native would have done without depending on
+any Keymap dispatch at all. Scoped to Properties rows/heading/Add-button
+only — Bases' own analogous collision (same root mechanism, confirmed
+separately) is a different container model (an internal "active cell"
+marker, not simple sibling focus) and is tracked as its own fix on a
+later branch, not attempted here.
 
 - **(1)** Ctrl-N/P still move focus between sibling property rows when
   the bare ArrowUp/Down Key Upgrade is also enabled.
