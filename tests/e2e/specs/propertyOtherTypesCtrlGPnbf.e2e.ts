@@ -394,16 +394,18 @@ first body line
 		// (10) below), the suggester stays genuinely, verifiably visible
 		// up to this exact point -- unlike before, when it happened to
 		// have already auto-dismissed by this point regardless of what
-		// Ctrl-G did. A visible suggester needs the SAME two-press shape
-		// already established elsewhere in this codebase for "closing a
-		// suggester" vs "exiting the widget" as two separate steps
-		// (confirmed live: 1st Ctrl-G's own internal Escape redispatch
-		// only dismisses the dropdown, 2nd actually exits) -- this is
-		// not a regression in Ctrl-G itself, it's the suggester being
-		// reliably present for this assertion to even exercise that
-		// path at all.
-		await browser.keys(['Control', 'g'])
-		await browser.pause(300)
+		// Ctrl-G did.
+		//
+		// A single Ctrl-G now suffices (fixed alongside
+		// propertyCtrlG.e2e.ts's own test (5): keyboard-quit's exit from
+		// a Properties value widget now focuses the row directly,
+		// mirroring Bases' own fix, instead of a synthetic Escape
+		// dispatch -- that sidesteps the suggester's own Escape-staging
+		// entirely, so it no longer takes a first press to merely
+		// dismiss the dropdown and a second to actually exit). A SECOND
+		// Ctrl-G here would now over-escape past the row into the body,
+		// since the row itself (reached after the first press) responds
+		// to Ctrl-G by dispatching a native Escape of its own.
 		await browser.keys(['Control', 'g'])
 		await browser.pause(300)
 

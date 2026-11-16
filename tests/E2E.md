@@ -127,196 +127,26 @@ A formula/computed column uses the same `bases-rendered-value` renderer as a `fi
 
 Plugin loads, commands register.
 
-#### `scopeReconciliation.e2e.ts`
+#### `scopeReconciliation.e2e.ts` — REMOVED (stale, tested removed code)
 
-A real concern raised about `propertyRowScope`/`titleScope` (0.13.0
-Feature 1's own custom Scope-push mechanism): both are pushed/popped
-PURELY by `focusin`/`focusout` (see `registerWindowDomListeners`) —
-nothing anywhere forces a pop independent of that pair actually firing
-in the expected order. If a stuck scope ever sat permanently on top of
-`app.keymap`'s own window stack, EVERY hotkey (not just this plugin's
-own) would be affected — confirmed from first principles (see
-`project_property_name_edit_scope_dispatch_bug`'s own "Scope-push beats
-global command resolution; only the TOP scope is ever consulted"
-finding): a stuck custom Scope on top means the dispatcher never even
-reaches Obsidian's own global command resolution for anything that
-Scope doesn't explicitly register, since a non-`false` return defers to
-NATIVE handling directly, not to a lower scope.
+Existed to guard `propertyRowScope`/`titleScope` (0.13.0 Feature 1's
+own custom Scope-push mechanism) against getting stuck/orphaned on
+`app.keymap`'s own window stack — see git history for the full
+original write-up if the mechanism is ever needed for reference. That
+entire mechanism (`propertyRowScope`, `titleScope`,
+`reconcileScopesWithFocus()`, `cleanupScopesOnUnload()`,
+`buildPropertyRowScope`) was removed when `feat/checkcallback-
+rearchitecture` replaced it with plain `checkCallback`-based commands
+for title/Properties/Bases — confirmed via `grep` that none of those
+identifiers remain anywhere in `src/main.ts`. This spec's own
+assertions (and 2 of its 5 tests, by this point) were failing against
+code that no longer exists, not against a real regression.
 
-Live testing across five real switching scenarios — a same-leaf
-`openFile`, repeated rapid switches across widget types (text/pill/
-multi-select-input) in a loop, a REAL file-explorer click, switching
-away from a Bases cell-selection-mode view, and switching ACTIVE LEAF
-to an already-open split (never destroying the first leaf's own DOM at
-all) — could NOT reproduce a stuck scope; `focusout` fired correctly
-and popped cleanly in every one. Since a genuinely stuck scope
-requires `focusout` to NOT fire at all, which can't be forced via any
-real, browser-faithful focus change (any real focus change fires it),
-this spec tests the safety net directly instead of the exact
-real-world trigger: manually puts `propertyRowScope` into the precise
-"stuck" state (re-pushed onto the real Keymap stack and reassigned on
-the plugin instance, with `document.activeElement` already pointing
-elsewhere) and confirms `reconcileScopesWithFocus()` — wired to both
-`active-leaf-change` and `file-open` (file-open specifically covers
-opening a new file into the leaf that's ALREADY active, which
-`active-leaf-change` alone does NOT fire for, confirmed live) — pops
-and clears it.
-
-- **(1)** The stuck-scope state is cleaned up.
-- **(2)** Regression: firing `file-open` for an UNRELATED second leaf
-  does not tear down a different leaf's own genuinely-still-valid,
-  currently-focused `propertyRowScope` — confirms the reconciler
-  checks the right document/window's own `activeElement`, not a global
-  "any scope exists" check that would be too aggressive.
-
-Built red-green: temporarily removing the `active-leaf-change`/
-`file-open` listeners reproduces test (1) failing (the manually-stuck
-scope stays stuck forever), restoring them makes both pass.
-
-**Test (3), added later — a DIFFERENT leak mechanism, this time
-CONFIRMED LIVE** (not just a theoretical concern): a real freeze was
-reported (tags row → Ctrl-F → type a character → Ctrl-G → Ctrl-G again
-→ cursor escapes to the note body, but Ctrl-PNBF and even `Cmd-,`
-(Obsidian's own global Open Settings command) stop working from there).
-Added `[UCH-propscope-debug]` console logging (DevTools-only, not
-piped to the E2E runner) and asked for a live capture from the real
-vault — the resulting log pinpointed the exact mechanism via its own
-call stack:
-
-```
-keyboard-quit firing {target: multi-select-input}
-focusin with propertyRowScope ALREADY set -- pushing without a prior pop {target: metadata-property}
-  (anonymous) @ plugin:universal-cursor-hotkeys
-  focusProperty @ app.js
-  handlePropertyBlur @ app.js
-  (anonymous) @ plugin:universal-cursor-hotkeys   <- our own tagged Escape re-dispatch
-  handleKey @ app.js
-  onKeyEvent @ app.js
-```
-
-Ctrl-G's own internal Escape re-dispatch (tagged
-`UCH_INTERNAL_ESCAPE_REDISPATCH_FLAG`, deferring to native handling) on
-the multi-select trailing input synchronously triggers Obsidian's OWN
-`blur` listener for that element (`handlePropertyBlur`), which itself
-synchronously calls `focusProperty()` to move focus to the next row —
-all BEFORE the original element's own `focusout` (which must still
-bubble all the way up to this plugin's document-level listener) ever
-gets a chance to fire. So the new row's `focusin` ran first, while
-`propertyRowScope` was still set from the input's own still-pending
-push. Pushing a second scope here orphans the first one forever in
-`app.keymap`'s own internal stack — this plugin's own
-`propertyRowScope` reference only ever points to ONE of them. When the
-row's scope eventually pops normally (the second Ctrl-G, row → body),
-that orphaned first scope resurfaces as the new top of
-`app.keymap`'s stack — with no registration for anything outside the
-Properties panel, it silently swallows every key from then on,
-including totally unrelated global commands, exactly matching the
-"ALL hotkeys dead" signature already suspected in this file's own
-tests (1)/(2) above, just via a same-leaf trigger neither
-`active-leaf-change` nor `file-open` would ever catch.
-
-Fixed with a defensive self-heal in the `focusin` handler itself: pop
-whatever `propertyRowScope` already holds BEFORE ever pushing a new
-one (same "self-heal instead of force-push a duplicate" shape
-`reclaimPropertyRowScopeAfterMutation` already uses elsewhere) — this
-doesn't need to understand WHY a `focusout` got skipped, it just
-guarantees this plugin's own bookkeeping can never end up with two
-scopes pushed under one reference, however that happens. The same
-defensive guard was also added to `titleScope`'s own `focusin` handler
-(no confirmed live occurrence there yet, but the fix is a no-op unless
-the exact same race happens, so there's no cost to applying it there
-too).
-
-The real trigger (the nested `handlePropertyBlur`/`focusProperty` call
-chain) could not be reproduced via `browser.keys()` in this harness
-either — same "can't force a real focus change to skip focusout"
-limitation as tests (1)/(2). So, same precedent as those two, test (3)
-dispatches the `focusin`/`focusout` events directly to force the exact
-leak shape deterministically: two `focusin`s on the row with no
-`focusout` in between (reproducing "push without a prior pop"), then
-one real `focusout`, checking whether the FIRST scope resurfaces as
-the new top afterward. Built red-green (commenting out the pop inside
-the self-heal reproduces the first scope resurfacing as the leaked new
-top; restoring it keeps the stack clean).
-
-**Test (4), added later — the OPPOSITE direction of the safety net was
-missing entirely.** `reconcileScopesWithFocus()` only ever handled
-"pop a scope that's stuck pushed" — never "push a scope that's
-missing even though focus already belongs to it." User-reported: a
-Ctrl-PNBF/Recenter in a Bases table embedded inside a note (via
-`![[some.base]]`) worked normally, then stopped responding entirely
-after disabling and re-enabling this plugin via the Community plugins
-toggle — with no focus change of any kind in between. Root cause,
-confirmed by reading the code (not yet the exact Settings-UI toggle
-sequence itself — `app.setting.open()` never produced a queryable
-modal in this harness): `propertyRowScope`/`titleScope` are pushed
-PURELY by a real `focusin` event firing. A fresh plugin instance
-(`onload()` running again after re-enabling) starts with both `null`,
-and since focus itself never changes across a reload, no NEW `focusin`
-ever fires to populate them — every one of this plugin's own commands
-silently does nothing until focus happens to move away and back on
-its own. Same precedent as the rest of this file's own safety net:
-shipped the fix for the confirmed GAP itself (onload never reconciling
-against whatever's already focused) rather than chasing the exact
-Settings-UI click sequence that triggers it in practice.
-
-Fixed by extending `reconcileScopesWithFocus()` itself to also push a
-missing scope (not just pop a stale one), and calling it once more, at
-the very end of `onload()`, in addition to its existing
-`active-leaf-change`/`file-open` wiring.
-
-Test (4) forces the identical end state directly: establishes a real
-`propertyRowScope` via a real `focusin`, then manually pops it and
-nulls the plugin's own reference WITHOUT any focus change at all
-(`document.activeElement` stays on the same row throughout), then
-calls `reconcileScopesWithFocus()` (deferred by its own two animation
-frames) and confirms the scope comes back and is on top again. Built
-red-green (temporarily reverting `reconcileScopesWithFocus()` to its
-old pop-only shape reproduces the scope staying gone forever; restoring
-the push-missing branch heals it).
-
-**Test (5), added the same day — the OTHER half of a reload was still
-broken even after fixing test (4)'s own gap.** `onunload()` never
-popped `propertyRowScope`/`titleScope` if either was pushed at the
-moment the plugin gets disabled — the Scope object (with its own
-handler closures still referencing the about-to-be-discarded instance)
-stayed physically orphaned on `app.keymap`'s real stack forever, buried
-underneath whatever a fresh reload's own `onload()` pushes on top via
-test (4)'s own fix. Works fine as long as the fresh scope STAYS on top
-— but resurfaces the moment anything pops it, now dispatching through
-a dead instance whose own bookkeeping no longer matches reality.
-User-reported symptom matched this exactly: intermittent, inconsistent
-behavior after a disable/re-enable cycle (Ctrl-P sometimes escaping the
-whole Bases table instead of moving one row, sometimes doing nothing
-at all) — exactly what two scopes silently fighting over the same
-stack position looks like from the outside.
-
-Fixed by extracting the scope-popping into its own
-`cleanupScopesOnUnload()` method (called from `onunload()`, which still
-also calls `vimSupport.teardown()`). Test (5) calls that extracted
-method directly rather than the real, full `onunload()` itself —
-confirmed live that invoking the real `onunload()` in this harness
-destabilizes the WebDriver session entirely (`vimSupport.teardown()`'s
-own side effects, unrelated to scope bookkeeping, aren't safe to
-exercise this way) — but it's still the actual code path under test,
-not a reimplementation of it.
-
-A real false-negative was caught while building this test: an initial
-version compared stack DEPTH before/after (same shape as test (4)'s own
-assertions) rather than scope OBJECT IDENTITY — in the still-broken
-state, `reconcileScopesWithFocus()`'s own push-if-missing branch never
-fires at all (since `this.propertyRowScope` still truthily points at
-the orphaned scope, never nulled), so no second scope ever gets pushed
-— meaning the test's own final cleanup step ends up popping the
-ORIGINAL orphaned scope directly, coincidentally landing at the exact
-same final depth as the genuinely-fixed case and masking the bug
-entirely. Rewritten to track the scope's own object reference across
-calls instead (stashed on `window` to survive separate
-`executeObsidian` calls) and assert both that a NEW scope object was
-actually pushed (`!== scopeA`) and that the old one is gone from every
-level of the real stack (`stack.scope`+`stack.prevScopes`), not just
-"depth returned to some number." Built red-green with this corrected
-version.
+The failure mode this spec guarded against is architecturally
+impossible now anyway: `checkCallback` is stateless per invocation —
+there's no custom Scope pushed onto a stack for anything to get stuck
+on top of, so there's nothing to reconcile. Deleted rather than
+rewritten.
 
 ### Multi-cursor
 
@@ -1513,6 +1343,28 @@ same kill-ring (`killCache`/`isKillChaining`) as the body's own Kill line.
   entry; **(4)** confirms an intervening title movement between them
   correctly breaks the chain (the body's kill overwrites rather than
   appends).
+- **Regression, fixed on `fix/checkcallback-rearchitecture-scope-push-
+  regressions`**: Full-E2E-before-merge caught test (3) failing after
+  `feat/checkcallback-rearchitecture`. Root cause, confirmed via `git
+  log -S` (not the rearchitecture's Scope-push removal at all — a
+  separate commit in the same branch): `df0cdd1` (adding Recenter) added
+  a document-level `focusin` listener resetting both `_recenterStep`
+  (genuinely needed — Recenter has no CM6 `updateListener` equivalent
+  for title/Properties) AND `isKillChaining` (an unintentional bundling
+  — every kill-adjacent title/property command already resets
+  `isKillChaining` explicitly in its own handler, same design this
+  spec's own (3)/(4) write-up above already describes, so the blanket
+  reset was pure redundancy everywhere EXCEPT here, where it wrongly
+  treated a bare focus change — not an intervening command — as
+  something that breaks the chain). Fixed by removing `isKillChaining`
+  from that listener; `_recenterStep` stays. Re-verified (4) still
+  correctly breaks the chain (its own explicit per-command reset in
+  `titleMoveChar` is untouched), plus a 10-file sweep of every other
+  spec touching `isKillChaining`/`killCache`
+  (`titleKillWord`/`titleRegion`/`titleSetMark`/`titleYank`/
+  `titleKillYankPopout`/`propertyValueEditKillYank`/
+  `propertyValueEditKillWord`/`copyRegionSelectionCollapse`/
+  `basesPropertyEditing`/`basesRecenter`) — no new breakage.
 - Moving focus between the title and the body fires real native
   focus/blur events that push/pop this plugin's own title Scope (same
   wiring the real feature relies on) — `editor.focus()` is required
@@ -1663,6 +1515,16 @@ redundant once this landed.
 
 Both specs' full affected-regression run plus a full-suite pass (187
 tests) confirmed clean.
+
+**RE-FIXED 2026-11-16**: the checkCallback rearchitecture removed
+`registerWindowDomListeners`'s document-level `input` listener along
+with the rest of the Scope-push architecture, silently reintroducing
+this exact bug (test (5) started failing again). Fixed for free by the
+same `keyboard-quit` correction described in `propertyCtrlG.e2e.ts`
+test (5)'s own writeup — focusing the row directly instead of
+dispatching a synthetic Escape doesn't care what left the suggester
+open (this plugin's own mutation, or native Undo), so no reclaim
+listener of any kind is needed anymore.
 
 #### `titleWordMotion.e2e.ts`
 
@@ -2116,6 +1978,15 @@ didn't exist yet when that fix shipped) — broadened to
 the fix (reverting the selector back to `PROPERTY_VALUE_EDIT_SELECTOR`
 reproduces test (13) failing) and green after.
 
+**RE-FIXED 2026-11-16**: this fix's own document-level `input` reclaim
+listener was removed along with the rest of the Scope-push
+architecture during the checkCallback rearchitecture, silently
+reintroducing this exact bug. Fixed for free by the same `keyboard-quit`
+correction described in `propertyCtrlG.e2e.ts` test (5)'s own writeup
+(focus the row directly instead of a synthetic Escape dispatch) — no
+reclaim listener needed anymore, for this input or the text value-edit
+widget.
+
 **Test (14), added later**: this field's own "previously used property
 names" suggester (`.suggestion-container.mod-property-key`) was
 confirmed live to share the exact same DOM shape and the exact same
@@ -2490,7 +2361,9 @@ Verified no regression across `basesRecenter.e2e.ts`,
 `basesCellNavigation.e2e.ts`, `basesPropertyEditing.e2e.ts`,
 `propertyItemSelection.e2e.ts`, `recenterWithSetMark.e2e.ts`,
 `propertyOtherTypesCtrlGPnbf.e2e.ts`, `propertyValueEditKillYank.e2e.ts`,
-`propertyNameEdit.e2e.ts`, and `scopeReconciliation.e2e.ts`.
+and `propertyNameEdit.e2e.ts` (`scopeReconciliation.e2e.ts`, also
+checked at the time, was later removed — see its own now-brief section
+above).
 
 **(5), added 2026-11-13** (0.13.0 release test-matrix audit): tests
 (1)-(4) above only ever exercise a TEXT-type property's own value-edit
@@ -2810,18 +2683,33 @@ addition made all 6 pass.
 - **(4)** Ctrl-G at the heading, panel COLLAPSED, still escapes to the
   body the same way — collapsed treated as a normal-case variant from
   the start, not a reactive edge case.
-- **(5)** **Updated 2026-11-05**: Ctrl-G also escapes from inside the
-  value-edit widget itself, back to item-selection mode — this used to
-  assert the opposite (scoped out, confirmed unreachable at the time).
-  That earlier finding was based on testing with synthetic
-  `dispatchEvent()` calls, which turned out to be an unreliable way to
-  test anything touching Obsidian's own Keymap resolution; real
-  `browser.keys()` presses, combined with correctly broadening
-  `propertyRowScope`'s own push/pop condition (done for
-  `propertyValueEditMovement.e2e.ts`'s work), show it reaching fine. See
-  that spec's own file-level comment and project memory
-  (`project_property_value_edit_real_key_interception_dead_end`) for the
-  full corrected mechanism.
+- **(5)** **Updated 2026-11-05, RE-FIXED 2026-11-16 after the
+  checkCallback rearchitecture**: Ctrl-G also escapes from inside the
+  value-edit widget itself, back to item-selection mode. The
+  2026-11-05 fix (broadening `propertyRowScope`'s own push/pop
+  condition) relied on Scope-push machinery that no longer exists —
+  the checkCallback migration (`feat/checkcallback-rearchitecture`)
+  silently reintroduced this exact regression, caught by a full-suite
+  run before merging to `develop`. Root cause this time: `keyboard-quit`'s
+  checkCallback exited the widget via a synthetic Escape `dispatchEvent()`,
+  which (confirmed live) only dismisses this widget's own "previously
+  used values" suggester when one happens to be open (self-poisoned
+  from the property's own value already being indexed in
+  metadataCache, same mechanism as
+  `project_checkcallback_property_suggester_ctrl_np_swallowed`) —
+  it never reaches the actual exit-to-item-selection behavior, even
+  with a REAL trusted `browser.keys(['Escape'])` press, not just the
+  synthetic one. Fixed by focusing the row directly instead
+  (`el.closest(PROPERTY_ROW_SELECTOR)?.focus()`), mirroring the
+  Bases-cell branch right next to it, which sidesteps the suggester's
+  own Escape-staging entirely and works in one step regardless of
+  suggester state. See `propertyValueEditKillYank.e2e.ts` test (8),
+  `propertyValueEditDeleteChar.e2e.ts` test (5), and
+  `propertyNameEdit.e2e.ts` test (13) below — all three were ALSO
+  silently broken by the same rearchitecture (their own original fix
+  was `reclaimPropertyRowScopeAfterMutation()`, likewise removed) and
+  this single change fixes all four at once; no suggester-dismissal-
+  after-mutation mechanism needed to be reimplemented at all.
 - **(6)** Regression: a note WITHOUT frontmatter is unaffected —
   Ctrl-G still clears an active Set-mark selection in the body exactly
   as before.
@@ -2845,36 +2733,55 @@ passing after.
 
 #### `propertyKeyUpgradeInterference.e2e.ts`
 
-Real bug found testing on Windows (2026-11-05) with the
+Real bug, originally found testing on Windows (2026-11-05) with the
 "↓↑ column-aware" Key Upgrade enabled (bare ArrowUp/ArrowDown also bound
-to `cursor-up`/`cursor-down`, alongside Ctrl-N/P). `buildPropertyRowScope`'s
-own `bind()` helper iterates EVERY effective hotkey for a command via
-`getEffectiveHotkeysFor()` — which then also picks up that Key Upgrade's
-own bare-arrow hotkey, registering a Scope handler for it too. Since
-Ctrl-N/P's own native-delegation mechanism is to dispatch a SYNTHETIC
-bare `ArrowDown`/`ArrowUp` as its own last step, that synthetic dispatch
-re-enters this SAME scope's own just-registered handler for that exact
-(no modifiers, key) combo — confirmed live this silently swallows the
-whole chain: the real native row navigation never actually runs at all,
-with symptoms matching exactly what was reported (row-to-row navigation
-completely dead; heading<->first-row only worked in the direction
-`propertyHeadingCtrlN`'s explicit `.focus()` fix from the day before
-happened to sidestep, by coincidence, since it doesn't dispatch anything;
-body<->Add-button worked because that crossing's own code path is
-largely outside this scope). Could not reproduce on macOS until
-deliberately replicating the Key Upgrade's exact hotkey configuration
-via `hm.setHotkeys()` — once replicated, reproduced immediately and
-consistently.
+to `cursor-up`/`cursor-down`, alongside Ctrl-N/P), and originally fixed
+in the Scope-push architecture (`buildPropertyRowScope`'s own `bind()`
+helper skipping registration of the self-colliding hotkey). That fix was
+lost, unported, when `feat/checkcallback-rearchitecture` replaced
+Scope-push with `checkCallback` for this surface — caught again by a
+full-E2E-before-merge run, confirmed as a genuine reproducible
+regression (not flaky), and re-fixed here for the new architecture.
 
-Fixed by skipping registration of exactly the hotkey that would
-self-collide with the dispatch key (`hk.modifiers.length === 0 &&
-hk.key === key`), not bare hotkeys in general — a vim-style bare 'j'/'k'
-binding to the same command is completely unaffected, since dispatching
-`'ArrowDown'` from a `'j'`-triggered handler doesn't re-enter anything
-registered under `'j'`. Built red-green: written and confirmed failing
-against the pre-fix code first (via `git stash`, rebuilding, re-running,
-then restoring the fix), all 3 failing for the right reason before the
-fix made them pass.
+Root cause in `checkCallback` terms, confirmed live via instrumented
+logging: `cursor-up`/`cursor-down`'s own native-delegation mechanism
+(`propertyNativeArrowFallback`) dispatches a SYNTHETIC bare
+`ArrowUp`/`ArrowDown` as its last step, meant to let Obsidian's own
+native row-navigation listener take over. Once the Key Upgrade binds
+that exact bare key to this SAME command, Obsidian's Keymap resolution
+intercepts the synthetic dispatch identically to a real keypress and
+re-invokes this SAME command's `checkCallback` — recursively, since
+`activeElement` hasn't moved yet. Logging showed ~32 levels of this
+before it silently stopped (not a true infinite loop — some engine-level
+re-entrant-dispatch guard, not relied on) — the real native row listener
+never gets a turn, because EVERY nested level also returns `true`,
+so every level calls `preventDefault()` on its own event.
+
+**Two-part fix.** (1) `suppressNativeArrowFallback`, a simple flag set
+around the dispatch, checked at the top of all 4 `cursor-up/down/left/
+right` checkCallbacks — stops the recursion itself (a re-entrant call
+returns `false` immediately instead of dispatching again). (2) That
+alone isn't sufficient: once ANY command claims a bare key via
+`setHotkeys`, Obsidian's Keymap consumes it regardless of what a later
+(even non-recursive) invocation's `checkCallback` returns — the same
+"breakage is at the Keymap *registration* level, not the callback's own
+decision logic" finding already documented for Key Upgrades generally
+(see `project_0_12_1_release_and_checkcallback_investigation` memory).
+So returning `false` on the recursive call does NOT let the dispatched
+event reach native row navigation either — confirmed live (1)/(2) still
+failed with (1) alone. The real fix: detect the self-binding up front
+(`isBareArrowKeyUpgradeSelfBound`, checking `app.hotkeyManager.
+getHotkeys()` for a bare hotkey matching this exact command) and, when
+true, skip the dispatch entirely in favor of direct DOM navigation
+(`propertyRowMoveUp`/`propertyRowMoveDown`) — rows are plain siblings
+within their own shared container (confirmed live), so `previous/
+nextElementSibling`, falling back to the heading/Add-button at the
+boundary, replicates what native would have done without depending on
+any Keymap dispatch at all. Scoped to Properties rows/heading/Add-button
+only — Bases' own analogous collision (same root mechanism, confirmed
+separately) is a different container model (an internal "active cell"
+marker, not simple sibling focus) and is tracked as its own fix on a
+later branch, not attempted here.
 
 - **(1)** Ctrl-N/P still move focus between sibling property rows when
   the bare ArrowUp/Down Key Upgrade is also enabled.
@@ -3186,9 +3093,16 @@ no leftover growth, confirmed via the same diagnostic's own
 
 - **(8)** Regression: repeated Ctrl-A/Ctrl-K/Ctrl-Y cycles don't let the
   suggestion dropdown shadow the Scope — the round trip stays lossless
-  AND Ctrl-G still works afterward. Built red-green: confirmed failing
-  (`Expected: true, Received: false`) against the pre-fix build before
-  implementing `reclaimPropertyRowScopeAfterMutation`, passing after.
+  AND Ctrl-G still works afterward. Originally built red-green against
+  `reclaimPropertyRowScopeAfterMutation` (now removed along with the
+  rest of the Scope-push architecture). **RE-FIXED 2026-11-16**: this
+  was one of four tests the checkCallback rearchitecture silently broke
+  by dropping that mechanism without a replacement — now fixed for
+  free by `keyboard-quit`'s own corrected exit mechanism (focus the row
+  directly instead of a synthetic Escape dispatch), which doesn't care
+  whether a suggester happens to be open at all. See
+  `propertyCtrlG.e2e.ts` test (5)'s own writeup above for the full
+  mechanism.
 
 #### `propertyValueEditKillWord.e2e.ts`
 
