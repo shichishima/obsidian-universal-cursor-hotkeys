@@ -1,4 +1,4 @@
-import { Editor, Plugin, MarkdownView, Scope } from 'obsidian';
+import { Editor, Plugin, MarkdownView } from 'obsidian';
 import { UniversalCursorHotkeysSettingTab, DisplacedCommand } from './settings';
 import { VimSupport } from './vim-support';
 import { InCellLineInfo, getCellBounds, getStartOfCellContent, getEndOfCellContent,
@@ -103,15 +103,6 @@ const BASES_TABLE_CONTAINER_SELECTOR = '.bases-table-container';
 // explicitly claimed-and-no-op'd rather than left to fall through.
 const PROPERTY_ANY_ITEM_SELECTION_SELECTOR =
 	`${PROPERTY_ROW_SELECTOR}, ${PROPERTY_HEADING_SELECTOR}, ${PROPERTY_ADD_BUTTON_SELECTOR}, ${BASES_TABLE_CONTAINER_SELECTOR}`;
-// This dropdown (the "previously used values" suggester, shared by a
-// text value's own history and multi-select/tags' own candidate list)
-// supports NO keyboard navigation natively, confirmed live in the
-// archive implementation — a real physical ArrowDown/Enter left
-// `.is-selected` untouched and committed nothing. Ctrl-N/P navigation
-// here is a from-scratch replacement: toggle `.is-selected` ourselves.
-const PROPERTY_SUGGESTER_SELECTOR = '.suggestion-container.mod-property-value, .suggestion-container.mod-property-key';
-const PROPERTY_SUGGESTER_ITEM_SELECTOR = '.suggestion-item';
-const PROPERTY_SUGGESTER_SELECTED_CLASS = 'is-selected';
 
 // Extend the Obsidian Editor interface to include the internal CodeMirror 6 instance (EditorView)
 declare module "obsidian" {
@@ -262,26 +253,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private propertyGoalX: number | null = null;
 	private killCache: string = '';
 	private _recenterStep = 0; // 0=center, 1=top, 2=bottom
-
-	// feat/property-suggester-scope-override: Obsidian's own built-in
-	// "previously used values" suggester pushes its own app.keymap Scope
-	// the moment a text/multi-select/key-edit property widget is
-	// focused, registering Ctrl-N/Ctrl-P itself (see
-	// project_checkcallback_property_suggester_ctrl_np_swallowed memory)
-	// -- this plugin's own checkCallback never even runs for those two
-	// combos while that scope sits on top, no matter how its own
-	// dispatch logic is written. Fix: push a second, minimal Scope of
-	// our own on top of it from focusin, registering ONLY Ctrl-N/Ctrl-P,
-	// each handler re-invoking the exact same command Obsidian's normal
-	// hotkey resolution would have (via executeObsidianCommand) and
-	// consuming the key. Confirmed live this doesn't regress anything
-	// else: a key NEITHER scope registers (e.g. Ctrl-B/F) still reaches
-	// rootScope's own command-hotkey resolution exactly as before, and
-	// the suggester's own Ctrl-N/Ctrl-P registration (which never does
-	// anything user-visible for this specific dropdown anyway --
-	// confirmed live, see PROPERTY_SUGGESTER_SELECTOR's own comment) is
-	// simply pre-empted, not fallen-through-to.
-	private propertySuggesterOverrideScope: Scope | null = null;
 
 	// Emacs-style Set-mark: session-only, not persisted to settings (real
 	// Emacs's own mark is per-buffer, non-persistent too). The mark position
@@ -1274,57 +1245,9 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// the 'mousedown' listener above — recenter/recenter-top-bottom
 		// themselves only ever scroll, never touching focus, so pressing
 		// Ctrl-L can't self-reset its own cycle through this.
-		this.registerDomEvent(doc, 'focusin', (e: FocusEvent) => {
+		this.registerDomEvent(doc, 'focusin', () => {
 			this.isKillChaining = false;
 			this._recenterStep = 0;
-			this.updatePropertySuggesterOverrideScope(e.target as HTMLElement | null);
-		});
-
-		// Pairs with the focusin handler above: pop our override scope
-		// the moment focus leaves the widget it was pushed for. relatedTarget
-		// is the element GAINING focus -- if it's another PROPERTY_CURSOR_LR_SELECTOR
-		// widget, the focusin handler above will already push a fresh scope
-		// for it, so popping unconditionally here first is safe (same
-		// pop-before-push self-heal convention used elsewhere in this file
-		// for titleScope-equivalent lifecycle hazards).
-		this.registerDomEvent(doc, 'focusout', () => {
-			this.popPropertySuggesterOverrideScope();
-		});
-
-		// Reclaims the top-of-stack position after Obsidian's own
-		// suggester re-filters mid-typing. Confirmed live (multi-select/
-		// tags trailing input specifically): each keystroke that changes
-		// the suggester's query makes Obsidian push a FRESH internal
-		// scope of its own for the updated candidate list, WITHOUT
-		// popping whatever was on top before (ours) -- so by the time a
-		// later Ctrl-N/P is pressed, our scope is buried and swallowed
-		// again, even though it's still technically on the stack
-		// (confirmed via a live getWindowStack identity probe: exists,
-		// but not top). 'input' fires synchronously right after the
-		// DOM/value mutation, and plugin listeners run after Obsidian's
-		// own internal ones registered on the same element earlier
-		// (same ordering guarantee this file already relies on for the
-		// focusin case) -- so re-running the exact same push logic here
-		// re-parents a fresh scope to whatever Obsidian just put on top,
-		// restoring our own priority before the next real keypress.
-		this.registerDomEvent(doc, 'input', (e: Event) => {
-			this.updatePropertySuggesterOverrideScope(e.target as HTMLElement | null);
-		});
-
-		// Second reclaim point, same rationale: closing the suggester
-		// entirely (e.g. Escape, or Ctrl-G's own internal Escape
-		// redispatch) makes Obsidian pop ITS OWN scope -- but our
-		// override scope's .parent reference, fixed at construction
-		// time, still points at that now-detached object and never
-		// re-resolves on its own. Confirmed live this left a SECOND
-		// Ctrl-G press (which correctly exits in the native/no-override
-		// case) unable to ever reach item-selection mode at all, however
-		// many times repeated, while this scope stayed stale. 'keyup'
-		// fires after every key this scope's own handlers (or anything
-		// downstream) could have changed the real stack, so resyncing
-		// here keeps the parent chain fresh for whatever key comes next.
-		this.registerDomEvent(doc, 'keyup', (e: KeyboardEvent) => {
-			this.updatePropertySuggesterOverrideScope(e.target as HTMLElement | null);
 		});
 
 		// Covers the other half 'focusin' above can't: caret movement
@@ -1397,72 +1320,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		});
 	}
 
-	// Pushes propertySuggesterOverrideScope when target is one of the
-	// widgets Obsidian's own "previously used values" suggester can
-	// attach to (PROPERTY_CURSOR_LR_SELECTOR -- the same set Ctrl-P/N/B/F
-	// already dispatch on), pop-before-push (self-heal, matching the
-	// titleScope-equivalent precedent elsewhere in this project: a
-	// command's own internal focus-moving side effect can in rare cases
-	// skip a real focusout for the OLD target, so this must never assume
-	// the scope is already clean). No-op (just pops, via the
-	// pop-before-push call itself) for every other focus target.
-	private updatePropertySuggesterOverrideScope(target: HTMLElement | null) {
-		this.popPropertySuggesterOverrideScope();
-		if (!target?.matches?.(PROPERTY_CURSOR_LR_SELECTOR)) return;
-		// CRITICAL: must parent to whatever scope is currently active
-		// (rootScope if nothing else, or Obsidian's own suggester scope
-		// if one is already pushed for this exact focus event) --
-		// confirmed live that a parent-less Scope() here is a dead end
-		// for every key it doesn't register itself: Scope.handleKey's
-		// own unmatched-key fallback walks .parent, and only rootScope's
-		// end of that chain is wired to command-hotkey-resolution
-		// (checkCallback). Without this, Ctrl-B/F/K/D/W/etc (everything
-		// this plugin ALREADY handles correctly here) silently stop
-		// working the moment this scope is pushed -- caught via
-		// propertyNameEdit.e2e.ts regressing wholesale, not a narrow gap.
-		const win = (target.ownerDocument.defaultView ?? window) as Window;
-		const currentScope = (this.app.keymap as unknown as { getWindowStack(w: Window): { scope: Scope } | undefined })
-			.getWindowStack(win)?.scope;
-		const scope = new Scope(currentScope);
-		scope.register(['Ctrl'], 'N', () => {
-			this.executeObsidianCommand('universal-cursor-hotkeys:cursor-down');
-			return false;
-		});
-		scope.register(['Ctrl'], 'P', () => {
-			this.executeObsidianCommand('universal-cursor-hotkeys:cursor-up');
-			return false;
-		});
-		// Enter only has meaning here while our own Ctrl-N/P navigation
-		// above has a suggester item highlighted -- commit it via a
-		// synthetic click, same as a real mouse click would (confirmed
-		// live this suggester's own native Enter handling, even once
-		// reachable, does NOT commit based on our own `.is-selected`
-		// class -- it tracks the highlighted index via its own internal
-		// state, which our class-only navigation never updates). Returning
-		// true (not registering at all would be equivalent, but we need
-		// the visible-check first) when no suggester is up lets the key
-		// fall through completely untouched -- confirmed live a
-		// registered handler returning non-false still reaches native
-		// default behavior exactly like an unregistered key would.
-		scope.register([], 'Enter', () => {
-			const items = this.getVisibleSuggesterItems(target);
-			const selected = items?.find(item => item.classList.contains(PROPERTY_SUGGESTER_SELECTED_CLASS));
-			if (!selected) return true;
-			selected.click();
-			return false;
-		});
-		this.app.keymap.pushScope(scope);
-		this.propertySuggesterOverrideScope = scope;
-	}
-
-	private popPropertySuggesterOverrideScope() {
-		if (!this.propertySuggesterOverrideScope) return;
-		this.app.keymap.popScope(this.propertySuggesterOverrideScope);
-		this.propertySuggesterOverrideScope = null;
-	}
-
 	onunload() {
-		this.popPropertySuggesterOverrideScope();
 		this.vimSupport.teardown();
 	}
 
@@ -2095,28 +1953,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		return moved;
 	}
 
-	// Scoped to the SAME document as el (popout-window safety) — null
-	// when no suggester is visible there at all.
-	private getVisibleSuggesterItems(el: HTMLElement): HTMLElement[] | null {
-		const container = el.ownerDocument.querySelector(PROPERTY_SUGGESTER_SELECTOR);
-		if (!container) return null;
-		const items = Array.from(container.querySelectorAll(PROPERTY_SUGGESTER_ITEM_SELECTOR)) as HTMLElement[];
-		return items.length > 0 ? items : null;
-	}
-
-	// This plugin's own from-scratch replacement for the up/down
-	// navigation this suggester doesn't support at all natively. Clamps
-	// at either end (a true no-op there, not wrapping).
-	private propertyNavigateSuggester(items: HTMLElement[], forward: boolean) {
-		const currentIndex = items.findIndex(item => item.classList.contains(PROPERTY_SUGGESTER_SELECTED_CLASS));
-		const nextIndex = currentIndex === -1
-			? (forward ? 0 : -1)
-			: currentIndex + (forward ? 1 : -1);
-		if (nextIndex < 0 || nextIndex >= items.length) return;
-		if (currentIndex !== -1) items[currentIndex].classList.remove(PROPERTY_SUGGESTER_SELECTED_CLASS);
-		items[nextIndex].classList.add(PROPERTY_SUGGESTER_SELECTED_CLASS);
-		items[nextIndex].scrollIntoView({ block: 'nearest' });
-	}
 
 	// True when the Selection's own focus sits at the very start of el's
 	// text content — used by propertyMoveCharOrNoop below to detect the
@@ -2347,35 +2183,22 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 	// Ctrl-P/N's own dispatcher once we already know focus is somewhere
-	// inside PROPERTY_CURSOR_LR_SELECTOR — this is the real "complex
-	// branching" this sample exists to exercise: date/datetime are a
-	// true no-op (confirmed platform wall), the name/key-edit input and
-	// multi-select only ever navigate their own suggester (never a line
-	// move — neither has a multi-line concept), and a plain text value
-	// tries the real visual-line move FIRST, falling back to suggester
-	// navigation only once that's confirmed impossible (matches how the
-	// suggester can be open from focus alone for a reused value, unlike
-	// multi-select's own "only opens while typing" suggester).
+	// inside PROPERTY_CURSOR_LR_SELECTOR. date/datetime are a true no-op
+	// (confirmed platform wall). The name/key-edit input and multi-select
+	// have no multi-line concept of their own, so they're a no-op here
+	// too whenever this even runs -- and it only ever does while no
+	// suggester is visibly open: Obsidian's own built-in suggester (the
+	// same one backing the command palette/quick switcher) pushes its
+	// own app.keymap Scope the instant it's shown, registering Ctrl-N/P
+	// itself (see project_checkcallback_property_suggester_ctrl_np_swallowed
+	// memory) -- so this checkCallback never runs while it's up, and
+	// Obsidian's native handling takes over navigating/cycling the
+	// suggester instead, with a correctly-working Enter-commit, confirmed
+	// live to need zero code from this plugin.
 	private propertyMoveLineOrNoop(el: HTMLElement, forward: boolean) {
 		if (el.matches(PROPERTY_DATE_TYPE_SELECTOR)) return;
-		if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) {
-			const items = this.getVisibleSuggesterItems(el);
-			if (items) this.propertyNavigateSuggester(items, forward);
-			return;
-		}
-		if (el.matches(PROPERTY_MULTISELECT_INPUT_SELECTOR)) {
-			const items = this.getVisibleSuggesterItems(el);
-			if (items) {
-				this.propertyNavigateSuggester(items, forward);
-				return;
-			}
-		}
-		if (el.matches(PROPERTY_VALUE_EDIT_SELECTOR)) {
-			if (this.propertyValueEditMoveLine(el, forward)) return;
-			const items = this.getVisibleSuggesterItems(el);
-			if (items) this.propertyNavigateSuggester(items, forward);
-			return;
-		}
+		if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) return;
+		if (el.matches(PROPERTY_MULTISELECT_INPUT_SELECTOR)) return;
 		this.propertyValueEditMoveLine(el, forward);
 	}
 

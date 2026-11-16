@@ -416,23 +416,21 @@ first body line
 		await expect(after.isRow).toBe(true) // Ctrl-G successfully exited to item-selection mode, not permanently shadowed
 	})
 
-	// Separate gap, same investigation: the multi-select "previously used
-	// values" suggester (list/tags/aliases) has ZERO keyboard navigation of
-	// its own -- confirmed live that a real physical ArrowDown, this
-	// plugin's own Ctrl-N, and a real physical Enter all leave its
-	// .is-selected class completely unchanged, and Enter doesn't commit the
-	// highlighted item either, it just inserts the literally-typed prefix
-	// as a brand-new pill with the suggester left open. Ctrl-N/P now drive
-	// a from-scratch highlight (moving the suggester's own .is-selected
-	// class between .suggestion-item siblings, clamped at both ends rather
-	// than wrapping, matching this plugin's convention everywhere else),
-	// and a bare Enter registered directly on propertyRowScope (same
-	// precedent as the existing bare-Escape pass-through) commits the
-	// highlighted item via a synthetic MouseEvent('click') -- confirmed
-	// live this reliably completes the typed prefix to the clicked item's
-	// own full value, unlike synthetic KeyboardEvents elsewhere in this
-	// codebase, which are known-unreliable for anything Keymap-adjacent.
-	it('(10) Ctrl-N/P navigate the multi-select suggester (no native keyboard support of its own); Enter commits the highlighted item', async function () {
+	// Separate gap, same investigation -- CORRECTED (see
+	// project_checkcallback_property_suggester_ctrl_np_swallowed memory):
+	// an earlier diagnostic wrongly concluded the multi-select "previously
+	// used values" suggester (list/tags/aliases) had zero native keyboard
+	// navigation of its own, because it only ever checked whether the
+	// EDITOR's own text cursor moved while the suggester was open (it
+	// correctly doesn't -- Obsidian's own suggester Scope, the same `Dd`
+	// chooser class backing the command palette/quick switcher, claims
+	// Ctrl-N/P before this plugin's checkCallback ever runs). It never
+	// checked whether the suggester's OWN highlight moved -- re-tested
+	// live with a real multi-item fixture and real browser.keys(): it
+	// does, correctly, and CYCLICALLY (wraps past either end), and a
+	// plain native Enter commits the highlighted item with zero plugin
+	// code involved.
+	it('(10) Ctrl-N/P navigate the multi-select suggester NATIVELY (cyclic); Enter commits the highlighted item', async function () {
 		const notePath = 'PropertyOtherTypesSuggesterNav.md'
 		const seedPaths = [
 			'PropertyOtherTypesSuggesterNavSeed0.md',
@@ -480,7 +478,7 @@ first body line
 
 		const initial = await getSelected()
 		await expect(initial.count).toBe(3) // confirms the suggester genuinely has 3 items to navigate
-		await expect(initial.selectedText).toBe('testbeta') // Obsidian's own suggester auto-highlights the first item by default, but (confirmed live) ignores every keyboard input that would normally move it
+		await expect(initial.selectedText).toBe('testbeta') // Obsidian's own suggester auto-highlights the first item natively
 
 		await browser.keys(['Control', 'n'])
 		await browser.pause(150)
@@ -490,15 +488,15 @@ first body line
 		await browser.pause(150)
 		await expect((await getSelected()).selectedText).toBe('testgamma')
 
-		await browser.keys(['Control', 'n']) // already at the last item -- confirms boundary clamping, not wrap-around
+		await browser.keys(['Control', 'n']) // already at the last item -- NATIVE behavior wraps back to the first, it does not clamp
+		await browser.pause(150)
+		await expect((await getSelected()).selectedText).toBe('testbeta')
+
+		await browser.keys(['Control', 'p']) // wraps the other direction too, back past the first item to the last
 		await browser.pause(150)
 		await expect((await getSelected()).selectedText).toBe('testgamma')
 
-		await browser.keys(['Control', 'p'])
-		await browser.pause(150)
-		await expect((await getSelected()).selectedText).toBe('testalpha')
-
-		await browser.keys(['Enter']) // commits the currently-highlighted item via a synthetic click
+		await browser.keys(['Enter']) // commits the currently-highlighted item -- fully native, no plugin code involved
 		await browser.pause(300)
 
 		const committed = await browser.executeObsidian(({ app, obsidian }, propertyKey) => {
@@ -507,7 +505,7 @@ first body line
 			const pills = Array.from(row.querySelectorAll('.multi-select-pill')).map(p => p.textContent)
 			return { pills }
 		}, 'tags')
-		await expect(committed.pills).toContain('testalpha') // the typed "test" prefix completed to the clicked item's own full value
+		await expect(committed.pills).toContain('testgamma') // the typed "test" prefix completed to the highlighted item's own full value
 
 		// Regression: Enter with no suggester visible is completely
 		// untouched native behavior (commits a brand-new pill), not
@@ -530,12 +528,11 @@ first body line
 		await expect(afterPlainEnter.pills).toContain('zzzzz')
 	})
 
-	// Separate gap found while using test (10)'s own feature: navigating
-	// past the suggester's own visible window left the newly-highlighted
-	// item scrolled out of view entirely -- toggling .is-selected alone
-	// doesn't auto-scroll the way a real native list's own keyboard
-	// navigation would. Fixed with items[nextIndex].scrollIntoView({
-	// block: 'nearest' }) in propertyNavigateSuggester.
+	// Confirms Obsidian's own NATIVE suggester navigation (see test (10)'s
+	// own corrected comment) keeps the highlighted item scrolled into
+	// view by itself past its own visible window -- no plugin code
+	// involved here at all, just the same native Ctrl-N the command
+	// palette/quick switcher already use.
 	it('(11) Ctrl-N scrolls the suggester to keep the highlighted item visible past its own window', async function () {
 		const notePath = 'PropertyOtherTypesSuggesterScroll.md'
 		const seedCount = 15
@@ -598,7 +595,7 @@ first body line
 	// shape as test (10), just entering the widget via Ctrl-F (text's
 	// own value-edit widget, not a multi-select pill/trailing input) and
 	// checking the committed VALUE directly rather than a pill list.
-	it('(12) Ctrl-N/P navigate a plain TEXT value\'s own suggester; Enter commits the highlighted item', async function () {
+	it('(12) Ctrl-N/P navigate a plain TEXT value\'s own suggester NATIVELY (cyclic); Enter commits the highlighted item', async function () {
 		const notePath = 'PropertyOtherTypesTextSuggesterNav.md'
 		const seedPaths = [
 			'PropertyOtherTypesTextSuggesterNavSeed0.md',
@@ -644,7 +641,7 @@ first body line
 
 		const initial = await getSelected()
 		await expect(initial.count).toBe(3)
-		await expect(initial.selectedText).toBe('testbeta') // Obsidian's own suggester auto-highlights the first item by default
+		await expect(initial.selectedText).toBe('testbeta') // Obsidian's own suggester auto-highlights the first item natively
 
 		await browser.keys(['Control', 'n'])
 		await browser.pause(150)
@@ -654,15 +651,15 @@ first body line
 		await browser.pause(150)
 		await expect((await getSelected()).selectedText).toBe('testgamma')
 
-		await browser.keys(['Control', 'n']) // already at the last item -- confirms boundary clamping, not wrap-around
+		await browser.keys(['Control', 'n']) // already at the last item -- NATIVE behavior wraps back to the first, it does not clamp
+		await browser.pause(150)
+		await expect((await getSelected()).selectedText).toBe('testbeta')
+
+		await browser.keys(['Control', 'p']) // wraps the other direction too, back past the first item to the last
 		await browser.pause(150)
 		await expect((await getSelected()).selectedText).toBe('testgamma')
 
-		await browser.keys(['Control', 'p'])
-		await browser.pause(150)
-		await expect((await getSelected()).selectedText).toBe('testalpha')
-
-		await browser.keys(['Enter']) // commits the currently-highlighted item via a synthetic click
+		await browser.keys(['Enter']) // commits the currently-highlighted item -- fully native, no plugin code involved
 		await browser.pause(300)
 
 		const committed = await browser.executeObsidian(({ app, obsidian }, propertyKey) => {
@@ -671,7 +668,7 @@ first body line
 			const value = row.querySelector('.metadata-input-longtext') as HTMLElement
 			return { text: value.textContent }
 		}, 'mytext')
-		await expect(committed.text).toBe('testalpha') // the typed "test" prefix completed to the clicked item's own full value
+		await expect(committed.text).toBe('testgamma') // the typed "test" prefix completed to the highlighted item's own full value
 
 		// Regression: Enter with no suggester visible is completely
 		// untouched native behavior, not swallowed by the new bare-Enter

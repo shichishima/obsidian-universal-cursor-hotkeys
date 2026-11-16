@@ -21,11 +21,16 @@ import { describe, it, after } from 'mocha'
 // this phase was planned, see project memory
 // project_property_other_types_ctrl_g_pnbf_scope's sibling note), so
 // they stay a true no-op there -- EXCEPT while this field's own
-// "previously used property names" suggester is visible, where Ctrl-N/P
-// now navigate it and Enter commits the highlighted item (added later,
-// same mechanism as the multi-select value-suggester's own navigation --
-// see test (14) below and PROPERTY_SUGGESTER_SELECTOR's own comment in
-// src/main.ts).
+// "previously used property names" suggester is visible: Obsidian's own
+// built-in suggester (the same one backing the command palette/quick
+// switcher) pushes its own app.keymap Scope the instant it's shown and
+// registers Ctrl-N/P itself, so this plugin's checkCallback never even
+// runs then -- and Obsidian's native handling takes over navigating
+// (correctly, CYCLICALLY) and committing via Enter, confirmed live to
+// need zero code from this plugin (see test (14) below and
+// project_checkcallback_property_suggester_ctrl_np_swallowed memory for
+// the full writeup, including the earlier, incorrect "native nav does
+// nothing" diagnosis this corrects).
 describe('Property panel: NAME (key) field editing', function () {
 	const createdPaths: string[] = []
 
@@ -289,16 +294,21 @@ first body line
 		await expect(isRow).toBe(true) // Ctrl-G still works -- the scope wasn't left shadowed
 	})
 
-	// Separate feature, added later: this field's own "previously used
-	// property names" suggester (confirmed live to share the exact same
-	// DOM shape -- `.suggestion-container.mod-property-key` -- and the
-	// exact same lack of any native keyboard support as the multi-select
-	// value-suggester) now gets the SAME from-scratch Ctrl-N/P
-	// navigation and Enter-to-commit already shipped for that one, just
-	// by broadening PROPERTY_SUGGESTER_SELECTOR. See
-	// propertyOtherTypesCtrlGPnbf.e2e.ts's own test (10) for the
-	// original investigation this reuses.
-	it('(14) Ctrl-N/P navigate this field\'s own suggester; Enter commits the highlighted item', async function () {
+	// Separate feature, confirmed live (not this plugin's own code): this
+	// field's own "previously used property names" suggester shares the
+	// exact same `Dd` chooser class and `.suggestion-container.mod-
+	// property-key` markup as the command palette/quick switcher, which
+	// natively registers Ctrl-N/P on its own app.keymap Scope and cycles
+	// (wraps past either end) -- an EARLIER diagnostic wrongly concluded
+	// this suggester had no native keyboard support at all (it only ever
+	// checked whether the EDITOR's own text cursor moved while the
+	// suggester was open, which it correctly doesn't -- it never checked
+	// whether the suggester's own highlight moved). See
+	// project_checkcallback_property_suggester_ctrl_np_swallowed memory
+	// for the full correction and propertyOtherTypesCtrlGPnbf.e2e.ts's
+	// own test (10) for the same re-confirmation on the multi-select
+	// value-suggester.
+	it('(14) Ctrl-N/P navigate this field\'s own suggester NATIVELY (cyclic); Enter commits the highlighted item', async function () {
 		const seedPaths = [
 			'PropNameSuggesterNavSeed0.md',
 			'PropNameSuggesterNavSeed1.md',
@@ -338,7 +348,7 @@ first body line
 			return items.find(i => i.classList.contains('is-selected'))?.textContent ?? null
 		})
 
-		await expect(await getSelected()).toBe('testbeta') // Obsidian's own suggester auto-highlights the first item, but ignores keyboard input that would normally move it
+		await expect(await getSelected()).toBe('testbeta') // Obsidian's own suggester auto-highlights the first item natively
 
 		await browser.keys(['Control', 'n'])
 		await browser.pause(150)
@@ -348,15 +358,15 @@ first body line
 		await browser.pause(150)
 		await expect(await getSelected()).toBe('testgamma')
 
-		await browser.keys(['Control', 'n']) // already at the last item -- boundary clamping, not wrap-around
+		await browser.keys(['Control', 'n']) // already at the last item -- NATIVE behavior wraps back to the first, it does not clamp
+		await browser.pause(150)
+		await expect(await getSelected()).toBe('testbeta')
+
+		await browser.keys(['Control', 'p']) // wraps the other direction too, back past the first item to the last
 		await browser.pause(150)
 		await expect(await getSelected()).toBe('testgamma')
 
-		await browser.keys(['Control', 'p'])
-		await browser.pause(150)
-		await expect(await getSelected()).toBe('testalpha')
-
-		await browser.keys(['Enter']) // commits the currently-highlighted item via a synthetic click
+		await browser.keys(['Enter']) // commits the currently-highlighted item -- fully native, no plugin code involved
 		await browser.pause(300)
 
 		const afterCommit = await browser.executeObsidian(({ app, obsidian }) => {
@@ -364,6 +374,6 @@ first body line
 			const row = view.containerEl.querySelector('.metadata-property') as HTMLElement
 			return { propertyKey: row.getAttribute('data-property-key') }
 		})
-		await expect(afterCommit.propertyKey).toBe('testalpha')
+		await expect(afterCommit.propertyKey).toBe('testgamma')
 	})
 })
