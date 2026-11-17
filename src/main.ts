@@ -1027,7 +1027,39 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: 'page-down',
 			name: 'Page down',
 			repeatable: true,
-			editorCallback: (editor: Editor) => {
+			// Converted from editorCallback (confirmed live, as part of the
+			// Bases-native-shortcut-collision investigation): an
+			// editorCallback command has no DOM-focus awareness of its own
+			// -- Obsidian's own built-in gating for it just checks "is there
+			// an active MarkdownView/editor right now," ignoring
+			// activeDocument.activeElement entirely. With a bare PageDown
+			// Key Upgrade bound, that meant this ran against the HOST
+			// note's own body editor whenever a Bases table was embedded in
+			// a note (`![[some.base]]`) and real focus was on the Bases
+			// cell-selection container -- the exact same class of bug
+			// Set-mark's own Ctrl-Space had, just via Obsidian's built-in
+			// editorCallback dispatch instead of this plugin's own
+			// checkCallback logic. Fixed the same way: an explicit
+			// BASES_TABLE_CONTAINER_SELECTOR branch ahead of the generic
+			// editor fallback.
+			//
+			// This does NOT restore Bases' own native page-scroll, though:
+			// confirmed live (document-level capturing keydown probe) that
+			// once a bare Page Up/Down is registered to ANY command via a
+			// Key Upgrade, the real physical keypress never becomes a DOM
+			// keydown event at all, in either the standalone-tab or
+			// embedded case -- the same architectural wall already
+			// confirmed unfixable for bare Home/End (see tests/E2E.md's
+			// "Bases native-shortcut collisions" section). Returning false
+			// here only stops this plugin from corrupting the host body;
+			// it can't make the event reach Bases' own listener, which
+			// never sees it either way.
+			checkCallback: (checking: boolean) => {
+				const el = activeDocument.activeElement as HTMLElement | null;
+				if (el?.matches?.(BASES_TABLE_CONTAINER_SELECTOR)) return false;
+				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
+				if (!editor) return false;
+				if (checking) return true;
 				if (this.isComposing(editor)) return;
 				this.pageDown(editor);
 			}
@@ -1037,7 +1069,15 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: 'page-up',
 			name: 'Page up',
 			repeatable: true,
-			editorCallback: (editor: Editor) => {
+			// See page-down's own identical branch above for the confirmed
+			// root cause and why the Bases-native-paging gap itself remains
+			// unfixed.
+			checkCallback: (checking: boolean) => {
+				const el = activeDocument.activeElement as HTMLElement | null;
+				if (el?.matches?.(BASES_TABLE_CONTAINER_SELECTOR)) return false;
+				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
+				if (!editor) return false;
+				if (checking) return true;
 				if (this.isComposing(editor)) return;
 				this.pageUp(editor);
 			}

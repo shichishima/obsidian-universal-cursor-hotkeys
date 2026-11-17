@@ -3803,5 +3803,86 @@ independent question from Bases' own confirmed-unfixable column state
 and would need its own investigation. Left for a future branch, not
 assumed fixed or broken beyond what's noted here.
 
-Deliberately out of scope / still pending: Page Up/Down, expected
-(not yet confirmed) to share this same wall once investigated.
+### `fix/bases-page-up-down-collision` — PARTIALLY FIXED: real regression fixed, native paging confirmed unfixable
+
+Fourth and final item on this branch. Turned out to be a hybrid of the
+Ctrl-Space and Home/End outcomes above, not a repeat of either —
+investigated fresh rather than assuming it would match one of them.
+
+`page-up`/`page-down` were the only commands on this whole
+investigation registered with a plain `editorCallback` instead of
+`checkCallback` — Obsidian's own built-in gating for an editorCallback
+command just checks "is there an active MarkdownView/editor right
+now," with no `activeDocument.activeElement` awareness at all, unlike
+every other command here (which decides availability itself inside its
+own checkCallback).
+
+Confirmed live via two document-level capturing `keydown` probes (one
+per scenario) plus real cursor-position checks:
+
+- **Standalone Bases tab:** unaffected by this particular bug — no
+  MarkdownView exists there, so Obsidian's own built-in editorCallback
+  gating already silently declined to run the command, before this
+  fix and after it alike.
+- **Bases embedded in a note (`![[some.base]]`):** a real
+  MarkdownView/editor genuinely exists (the HOST note), so Obsidian's
+  built-in gating let `pageDown(editor)` run directly against it —
+  moving the host body's own cursor while real focus was visibly on
+  the Bases cell-selection container. Confirmed live on a 3-line host
+  document: cursor moved from `{line:0,ch:0}` to `{line:3,ch:0}` on a
+  bare PageDown with a Key Upgrade bound. This is the exact same class
+  of bug Set-mark's own Ctrl-Space had, just reached through Obsidian's
+  built-in editorCallback dispatch instead of this plugin's own
+  checkCallback logic.
+
+Fix: converted `page-up`/`page-down` to `checkCallback`, mirroring
+every other command investigated on this branch, with an explicit
+`BASES_TABLE_CONTAINER_SELECTOR` branch returning `false` ahead of the
+generic editor fallback — same shape as Set-mark's own Ctrl-Space fix.
+Confirmed live this fixes the embedded-case regression (host cursor
+now stays put). No other call sites reference `pageUp`/`pageDown`
+directly, and `setMarkPageUpDown.e2e.ts` (the Set-mark/`markActive`
+interaction this conversion had to preserve) still passes unchanged.
+
+What this fix does NOT do: restore Bases' own native page-scroll.
+Confirmed live, in BOTH the standalone and embedded case, via the same
+document-level capturing-listener technique used for Home/End: once a
+bare Page Up/Down is registered to ANY command via a Key Upgrade, the
+real physical keypress never becomes a DOM `keydown` event at all. A
+direct `app.js` read confirms Bases' own Page Up/Down handling shares
+the IDENTICAL keydown function, the identical bare-key-only gate
+(`e.key.match(/^(Arrow|Page|Home|End)/)` with no `metaKey`/`ctrlKey`),
+and the identical private `this.activeCell`/`this.selection` state
+already confirmed unfixable for ArrowUp/Down and Home/End — it steps
+by a page's worth of rows (`Math.floor((viewportHeight)/rowHeight)`)
+instead of one, nothing else differs. So returning `false` only stops
+this plugin from corrupting the host body; it can never make the real
+key reach Bases' own listener, which never sees it either way, in
+either Bases context.
+
+✅ `basesPageUpDownCollision.e2e.ts`: (1) standalone tab, confirms the
+bare-key case is a safe no-op (no crash) — not a fixed-behavior
+assertion, matching this project's convention for a confirmed-
+unfixable gap (`propertyCtrlG.e2e.ts` (7), `propertyNameEdit.e2e.ts`
+(12)). (2) embedded case, confirms the host cursor genuinely stays put
+now (red before this fix, green after). No regression in
+`setMarkPageUpDown.e2e.ts`, `basesCellNavigation.e2e.ts`,
+`basesPropertyEditing.e2e.ts`, `basesRecenter.e2e.ts`,
+`basesSetMarkSelectColumn.e2e.ts`, `basesHomeEndColumnJump.e2e.ts`, or
+`basesArrowKeyUpgradeSelfCollision.e2e.ts` — all green, 7 files.
+
+This was the last item on `fix/bases-native-shortcut-collisions`. All
+four Bases-native-shortcut-collision items are now resolved to the
+fullest extent this plugin's own architecture allows: one fully fixed
+(Ctrl-Space), one partially fixed (Page Up/Down — real regression
+fixed, native paging unfixable), two confirmed architecturally
+unfixable with only harmless cleanup applied (Home/End, ArrowUp/Down
+self-collision). The remaining unfixable pieces all share one root
+cause — bare keys claimed via Key Upgrades' global `hm.setHotkeys()`
+registration consuming the real keypress before it ever becomes a DOM
+event — tracked for a possible fix under the 0.13.1 Key Upgrades
+scope-based rearchitecture candidate (see
+`project_key_upgrades_scope_based_rearchitecture_0_13_1` memory), not
+reattempted here. `cursor-left`/`cursor-right`'s own analogous Bases
+self-collision (noted above, left unfixed) remains a separate,
+not-yet-scheduled future item.

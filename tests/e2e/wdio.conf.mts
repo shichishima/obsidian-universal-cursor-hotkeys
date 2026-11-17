@@ -91,6 +91,7 @@ export const config: WebdriverIO.Config = {
 		'./specs/basesSetMarkSelectColumn.e2e.ts',
 		'./specs/basesHomeEndColumnJump.e2e.ts',
 		'./specs/basesArrowKeyUpgradeSelfCollision.e2e.ts',
+		'./specs/basesPageUpDownCollision.e2e.ts',
 		'./specs/frontmatterRecenter.e2e.ts',
 		'./specs/titleCrossingFrontmatter.e2e.ts',
 	]],
