@@ -89,6 +89,7 @@ export const config: WebdriverIO.Config = {
 		'./specs/basesCellNavigation.e2e.ts',
 		'./specs/basesRecenter.e2e.ts',
 		'./specs/basesSetMarkSelectColumn.e2e.ts',
+		'./specs/basesHomeEndColumnJump.e2e.ts',
 		'./specs/frontmatterRecenter.e2e.ts',
 		'./specs/titleCrossingFrontmatter.e2e.ts',
 	]],
