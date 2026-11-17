@@ -1835,7 +1835,6 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const adjustedX = goalX - titleStartX + bodyLineStartX;
 
 		const pos = cm.posAtCoords({ x: adjustedX, y: targetY }, false);
-		view.editor.focus();
 		this.titleGoalX = null; // leaving the title; the body has its own separate goal-column system
 		if (pos != null) {
 			// Seed CM6's own native goalColumn, not a plain
@@ -1854,6 +1853,19 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				userEvent: 'move',
 			});
 		}
+		// Dispatch BEFORE focus, not after: confirmed live that
+		// EditorView.focus() synchronously redraws CM6's own cursor
+		// widget against whatever selection the view CURRENTLY holds
+		// (Obsidian's own app.js: `focus(){this.observer.ignore(()=>
+		// {Aq(this.contentDOM),this.docView.updateSelection()})}`) —
+		// calling it before the dispatch above redrew the cursor at the
+		// body's stale/default position, and the getBoundingClientRect()
+		// read just above forced the browser to flush/paint that stale
+		// redraw before the corrective dispatch could ever run, causing
+		// a one-frame visible flash at the body's left edge. Calling
+		// focus() last means its one-and-only redraw reads the
+		// already-corrected selection instead.
+		view.editor.focus();
 	}
 
 	// Ctrl-P at the body's own absolute top (line 0, Live Preview only —
