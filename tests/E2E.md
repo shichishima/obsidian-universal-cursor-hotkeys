@@ -3571,3 +3571,74 @@ by switching to `el.closest(...)`, which finds the right ancestor either
 way (confirmed it still has everything `recenterBases`/
 `recenterTopBottomBases` need: a `.bases-view` ancestor and a
 `.bases-table-active-cell` descendant).
+
+## Bases native-shortcut collisions (fix/bases-native-shortcut-collisions)
+
+Separate follow-up work, off `develop`, investigating hotkey collisions
+between this plugin's own command surface and Bases' own native,
+non-command keyboard shortcuts in cell-selection mode (see
+https://obsidian.md/help/bases/views/table#Shortcuts). Each confirmed
+collision gets its own sub-branch and its own fix.
+
+### `fix/bases-ctrl-space-select-column-collision` — FIXED
+
+Set-mark (Ctrl-Space) silently swallowed Bases' own native "select
+column" shortcut, which shares the exact same key combo.
+
+Root cause, confirmed live via a diagnostic E2E probe (`executeObsidian`
+reading the command's own `checkCallback(true)` result directly) plus a
+direct read of Obsidian's own `app.js` (extracted from `obsidian.asar`
+via `npx asar extract`, the same technique already used elsewhere in
+this project): Bases' cell-selection-mode Ctrl-Space is NOT an Obsidian
+command at all — it's a plain `addEventListener('keydown', ...)` on
+`.bases-table-container` itself, gated at its own very first line on
+`event.defaultPrevented` already being true (`if(a.isComposing||a.defaultPrevented)return`,
+then later `if(a.key===" "&&a.ctrlKey){...}`). `set-mark`'s own
+checkCallback had no `BASES_TABLE_CONTAINER_SELECTOR` branch of its
+own, so it fell through to the shared `PROPERTY_ANY_ITEM_SELECTION_SELECTOR`
+check — which bundles the Bases container together with Properties'
+row/heading/Add-button, none of which have a meaningful Ctrl-Space
+action — and claimed-and-no-op'd the key. Obsidian's own Keymap still
+calls `preventDefault()` on the real keydown event once ANY command's
+checkCallback reports it as handled, so by the time that event would
+otherwise reach Bases' own listener, `defaultPrevented` is already
+true and the listener bails out immediately, before ever checking
+`key`/`ctrlKey` at all.
+
+Confirmed via the same live probe that this reproduces identically
+whether the Bases table is its own standalone tab (no MarkdownView/
+editor exists at all under it) or embedded in a note via
+`![[some.base]]` (a real MarkdownView DOES exist underneath, for the
+HOST note) — neither case's outcome has anything to do with whether a
+MarkdownView/editor happens to exist; `set-mark`'s checkCallback runs
+purely off `activeDocument.activeElement` matching
+`.bases-table-container`, well before it would ever reach the
+MarkdownView-dependent fallback at the bottom of the function. (This
+rules out an initially-suspected, different mechanism — Key-Upgrades-
+style registration-level Keymap consumption independent of
+checkCallback's own result — the live probe showed checkCallback
+itself was returning `true` in both cases, a straightforward
+checkCallback-logic bug, not that class of bug.)
+
+Fix: `set-mark`'s checkCallback now checks `BASES_TABLE_CONTAINER_SELECTOR`
+explicitly, ahead of `PROPERTY_ANY_ITEM_SELECTION_SELECTOR`, and
+returns `false` (not claimed) instead of `true`-and-no-op — letting
+the real keydown event reach Bases' own native listener untouched, in
+both the standalone and embedded case alike. Verified via a real
+`browser.keys(['Control', ' '])` press that Bases' own native column
+selection (the `.bases-table-selection` element it adds to the DOM)
+actually appears afterward, in both cases — not just that this
+plugin's own command backs off.
+
+✅ `basesSetMarkSelectColumn.e2e.ts` (1) standalone tab, (2) embedded
+in a note. No regression in `basesCellNavigation.e2e.ts`,
+`basesRecenter.e2e.ts`, `basesPropertyEditing.e2e.ts` (Bases-detection
+code shared with this fix), or `propertyValueEditSetMark.e2e.ts`/
+`propertyItemSelection.e2e.ts`/`propertyOtherTypesCtrlGPnbf.e2e.ts`
+(Properties' own row/heading/Add-button no-op behavior, which this fix
+deliberately left unchanged — all re-run together, all green).
+
+Deliberately out of scope for this sub-branch: Home/End's analogous
+`.bases-table-container` gap (column-jump), the ArrowUp/Down Key
+Upgrade self-collision specifically for Bases, and Page Up/Down — each
+gets its own separate sub-branch off `fix/bases-native-shortcut-collisions`.
