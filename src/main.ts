@@ -312,6 +312,42 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 					}
 					return true;
 				}
+				if (el?.matches?.(BASES_TABLE_CONTAINER_SELECTOR)) {
+					// Confirmed live (same diagnostic technique as set-mark's
+					// own Ctrl-Space fix) plus a direct read of Obsidian's own
+					// app.js: Bases' cell-selection-mode bare Home/End ("jump
+					// to first/last column") is handled the same way Ctrl-Space
+					// is for an ordinary modifier-combo hotkey -- a plain
+					// `addEventListener('keydown', ...)` on
+					// `.bases-table-container` itself, gated on
+					// `event.defaultPrevented`. Returning false here is correct
+					// and sufficient for Ctrl-A/E (macOS-style keybindings):
+					// Bases never acts on that combo anyway (its own check is
+					// `!event.metaKey&&!event.ctrlKey`), so leaving it unhandled
+					// is identical in effect to the old claim-and-no-op.
+					//
+					// It does NOT help the bare Home/End case (only reachable
+					// here via a Key Upgrade, since the Hotkeys UI itself can't
+					// capture a bare Home/End) -- confirmed live via
+					// `executeObsidian` that the REAL physical keypress never
+					// becomes a DOM `keydown` event at all once bare Home/End is
+					// registered to ANY command (a document-level capturing
+					// listener saw nothing), and that actively redispatching a
+					// synthetic bare Home/End from here (mirroring
+					// propertyNativeArrowFallback) ALSO produces no observable
+					// event -- the exact same "once ANY command claims a hotkey
+					// Obsidian's Keymap consumes it unconditionally regardless
+					// of a recursive call's own return value" wall already
+					// documented on isBareArrowKeyUpgradeSelfBound above, just
+					// confirmed independently for Home/End. Unlike that
+					// Properties-row case, there's no manual equivalent to fall
+					// back to here (Bases' active-cell/column state is private,
+					// internal, grouping/virtualization-aware state this plugin
+					// has no access to) -- this is a confirmed, unfixable
+					// architectural limitation, not a gap left for later. See
+					// tests/E2E.md's "Bases native-shortcut collisions" section.
+					return false;
+				}
 				if (el?.matches?.(PROPERTY_ANY_ITEM_SELECTION_SELECTOR)) {
 					return true; // no meaning here; claim the key and do nothing
 				}
@@ -340,6 +376,17 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 						else this.titleMoveToLineBoundary(el, true);
 					}
 					return true;
+				}
+				if (el?.matches?.(BASES_TABLE_CONTAINER_SELECTOR)) {
+					// See cursor-home's own identical branch above for the
+					// confirmed root cause: returning false is correct and
+					// sufficient for Ctrl-A/E, but does NOT fix the bare-Home/
+					// End-via-Key-Upgrade case -- that's a confirmed, unfixable
+					// architectural wall (Obsidian's Keymap consumes a
+					// registered bare key before it ever becomes a DOM event,
+					// regardless of checkCallback's return value or any
+					// synthetic redispatch), not a gap left for later.
+					return false;
 				}
 				if (el?.matches?.(PROPERTY_ANY_ITEM_SELECTION_SELECTOR)) {
 					return true; // no meaning here; claim the key and do nothing
