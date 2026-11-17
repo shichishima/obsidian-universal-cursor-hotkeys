@@ -1018,6 +1018,28 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 					}
 					return true;
 				}
+				if (el?.matches?.(BASES_TABLE_CONTAINER_SELECTOR)) {
+					// Confirmed live (via a diagnostic E2E probe plus a direct
+					// read of Obsidian's own app.js): Bases' cell-selection-mode
+					// Ctrl-Space ("select column") is NOT an Obsidian command at
+					// all -- it's a plain `addEventListener('keydown', ...)` on
+					// `.bases-table-container` itself, gated on
+					// `a.key===' '&&a.ctrlKey` against the REAL keydown event,
+					// bailing out immediately if `a.defaultPrevented` is already
+					// true. Unlike Properties' row/heading/Add-button (grouped
+					// with this selector in PROPERTY_ANY_ITEM_SELECTION_SELECTOR
+					// below, where Ctrl-Space genuinely has no meaning), Bases
+					// DOES have a native action here -- so this plugin must
+					// return false and let the real keydown event reach that
+					// listener uninterrupted, not claim-and-no-op like the
+					// Properties targets. Confirmed this happened identically
+					// whether the Bases table was its own standalone tab or
+					// embedded in a note (`![[some.base]]`): both cases hit this
+					// same checkCallback purely off activeElement, with no
+					// relation to whether a MarkdownView/editor happens to also
+					// exist underneath.
+					return false;
+				}
 				if (el?.matches?.(PROPERTY_ANY_ITEM_SELECTION_SELECTOR)) {
 					return true; // no meaning here; claim the key and do nothing
 				}
