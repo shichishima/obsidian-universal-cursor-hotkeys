@@ -3715,3 +3715,93 @@ Deliberately out of scope / separately pending, now understood to very
 likely share this exact wall once investigated: the ArrowUp/Down Key
 Upgrade self-collision specifically for Bases (its own sub-branch), and
 Page Up/Down.
+
+### `fix/bases-arrow-key-upgrade-self-collision` — CONFIRMED UNFIXABLE (architectural), harmless no-op cleaned up
+
+Third item: `cursor-up`/`cursor-down`'s Bases branch delegates row
+navigation to Bases' own native handling via a synthetic bare-arrow
+dispatch (`propertyNativeArrowFallback`). When a Key Upgrade ALSO binds
+that exact bare key to the SAME command — the only way a bare arrow
+reaches this plugin's checkCallback at all — the dispatch re-enters the
+command's own checkCallback instead of ever reaching Bases' native
+listener. The identical mechanism was already confirmed and fixed for
+the analogous Properties-row case (`isBareArrowKeyUpgradeSelfBound`/
+`propertyRowMoveUp`/`propertyRowMoveDown`, see
+`propertyKeyUpgradeInterference.e2e.ts`), and was separately confirmed
+but left unfixed against Bases at that time (see that fix's own commit
+message, `6a9430a`) — this sub-branch is where that deferred piece
+belongs.
+
+Confirmed live via a wrapped-`checkCallback` invocation counter plus a
+real multi-row, multi-column table (row 2, middle column, so a failure
+to move in any direction can't be confused with "already at an edge"):
+pressing a self-bound bare ArrowUp neither threw nor moved the active
+cell (still row 2 / `myText` / value `"b"` after the press), while a
+known-good reference move (Ctrl-F, an ordinary non-self-bound hotkey,
+right before it in the same test) correctly reached `myNumber` via the
+same `propertyNativeArrowFallback` helper — confirming the self-bound
+case specifically, not Bases' native handling in general, is what
+fails. Before this fix, `checkCallback` was invoked twice per press (1
+real + 1 recursive re-entry, already silently absorbed by the existing
+`suppressNativeArrowFallback` guard — confirmed NOT the ~32-level
+recursion the Properties case hit before its own fix landed, so there
+was never a crash/stability risk here, just a silent no-op).
+
+Unlike Properties' rows, no safe manual fallback exists for Bases. A
+direct read of Obsidian's own `app.js` (same `obsidian.asar` extraction
+technique used throughout this investigation) found Bases tracks its
+active cell via `this.activeCell`/`this.selection` — private internal
+state (`{row, column, groupIdx}`) driving a separately-positioned
+overlay div (`.bases-table-active-cell`), not a DOM class or attribute
+on the cell itself, and not reachable through any public API. The one
+DOM-visible resync hook — a `focusin` listener that re-derives
+`activeCell` from `getCellFromDom` — only fires when that state is
+already `null` (confirmed via the same `app.js` read: guarded by
+`if(!i.activeCell)`), not when stepping from an already-active cell to
+a neighbor. The table is also virtualized (`updateVirtualDisplay`/
+`lastViewport`/`pendingScroll` live on the same object), so a target
+row's cell may not even exist in the DOM to `.focus()` without first
+replicating Bases' own scroll-into-view logic too. A lower-risk-looking
+alternative — calling Bases' own internal handler method directly
+(`onTableSelectionStart`, reachable via the view instance's prototype)
+with a hand-crafted fake event — was considered and rejected: still
+couples this plugin to an undocumented, unstable internal method
+signature that could silently break on any Obsidian update, the same
+risk category already ruled out for Home/End. Confirmed unfixable,
+third instance of the same architectural wall as
+`fix/bases-home-end-column-jump-collision`.
+
+Fix: `cursor-up`/`cursor-down`'s Bases branch now checks
+`isBareArrowKeyUpgradeSelfBound` and skips the dispatch outright when
+self-bound, instead of relying on the existing guard to silently absorb
+a doomed recursive re-entry — same net (no-op) outcome, one
+`checkCallback` invocation instead of two, and the reasoning is now
+documented directly at the call site instead of being implicit.
+
+✅ `basesArrowKeyUpgradeSelfCollision.e2e.ts`: confirms the self-bound
+case is a safe, single-invocation no-op (not a crash, not unbounded
+recursion, not a silent cell move), with Ctrl-F's own correct native
+move as a same-test known-good reference. No regression in
+`basesCellNavigation.e2e.ts`, `basesRecenter.e2e.ts`,
+`basesPropertyEditing.e2e.ts`, `basesSetMarkSelectColumn.e2e.ts`,
+`basesHomeEndColumnJump.e2e.ts`, or `propertyKeyUpgradeInterference.e2e.ts`
+(the Properties-row analog this fix mirrors) — all green, 21 tests
+across 7 files.
+
+**Related finding, confirmed but deliberately NOT fixed here (out of
+scope):** `cursor-left`/`cursor-right` were found, during this same
+investigation, to reproduce the identical self-collision symptom
+against Bases' own column navigation when a Key Upgrade binds a bare
+ArrowLeft/ArrowRight to them — they have no
+`isBareArrowKeyUpgradeSelfBound`-style guard of their own at all (their
+Bases/Properties-row branch calls `propertyNativeArrowFallback`
+unconditionally). Fixing this is a different, larger change than this
+sub-branch's own scope: on a Properties row specifically, Ctrl-B/F's
+native meaning is "enter name-edit/value-edit mode," not "step to a
+sibling row," so whether a safe manual fallback exists there is an
+independent question from Bases' own confirmed-unfixable column state
+and would need its own investigation. Left for a future branch, not
+assumed fixed or broken beyond what's noted here.
+
+Deliberately out of scope / still pending: Page Up/Down, expected
+(not yet confirmed) to share this same wall once investigated.

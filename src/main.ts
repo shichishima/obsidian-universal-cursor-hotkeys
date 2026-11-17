@@ -433,7 +433,37 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 					return true;
 				}
 				if (el?.matches?.(BASES_TABLE_CONTAINER_SELECTOR)) {
-					if (!checking) this.propertyNativeArrowFallback(el, 'ArrowUp');
+					if (!checking) {
+						// Confirmed live (same self-collision class as the
+						// Properties-row case above, and the bare-Home/End-vs-
+						// Bases wall documented in tests/E2E.md): a Key Upgrade
+						// binding this exact bare key to this exact command makes
+						// the dispatch below self-defeating -- it re-enters this
+						// checkCallback once (absorbed harmlessly by
+						// suppressNativeArrowFallback, confirmed NOT the ~32-level
+						// recursion the Properties case had before ITS fix) and
+						// never reaches Bases' own native row-navigation listener
+						// either way. Unlike Properties' rows, there is no manual
+						// replacement available here: Bases' active-cell state
+						// (`this.activeCell`/`this.selection`, confirmed via a
+						// direct app.js read) is private, grouping- and
+						// virtualization-aware internal state no public API
+						// exposes, and the one DOM-visible resync hook (a
+						// `focusin` listener that re-derives it from
+						// `getCellFromDom`) only fires when that state is
+						// currently null, not when stepping from an already-
+						// active cell to its neighbor -- so a bare `.focus()` on
+						// a guessed sibling row's cell would desync Bases' own
+						// overlay/selection rendering from its real internal
+						// position, and could silently target the wrong row
+						// entirely once the table is scrolled/virtualized. Skip
+						// the dispatch outright when self-bound instead of
+						// relying on the guard to silently absorb a doomed
+						// recursive call -- same net (no-op) outcome, no wasted
+						// re-entry. See tests/E2E.md's "Bases native-shortcut
+						// collisions" section for the full investigation.
+						if (!this.isBareArrowKeyUpgradeSelfBound('cursor-up')) this.propertyNativeArrowFallback(el, 'ArrowUp');
+					}
 					return true;
 				}
 				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
@@ -476,7 +506,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 					return true;
 				}
 				if (el?.matches?.(BASES_TABLE_CONTAINER_SELECTOR)) {
-					if (!checking) this.propertyNativeArrowFallback(el, 'ArrowDown');
+					if (!checking) {
+						// See cursor-up's own identical branch above for the
+						// confirmed root cause and why no manual fallback exists.
+						if (!this.isBareArrowKeyUpgradeSelfBound('cursor-down')) this.propertyNativeArrowFallback(el, 'ArrowDown');
+					}
 					return true;
 				}
 				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
