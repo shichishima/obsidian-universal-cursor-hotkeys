@@ -312,6 +312,42 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 					}
 					return true;
 				}
+				if (el?.matches?.(BASES_TABLE_CONTAINER_SELECTOR)) {
+					// Confirmed live (same diagnostic technique as set-mark's
+					// own Ctrl-Space fix) plus a direct read of Obsidian's own
+					// app.js: Bases' cell-selection-mode bare Home/End ("jump
+					// to first/last column") is handled the same way Ctrl-Space
+					// is for an ordinary modifier-combo hotkey -- a plain
+					// `addEventListener('keydown', ...)` on
+					// `.bases-table-container` itself, gated on
+					// `event.defaultPrevented`. Returning false here is correct
+					// and sufficient for Ctrl-A/E (macOS-style keybindings):
+					// Bases never acts on that combo anyway (its own check is
+					// `!event.metaKey&&!event.ctrlKey`), so leaving it unhandled
+					// is identical in effect to the old claim-and-no-op.
+					//
+					// It does NOT help the bare Home/End case (only reachable
+					// here via a Key Upgrade, since the Hotkeys UI itself can't
+					// capture a bare Home/End) -- confirmed live via
+					// `executeObsidian` that the REAL physical keypress never
+					// becomes a DOM `keydown` event at all once bare Home/End is
+					// registered to ANY command (a document-level capturing
+					// listener saw nothing), and that actively redispatching a
+					// synthetic bare Home/End from here (mirroring
+					// propertyNativeArrowFallback) ALSO produces no observable
+					// event -- the exact same "once ANY command claims a hotkey
+					// Obsidian's Keymap consumes it unconditionally regardless
+					// of a recursive call's own return value" wall already
+					// documented on isBareArrowKeyUpgradeSelfBound above, just
+					// confirmed independently for Home/End. Unlike that
+					// Properties-row case, there's no manual equivalent to fall
+					// back to here (Bases' active-cell/column state is private,
+					// internal, grouping/virtualization-aware state this plugin
+					// has no access to) -- this is a confirmed, unfixable
+					// architectural limitation, not a gap left for later. See
+					// tests/E2E.md's "Bases native-shortcut collisions" section.
+					return false;
+				}
 				if (el?.matches?.(PROPERTY_ANY_ITEM_SELECTION_SELECTOR)) {
 					return true; // no meaning here; claim the key and do nothing
 				}
@@ -340,6 +376,17 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 						else this.titleMoveToLineBoundary(el, true);
 					}
 					return true;
+				}
+				if (el?.matches?.(BASES_TABLE_CONTAINER_SELECTOR)) {
+					// See cursor-home's own identical branch above for the
+					// confirmed root cause: returning false is correct and
+					// sufficient for Ctrl-A/E, but does NOT fix the bare-Home/
+					// End-via-Key-Upgrade case -- that's a confirmed, unfixable
+					// architectural wall (Obsidian's Keymap consumes a
+					// registered bare key before it ever becomes a DOM event,
+					// regardless of checkCallback's return value or any
+					// synthetic redispatch), not a gap left for later.
+					return false;
 				}
 				if (el?.matches?.(PROPERTY_ANY_ITEM_SELECTION_SELECTOR)) {
 					return true; // no meaning here; claim the key and do nothing
@@ -386,7 +433,37 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 					return true;
 				}
 				if (el?.matches?.(BASES_TABLE_CONTAINER_SELECTOR)) {
-					if (!checking) this.propertyNativeArrowFallback(el, 'ArrowUp');
+					if (!checking) {
+						// Confirmed live (same self-collision class as the
+						// Properties-row case above, and the bare-Home/End-vs-
+						// Bases wall documented in tests/E2E.md): a Key Upgrade
+						// binding this exact bare key to this exact command makes
+						// the dispatch below self-defeating -- it re-enters this
+						// checkCallback once (absorbed harmlessly by
+						// suppressNativeArrowFallback, confirmed NOT the ~32-level
+						// recursion the Properties case had before ITS fix) and
+						// never reaches Bases' own native row-navigation listener
+						// either way. Unlike Properties' rows, there is no manual
+						// replacement available here: Bases' active-cell state
+						// (`this.activeCell`/`this.selection`, confirmed via a
+						// direct app.js read) is private, grouping- and
+						// virtualization-aware internal state no public API
+						// exposes, and the one DOM-visible resync hook (a
+						// `focusin` listener that re-derives it from
+						// `getCellFromDom`) only fires when that state is
+						// currently null, not when stepping from an already-
+						// active cell to its neighbor -- so a bare `.focus()` on
+						// a guessed sibling row's cell would desync Bases' own
+						// overlay/selection rendering from its real internal
+						// position, and could silently target the wrong row
+						// entirely once the table is scrolled/virtualized. Skip
+						// the dispatch outright when self-bound instead of
+						// relying on the guard to silently absorb a doomed
+						// recursive call -- same net (no-op) outcome, no wasted
+						// re-entry. See tests/E2E.md's "Bases native-shortcut
+						// collisions" section for the full investigation.
+						if (!this.isBareArrowKeyUpgradeSelfBound('cursor-up')) this.propertyNativeArrowFallback(el, 'ArrowUp');
+					}
 					return true;
 				}
 				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
@@ -429,7 +506,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 					return true;
 				}
 				if (el?.matches?.(BASES_TABLE_CONTAINER_SELECTOR)) {
-					if (!checking) this.propertyNativeArrowFallback(el, 'ArrowDown');
+					if (!checking) {
+						// See cursor-up's own identical branch above for the
+						// confirmed root cause and why no manual fallback exists.
+						if (!this.isBareArrowKeyUpgradeSelfBound('cursor-down')) this.propertyNativeArrowFallback(el, 'ArrowDown');
+					}
 					return true;
 				}
 				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
@@ -946,7 +1027,39 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: 'page-down',
 			name: 'Page down',
 			repeatable: true,
-			editorCallback: (editor: Editor) => {
+			// Converted from editorCallback (confirmed live, as part of the
+			// Bases-native-shortcut-collision investigation): an
+			// editorCallback command has no DOM-focus awareness of its own
+			// -- Obsidian's own built-in gating for it just checks "is there
+			// an active MarkdownView/editor right now," ignoring
+			// activeDocument.activeElement entirely. With a bare PageDown
+			// Key Upgrade bound, that meant this ran against the HOST
+			// note's own body editor whenever a Bases table was embedded in
+			// a note (`![[some.base]]`) and real focus was on the Bases
+			// cell-selection container -- the exact same class of bug
+			// Set-mark's own Ctrl-Space had, just via Obsidian's built-in
+			// editorCallback dispatch instead of this plugin's own
+			// checkCallback logic. Fixed the same way: an explicit
+			// BASES_TABLE_CONTAINER_SELECTOR branch ahead of the generic
+			// editor fallback.
+			//
+			// This does NOT restore Bases' own native page-scroll, though:
+			// confirmed live (document-level capturing keydown probe) that
+			// once a bare Page Up/Down is registered to ANY command via a
+			// Key Upgrade, the real physical keypress never becomes a DOM
+			// keydown event at all, in either the standalone-tab or
+			// embedded case -- the same architectural wall already
+			// confirmed unfixable for bare Home/End (see tests/E2E.md's
+			// "Bases native-shortcut collisions" section). Returning false
+			// here only stops this plugin from corrupting the host body;
+			// it can't make the event reach Bases' own listener, which
+			// never sees it either way.
+			checkCallback: (checking: boolean) => {
+				const el = activeDocument.activeElement as HTMLElement | null;
+				if (el?.matches?.(BASES_TABLE_CONTAINER_SELECTOR)) return false;
+				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
+				if (!editor) return false;
+				if (checking) return true;
 				if (this.isComposing(editor)) return;
 				this.pageDown(editor);
 			}
@@ -956,7 +1069,15 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: 'page-up',
 			name: 'Page up',
 			repeatable: true,
-			editorCallback: (editor: Editor) => {
+			// See page-down's own identical branch above for the confirmed
+			// root cause and why the Bases-native-paging gap itself remains
+			// unfixed.
+			checkCallback: (checking: boolean) => {
+				const el = activeDocument.activeElement as HTMLElement | null;
+				if (el?.matches?.(BASES_TABLE_CONTAINER_SELECTOR)) return false;
+				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
+				if (!editor) return false;
+				if (checking) return true;
 				if (this.isComposing(editor)) return;
 				this.pageUp(editor);
 			}
@@ -1017,6 +1138,28 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 						else this.titleSetMark(el);
 					}
 					return true;
+				}
+				if (el?.matches?.(BASES_TABLE_CONTAINER_SELECTOR)) {
+					// Confirmed live (via a diagnostic E2E probe plus a direct
+					// read of Obsidian's own app.js): Bases' cell-selection-mode
+					// Ctrl-Space ("select column") is NOT an Obsidian command at
+					// all -- it's a plain `addEventListener('keydown', ...)` on
+					// `.bases-table-container` itself, gated on
+					// `a.key===' '&&a.ctrlKey` against the REAL keydown event,
+					// bailing out immediately if `a.defaultPrevented` is already
+					// true. Unlike Properties' row/heading/Add-button (grouped
+					// with this selector in PROPERTY_ANY_ITEM_SELECTION_SELECTOR
+					// below, where Ctrl-Space genuinely has no meaning), Bases
+					// DOES have a native action here -- so this plugin must
+					// return false and let the real keydown event reach that
+					// listener uninterrupted, not claim-and-no-op like the
+					// Properties targets. Confirmed this happened identically
+					// whether the Bases table was its own standalone tab or
+					// embedded in a note (`![[some.base]]`): both cases hit this
+					// same checkCallback purely off activeElement, with no
+					// relation to whether a MarkdownView/editor happens to also
+					// exist underneath.
+					return false;
 				}
 				if (el?.matches?.(PROPERTY_ANY_ITEM_SELECTION_SELECTOR)) {
 					return true; // no meaning here; claim the key and do nothing
