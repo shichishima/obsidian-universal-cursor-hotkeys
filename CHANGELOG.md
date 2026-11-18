@@ -26,6 +26,7 @@ _Key combos below (Ctrl-B/F, Ctrl-A/E, and so on) are this plugin's own recommen
 
 - **Set-mark (Ctrl-Space) no longer collides with Bases' own native "select column" shortcut** ([Bases table shortcuts](https://obsidian.md/help/bases/views/table#Shortcuts)): previously Set-mark always claimed the key regardless of context, so pressing Ctrl-Space on a selected Bases cell ran Set-mark instead — now it steps aside and lets the real keypress reach Bases' own native column selection, whether the table is its own standalone tab or embedded in a note.
 - **Page Up/Down no longer move the underlying note's own cursor when a Bases table is embedded in a note and Page Up/Down is bound to this plugin's commands via a Key Upgrade:** these two commands had no Bases/Properties/title awareness at all (unlike every other command in this plugin), so they ran directly against whichever note was open underneath — silently scrolling/moving that note's real cursor while visible focus stayed on the Bases table the whole time.
+- **Vim: `$` then `j`/`k` entering a table from plain text no longer flashes into the rightmost cell and immediately bounces back out.** Present since 0.12.0 — Obsidian's own vim.js re-applies a stale pre-entry position right after landing correctly, specifically when the carried-over goal column is `$`'s own "always this line's end" sentinel; an ordinary (non-`$`) entry was never affected.
 
 ## [0.12.1] - 2026-11-15
 
