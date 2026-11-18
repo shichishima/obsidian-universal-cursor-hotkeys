@@ -208,6 +208,102 @@ than the whole command deciding once based on primary alone.
   this suite — check the machine's power state first for any sudden,
   broad batch of failures spanning unrelated commands.
 
+#### `multicellCaseConversion.e2e.ts`
+
+Uppercase/Lowercase/Capitalize word's real multi-cell mouse-drag
+selection support (`transformMulticellSelection` in `src/main.ts`), a real
+new feature (not a bug fix) — previously, dragging across multiple table
+cells with the mouse and running one of these commands only ever
+transformed the single anchor cell's own clamped range/word, silently
+ignoring the rest of the visually-selected rectangle.
+
+- **Confirmed live before writing any implementation**: Obsidian's Live
+  Preview table marks every cell inside a dragged rectangle with an
+  `is-selected` class on its own `<td>`/`<th>` — still accurate as of this
+  plugin's own 1.15.1 Obsidian install, 3+ months after the design notes
+  this was based on were written. Additionally confirmed the exact
+  edge-marking rule still holds (`start`/`end` on the leftmost/rightmost
+  column regardless of row, `top`/`bottom` on the topmost/bottommost row
+  regardless of column) and that `editor.activeCM.dom.closest('table')`
+  genuinely reaches the containing `<table>` element.
+- **A synthetic `MouseEvent`/`PointerEvent` `dispatchEvent` sequence
+  (mousedown/mousemove/mouseup, even targeting the real `<td>` with
+  matching `clientX`/`clientY`) produces NO selection at all** — confirmed
+  live before trying anything else. This is real browser cross-cell
+  selection, not something this plugin or Obsidian tracks with its own JS
+  event listener the way a same-view CM6 text selection drag is (compare
+  `setMarkMouseAndLeafChange.e2e.ts`'s own `mouseGesture` helper, which
+  *does* work with synthetic events for a plain in-editor drag) — only a
+  real WebDriver Actions API pointer drag (`browser.action('pointer')...`)
+  triggers it, which is what every test below uses.
+- **(1)** A 2-row x 3-col drag not including the header row transforms
+  every selected cell; the header row (outside the rectangle) stays
+  untouched. Includes a cell with a real `<br>`-separated sub-line
+  (`"mid<br>dle"`) — both sub-lines transform, the tag itself survives
+  untouched (case-converting raw outer-document text, unlike the
+  single-cell path's own inner-CM6-view edit, would otherwise mangle a
+  literal `<br>` into `<BR>`).
+- **(2)** A drag that DOES include the header row transforms header cells
+  too — deliberately NOT using `getNextRowLine`/`getPrevRowLine` to map a
+  cell's rectangle-relative row back to its real document line, since
+  those two treat the header row as "outside the table" on purpose
+  (Ctrl-N/P's own row-navigation convention); a mouse-drag rectangle has
+  no such restriction. Uses a dedicated `stepTableRowLine` instead, which
+  steps one raw row (header or data) at a time, skipping only the
+  delimiter row.
+- **(3)** A plain click (no drag, zero or one `is-selected` cell) falls
+  through to the existing, untouched single-cell path — confirmed the
+  clicked cell's own word still transforms normally and neighboring cells
+  on the same row are left alone (i.e. this didn't silently widen to the
+  whole row).
+- **Fixture needs an explicit scroll before the first scenario's own cell
+  lookup**: confirmed live that CM6 only mounts DOM nodes for content
+  inside its own rendered viewport — the fixture's 3rd table (further down
+  the file, needed since each scenario mutates its own table's content on
+  disk and scenarios must not share cells) had zero
+  `.table-cell-wrapper` elements at all until `editor.scrollIntoView` ran
+  first. Not an issue for the first table on a freshly-opened fixture, but
+  would be for any table further down than the initial screenful.
+- Red-confirmed first (temporarily short-circuiting
+  `transformMulticellSelection` to always return `false`): the drag
+  degraded to the existing single-cell/word-search fallback, transforming
+  only one word under wherever the anchor cell's own cursor landed instead
+  of the whole dragged rectangle — then restored and verified green.
+  Regression sweep (`uppercaseWordMultiCursor`, `multiCursorTableCrossing`,
+  `transposeCharsMultiCursor` E2E specs, plus the full `transformWord.test.ts`/
+  `tableHelpers.test.ts` unit suites) all green — confirmed unrelated to
+  two pre-existing failing unit-test files (`copyRegion.test.ts`,
+  `moveCursorUpDown.test.ts`, both failing on an unrelated
+  `this.app.workspace` mock-setup issue, zero line overlap with this
+  change).
+- **(4) A real bug, found and fixed 2026-11-18, reported from actual
+  use**: a real Shift+ArrowUp escape out of a `<br>`-containing cell up
+  into the header row above (NOT a mouse drag — every scenario above uses
+  one), run through lowercase-word, appended two extra trailing `<br>` to
+  the cell's own content (`"ABC<br>123<br>XYZ"` → `"abc<br>123<br>xyz<br><br>"`).
+  Confirmed via a diagnostic dump of `transformMulticellSelection`'s own
+  computed `original`/`transformed` values that the transform itself was
+  already correct, with no extra `<br>` at all — the corruption happened
+  strictly AFTER this function's own dispatch, as an Obsidian-side side
+  effect of the raw outer-document edit landing on a cell whose inner
+  view was still mounted (the anchor cell always has one). Reproducible
+  specifically after a real Shift+ArrowUp escape — a programmatic
+  selection set to the identical position via `inner.dispatch` never
+  triggered it, confirmed by trying that first and getting a clean
+  result. Fixed by editing the anchor cell through its own live inner
+  view (the same mechanism the existing single-cell path already uses
+  safely) instead of a raw outer-text edit, for the anchor specifically —
+  every other selected cell still uses the raw outer-text edit, since
+  they have no inner view to go through. Added a dedicated single-column
+  table (Scenario 4) to the fixture, since this bug needed a `<br>`-cell
+  with a header row directly above it and nothing else nearby.
+  Red-confirmed first (temporarily let the anchor cell fall through to
+  the same raw outer-text path as every other cell — reproduced a related
+  but not identical corruption, 4 `<br>` instead of the original bug's 2,
+  since by then both the outer edit and the inner-view fallback were
+  firing on the same cell — still a clear failure either way), then
+  restored and verified green.
+
 #### `killYankMultiCursor.e2e.ts`
 
 Kill Line/Kill Region/Kill Word/Copy Region/Yank's own multi-cursor
