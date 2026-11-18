@@ -193,4 +193,55 @@ describe('Vim motions: j/k, gj/gk, gg/G, $ sticky (table-crossing)', function ()
 		// raw ch, and not clamped to column 1's width from the row above).
 		await expect(state.cursor.ch).toBe(state.line.indexOf('one') + 'one'.length - 1)
 	})
+
+	it('(5) $ sticky goal entering a table FROM PLAIN TEXT lands in the rightmost cell and stays there', async function () {
+		// Regression test for a real bug (found 2026-11-18, reported from
+		// actual use): entering a table from plain text via a sticky `$`
+		// goal flashed into the correct rightmost cell for one tick, then
+		// immediately bounced back out to the pre-entry line. Root cause:
+		// scheduleTableEntry runs synchronously (since 8d2666c, 2026-10-23)
+		// and already moves the real cursor correctly before this motion
+		// function returns -- but moveByLines used to return a stale "stay
+		// put" placeholder regardless, and vim.js's own post-motion handling
+		// then re-applied THAT placeholder via its own cm.setCursor call,
+		// using the OUTER view's still-sticky (Infinity) vim.lastHPos left
+		// over from `$`, undoing the correct landing. Test (4) above doesn't
+		// catch this -- it starts already inside the table (row-crossing),
+		// never exercising the plain-text ENTRY path this bug lives in.
+		// Uses the fixture's own Scenario 4 (a table at the very end of the
+		// document), confirmed live to reproduce the bug equally for a
+		// non-EOF table (Scenario 1's) -- EOF-adjacency isn't the trigger,
+		// the sticky goal is.
+		await enableVimMode()
+		await openFixtureAndGetContentStart('VimJkGgGjGk.md')
+		await browser.executeObsidian(({ app, obsidian }) => {
+			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+			for (let i = 0; i < view.editor.lineCount(); i++) {
+				if (view.editor.getLine(i).trim() === 'short' && view.editor.getLine(i + 2)?.includes('aa')) {
+					view.editor.setCursor({ line: i, ch: 2 })
+					return
+				}
+			}
+			throw new Error('Scenario 4 "short" line not found')
+		})
+
+		await browser.keys(['$'])
+		await browser.pause(150)
+		await browser.keys(['j']) // skip the blank line before the table
+		await browser.pause(250)
+		await browser.keys(['j']) // enter the table -- the interesting one
+		await waitForInTableCell(true, 3000)
+
+		// Settle, then re-check after a further pause: the original bug's
+		// own bounce-back happened within ~30-60ms of landing, so a single
+		// immediate check right after waitForInTableCell resolves could
+		// still pass by catching the transient "flash" before it reverted.
+		await browser.pause(300)
+		const state = await getState()
+		await expect(state.inTableCell).toBe(true)
+		await expect(state.line).toContain('cc')
+		// Rightmost cell ("cc"), not the leftmost ("aa") fallback used for a
+		// fresh entry with no sticky goal.
+		await expect(state.cursor.ch).toBe(state.line.indexOf('cc') + 'cc'.length - 1)
+	})
 })

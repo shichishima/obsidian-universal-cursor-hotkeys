@@ -962,6 +962,36 @@ tables these are vanilla codemirror-vim, unmodified).
   entry path specifically; four full-suite runs with the synchronous
   version produced zero crashes). Full writeup in the assistant's own
   memory (`project_vim_e2e_cross_spec_column_leak`).
+- **(5)** `$` sticky goal entering a table FROM PLAIN TEXT (not already
+  inside one, unlike (4)'s row-crossing) lands in the rightmost cell and
+  stays there.
+- **A real bug, found and fixed 2026-11-18, reported from actual use**:
+  entering a table from plain text via a sticky `$` goal flashed into the
+  correct rightmost cell for one tick, then immediately bounced back out
+  to the pre-entry line — reproduced live via a `cm.dispatch` hook before
+  any fix. Root cause: the same 2026-10-23 synchronous-resync change noted
+  above (`scheduleTableEntry` no longer deferred) already moves the real
+  cursor correctly *before* `moveByLines` returns its own deliberate
+  "stay put" placeholder — but Obsidian's own vim.js, right after calling
+  `moveByLines`, applies that returned placeholder via its own
+  `cm.setCursor`, using the OUTER view's `vim.lastHPos` (still the sticky
+  `Infinity` sentinel left over from `$`) — silently reverting the correct
+  landing back to the stale line. Confirmed via the same dispatch hook
+  that the non-sticky case never shows this extra `cm.setCursor` call at
+  all (its own goal is already a finite `ch`, not the sentinel vim.js
+  treats specially). Also confirmed EOF-adjacency isn't the trigger — a
+  non-EOF table (this suite's own Scenario 1) reproduces identically.
+  Fixed by having `scheduleTableEntry` return its real landed position and
+  having `moveByLines` return THAT directly (plus resetting the OUTER
+  view's `vim.lastHPos` to a finite value) instead of falling through to
+  the stale placeholder, on a successful entry. Present since 0.12.0
+  (shipped with the 2026-10-23 synchronous-resync commit, confirmed via
+  reading that tag's own `vim-support.ts`) — had zero E2E coverage for
+  entering a table from plain text via a sticky goal specifically, only
+  for the already-inside-a-table row-crossing case ((4) above), which
+  doesn't exercise `scheduleTableEntry` at all. Red-confirmed first
+  (temporarily disabling the fix reproduced the failure), then restored
+  and verified green. Branch `fix/vim-sticky-eol-table-entry-bounce`.
 
 #### `vimWordMotions.e2e.ts`
 
