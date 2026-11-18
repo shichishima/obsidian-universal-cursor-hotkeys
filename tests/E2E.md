@@ -276,8 +276,8 @@ ignoring the rest of the visually-selected rectangle.
   `moveCursorUpDown.test.ts`, both failing on an unrelated
   `this.app.workspace` mock-setup issue, zero line overlap with this
   change).
-- **(4) A real bug, found and fixed 2026-11-18, reported from actual
-  use**: a real Shift+ArrowUp escape out of a `<br>`-containing cell up
+- **(4) A real bug hit during actual use, found and fixed 2026-11-18**:
+  a real Shift+ArrowUp escape out of a `<br>`-containing cell up
   into the header row above (NOT a mouse drag — every scenario above uses
   one), run through lowercase-word, appended two extra trailing `<br>` to
   the cell's own content (`"ABC<br>123<br>XYZ"` → `"abc<br>123<br>xyz<br><br>"`).
@@ -303,6 +303,20 @@ ignoring the rest of the visually-selected rectangle.
   since by then both the outer edit and the inner-view fallback were
   firing on the same cell — still a clear failure either way), then
   restored and verified green.
+- **Known consequence of the anchor/non-anchor split above: Undo reverts
+  a multi-cell transform in two separate steps, not one.** Confirmed live
+  with both real Cmd-Z (not Ctrl-Z — the dev machine is macOS, and Ctrl-Z
+  isn't bound to anything here, which looked like "Undo does nothing at
+  all" on a first pass using the wrong key) and this plugin's own `undo`
+  command (a thin wrapper around the same `Editor.undo()`, confirmed
+  identical behavior either way): the first Undo reverts only the anchor
+  cell (its own separate `inner.dispatch` transaction), the second
+  reverts every other selected cell (the batched outer-document
+  dispatch). Both dispatches use `userEvent: 'input'` and are each real,
+  separately-undoable transactions — nothing is lost, it just takes two
+  presses instead of one. Not asserted as its own test (asserting an
+  exact keystroke count feels like the wrong thing to lock in permanently
+  here), but worth knowing if a future change ever revisits this split.
 
 #### `killYankMultiCursor.e2e.ts`
 
@@ -1061,7 +1075,7 @@ tables these are vanilla codemirror-vim, unmodified).
 - **(5)** `$` sticky goal entering a table FROM PLAIN TEXT (not already
   inside one, unlike (4)'s row-crossing) lands in the rightmost cell and
   stays there.
-- **A real bug, found and fixed 2026-11-18, reported from actual use**:
+- **A real bug hit during actual use, found and fixed 2026-11-18**:
   entering a table from plain text via a sticky `$` goal flashed into the
   correct rightmost cell for one tick, then immediately bounced back out
   to the pre-entry line — reproduced live via a `cm.dispatch` hook before
