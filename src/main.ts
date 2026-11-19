@@ -2402,6 +2402,34 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Scope-push implementation needed for this exact case (see its own
 	// bind() comment on why a plain "return false" / unclaimed key isn't
 	// enough: there's nothing downstream listening for Ctrl-N itself).
+	// Shared by moveCursorUp/Down/Left/Right: detects the same real
+	// multi-cell `is-selected` rectangle transformMulticellSelection reacts
+	// to. Confirmed live: a physical arrow key collapses this rectangle and
+	// moves from its edge in one step, but this plugin's own
+	// cursor-up/down/left/right previously left the rectangle untouched and
+	// moved only the anchor cell's own cursor -- showing a stale multi-cell
+	// selection AND this plugin's own moved caret at once, since no real
+	// cursor is visible while a multi-cell selection is active.
+	//
+	// Deliberately does NOT scope the lookup to "the active cell's own
+	// table" via editor.activeCM the way transformMulticellSelection does --
+	// confirmed live (non-deterministically reproducible across otherwise
+	// identical runs) that editor.activeCM briefly equals editor.cm right
+	// after a cell-crossing move, before Obsidian has (re)mounted the new
+	// active cell's own inner CM6 view; `editor.cm.domAtPos` doesn't help
+	// either, confirmed live it fails to resolve into the table widget's
+	// own DOM at all. A plain global class query has none of this race --
+	// confirmed reliable in the exact runs where both of the above failed
+	// -- and a stray unrelated table elsewhere in the same note having its
+	// own leftover `is-selected` state while the cursor sits inside a
+	// DIFFERENT table isn't a real scenario: Obsidian only ever tracks one
+	// such rectangle at a time, and entering a different table's cell
+	// already clears it.
+	private hasActiveMulticellSelection(editor: Editor): boolean {
+		if (!editor.inTableCell) return false;
+		return activeDocument.querySelectorAll('td.is-selected, th.is-selected').length >= 2;
+	}
+
 	private propertyNativeArrowFallback(el: HTMLElement, key: 'ArrowUp' | 'ArrowDown' | 'ArrowLeft' | 'ArrowRight') {
 		this.suppressNativeArrowFallback = true;
 		try {
@@ -2594,6 +2622,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			this.extendMarkHorizontalChar(editor, false);
 			return;
 		}
+		if (editor.inTableCell && this.hasActiveMulticellSelection(editor)) {
+			this.propertyNativeArrowFallback(activeDocument.activeElement as HTMLElement, 'ArrowLeft');
+			return;
+		}
 		const startedInTable = editor.inTableCell;
 		this.moveCursorLeftImpl(editor);
 		if (!startedInTable) this.reconcileSecondaryRangesAfterTableCrossing(editor);
@@ -2630,6 +2662,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private moveCursorRight(editor: Editor) {
 		if (this.markActive) {
 			this.extendMarkHorizontalChar(editor, true);
+			return;
+		}
+		if (editor.inTableCell && this.hasActiveMulticellSelection(editor)) {
+			this.propertyNativeArrowFallback(activeDocument.activeElement as HTMLElement, 'ArrowRight');
 			return;
 		}
 		const startedInTable = editor.inTableCell;
@@ -3038,6 +3074,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			this.extendMarkVertically(editor, false);
 			return;
 		}
+		if (editor.inTableCell && this.hasActiveMulticellSelection(editor)) {
+			this.propertyNativeArrowFallback(activeDocument.activeElement as HTMLElement, 'ArrowUp');
+			return;
+		}
 		const startedInTable = editor.inTableCell;
 		this.moveCursorUpImpl(editor);
 		if (!startedInTable) this.reconcileSecondaryRangesAfterTableCrossing(editor);
@@ -3113,6 +3153,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private moveCursorDown(editor: Editor) {
 		if (this.markActive) {
 			this.extendMarkVertically(editor, true);
+			return;
+		}
+		if (editor.inTableCell && this.hasActiveMulticellSelection(editor)) {
+			this.propertyNativeArrowFallback(activeDocument.activeElement as HTMLElement, 'ArrowDown');
 			return;
 		}
 		const startedInTable = editor.inTableCell;

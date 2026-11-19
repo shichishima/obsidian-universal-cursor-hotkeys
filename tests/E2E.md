@@ -318,6 +318,82 @@ ignoring the rest of the visually-selected rectangle.
   exact keystroke count feels like the wrong thing to lock in permanently
   here), but worth knowing if a future change ever revisits this split.
 
+#### `multicellSelectionArrowClear.e2e.ts`
+
+Real bug found from actual use (2026-11-19), raised right after the
+multi-cell case-conversion feature above shipped: while a real multi-cell
+`is-selected` selection is active, a physical arrow key collapses it and
+moves from its edge in one step, but this plugin's own cursor-up/down/
+left/right (Ctrl-P/N/B/F) previously left the selection untouched and
+moved only the anchor cell's own cursor — the stale multi-cell selection
+and this plugin's own moved caret coexisted on screen at once, which is
+wrong since no real cursor is meant to be visible while a multi-cell
+selection is active.
+
+- **Confirmed live first**: a synthetic `keydown` dispatch for the bare
+  arrow key (same technique `propertyNativeArrowFallback` already uses for
+  Properties/Bases) DOES clear the `is-selected` rectangle, unlike the
+  mouse-drag case that creates it (which needs a real WebDriver pointer
+  drag) — the clearing listener apparently only reads `event.key`/
+  `shiftKey`, not `event.isTrusted`.
+- **A "clear the selection via synthetic dispatch, then restore the
+  cursor and continue with this plugin's own `moveCursor*Impl`" hybrid was
+  tried and rejected**: restoring the cursor position via `editor.setCursor`
+  afterward reports the correct `line`/`ch` back, and the selection does
+  stay cleared, but `editor.exec('goRight')` run after that silently
+  no-ops — confirmed live. The native dispatch switches which cell's CM6
+  view is actually mounted as `editor.activeCM`, and manually setting the
+  cursor back doesn't re-point it, so this plugin's own commands stop
+  reaching any real view.
+- **Fix**: `hasActiveMulticellSelection` (shared helper, same `is-selected`
+  precondition `transformMulticellSelection` already uses) gates a new
+  branch in `moveCursorUp`/`moveCursorDown`/`moveCursorLeft`/
+  `moveCursorRight`, checked right after the existing `markActive` branch
+  — when true, delegates the whole move to `propertyNativeArrowFallback`
+  and skips this plugin's own `moveCursor*Impl` entirely for that one
+  invocation. Trade-off accepted deliberately: this plugin's own
+  cell-crossing/goal-column smarts don't apply while a multi-cell
+  selection happens to be active, in exchange for never showing a stale
+  selection next to a moved cursor.
+- Red-confirmed first (temporarily short-circuited the new branch to
+  `false && ...`, reproducing the original gap — all 4 directions left the
+  6-cell selection in place), then restored and verified green.
+- **Uses its own dedicated fixture** (`MulticellSelectionArrowClear.md`),
+  not `MulticellCaseConversion.md`'s own tables — that fixture's Scenario 1
+  gets permanently uppercased on disk by `multicellCaseConversion.e2e.ts`'s
+  own test (1) earlier in the same full-suite run order, which broke this
+  spec's own cell-text lookups (`"a10"` no longer found once already
+  `"A10"`) the first time it was written to reuse that table. Caught by a
+  full-suite run, not the isolated single-file run that had passed first.
+- **Follow-up real bug found from actual use (2026-11-19), right after the
+  fix above shipped: the clearing worked inconsistently** ("効く時と効かな
+  い時がある" — works sometimes, not other times, condition unknown at
+  report time). Root-caused via a diagnostic matrix spec (varying the
+  selection's own creation method — drag direction, same-row/same-column,
+  a real Shift+Arrow keyboard escape instead of a drag — and dumping
+  `editor.activeCM === editor.cm` plus `document.activeElement` at each
+  step): `hasActiveMulticellSelection`'s *original* implementation gated
+  on `editor.activeCM !== editor.cm` as a precondition before even
+  checking the DOM (copied from `transformMulticellSelection`'s own
+  precondition, which genuinely needs an inner view to edit through — this
+  helper doesn't). Confirmed live, non-deterministically reproducible
+  across otherwise-identical steps, that `editor.activeCM` briefly equals
+  `editor.cm` right after a cell-crossing move, before Obsidian has
+  (re)mounted the newly-active cell's own inner CM6 view — during that
+  window the old check silently reported "no selection," even with a
+  genuine `is-selected` rectangle still on screen. `editor.cm.domAtPos`
+  was tried as an alternative, scoped lookup and also failed, confirmed
+  live it doesn't resolve into the table widget's own DOM at all (its
+  `node` comes back pointing somewhere `.closest('table')` never finds a
+  `<table>` from). Fixed by dropping the scoped lookup entirely in favor
+  of a plain, global `document.querySelectorAll('td.is-selected,
+  th.is-selected')` count, confirmed reliable in exactly the run where
+  both of the above failed. Scoping to "the active cell's own table" was
+  never actually needed: Obsidian only tracks one such rectangle at a
+  time, and entering a different table already clears it, so a stray
+  unrelated `is-selected` state elsewhere in the same note isn't a real
+  scenario this global check could misfire on.
+
 #### `killYankMultiCursor.e2e.ts`
 
 Kill Line/Kill Region/Kill Word/Copy Region/Yank's own multi-cursor
