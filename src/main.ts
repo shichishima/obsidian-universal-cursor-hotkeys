@@ -2599,8 +2599,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const targetX = this.propertyGoalX;
 		this.propertyGoalX = null;
 		const pos = cm.posAtCoords({ x: targetX, y: targetY }, false);
-		view.editor.focus();
-		if (pos == null) return;
+		if (pos == null) {
+			view.editor.focus();
+			return;
+		}
 		const rect = cm.contentDOM.getBoundingClientRect();
 		const goalColumnToSeed = targetX - rect.left;
 		cm.dispatch({
@@ -2611,6 +2613,13 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			scrollIntoView: true,
 			userEvent: 'move',
 		});
+		// focus() last, not first: same landing-flash mechanism as
+		// titleMoveLineOrEscapeToBody (EditorView.focus() synchronously
+		// redraws CM6's cursor widget against whatever selection the view
+		// CURRENTLY holds) — calling it before dispatch() paints the
+		// body's stale/default selection first, which the
+		// getBoundingClientRect() read above forces the browser to flush.
+		view.editor.focus();
 	}
 
 	// Wrapper: see reconcileSecondaryRangesAfterTableCrossing's own doc
