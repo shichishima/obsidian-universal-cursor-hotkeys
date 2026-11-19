@@ -208,6 +208,211 @@ than the whole command deciding once based on primary alone.
   this suite — check the machine's power state first for any sudden,
   broad batch of failures spanning unrelated commands.
 
+#### `multicellCaseConversion.e2e.ts`
+
+Uppercase/Lowercase/Capitalize word's real multi-cell mouse-drag
+selection support (`transformMulticellSelection` in `src/main.ts`), a real
+new feature (not a bug fix) — previously, dragging across multiple table
+cells with the mouse and running one of these commands only ever
+transformed the single anchor cell's own clamped range/word, silently
+ignoring the rest of the visually-selected rectangle.
+
+- **Confirmed live before writing any implementation**: Obsidian's Live
+  Preview table marks every cell inside a dragged rectangle with an
+  `is-selected` class on its own `<td>`/`<th>` — still accurate as of this
+  plugin's own 1.15.1 Obsidian install, 3+ months after the design notes
+  this was based on were written. Additionally confirmed the exact
+  edge-marking rule still holds (`start`/`end` on the leftmost/rightmost
+  column regardless of row, `top`/`bottom` on the topmost/bottommost row
+  regardless of column) and that `editor.activeCM.dom.closest('table')`
+  genuinely reaches the containing `<table>` element.
+- **A synthetic `MouseEvent`/`PointerEvent` `dispatchEvent` sequence
+  (mousedown/mousemove/mouseup, even targeting the real `<td>` with
+  matching `clientX`/`clientY`) produces NO selection at all** — confirmed
+  live before trying anything else. This is real browser cross-cell
+  selection, not something this plugin or Obsidian tracks with its own JS
+  event listener the way a same-view CM6 text selection drag is (compare
+  `setMarkMouseAndLeafChange.e2e.ts`'s own `mouseGesture` helper, which
+  *does* work with synthetic events for a plain in-editor drag) — only a
+  real WebDriver Actions API pointer drag (`browser.action('pointer')...`)
+  triggers it, which is what every test below uses.
+- **(1)** A 2-row x 3-col drag not including the header row transforms
+  every selected cell; the header row (outside the rectangle) stays
+  untouched. Includes a cell with a real `<br>`-separated sub-line
+  (`"mid<br>dle"`) — both sub-lines transform, the tag itself survives
+  untouched (case-converting raw outer-document text, unlike the
+  single-cell path's own inner-CM6-view edit, would otherwise mangle a
+  literal `<br>` into `<BR>`).
+- **(2)** A drag that DOES include the header row transforms header cells
+  too — deliberately NOT using `getNextRowLine`/`getPrevRowLine` to map a
+  cell's rectangle-relative row back to its real document line, since
+  those two treat the header row as "outside the table" on purpose
+  (Ctrl-N/P's own row-navigation convention); a mouse-drag rectangle has
+  no such restriction. Uses a dedicated `stepTableRowLine` instead, which
+  steps one raw row (header or data) at a time, skipping only the
+  delimiter row.
+- **(3)** A plain click (no drag, zero or one `is-selected` cell) falls
+  through to the existing, untouched single-cell path — confirmed the
+  clicked cell's own word still transforms normally and neighboring cells
+  on the same row are left alone (i.e. this didn't silently widen to the
+  whole row).
+- **Fixture needs an explicit scroll before the first scenario's own cell
+  lookup**: confirmed live that CM6 only mounts DOM nodes for content
+  inside its own rendered viewport — the fixture's 3rd table (further down
+  the file, needed since each scenario mutates its own table's content on
+  disk and scenarios must not share cells) had zero
+  `.table-cell-wrapper` elements at all until `editor.scrollIntoView` ran
+  first. Not an issue for the first table on a freshly-opened fixture, but
+  would be for any table further down than the initial screenful.
+- Red-confirmed first (temporarily short-circuiting
+  `transformMulticellSelection` to always return `false`): the drag
+  degraded to the existing single-cell/word-search fallback, transforming
+  only one word under wherever the anchor cell's own cursor landed instead
+  of the whole dragged rectangle — then restored and verified green.
+  Regression sweep (`uppercaseWordMultiCursor`, `multiCursorTableCrossing`,
+  `transposeCharsMultiCursor` E2E specs, plus the full `transformWord.test.ts`/
+  `tableHelpers.test.ts` unit suites) all green — confirmed unrelated to
+  two pre-existing failing unit-test files (`copyRegion.test.ts`,
+  `moveCursorUpDown.test.ts`, both failing on an unrelated
+  `this.app.workspace` mock-setup issue, zero line overlap with this
+  change).
+- **(4) A real bug hit during actual use, found and fixed 2026-11-18**:
+  a real Shift+ArrowUp escape out of a `<br>`-containing cell up
+  into the header row above (NOT a mouse drag — every scenario above uses
+  one), run through lowercase-word, appended two extra trailing `<br>` to
+  the cell's own content (`"ABC<br>123<br>XYZ"` → `"abc<br>123<br>xyz<br><br>"`).
+  Confirmed via a diagnostic dump of `transformMulticellSelection`'s own
+  computed `original`/`transformed` values that the transform itself was
+  already correct, with no extra `<br>` at all — the corruption happened
+  strictly AFTER this function's own dispatch, as an Obsidian-side side
+  effect of the raw outer-document edit landing on a cell whose inner
+  view was still mounted (the anchor cell always has one). Reproducible
+  specifically after a real Shift+ArrowUp escape — a programmatic
+  selection set to the identical position via `inner.dispatch` never
+  triggered it, confirmed by trying that first and getting a clean
+  result. Fixed by editing the anchor cell through its own live inner
+  view (the same mechanism the existing single-cell path already uses
+  safely) instead of a raw outer-text edit, for the anchor specifically —
+  every other selected cell still uses the raw outer-text edit, since
+  they have no inner view to go through. Added a dedicated single-column
+  table (Scenario 4) to the fixture, since this bug needed a `<br>`-cell
+  with a header row directly above it and nothing else nearby.
+  Red-confirmed first (temporarily let the anchor cell fall through to
+  the same raw outer-text path as every other cell — reproduced a related
+  but not identical corruption, 4 `<br>` instead of the original bug's 2,
+  since by then both the outer edit and the inner-view fallback were
+  firing on the same cell — still a clear failure either way), then
+  restored and verified green.
+- **Known consequence of the anchor/non-anchor split above: Undo reverts
+  a multi-cell transform in two separate steps, not one.** Confirmed live
+  with both real Cmd-Z (not Ctrl-Z — the dev machine is macOS, and Ctrl-Z
+  isn't bound to anything here, which looked like "Undo does nothing at
+  all" on a first pass using the wrong key) and this plugin's own `undo`
+  command (a thin wrapper around the same `Editor.undo()`, confirmed
+  identical behavior either way): the first Undo reverts only the anchor
+  cell (its own separate `inner.dispatch` transaction), the second
+  reverts every other selected cell (the batched outer-document
+  dispatch). Both dispatches use `userEvent: 'input'` and are each real,
+  separately-undoable transactions — nothing is lost, it just takes two
+  presses instead of one. Not asserted as its own test (asserting an
+  exact keystroke count feels like the wrong thing to lock in permanently
+  here), but worth knowing if a future change ever revisits this split.
+
+#### `multicellSelectionArrowClear.e2e.ts`
+
+Real bug found from actual use (2026-11-19), raised right after the
+multi-cell case-conversion feature above shipped: while a real multi-cell
+`is-selected` selection is active, a physical arrow key collapses it and
+moves from its edge in one step, but this plugin's own cursor-up/down/
+left/right (Ctrl-P/N/B/F) previously left the selection untouched and
+moved only the anchor cell's own cursor — the stale multi-cell selection
+and this plugin's own moved caret coexisted on screen at once, which is
+wrong since no real cursor is meant to be visible while a multi-cell
+selection is active.
+
+- **Confirmed live first**: a synthetic `keydown` dispatch for the bare
+  arrow key (same technique `propertyNativeArrowFallback` already uses for
+  Properties/Bases) DOES clear the `is-selected` rectangle, unlike the
+  mouse-drag case that creates it (which needs a real WebDriver pointer
+  drag) — the clearing listener apparently only reads `event.key`/
+  `shiftKey`, not `event.isTrusted`.
+- **A "clear the selection via synthetic dispatch, then restore the
+  cursor and continue with this plugin's own `moveCursor*Impl`" hybrid was
+  tried and rejected**: restoring the cursor position via `editor.setCursor`
+  afterward reports the correct `line`/`ch` back, and the selection does
+  stay cleared, but `editor.exec('goRight')` run after that silently
+  no-ops — confirmed live. The native dispatch switches which cell's CM6
+  view is actually mounted as `editor.activeCM`, and manually setting the
+  cursor back doesn't re-point it, so this plugin's own commands stop
+  reaching any real view.
+- **Fix**: `hasActiveMulticellSelection` (shared helper, same `is-selected`
+  precondition `transformMulticellSelection` already uses) gates a new
+  branch in `moveCursorUp`/`moveCursorDown`/`moveCursorLeft`/
+  `moveCursorRight`, checked right after the existing `markActive` branch
+  — when true, delegates the whole move to `propertyNativeArrowFallback`
+  and skips this plugin's own `moveCursor*Impl` entirely for that one
+  invocation. Trade-off accepted deliberately: this plugin's own
+  cell-crossing/goal-column smarts don't apply while a multi-cell
+  selection happens to be active, in exchange for never showing a stale
+  selection next to a moved cursor.
+- Red-confirmed first (temporarily short-circuited the new branch to
+  `false && ...`, reproducing the original gap — all 4 directions left the
+  6-cell selection in place), then restored and verified green.
+- **Uses its own dedicated fixture** (`MulticellSelectionArrowClear.md`),
+  not `MulticellCaseConversion.md`'s own tables — that fixture's Scenario 1
+  gets permanently uppercased on disk by `multicellCaseConversion.e2e.ts`'s
+  own test (1) earlier in the same full-suite run order, which broke this
+  spec's own cell-text lookups (`"a10"` no longer found once already
+  `"A10"`) the first time it was written to reuse that table. Caught by a
+  full-suite run, not the isolated single-file run that had passed first.
+- **Follow-up real bug found from actual use (2026-11-19), right after the
+  fix above shipped: the clearing worked inconsistently** ("効く時と効かな
+  い時がある" — works sometimes, not other times, condition unknown at
+  report time). Root-caused via a diagnostic matrix spec (varying the
+  selection's own creation method — drag direction, same-row/same-column,
+  a real Shift+Arrow keyboard escape instead of a drag — and dumping
+  `editor.activeCM === editor.cm` plus `document.activeElement` at each
+  step): `hasActiveMulticellSelection`'s *original* implementation gated
+  on `editor.activeCM !== editor.cm` as a precondition before even
+  checking the DOM (copied from `transformMulticellSelection`'s own
+  precondition, which genuinely needs an inner view to edit through — this
+  helper doesn't). Confirmed live, non-deterministically reproducible
+  across otherwise-identical steps, that `editor.activeCM` briefly equals
+  `editor.cm` right after a cell-crossing move, before Obsidian has
+  (re)mounted the newly-active cell's own inner CM6 view — during that
+  window the old check silently reported "no selection," even with a
+  genuine `is-selected` rectangle still on screen. `editor.cm.domAtPos`
+  was tried as an alternative, scoped lookup and also failed, confirmed
+  live it doesn't resolve into the table widget's own DOM at all (its
+  `node` comes back pointing somewhere `.closest('table')` never finds a
+  `<table>` from). Fixed by dropping the scoped lookup entirely in favor
+  of a plain, global `document.querySelectorAll('td.is-selected,
+  th.is-selected')` count, confirmed reliable in exactly the run where
+  both of the above failed. Scoping to "the active cell's own table" was
+  never actually needed: Obsidian only tracks one such rectangle at a
+  time, and entering a different table already clears it, so a stray
+  unrelated `is-selected` state elsewhere in the same note isn't a real
+  scenario this global check could misfire on.
+- **Known gap, found from actual use (2026-11-19), confirmed and
+  accepted rather than fixed: a multi-line cell (a real `<br>`) whose
+  selection anchor sits on a non-boundary line of it.** E.g. click lands
+  on the LAST of a cell's two lines, Shift+Up once moves within that same
+  cell only (no cross-cell selection yet), a second Shift+Up then crosses
+  into the row above — confirmed live via a diagnostic dump that once
+  that crossing happens, `editor.activeCM` stays pointed at the ORIGINAL
+  multi-line cell, not the row the caret now visually sits in (Obsidian
+  apparently only hands off "the active cell" on a collapsing cursor
+  move, not a Shift-extend). From that stale state, a synthetic keydown
+  dispatch fails to clear the selection regardless of target — tried both
+  `document.activeElement` and `editor.cm.contentDOM`, confirmed both
+  fail identically — while a REAL, OS-trusted arrow keypress succeeds in
+  the exact same steps, confirmed live as a direct side-by-side
+  comparison. A programmatic selection override was already confirmed
+  unreliable for this same clearing mechanism (see the bullet above), so
+  this isn't something fixable with the techniques available to this
+  plugin. Locked in as a known-gap regression test (asserting the
+  selection stays at 2, not 0) rather than left silently unexplained.
+
 #### `killYankMultiCursor.e2e.ts`
 
 Kill Line/Kill Region/Kill Word/Copy Region/Yank's own multi-cursor
@@ -965,7 +1170,7 @@ tables these are vanilla codemirror-vim, unmodified).
 - **(5)** `$` sticky goal entering a table FROM PLAIN TEXT (not already
   inside one, unlike (4)'s row-crossing) lands in the rightmost cell and
   stays there.
-- **A real bug, found and fixed 2026-11-18, reported from actual use**:
+- **A real bug hit during actual use, found and fixed 2026-11-18**:
   entering a table from plain text via a sticky `$` goal flashed into the
   correct rightmost cell for one tick, then immediately bounced back out
   to the pre-entry line — reproduced live via a `cm.dispatch` hook before

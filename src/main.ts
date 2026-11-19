@@ -2402,6 +2402,34 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Scope-push implementation needed for this exact case (see its own
 	// bind() comment on why a plain "return false" / unclaimed key isn't
 	// enough: there's nothing downstream listening for Ctrl-N itself).
+	// Shared by moveCursorUp/Down/Left/Right: detects the same real
+	// multi-cell `is-selected` rectangle transformMulticellSelection reacts
+	// to. Confirmed live: a physical arrow key collapses this rectangle and
+	// moves from its edge in one step, but this plugin's own
+	// cursor-up/down/left/right previously left the rectangle untouched and
+	// moved only the anchor cell's own cursor -- showing a stale multi-cell
+	// selection AND this plugin's own moved caret at once, since no real
+	// cursor is visible while a multi-cell selection is active.
+	//
+	// Deliberately does NOT scope the lookup to "the active cell's own
+	// table" via editor.activeCM the way transformMulticellSelection does --
+	// confirmed live (non-deterministically reproducible across otherwise
+	// identical runs) that editor.activeCM briefly equals editor.cm right
+	// after a cell-crossing move, before Obsidian has (re)mounted the new
+	// active cell's own inner CM6 view; `editor.cm.domAtPos` doesn't help
+	// either, confirmed live it fails to resolve into the table widget's
+	// own DOM at all. A plain global class query has none of this race --
+	// confirmed reliable in the exact runs where both of the above failed
+	// -- and a stray unrelated table elsewhere in the same note having its
+	// own leftover `is-selected` state while the cursor sits inside a
+	// DIFFERENT table isn't a real scenario: Obsidian only ever tracks one
+	// such rectangle at a time, and entering a different table's cell
+	// already clears it.
+	private hasActiveMulticellSelection(editor: Editor): boolean {
+		if (!editor.inTableCell) return false;
+		return activeDocument.querySelectorAll('td.is-selected, th.is-selected').length >= 2;
+	}
+
 	private propertyNativeArrowFallback(el: HTMLElement, key: 'ArrowUp' | 'ArrowDown' | 'ArrowLeft' | 'ArrowRight') {
 		this.suppressNativeArrowFallback = true;
 		try {
@@ -2594,6 +2622,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			this.extendMarkHorizontalChar(editor, false);
 			return;
 		}
+		if (editor.inTableCell && this.hasActiveMulticellSelection(editor)) {
+			this.propertyNativeArrowFallback(activeDocument.activeElement as HTMLElement, 'ArrowLeft');
+			return;
+		}
 		const startedInTable = editor.inTableCell;
 		this.moveCursorLeftImpl(editor);
 		if (!startedInTable) this.reconcileSecondaryRangesAfterTableCrossing(editor);
@@ -2630,6 +2662,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private moveCursorRight(editor: Editor) {
 		if (this.markActive) {
 			this.extendMarkHorizontalChar(editor, true);
+			return;
+		}
+		if (editor.inTableCell && this.hasActiveMulticellSelection(editor)) {
+			this.propertyNativeArrowFallback(activeDocument.activeElement as HTMLElement, 'ArrowRight');
 			return;
 		}
 		const startedInTable = editor.inTableCell;
@@ -3038,6 +3074,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			this.extendMarkVertically(editor, false);
 			return;
 		}
+		if (editor.inTableCell && this.hasActiveMulticellSelection(editor)) {
+			this.propertyNativeArrowFallback(activeDocument.activeElement as HTMLElement, 'ArrowUp');
+			return;
+		}
 		const startedInTable = editor.inTableCell;
 		this.moveCursorUpImpl(editor);
 		if (!startedInTable) this.reconcileSecondaryRangesAfterTableCrossing(editor);
@@ -3113,6 +3153,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private moveCursorDown(editor: Editor) {
 		if (this.markActive) {
 			this.extendMarkVertically(editor, true);
+			return;
+		}
+		if (editor.inTableCell && this.hasActiveMulticellSelection(editor)) {
+			this.propertyNativeArrowFallback(activeDocument.activeElement as HTMLElement, 'ArrowDown');
 			return;
 		}
 		const startedInTable = editor.inTableCell;
@@ -6330,6 +6374,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Live Preview cells do).
 	private transformWord(editor: Editor, transform: (s: string) => string) {
 		if (editor.inTableCell) {
+			if (this.transformMulticellSelection(editor, transform)) return;
 			this.transformWordOrSelectionInTableLP(editor, transform);
 			return;
 		}
@@ -6349,6 +6394,178 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		}
 
 		this.transformWordOrSelectionNonTable(editor, transform);
+	}
+
+	// Splits on literal `<br>` tags (case-insensitive, same pattern as
+	// getInCellLineInfo's own scan) and transforms only the text segments
+	// between them, leaving the tags themselves untouched. Needed because
+	// transformMulticellSelection edits raw outer-document text directly
+	// (unlike transformWordOrSelectionInTableLP's single-cell path, which
+	// edits the INNER CM6 view's own document — that document never
+	// contains a literal "<br>" string at all, multi-line cell content is
+	// real separate lines there) — toUpperCase() on a raw cell's own text
+	// would otherwise mangle "<br>" into "<BR>".
+	private static transformCellTextPreservingBr(text: string, transform: (s: string) => string): string {
+		return text.split(/(<[bB][rR]>)/g)
+			.map(part => /^<[bB][rR]>$/i.test(part) ? part : transform(part))
+			.join('');
+	}
+
+	// Walks one raw table row (header or data) in the given direction from
+	// fromLine, skipping the delimiter row automatically. Deliberately NOT
+	// getNextRowLine/getPrevRowLine: those treat the header row as
+	// "outside the table" on purpose, matching Ctrl-N/P's own row-
+	// navigation convention (skip straight past it) — but a real mouse-
+	// drag multi-cell selection's own rectangle can genuinely include the
+	// header row, so this plain step must reach it too. Returns -1 at the
+	// document's own edge (shouldn't happen in practice: the caller only
+	// ever walks as far as the DOM's own already-rendered table rows, and
+	// a rendered table row always has real document lines backing it).
+	private stepTableRowLine(editor: Editor, fromLine: number, forward: boolean): number {
+		const next = forward ? fromLine + 1 : fromLine - 1;
+		if (next < 0 || next >= editor.lineCount()) return -1;
+		if (this.TABLE_DELIMITER_REGEX.test(editor.getLine(next))) {
+			const afterDelim = forward ? next + 1 : next - 1;
+			if (afterDelim < 0 || afterDelim >= editor.lineCount()) return -1;
+			return afterDelim;
+		}
+		return next;
+	}
+
+	// Real multi-cell mouse-drag selection support for Uppercase/Lowercase/
+	// Capitalize word, confirmed live (not guessed) against Obsidian's own
+	// Live Preview table: dragging across cells visually spans them with a
+	// purple rectangle, but this is a DOM/CSS decoration only — Obsidian
+	// marks every cell inside the rectangle with an `is-selected` class on
+	// its `<td>`/`<th>` (confirmed still accurate as of this plugin's own
+	// 1.15.1 Obsidian install; a dedicated E2E test locks this down going
+	// forward), and only the single cell actually being edited gets a real
+	// mounted CM6 inner view — editor.getSelection()/activeCM both report
+	// nothing useful for any OTHER cell in the rectangle. A synthetic
+	// MouseEvent/PointerEvent dispatchEvent sequence produces NO selection
+	// at all when tested live — this is real browser cross-cell behavior,
+	// only reproducible with genuine OS-level input, not something a
+	// future regression test can simulate without WebDriver's own Actions
+	// API.
+	//
+	// Returns true when it actually handled a genuine multi-cell selection
+	// (caller must not fall through to the single-cell path then); false
+	// for every other case (a plain click, or a selection confined to one
+	// cell) — transformWord's own single-cell path already handles those
+	// correctly and is left completely untouched.
+	//
+	// Unlike the single-cell path, this edits the OUTER document directly
+	// (editor.cm, via plain getLine/table-cell-utils.ts helpers) for EVERY
+	// selected cell, including the one with a live inner view — the outer
+	// document already holds the complete raw text for every cell in a
+	// Live Preview table (confirmed by every existing table-crossing
+	// command in this file, which already reads/writes table rows this
+	// way), so there's no need to special-case the anchor cell through its
+	// own inner view at all. Safe only because Uppercase/Lowercase/
+	// Capitalize never changes a span's own length (already an established
+	// invariant elsewhere in this section) — every computed {from, to} stays
+	// valid across the whole batched edit without needing to re-resolve
+	// positions after each individual change.
+	private transformMulticellSelection(editor: Editor, transform: (s: string) => string): boolean {
+		const inner = editor.activeCM;
+		if (!inner || inner === editor.cm) return false;
+		const table = (inner.dom as HTMLElement).closest('table');
+		if (!table) return false;
+		const selectedCells = Array.from(table.querySelectorAll<HTMLElement>('td.is-selected, th.is-selected'));
+		// A plain click (even one that lands inside a cell with no drag at
+		// all) never gets is-selected on its own single cell — confirmed
+		// live. Fewer than 2 selected cells means there's no real
+		// rectangle to handle; let the existing single-cell path run.
+		if (selectedCells.length < 2) return false;
+
+		const allRows = Array.from(table.querySelectorAll('tr'));
+		const anchorCell = (inner.dom as HTMLElement).closest('td,th');
+		const anchorRow = anchorCell?.closest('tr');
+		if (!anchorCell || !anchorRow) return false;
+		// Unconditional once a genuine multi-cell selection is confirmed —
+		// matching transformWordOrSelectionInTableLP's own unconditional
+		// clear, rather than only clearing it when `changes` ends up
+		// non-empty below (e.g. every selected cell happens to contain no
+		// letters at all — still a real, handled invocation of this
+		// command, same as the single-cell path's own policy).
+		this.markActive = false;
+		const anchorRowIndex = allRows.indexOf(anchorRow);
+		const anchorColIndex = Array.from(anchorRow.children).indexOf(anchorCell);
+		const anchorLine = editor.getCursor().line;
+
+		// Cache each unique row-delta's resolved outer line once, instead
+		// of re-walking stepTableRowLine for every cell in that row.
+		const lineByRowDelta = new Map<number, number>();
+		lineByRowDelta.set(0, anchorLine);
+
+		const changes: { from: number; to: number; insert: string }[] = [];
+		for (const td of selectedCells) {
+			const tr = td.closest('tr');
+			if (!tr) continue;
+			const rowDelta = allRows.indexOf(tr) - anchorRowIndex;
+			const colIndex = Array.from(tr.children).indexOf(td);
+			// The anchor cell is handled separately, below, through its own
+			// live inner view instead of a raw outer-text edit — confirmed
+			// live that editing it here instead corrupts it: Obsidian's own
+			// table-widget reconciliation, triggered by the outer document
+			// changing underneath a cell whose inner view is still mounted,
+			// appended two extra trailing `<br>` tags to THIS cell's own
+			// content specifically (confirmed via a diagnostic dump of this
+			// function's own computed `original`/`transformed` values —
+			// already correct, with no extra `<br>` at all — so the
+			// corruption happens strictly AFTER this function's own
+			// dispatch, as an Obsidian-side side effect of the raw outer
+			// edit landing on a still-live decorated cell, not a bug in the
+			// transform itself). Reproduced specifically after a real
+			// Shift+ArrowUp escape (not a plain click or a programmatic
+			// selection set) put the inner view into this "doubly-escaped"
+			// cross-row-selection state — a mouse-drag selection never
+			// leaves the inner view in this state, which is presumably why
+			// this plugin's own regression sweep for mouse-drag scenarios
+			// never caught it.
+			if (rowDelta === 0 && colIndex === anchorColIndex) continue;
+			let targetLine = lineByRowDelta.get(rowDelta);
+			if (targetLine === undefined) {
+				targetLine = anchorLine;
+				for (let i = 0; i < Math.abs(rowDelta) && targetLine !== -1; i++) {
+					targetLine = this.stepTableRowLine(editor, targetLine, rowDelta > 0);
+				}
+				lineByRowDelta.set(rowDelta, targetLine);
+			}
+			if (targetLine === -1) continue; // defensive: shouldn't happen for an already-rendered row.
+
+			const lineText = editor.getLine(targetLine);
+			const cellStart = getChByCellIndex(lineText, colIndex);
+			const cellEnd = getEndOfCellContentByCellIndex(lineText, colIndex);
+			if (cellStart === -1 || cellEnd === -1 || cellEnd < cellStart) continue; // defensive: malformed/mismatched row.
+
+			const original = lineText.slice(cellStart, cellEnd);
+			const transformed = universalCursorHotkeysPlugin.transformCellTextPreservingBr(original, transform);
+			if (transformed === original) continue; // e.g. a cell with no letters at all.
+			changes.push({
+				from: editor.posToOffset({ line: targetLine, ch: cellStart }),
+				to: editor.posToOffset({ line: targetLine, ch: cellEnd }),
+				insert: transformed,
+			});
+		}
+		// Outer changes (every OTHER selected cell) dispatch first, using
+		// offsets computed against the still-untouched document — order
+		// relative to the inner dispatch below doesn't matter either way,
+		// since they target disjoint lines, but doing this one first keeps
+		// the anchor cell's own inner view as the very last thing touched.
+		if (changes.length > 0) editor.cm.dispatch({ changes, userEvent: 'input' });
+
+		// Anchor cell: edit through its own live inner view instead, same
+		// mechanism transformWordOrSelectionInTableLP's single-cell path
+		// already uses safely — that view's own document uses real `\n`
+		// between sub-lines (confirmed live), not literal `<br>`, so no
+		// transformCellTextPreservingBr call is needed here at all.
+		const innerText = inner.state.doc.toString();
+		const innerTransformed = transform(innerText);
+		if (innerTransformed !== innerText) {
+			inner.dispatch({ changes: { from: 0, to: inner.state.doc.length, insert: innerTransformed }, userEvent: 'input' });
+		}
+		return true;
 	}
 
 	// Pure (no dispatch) per-range validity check for a non-empty range:
