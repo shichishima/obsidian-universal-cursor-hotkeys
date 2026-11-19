@@ -317,6 +317,14 @@ export interface KeyUpgradeDef {
 	commandId: string;
 	mac: KeyUpgradeHotkey;
 	win: KeyUpgradeHotkey;
+	// PROTOTYPE (feat/key-upgrades-scope-rearchitecture, 0.13.1 candidate):
+	// set ONLY on cursor-up/cursor-down for now. These two no longer claim
+	// their bare key via hm.setHotkeys on the root scope at all -- see
+	// keyUpgradesScope's own field comment in main.ts. Their on/off state
+	// lives in this dedicated plugin setting instead, so every place below
+	// that reads/writes "assigned" for a row needs to check this field and
+	// branch, rather than going through hm uniformly like every other def.
+	scopeSettingKey?: 'keyUpgradeArrowUpScope' | 'keyUpgradeArrowDownScope';
 }
 
 export interface KeyUpgradeRow {
@@ -366,8 +374,10 @@ const bare = (key: string): { mac: KeyUpgradeHotkey; win: KeyUpgradeHotkey } => 
 	return { mac: hk, win: hk };
 };
 const KEY_UPGRADE_DEFS: readonly KeyUpgradeDef[] = [
-	{ group: 'navBasics', label: 'Column-aware',      commandId: 'cursor-up',   ...bare('ArrowUp')   },
-	{ group: 'navBasics', label: 'Column-aware',      commandId: 'cursor-down', ...bare('ArrowDown') },
+	{ group: 'navBasics', label: 'Column-aware',      commandId: 'cursor-up',   ...bare('ArrowUp'),
+		scopeSettingKey: 'keyUpgradeArrowUpScope' },
+	{ group: 'navBasics', label: 'Column-aware',      commandId: 'cursor-down', ...bare('ArrowDown'),
+		scopeSettingKey: 'keyUpgradeArrowDownScope' },
 	{ group: 'navBasics', label: '3-step Smart home', commandId: 'cursor-home', ...bare('Home')      },
 	{ group: 'navBasics', label: 'Table-aware',       commandId: 'cursor-end',  ...bare('End')       },
 	// Windows' own document-start/end convention uses Home/End (Ctrl+Home /
@@ -1243,7 +1253,11 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 	// (already on both) stays togglable off, since that only ever resolves
 	// this command's own side.
 	private renderKeyUpgradeRow(tbody: HTMLElement, def: KeyUpgradeDef, ctx: KeyUpgradeCtx): HTMLTableRowElement {
-		const { fullId, targetHotkey, assigned, conflictIds } = computeKeyUpgradeRow(def, ctx.effectiveHotkeys, ctx.reverseMap, ctx.cmds);
+		const { fullId, targetHotkey, assigned: hmAssigned, conflictIds } = computeKeyUpgradeRow(def, ctx.effectiveHotkeys, ctx.reverseMap, ctx.cmds);
+		// PROTOTYPE: see KeyUpgradeDef.scopeSettingKey's own doc comment —
+		// cursor-up/cursor-down's real on/off state lives in a plugin
+		// setting now, not in hotkeyManager's baked state.
+		const assigned = def.scopeSettingKey ? this.plugin.settings[def.scopeSettingKey] : hmAssigned;
 		const hasConflict = conflictIds.length > 0;
 
 		const tr = tbody.createEl('tr');
@@ -1268,11 +1282,18 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 			tdToggle.title = 'Already used by another command — free it up in Hotkeys settings first.';
 		}
 		toggle.onChange((value) => {
-			ctx.hm.setHotkeys(fullId, value
-				? [...ctx.effectiveHotkeys(fullId).map(ctx.toHotkey), targetHotkey]
-				: ctx.effectiveHotkeys(fullId).filter(hk => hotkeyId(hk) !== hotkeyId(targetHotkey)).map(ctx.toHotkey));
-			ctx.hm.save();
-			ctx.hm.bake();
+			if (def.scopeSettingKey) {
+				// PROTOTYPE: never touch hm for these two rows -- that's the
+				// whole point (no root-scope claim to steal the key from
+				// Excalidraw/Bases/etc. regardless of this setting).
+				this.plugin.settings[def.scopeSettingKey] = value;
+			} else {
+				ctx.hm.setHotkeys(fullId, value
+					? [...ctx.effectiveHotkeys(fullId).map(ctx.toHotkey), targetHotkey]
+					: ctx.effectiveHotkeys(fullId).filter(hk => hotkeyId(hk) !== hotkeyId(targetHotkey)).map(ctx.toHotkey));
+				ctx.hm.save();
+				ctx.hm.bake();
+			}
 			void this.plugin.saveSettings();
 			this.display();
 		});
@@ -1846,7 +1867,9 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		keyUpgradesDescEl.appendText('Apply all also turns on every Behavior option below.');
 		const computeEligible = () => KEY_UPGRADE_DEFS.filter(def => {
 			const row = computeKeyUpgradeRow(def, keyUpgradeCtx.effectiveHotkeys, keyUpgradeCtx.reverseMap, keyUpgradeCtx.cmds);
-			return !row.assigned && row.conflictIds.length === 0;
+			// PROTOTYPE: see KeyUpgradeDef.scopeSettingKey's own doc comment.
+			const assigned = def.scopeSettingKey ? this.plugin.settings[def.scopeSettingKey] : row.assigned;
+			return !assigned && row.conflictIds.length === 0;
 		});
 		const behaviorSettingsAllOn = () => this.plugin.settings.smartHomeStandard
 			&& this.plugin.settings.smartHomeAdvanced
@@ -1878,6 +1901,12 @@ export class UniversalCursorHotkeysSettingTab extends PluginSettingTab {
 		updateApplyAllDisabled();
 		applyAllBtn.addEventListener('click', () => {
 			for (const def of computeEligible()) {
+				// PROTOTYPE: see KeyUpgradeDef.scopeSettingKey's own doc
+				// comment -- never call hm.setHotkeys for these two.
+				if (def.scopeSettingKey) {
+					this.plugin.settings[def.scopeSettingKey] = true;
+					continue;
+				}
 				const row = computeKeyUpgradeRow(def, keyUpgradeCtx.effectiveHotkeys, keyUpgradeCtx.reverseMap, keyUpgradeCtx.cmds);
 				hm.setHotkeys(row.fullId, [...keyUpgradeCtx.effectiveHotkeys(row.fullId).map(toHotkey), row.targetHotkey]);
 			}

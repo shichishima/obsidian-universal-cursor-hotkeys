@@ -1,5 +1,5 @@
-import { Editor, Plugin, MarkdownView } from 'obsidian';
-import { UniversalCursorHotkeysSettingTab, DisplacedCommand } from './settings';
+import { Editor, Plugin, MarkdownView, Scope } from 'obsidian';
+import { UniversalCursorHotkeysSettingTab, DisplacedCommand, normMods } from './settings';
 import { VimSupport } from './vim-support';
 import { InCellLineInfo, getCellBounds, getStartOfCellContent, getEndOfCellContent,
 	getEndOfCellContentByCellIndex, getRightmostCellIndex, getCellIndex, getChByCellIndex,
@@ -192,6 +192,19 @@ interface UniversalCursorHotkeysSettings {
 	// most once ever, so it never fights a user's own subsequent manual tab
 	// choice.
 	vimAutoExpandDone: boolean;
+	// PROTOTYPE (feat/key-upgrades-scope-rearchitecture, 0.13.1 candidate):
+	// cursor-up/cursor-down's own Key Upgrades on/off state, read by
+	// keyUpgradesScope's registered callbacks below. Deliberately NOT
+	// backed by hotkeyManager.setHotkeys like every other Key Upgrade
+	// entry -- that's the whole point of this rearchitecture (no
+	// root-scope claim to steal the bare key from non-CM6 surfaces like
+	// Excalidraw regardless of this setting's value). See
+	// KeyUpgradeDef.scopeSettingKey in settings.ts for the Settings-UI
+	// side of this, and onload's migration block below for users who
+	// already had the OLD mechanism's bare-key claim baked from before
+	// this setting existed.
+	keyUpgradeArrowUpScope: boolean;
+	keyUpgradeArrowDownScope: boolean;
 }
 
 const DEFAULT_SETTINGS: UniversalCursorHotkeysSettings = {
@@ -202,6 +215,12 @@ const DEFAULT_SETTINGS: UniversalCursorHotkeysSettings = {
 	crossRowNavigation: true,
 	cjkDoubleClickWordSelect: true,
 	tableAwareSourceModeEditing: true,
+	// PROTOTYPE: default false, same as "off" was the pre-existing default
+	// for this Key Upgrade before the new setting existed. onload's
+	// migration block picks up anyone who had already turned it on via the
+	// OLD mechanism.
+	keyUpgradeArrowUpScope: false,
+	keyUpgradeArrowDownScope: false,
 	qsaDisplacedCommands: [],
 	qsaIndividualVisible: false,
 	qsaCursorMovementVisible: true,
@@ -277,6 +296,29 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// path to whatever native listener actually moves row focus.
 	private suppressNativeArrowFallback: boolean = false;
 
+	// PROTOTYPE (feat/key-upgrades-scope-rearchitecture, 0.13.1 candidate):
+	// validates the scope-based Key Upgrades approach for just cursor-up/
+	// down's own bare ArrowUp/Down before generalizing to every entry and
+	// reworking the Settings UI -- see
+	// project_key_upgrades_scope_based_rearchitecture_0_13_1 memory for the
+	// Keymap/Scope source-read investigation this is based on. Confirmed
+	// live there: Obsidian's ENTIRE hotkey system is one `window`-level
+	// capture-phase keydown listener calling `this.scope.handleKey(...)`,
+	// only `preventDefault`/`stopPropagation` on an exact `false` return --
+	// so pushing a scope ONLY while a real CM6 `.cm-content` has focus, and
+	// never claiming the bare key globally via `hotkeyManager.setHotkeys`
+	// at all, should let Excalidraw/Bases/Properties-native-widgets see
+	// the raw keydown normally whenever focus is elsewhere.
+	private keyUpgradesScope: Scope | null = null;
+	// Tracked explicitly rather than relying on push/pop's own internal
+	// no-op-if-already-active check: that check alone doesn't prevent a
+	// mismatched pop (popping a scope that was never pushed corrupts
+	// nothing per Scope's own guard, but popping twice in a row for one
+	// push WOULD pop something else off the real stack) -- same class of
+	// bug the existing Scope-push safety net elsewhere in this plugin
+	// already hardened against.
+	private keyUpgradesScopePushed = false;
+
 	// Guards every editorCallback below against firing mid-IME-composition.
 	// Confirmed live (2026-09-26): during active composition, CM6's own
 	// `composing` flag stays true even once the IME itself stops consuming
@@ -293,6 +335,97 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		await this.loadSettings();
 		this.vimSupport = new VimSupport(this);
 		this.addSettingTab(new UniversalCursorHotkeysSettingTab(this.app, this));
+
+		// PROTOTYPE: see this.keyUpgradesScope's own field comment. parent
+		// MUST be the real root scope -- confirmed via source read that
+		// Scope.handleKey falls through to `this.parent.handleKey(...)`
+		// only when nothing on `this.keys` matches; without this link,
+		// EVERY other hotkey in the app (command palette, Quick switcher,
+		// anything) would silently stop firing for as long as this scope
+		// stays pushed. `getRootScope` isn't in the public obsidian.d.ts
+		// (confirmed it exists at runtime via the same source read) --
+		// same "undocumented internal, confirmed live" category as this
+		// plugin's existing hotkeyManager/Bases-internals reaches
+		// elsewhere.
+		const rootScope = (this.app.keymap as unknown as { getRootScope(): Scope }).getRootScope();
+		this.keyUpgradesScope = new Scope(rootScope);
+		const execCmd = (id: string) => (this.app as unknown as { commands: { executeCommandById(id: string): void } }).commands.executeCommandById(id);
+
+		// PROTOTYPE: one-time migration for anyone who already had the OLD
+		// mechanism's bare ArrowUp/Down baked onto cursor-up/cursor-down
+		// (Settings UI toggle, before keyUpgradeArrowUp/DownScope existed).
+		// Treat an existing bare-key bake as that setting's initial true
+		// value, then strip the bare entry from hm so the root scope stops
+		// claiming it -- this plugin's own scope-push mechanism below is
+		// now the ONLY thing that can act on this key, and only while a
+		// real CM6 `.cm-content` has focus. Idempotent: once stripped,
+		// bakedIds/bakedHotkeys no longer carry the bare entry, so this is
+		// a no-op on every subsequent load.
+		{
+			type RawHotkey = { modifiers: string; key: string };
+			// setHotkeys (unlike bakedHotkeys, which stores modifiers as a
+			// comma-joined STRING) expects modifiers as an ARRAY -- same
+			// string->array conversion settings.ts's own toHotkey/normMods
+			// already does for every other hm.setHotkeys call. Missing this
+			// here crashed hm.bake() itself (`t.map is not a function` in
+			// Obsidian's own compileModifiers), taking the whole plugin down
+			// on load for anyone who already had the bare key baked.
+			const hm = (this.app as unknown as { hotkeyManager: {
+				bakedIds: string[]; bakedHotkeys: RawHotkey[];
+				setHotkeys(id: string, hotkeys: { modifiers: string[]; key: string }[]): void;
+				save(): void; bake(): void;
+			} }).hotkeyManager;
+			hm.bake();
+			let migrated = false;
+			const migrateBareArrow = (settingKey: 'keyUpgradeArrowUpScope' | 'keyUpgradeArrowDownScope', commandId: string, key: string) => {
+				const fullId = `${this.manifest.id}:${commandId}`;
+				const hasBareKey = hm.bakedIds.some((id, i) =>
+					id === fullId && hm.bakedHotkeys[i].key === key && hm.bakedHotkeys[i].modifiers === '');
+				if (!hasBareKey) return;
+				this.settings[settingKey] = true;
+				const remaining = hm.bakedIds.reduce<{ modifiers: string[]; key: string }[]>((acc, id, i) => {
+					if (id === fullId && !(hm.bakedHotkeys[i].key === key && hm.bakedHotkeys[i].modifiers === '')) {
+						acc.push({ modifiers: normMods(hm.bakedHotkeys[i].modifiers), key: hm.bakedHotkeys[i].key });
+					}
+					return acc;
+				}, []);
+				hm.setHotkeys(fullId, remaining);
+				migrated = true;
+			};
+			migrateBareArrow('keyUpgradeArrowUpScope', 'cursor-up', 'ArrowUp');
+			migrateBareArrow('keyUpgradeArrowDownScope', 'cursor-down', 'ArrowDown');
+			if (migrated) {
+				hm.save();
+				hm.bake();
+				void this.saveSettings();
+			}
+		}
+
+		// suppressNativeArrowFallback guards our OWN propertyNativeArrowFallback's
+		// synthetic ArrowUp/Down dispatch (used e.g. by moveCursorUp/Down's
+		// multi-cell-selection-clearing branch) -- that synthetic keydown
+		// goes through this SAME window-capture Keymap listener (confirmed
+		// live: a synthetic dispatchEvent still passes through the capture
+		// phase like any real event), so without this check this scope
+		// would swallow our own internal dispatch before it ever reaches
+		// whatever native listener it's meant to reach, breaking that
+		// mechanism. Returning nothing (not `false`) here falls through to
+		// the parent/root scope instead of consuming it. Toggle state now
+		// comes straight from keyUpgradeArrowUp/DownScope -- see that
+		// field's own doc comment -- rather than hotkeyManager's baked
+		// state, since the root scope never carries this key anymore.
+		this.keyUpgradesScope.register([], 'ArrowUp', () => {
+			if (this.suppressNativeArrowFallback) return;
+			if (!this.settings.keyUpgradeArrowUpScope) return;
+			execCmd(`${this.manifest.id}:cursor-up`);
+			return false;
+		});
+		this.keyUpgradesScope.register([], 'ArrowDown', () => {
+			if (this.suppressNativeArrowFallback) return;
+			if (!this.settings.keyUpgradeArrowDownScope) return;
+			execCmd(`${this.manifest.id}:cursor-down`);
+			return false;
+		});
 
 		this.addCommand({
 			id: 'cursor-home',
@@ -1427,6 +1560,25 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// See onload's own call site for why this exists per-window rather than
 	// being called once for activeDocument alone.
 	private registerWindowDomListeners(doc: Document) {
+		// PROTOTYPE: push/pop keyUpgradesScope based purely on whether the
+		// newly-focused element is inside a real CM6 `.cm-content` --
+		// 'focusin' alone (not a focusin/focusout pair) since it reliably
+		// reports the GAINING element via e.target in every case that
+		// matters here, unlike 'focusout's own relatedTarget support.
+		// Explicit state tracking avoids a push/pop mismatch (see
+		// keyUpgradesScopePushed's own field comment).
+		this.registerDomEvent(doc, 'focusin', (e: FocusEvent) => {
+			if (!this.keyUpgradesScope) return;
+			const insideCM6 = !!(e.target as HTMLElement | null)?.closest?.('.cm-content');
+			if (insideCM6 && !this.keyUpgradesScopePushed) {
+				this.app.keymap.pushScope(this.keyUpgradesScope);
+				this.keyUpgradesScopePushed = true;
+			} else if (!insideCM6 && this.keyUpgradesScopePushed) {
+				this.app.keymap.popScope(this.keyUpgradesScope);
+				this.keyUpgradesScopePushed = false;
+			}
+		});
+
 		this.registerDomEvent(doc, 'mousedown', () => {
 			this.isKillChaining = false;
 			this._recenterStep = 0;
@@ -1534,6 +1686,14 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	onunload() {
 		this.vimSupport.teardown();
+		// PROTOTYPE: same stuck/orphaned-scope class this plugin already
+		// hardened against elsewhere (see the Scope-push safety net
+		// memory) -- pop only if actually pushed, same guard as the
+		// focusin handler above.
+		if (this.keyUpgradesScope && this.keyUpgradesScopePushed) {
+			this.app.keymap.popScope(this.keyUpgradesScope);
+			this.keyUpgradesScopePushed = false;
+		}
 	}
 
 
