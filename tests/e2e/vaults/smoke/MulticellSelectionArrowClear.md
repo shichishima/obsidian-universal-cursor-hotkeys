@@ -15,3 +15,10 @@
 | --- | --- | --- |
 | p10 | p11 | p12 |
 | p20 | p21 | p22 |
+
+#### Known gap: a multi-line cell whose anchor sits on a non-boundary line
+
+| q00 | q01 |
+| --- | --- |
+| q10 | q11 |
+| q20 | qln1<br>qln2 |

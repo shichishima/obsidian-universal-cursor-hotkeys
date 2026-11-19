@@ -393,6 +393,25 @@ selection is active.
   time, and entering a different table already clears it, so a stray
   unrelated `is-selected` state elsewhere in the same note isn't a real
   scenario this global check could misfire on.
+- **Known gap, found from actual use (2026-11-19), confirmed and
+  accepted rather than fixed: a multi-line cell (a real `<br>`) whose
+  selection anchor sits on a non-boundary line of it.** E.g. click lands
+  on the LAST of a cell's two lines, Shift+Up once moves within that same
+  cell only (no cross-cell selection yet), a second Shift+Up then crosses
+  into the row above — confirmed live via a diagnostic dump that once
+  that crossing happens, `editor.activeCM` stays pointed at the ORIGINAL
+  multi-line cell, not the row the caret now visually sits in (Obsidian
+  apparently only hands off "the active cell" on a collapsing cursor
+  move, not a Shift-extend). From that stale state, a synthetic keydown
+  dispatch fails to clear the selection regardless of target — tried both
+  `document.activeElement` and `editor.cm.contentDOM`, confirmed both
+  fail identically — while a REAL, OS-trusted arrow keypress succeeds in
+  the exact same steps, confirmed live as a direct side-by-side
+  comparison. A programmatic selection override was already confirmed
+  unreliable for this same clearing mechanism (see the bullet above), so
+  this isn't something fixable with the techniques available to this
+  plugin. Locked in as a known-gap regression test (asserting the
+  selection stays at 2, not 0) rather than left silently unexplained.
 
 #### `killYankMultiCursor.e2e.ts`
 
