@@ -124,17 +124,23 @@ const BASES_TABLE_CONTAINER_SELECTOR = '.bases-table-container';
 // handling could respond) that Home/End/Delete-char are genuinely
 // no-ops on a focused pill, matching this selector's own convention —
 // added here for those two plus Set-mark/Kill-line/Kill-region/
-// Copy-region/Yank/Kill-word-left/Kill-word-right, none of which have
-// any native physical-key equivalent on a pill (Kill-word-left/right's
-// own native counterpart, Option-Backspace/Delete, is asymmetric and
-// genuinely destructive — deleting the pill outright — deliberately
-// NOT replicated here; that richer, pill-specific kill/yank round-trip
-// is a separate follow-up, not part of this fallthrough fix). Word
-// left/right is the ONE exception: confirmed live that native Option-Left/Right actually
-// moves to the previous/next pill (the same result cursor-left/right's
-// own native-fallback dispatch already produces for plain Left/Right on
-// a pill), so those two commands check PROPERTY_MULTISELECT_PILL_SELECTOR
-// separately, before this selector, and dispatch rather than no-op.
+// Copy-region, none of which have any native physical-key equivalent
+// on a pill at all.
+//
+// Word left/right, Kill word left/right, and Yank are the exceptions:
+// each checks PROPERTY_MULTISELECT_PILL_SELECTOR separately, before
+// this selector, and acts rather than no-ops. Word left/right:
+// confirmed live that native Option-Left/Right moves to the previous/
+// next pill (the same result cursor-left/right's own native-fallback
+// dispatch already produces for plain Left/Right on a pill). Kill
+// word left/right (feat/pill-kill-word-yank-roundtrip): native
+// Option-Backspace deletes the pill outright (Option-Delete forward
+// is a no-op) — this plugin's own version is deliberately symmetric
+// instead (every other Kill word always kills something and pushes
+// it to the kill-cache/clipboard), see propertyPillKillWord's own
+// comment. Yank: the round-trip counterpart, appending a new pill at
+// the list's own end — see propertyPillYank's own comment for why
+// it's scoped to the pill only, not the composing input.
 const PROPERTY_ANY_ITEM_SELECTION_SELECTOR =
 	`${PROPERTY_ROW_SELECTOR}, ${PROPERTY_HEADING_SELECTOR}, ${PROPERTY_ADD_BUTTON_SELECTOR}, ${BASES_TABLE_CONTAINER_SELECTOR}, ${PROPERTY_MULTISELECT_PILL_SELECTOR}`;
 
@@ -976,6 +982,12 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 					}
 					return true;
 				}
+				// See propertyPillKillWord's own comment for the confirmed
+				// native behavior and round-trip rationale.
+				if (el?.matches?.(PROPERTY_MULTISELECT_PILL_SELECTOR)) {
+					if (!checking) this.propertyPillKillWord(el, false);
+					return true;
+				}
 				if (el?.matches?.(PROPERTY_ANY_ITEM_SELECTION_SELECTOR)) {
 					return true; // no meaning here; claim the key and do nothing
 				}
@@ -1003,6 +1015,13 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 						if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) this.propertyKeyKillWord(el as HTMLInputElement, true);
 						else this.titleKillWord(el, true);
 					}
+					return true;
+				}
+				// See propertyPillKillWord's own comment (kill-word-left's
+				// identical branch above) for the confirmed native
+				// behavior and round-trip rationale.
+				if (el?.matches?.(PROPERTY_MULTISELECT_PILL_SELECTOR)) {
+					if (!checking) this.propertyPillKillWord(el, true);
 					return true;
 				}
 				if (el?.matches?.(PROPERTY_ANY_ITEM_SELECTION_SELECTOR)) {
@@ -1062,6 +1081,13 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 						if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) void this.propertyKeyYank(el as HTMLInputElement);
 						else void this.titleYank(el);
 					}
+					return true;
+				}
+				// See propertyPillYank's own comment for the confirmed
+				// round-trip rationale and why this is scoped to the pill
+				// only, not the trailing composing input.
+				if (el?.matches?.(PROPERTY_MULTISELECT_PILL_SELECTOR)) {
+					if (!checking) void this.propertyPillYank(el);
 					return true;
 				}
 				if (el?.matches?.(PROPERTY_ANY_ITEM_SELECTION_SELECTOR)) {
@@ -2157,6 +2183,70 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 		this.titleGoalX = null;
 		titleEl.ownerDocument.execCommand('insertText', false, text);
+	}
+
+	// feat/pill-kill-word-yank-roundtrip: Kill word left/right on an
+	// already-COMMITTED pill in a tags/list/aliases field — the whole
+	// pill IS the "word" here, there's no partial-word concept within
+	// one. Confirmed live that native Option-Backspace deletes the
+	// pill outright (Option-Delete forward is a no-op) — deliberately
+	// NOT mirrored as asymmetric: every other Kill word implementation
+	// in this plugin always kills something and pushes it to the
+	// kill-cache/clipboard, so both directions delete the pill here
+	// too, differing only in which side of the kill-cache the text
+	// joins (same `!forward` convention titleKillWord uses). Deletion
+	// itself always dispatches a synthetic Backspace regardless of
+	// direction — confirmed live this is the one pill-removal path
+	// that responds to a synthetic dispatch at all; a real physical
+	// Delete is a no-op on a pill either way, so there's no working
+	// forward-specific equivalent to reach for.
+	private propertyPillKillWord(pillEl: HTMLElement, forward: boolean) {
+		const text = pillEl.textContent ?? '';
+		if (!text) return;
+		// isKillChaining must be set AFTER updateKillCache reads its OLD
+		// value, not before — confirmed live as a real bug while building
+		// this: setting it first made this call treat ITS OWN kill as "a
+		// chain continuing from whatever isKillChaining already was"
+		// (true leftover state from an unrelated earlier action), instead
+		// of correctly deciding whether to start a fresh kill-cache entry.
+		// Same order titleKillWord already uses.
+		this.updateKillCache(text, !forward);
+		navigator.clipboard.writeText(this.killCache).catch(() => {});
+		pillEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true }));
+		this.isKillChaining = true;
+	}
+
+	// feat/pill-kill-word-yank-roundtrip: Yank while focus is on an
+	// already-committed pill — the round-trip counterpart to
+	// propertyPillKillWord above. Always appends a new pill at the
+	// list's own end, the same place a newly-TYPED tag always commits
+	// to: pill-to-pill reordering has no native equivalent at all, not
+	// even for a human physically typing a new tag (Source Mode's raw
+	// YAML is the only way to reorder one). Strips newlines first, same
+	// as titleYank — a pill's own text is always flat, single-line.
+	// Deliberately scoped to the PILL case only, not the trailing
+	// composing input — Yank there already works correctly as plain
+	// text insertion at the caret via PROPERTY_TEXT_LIKE_EDIT_SELECTOR's
+	// own titleYank reuse (added in fix/property-multiselect-pill-command-fallthrough),
+	// and overriding that to always auto-commit a new pill would break
+	// the ordinary "paste into what I'm still typing" case.
+	private async propertyPillYank(pillEl: HTMLElement) {
+		let raw: string;
+		try {
+			raw = await navigator.clipboard.readText();
+		} catch {
+			raw = this.killCache;
+		}
+		if (!raw) return;
+		const text = raw.replace(/\n/g, '');
+		if (!text) return;
+
+		const row = pillEl.closest(PROPERTY_ROW_SELECTOR) as HTMLElement | null;
+		const input = row?.querySelector(PROPERTY_MULTISELECT_INPUT_SELECTOR) as HTMLElement | null;
+		if (!input) return;
+		input.focus();
+		input.ownerDocument.execCommand('insertText', false, text);
+		input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
 	}
 
 	// Dispatches to whichever of Add-button/heading/title is actually

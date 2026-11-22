@@ -4251,3 +4251,71 @@ uppercaseWordMultiCursor (3) — the last one looked new but reproduced
 Uppercase/Lowercase/Capitalize word commands have no
 `TITLE_SELECTOR`/`PROPERTY_*`/`BASES_*` branches at all), confirming
 cross-spec pollution in the full run, not a regression.
+
+## Pill Kill word / Yank round-trip (feat/pill-kill-word-yank-roundtrip)
+
+Phase 2 follow-up to the fallthrough fix above: Kill word left/right
+and Yank on an already-COMMITTED pill in a tags/list/aliases field,
+richer than that fix's own plain no-op.
+
+Kill word left/right (`propertyPillKillWord`): deliberately symmetric
+in both directions, unlike native Option-Backspace/Delete (backward
+deletes the pill outright, forward is a no-op, confirmed live earlier)
+— every other Kill word implementation in this plugin always kills
+something and pushes it to the kill-cache/clipboard, so this one does
+too. Deletion dispatches a synthetic Backspace (confirmed live
+elsewhere that this is the one pill-removal path a synthetic dispatch
+actually reaches).
+
+**Real bug found while building this, not assumed:** the first
+implementation set `isKillChaining = true` *before* calling
+`updateKillCache`, instead of after (the order `titleKillWord` already
+uses). Consecutive Kill word left presses on two different pills only
+ever kept the SECOND pill's own text — the first implementation's own
+early flag flip made `updateKillCache` treat ITS OWN kill as "a chain
+continuing from whatever `isKillChaining` already was" before it had
+a chance to properly decide fresh-vs-chaining. Caught via the same
+regression test now permanent below, not a separate diagnostic — a
+genuinely useful red/green signal. (An `isDispatchingKill` guard was
+tried first, suspecting the pill-deletion's own frontmatter-YAML
+rewrite might tag a CM6 transaction as a real user action and trigger
+this plugin's own `EditorView.updateListener` reset — confirmed live
+via bisection that the guard made no difference either way; the
+ordering fix alone was sufficient, so the guard was removed again for
+simplicity.)
+
+Yank (`propertyPillYank`): the round-trip counterpart, appending a new
+pill at the list's own end — the same place a newly-typed tag always
+commits to; pill-to-pill reordering has no native equivalent at all,
+not even for a human physically typing one (confirmed via
+`AskUserQuestion` that the simpler "always append" design is
+preferred over implementing true at-position insertion via direct
+frontmatter-array manipulation). Deliberately scoped to the pill case
+only, not the trailing composing input, which already yanks correctly
+as plain text-at-caret via the Phase-1 fix's own
+`PROPERTY_TEXT_LIKE_EDIT_SELECTOR` widening — overriding that to
+always auto-commit a new pill would break the ordinary "paste into
+what I'm still typing" case.
+
+✅ `propertyPillKillWordYankRoundtrip.e2e.ts`: (1)/(2) Kill word
+left/right each delete the focused pill and push its text to the
+kill-cache/clipboard, body untouched (checked via the body's own TEXT
+content, not a line index — deleting/adding a pill changes the raw
+frontmatter YAML's own line count, which shifts every body line's
+index without the body itself changing at all). (3) regression
+coverage for the ordering bug above: two consecutive Kill word left
+presses on different pills chain into one entry. (4) Yank on a pill
+appends the killed text as a new pill at the list's end. All
+red-confirmed first via bisection (Kill word's own pill branch removed
+entirely; the ordering bug reproduced separately), then green.
+
+Full E2E suite: 275 passing, 9 failing. All 9 are pre-existing flaky
+specs confirmed unrelated to this change: the same 6 already tracked
+above (propertyCtrlG (7), propertyNameEdit (2)/(12),
+basesSetMarkSelectColumn (1)/(2), Uppercase word multi-cursor (3)),
+plus 3 new-looking title-field failures (`titleWordMotion.e2e.ts`
+(4)/(5), `titleSetMark.e2e.ts` (2)) that reproduced 0/3 times across 3
+isolated reruns of both spec files together — this change never
+touches any `TITLE_SELECTOR` code path at all (`propertyPillKillWord`/
+`propertyPillYank` are Properties-panel-only), confirming cross-spec
+pollution in the full run rather than a regression.
