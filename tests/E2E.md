@@ -4121,3 +4121,50 @@ scope-based rearchitecture candidate (see
 reattempted here. `cursor-left`/`cursor-right`'s own analogous Bases
 self-collision (noted above, left unfixed) remains a separate,
 not-yet-scheduled future item.
+
+## Kill-chain split-pane echo (fix/kill-chain-split-pane-echo)
+
+Confirmed real bug: Kill Line, Kill Line, Yank dropped the first kill's
+own text (yanking back only an empty line) whenever the active file was
+ALSO open in a second split leaf — reported first against a popout
+window, then narrowed down to the real condition: any second leaf with
+the same file open, split or popout, main window or not.
+
+Root cause: `main.ts`'s own `EditorView.updateListener` resets
+`isKillChaining` on any genuine user-triggered transaction, so an
+unrelated edit breaks a Kill Line chain. With the same file open in two
+leaves, Obsidian propagates the first kill's edit to the OTHER leaf's
+own separate `EditorView` as a second, asynchronous transaction that
+still carries a `Transaction.userEvent` annotation — arriving after the
+kill command's own `isDispatchingKill` guard window has already closed,
+so it was indistinguishable from a real second user edit and reset
+`isKillChaining` right after the first kill, before the second Kill
+Line ever ran.
+
+Fix: only let that reset fire when no OTHER CodeMirror editor currently
+has real focus — checks whether the document's focused element sits
+inside a *different* view's `.cm-content` than the one the update
+belongs to. An initial, broader `!update.view.hasFocus` guard also
+fixed the split-pane bug but regressed `propertyNameEdit.e2e.ts`'s own
+Ctrl-Y test: Kill Line in the property NAME field (a plain `<input>`,
+not CM6) relies on some LATER unrelated CM6 transaction to eventually
+clear `isKillChaining`, even though that transaction's own view never
+has focus either (real focus is on the `<input>`, not any CM6 view) —
+the refined, focus-TARGET-aware check preserves that case since no CM6
+view has focus in it at all.
+
+✅ `killChainSplitPaneEcho.e2e.ts`: same file open in the active leaf
+plus one vertical split, Kill Line x2 then Yank at the same position
+restores the original two-line content exactly (red before this fix —
+confirmed via bisection to drop the first kill, leaving a stray empty
+line instead — green after). No regression in the full suite: the only
+failures left are the same pre-existing flaky specs already tracked
+elsewhere in this file (`propertyNameEdit.e2e.ts` (2)/(12),
+`propertyCtrlG.e2e.ts` (7), `basesSetMarkSelectColumn.e2e.ts` (1)/(2),
+`multicellCaseConversion.e2e.ts` (1) — the last confirmed flaky via 3
+isolated reruns, unrelated to this change).
+
+A popout window hits the identical code path (confirmed live during
+investigation) and needed no separate dedicated test — the shared root
+cause is "another leaf's own echoed transaction", not anything
+popout-specific, so this one split-pane spec covers both shapes.
