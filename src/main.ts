@@ -52,10 +52,22 @@ const PROPERTY_CURSOR_LR_SELECTOR = `${PROPERTY_CURSOR_PNBF_SELECTOR}, ${PROPERT
 // Each handler branches internally on PROPERTY_KEY_EDIT_SELECTOR to
 // pick the right implementation (propertyKeyXxx for the input,
 // titleXxx reused as-is for the contenteditable) — same command set,
-// two different underlying selection models. Deliberately NOT extended
-// to multi-select/checkbox/date/row/heading/Add-button — none of these
-// commands have a meaningful "line"/"word"/"region" concept there.
-const PROPERTY_TEXT_LIKE_EDIT_SELECTOR = `${PROPERTY_VALUE_EDIT_SELECTOR}, ${PROPERTY_KEY_EDIT_SELECTOR}`;
+// two different underlying selection models.
+//
+// Also includes PROPERTY_MULTISELECT_INPUT_SELECTOR (the trailing,
+// not-yet-committed chip in a tags/list/aliases field): confirmed a
+// real gap found live (same category as the row/heading/Add-button fix
+// below) — it's a contenteditable DIV just like PROPERTY_VALUE_EDIT_SELECTOR,
+// so titleXxx already works on it mechanically, but it was missing from
+// this selector entirely, so every one of these commands fell through
+// to the body editor's own fallback while the user was mid-typing a new
+// tag. Deliberately NOT extended to the already-COMMITTED pill
+// (PROPERTY_MULTISELECT_PILL_SELECTOR) — a single pill has no
+// "line"/"word"/"region" concept of its own text to operate on; that's
+// handled separately, per command, alongside PROPERTY_ANY_ITEM_SELECTION_SELECTOR
+// below. Still deliberately NOT extended to checkbox/date/row/heading/
+// Add-button — none of those have a meaningful text concept either.
+const PROPERTY_TEXT_LIKE_EDIT_SELECTOR = `${PROPERTY_VALUE_EDIT_SELECTOR}, ${PROPERTY_MULTISELECT_INPUT_SELECTOR}, ${PROPERTY_KEY_EDIT_SELECTOR}`;
 // checkbox/date/datetime/number — Ctrl-G is the ONE command that
 // reaches these too (unlike Ctrl-PNBF above): there's no mark/Selection
 // concept to clear there, just the native-Escape-dispatch exit.
@@ -101,8 +113,30 @@ const BASES_TABLE_CONTAINER_SELECTOR = '.bases-table-container';
 // item-selection target — these commands have no meaning there at all
 // (a row has no "line"/"word"/"region" concept), so they need to be
 // explicitly claimed-and-no-op'd rather than left to fall through.
+//
+// fix/property-multiselect-pill-command-fallthrough: a second instance
+// of the exact same gap, found live while documenting LEFT/RIGHT's own
+// title/Properties/Bases coverage — PROPERTY_MULTISELECT_PILL_SELECTOR
+// (an already-COMMITTED pill in a tags/list/aliases field) was missing
+// from here too, for the same reason: a single pill has no "line"/
+// "word"/"region" concept of its own. Confirmed live against real
+// physical keys with no hotkey bound (so only native Obsidian/Chromium
+// handling could respond) that Home/End/Delete-char are genuinely
+// no-ops on a focused pill, matching this selector's own convention —
+// added here for those two plus Set-mark/Kill-line/Kill-region/
+// Copy-region/Yank/Kill-word-left/Kill-word-right, none of which have
+// any native physical-key equivalent on a pill (Kill-word-left/right's
+// own native counterpart, Option-Backspace/Delete, is asymmetric and
+// genuinely destructive — deleting the pill outright — deliberately
+// NOT replicated here; that richer, pill-specific kill/yank round-trip
+// is a separate follow-up, not part of this fallthrough fix). Word
+// left/right is the ONE exception: confirmed live that native Option-Left/Right actually
+// moves to the previous/next pill (the same result cursor-left/right's
+// own native-fallback dispatch already produces for plain Left/Right on
+// a pill), so those two commands check PROPERTY_MULTISELECT_PILL_SELECTOR
+// separately, before this selector, and dispatch rather than no-op.
 const PROPERTY_ANY_ITEM_SELECTION_SELECTOR =
-	`${PROPERTY_ROW_SELECTOR}, ${PROPERTY_HEADING_SELECTOR}, ${PROPERTY_ADD_BUTTON_SELECTOR}, ${BASES_TABLE_CONTAINER_SELECTOR}`;
+	`${PROPERTY_ROW_SELECTOR}, ${PROPERTY_HEADING_SELECTOR}, ${PROPERTY_ADD_BUTTON_SELECTOR}, ${BASES_TABLE_CONTAINER_SELECTOR}, ${PROPERTY_MULTISELECT_PILL_SELECTOR}`;
 
 // Extend the Obsidian Editor interface to include the internal CodeMirror 6 instance (EditorView)
 declare module "obsidian" {
@@ -619,6 +653,18 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 					}
 					return true;
 				}
+				// A committed pill has no "word" concept of its own to move
+				// within — confirmed live that native Option-Right on a
+				// focused pill moves to the NEXT pill, the exact same result
+				// cursor-right's own native-fallback dispatch already
+				// produces for plain Right on a pill, so word-granularity
+				// gets the identical treatment rather than the no-op every
+				// other PROPERTY_ANY_ITEM_SELECTION_SELECTOR target below
+				// gets. Checked ahead of that selector for this reason.
+				if (el?.matches?.(PROPERTY_MULTISELECT_PILL_SELECTOR)) {
+					if (!checking) this.propertyNativeArrowFallback(el, 'ArrowRight');
+					return true;
+				}
 				if (el?.matches?.(PROPERTY_ANY_ITEM_SELECTION_SELECTOR)) {
 					return true; // no meaning here; claim the key and do nothing
 				}
@@ -646,6 +692,12 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 						if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) this.propertyKeyMoveWord(el as HTMLInputElement, false);
 						else this.titleMoveWord(el, false);
 					}
+					return true;
+				}
+				// See word-right's own identical branch above for the
+				// confirmed root cause and native-fallback rationale.
+				if (el?.matches?.(PROPERTY_MULTISELECT_PILL_SELECTOR)) {
+					if (!checking) this.propertyNativeArrowFallback(el, 'ArrowLeft');
 					return true;
 				}
 				if (el?.matches?.(PROPERTY_ANY_ITEM_SELECTION_SELECTOR)) {
