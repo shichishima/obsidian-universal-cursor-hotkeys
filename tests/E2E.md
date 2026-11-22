@@ -4168,3 +4168,86 @@ A popout window hits the identical code path (confirmed live during
 investigation) and needed no separate dedicated test — the shared root
 cause is "another leaf's own echoed transaction", not anything
 popout-specific, so this one split-pane spec covers both shapes.
+
+## Multiselect pill command fallthrough (fix/property-multiselect-pill-command-fallthrough)
+
+Confirmed real bug, found while writing up command-details.md's own
+title/frontmatter/Bases coverage: every command gated on
+`PROPERTY_TEXT_LIKE_EDIT_SELECTOR` + `PROPERTY_ANY_ITEM_SELECTION_SELECTOR`
+(Home/End, Word left/right, Set-mark, Kill-line/region/Copy-region/Yank,
+Kill word left/right, Delete char — 12 commands total) fell through to
+the BODY editor's own fallback whenever a tags/list/aliases widget had
+real focus, since neither selector matched a committed pill
+(`.multi-select-pill`) or the trailing composing input
+(`.multi-select-input`) at all. Same visible-focus-stays-put,
+invisible-body-corruption shape as the already-fixed row/heading/
+Add-button gap this selector's own comment documents, just never
+extended to this widget.
+
+Confirmed the correct target behavior live, against real physical keys
+with nothing bound to them (so only native Chromium/Obsidian handling
+could respond) on a focused pill:
+
+| Key | Native result on a focused pill |
+|---|---|
+| Home / End | no-op |
+| Delete (forward char) | no-op |
+| Option-Right / Option-Left | moves to the next/previous pill (same as plain Right/Left) |
+| Option-Backspace | **deletes the pill**, focus moves to the previous pill |
+| Option-Delete (forward) | no-op (asymmetric — only the backward direction deletes) |
+
+Fix: `PROPERTY_TEXT_LIKE_EDIT_SELECTOR` now includes
+`PROPERTY_MULTISELECT_INPUT_SELECTOR` — the composing input is a
+contenteditable DIV just like the text-value widget, so the existing
+`titleXxx` reuse already works on it mechanically; it was simply
+missing from this selector. `PROPERTY_ANY_ITEM_SELECTION_SELECTOR` now
+includes `PROPERTY_MULTISELECT_PILL_SELECTOR` for a safe no-op on all
+10 of the other 12 commands, matching the confirmed native result for
+Home/End/Delete-char and the fact that the other 7 (Set-mark,
+Kill-line/region/Copy-region/Yank, Kill word left/right) have no native
+physical-key equivalent on a pill at all. Word left/right are the one
+exception: each checks `PROPERTY_MULTISELECT_PILL_SELECTOR` separately,
+before that selector, and dispatches via the same
+`propertyNativeArrowFallback` cursor-left/right already use for a pill
+— matching native Option-Left/Right's own pill-to-pill result instead
+of a no-op.
+
+Kill word left/right deliberately still no-op on a pill in this fix —
+native Option-Backspace/Delete's own pill-deleting behavior is
+asymmetric and destructive, not simply replicated here. A richer,
+pill-specific kill/yank round-trip (kill-word deletes the pill AND
+pushes its text to the kill-cache/clipboard, both directions
+symmetric; Yank inserts a new pill immediately after the focused one)
+is a deliberate follow-up, not part of this fallthrough fix.
+
+✅ `propertyMultiselectPillFallthrough.e2e.ts`: Word right/left move
+between pills without touching the body cursor (1)/(2); Home and
+Kill-line are true no-ops, confirmed via both cursor-position AND body
+line CONTENT checks — the first version of test (4) only checked
+cursor position and missed that Kill-line had silently deleted the
+whole body line without moving the cursor's own coordinates at all,
+since killing to a line's own end from ch0 leaves ch0 the same either
+way (3)/(4); the composing input gets real Home/Word-right text
+editing instead of falling through (5). Word left/right use a
+Ctrl+Shift test hotkey rather than this plugin's own recommended
+Alt-B/Alt-F — confirmed live that a real Alt-combo keypress sent
+through WebDriver on macOS, while this plugin's own checkCallback is
+synchronously re-dispatching a separate synthetic keydown from inside
+that same real event's own handler, doesn't reach Obsidian's native
+pill-navigation listener, even though the identical dispatch succeeds
+immediately when triggered any other way (a standalone dispatchEvent
+call, `executeObsidianCommand`, or a real non-Alt combo) — a
+macOS/WebDriver Option-key automation quirk specific to this
+nested-dispatch shape, not a real bug, so this spec just avoids
+sending Alt-combos through a real keypress at all.
+
+Full E2E suite: 272 passing, 8 failing. All 8 are pre-existing flaky
+specs confirmed unrelated to this change: propertyCtrlG (7),
+propertyNameEdit (2)/(12), basesSetMarkSelectColumn (1)/(2),
+multicellCaseConversion (1), undoInCellVLStale (confirmed 1/3 reruns
+in isolation, same rate seen in earlier sessions), and
+uppercaseWordMultiCursor (3) — the last one looked new but reproduced
+0/3 times in isolation and has zero code overlap with this fix (the
+Uppercase/Lowercase/Capitalize word commands have no
+`TITLE_SELECTOR`/`PROPERTY_*`/`BASES_*` branches at all), confirming
+cross-spec pollution in the full run, not a regression.
