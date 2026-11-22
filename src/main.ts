@@ -655,7 +655,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				if (el?.matches?.(PROPERTY_TEXT_LIKE_EDIT_SELECTOR)) {
 					if (!checking) {
 						if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) this.propertyKeyMoveWord(el as HTMLInputElement, true);
-						else this.titleMoveWord(el, true);
+						else this.propertyMoveWordOrEscapeToPill(el, true);
 					}
 					return true;
 				}
@@ -696,7 +696,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				if (el?.matches?.(PROPERTY_TEXT_LIKE_EDIT_SELECTOR)) {
 					if (!checking) {
 						if (el.matches(PROPERTY_KEY_EDIT_SELECTOR)) this.propertyKeyMoveWord(el as HTMLInputElement, false);
-						else this.titleMoveWord(el, false);
+						else this.propertyMoveWordOrEscapeToPill(el, false);
 					}
 					return true;
 				}
@@ -2385,6 +2385,26 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 		this.titleMoveChar(el, forward);
+	}
+
+	// Word left's own identical escape from the multi-select trailing
+	// input's own left boundary to the preceding pill — found live as a
+	// real gap while documenting Word left/right's title/Properties/
+	// Bases coverage: a real physical Option-Left there already escapes
+	// to the preceding pill (same as plain ArrowLeft, already handled by
+	// propertyMoveCharOrNoop above), but titleMoveWord's own
+	// Selection.modify('word') has the same "can't cross a sibling DOM
+	// boundary" limitation plain Selection.modify('character') always
+	// had before that fix. Word right has no equivalent — the trailing
+	// input is always the last element, nothing follows it to escape
+	// into either way (same scoping as the char-level version).
+	private propertyMoveWordOrEscapeToPill(el: HTMLElement, forward: boolean) {
+		if (!forward && !this.markActive && el.matches(PROPERTY_MULTISELECT_INPUT_SELECTOR) && this.isSelectionAtStartOf(el)) {
+			const prevPill = el.previousElementSibling as HTMLElement | null;
+			if (prevPill?.matches(PROPERTY_MULTISELECT_PILL_SELECTOR)) prevPill.focus();
+			return;
+		}
+		this.titleMoveWord(el, forward);
 	}
 
 	// Property NAME (key) editing's own char movement — a plain

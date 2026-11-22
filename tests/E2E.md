@@ -4319,3 +4319,55 @@ isolated reruns of both spec files together — this change never
 touches any `TITLE_SELECTOR` code path at all (`propertyPillKillWord`/
 `propertyPillYank` are Properties-panel-only), confirming cross-spec
 pollution in the full run rather than a regression.
+
+## Word left pill-escape (fix/word-left-pill-escape)
+
+Confirmed real gap, found while documenting Word left/right's own
+title/frontmatter/Bases coverage: a real physical Option-Left at the
+multi-select trailing input's own EMPTY start already escapes to the
+preceding pill (confirmed live, matching plain ArrowLeft's own
+already-handled escape in `propertyMoveCharOrNoop`) — this plugin's
+own Word left (`titleMoveWord`'s `Selection.modify('word')`) stayed
+put instead, the same "can't cross a sibling DOM boundary" limitation
+plain `Selection.modify('character')` had before
+`propertyMoveCharOrNoop`'s own `isSelectionAtStartOf` fix. Word right
+has no equivalent case — the trailing input is always the list's last
+element, nothing follows it to escape into either way.
+
+Fix: `propertyMoveWordOrEscapeToPill`, the word-level sibling of
+`propertyMoveCharOrNoop`, reusing the exact same
+`isSelectionAtStartOf` check and `previousElementSibling` escape,
+scoped to backward only (same as the char-level version).
+
+**Side investigation, confirmed out of scope — not fixed here:**
+tried a second regression case (typed-but-uncommitted text, caret
+manually moved back to its own position 0, then Word left) and hit a
+real focus-loss bug: `activeElement` ends up on `<body>` entirely.
+Confirmed live this is **not new** — the identical steps against the
+already-shipped char-level Ctrl-B reproduce the exact same loss.
+Likely cause (not confirmed further): leaving a composing input with
+uncommitted text still in it discards that draft and re-renders the
+whole multi-select widget, orphaning whatever element was just
+`.focus()`ed before the render replaced it. Out of scope for this fix
+(pre-existing, not Word-left-specific) — the permanent spec below
+instead covers the actually-relevant parity case (typed text, caret
+left at its own end, the ordinary "still typing" state the existing
+char-level test already covers).
+
+✅ `propertyMultiselectWordLeftPillEscape.e2e.ts`: (1) Word left at
+the composing input's own empty start moves to the preceding pill
+(red-confirmed via bisection, then green). (2) regression coverage for
+the correct no-op case — typed text with the caret left at its own
+end stays put, matching the already-shipped char-level Ctrl-B.
+
+Full E2E suite: 277 passing, 9 failing. All 9 are pre-existing flaky
+specs confirmed unrelated to this change: the same 6 already tracked
+above (propertyCtrlG (7), propertyNameEdit (2)/(12),
+basesSetMarkSelectColumn (1)/(2), undoInCellVLStale), plus 2
+new-looking failures (`setMarkPageUpDown.e2e.ts` (2),
+`addCursorAboveBelow.e2e.ts` (2)) that reproduced 1/3 and 0/3 times
+respectively across 3 isolated reruns — this change has zero code
+overlap with Page Up/Down or Add cursor (confirmed via the same
+`TITLE_SELECTOR`/`PROPERTY_*`/`BASES_*` grep used elsewhere in this
+file), confirming pre-existing flakiness/cross-spec pollution rather
+than a regression.
