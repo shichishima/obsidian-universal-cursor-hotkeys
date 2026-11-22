@@ -37,6 +37,7 @@ export const config: WebdriverIO.Config = {
 		'./specs/multicellCaseConversion.e2e.ts',
 		'./specs/multicellSelectionArrowClear.e2e.ts',
 		'./specs/killYankMultiCursor.e2e.ts',
+		'./specs/killChainSplitPaneEcho.e2e.ts',
 		'./specs/copyRegionSelectionCollapse.e2e.ts',
 		'./specs/exitTableSmartHome.e2e.ts',
 		'./specs/setMarkTableSkip.e2e.ts',

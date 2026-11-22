@@ -1387,7 +1387,35 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				const isUserAction = update.transactions.some(
 					tr => tr.annotation(Transaction.userEvent) !== undefined
 				);
-				if (isUserAction && !this.isDispatchingKill) {
+				// Confirmed live with the SAME file open in two split leaves:
+				// killing in the focused leaf gets propagated to the OTHER
+				// (unfocused) leaf's own separate EditorView via a
+				// userEvent-tagged transaction there too, asynchronously
+				// (after this function's own isDispatchingKill guard window
+				// has already closed) — incorrectly resetting isKillChaining
+				// right after the FIRST kill of a chain, so the second Ctrl-K
+				// starts a fresh kill instead of appending, discarding the
+				// first kill's own text.
+				//
+				// A plain `!update.view.hasFocus` guard (tried first) is too
+				// broad: it also suppresses this same reset acting as a
+				// cross-widget-type safety net — e.g. Ctrl-K in the property
+				// NAME field (a plain <input>, not CM6 at all) relies on some
+				// LATER unrelated CM6 transaction to eventually clear
+				// isKillChaining even though that transaction's own view
+				// never has focus either (real focus is on the <input>, not
+				// any CM6 view) — regressed exactly that in
+				// propertyNameEdit.e2e.ts's own Ctrl-Y test, confirmed via a
+				// red/green bisection against the pre-fix baseline.
+				//
+				// The real distinguishing signal is specifically "is ANOTHER
+				// CM6 editor currently focused" (the split-pane echo's own
+				// shape) vs. "nothing CM6 is focused right now" (the
+				// property-field case, where this reset should still fire
+				// unconditionally as before).
+				const focusedCmContent = (activeDocument.activeElement as HTMLElement | null)?.closest?.('.cm-content');
+				const anotherViewHasFocus = !!focusedCmContent && !update.view.dom.contains(focusedCmContent);
+				if (isUserAction && !anotherViewHasFocus && !this.isDispatchingKill) {
 					this.isKillChaining = false;
 					this._recenterStep = 0;
 				}
