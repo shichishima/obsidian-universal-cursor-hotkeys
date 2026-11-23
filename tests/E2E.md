@@ -4495,3 +4495,67 @@ basesSetMarkSelectColumn (1)/(2)), confirmed unrelated. The regression
 described above was caught and fixed BEFORE this count — a first
 full-suite run (before the `_isShiftKeyDown` fix) showed 297 passing,
 6 failing, with `titleRegion.e2e.ts` test (3) as the one new failure.
+
+## Follow-up, same day: a second real gap found while writing Set-mark's own doc section (Rule C — native collapse clears the mark)
+
+While drafting Set-mark's title/frontmatter/Bases writeup, confirmed
+live via a throwaway diagnostic that the existing doc's own claim (a
+bare physical cursor key clears the mark's own starting point) doesn't
+hold for these native widgets: arming the mark via Shift+ArrowRight,
+then pressing a plain (no-Shift, no-mouse) ArrowRight, collapsed the
+selection but left
+`markActive` stuck `true` — the body's own equivalent CM6 check
+(`tr.isUserEvent('select') && !tr.isUserEvent('select.pointer') &&
+!tr.isUserEvent('select.uch')`, catching a non-empty→empty transition
+not caused by this plugin's own tagged dispatch) has no native-widget
+counterpart at all.
+
+Fixed by adding a third rule (Rule C) to `maybeAutoArmNativeMark`/
+`maybeAutoArmNativeMarkForInput`: whenever NOT pointer-down and the
+resulting selection is collapsed, clear `markActive` unconditionally.
+Confirmed safe without needing to detect "was this our own command"
+the way Rule B does — every one of this plugin's own movement
+functions already checks `markActive` itself and calls
+`Selection.modify('extend', ...)`/`setSelectionRange` with the
+existing anchor preserved whenever it's true, never a native 'move'
+that could collapse unintentionally. The only two ways a fresh
+collapse can happen while `markActive` was already true are this
+native, unintercepted-key case, or a real Shift-extend shrinking back
+to exactly its own anchor — the body already treats the latter as a
+legitimate clear too (its own "extending one way then back to the
+exact anchor" case), so treating both identically here matches it
+correctly.
+
+**A second regression found and fixed in the same pass**: adding Rule
+C alone broke `nativeWidgetShiftArrowAutoArm.e2e.ts` test (2) (a
+SINGLE Shift+ArrowRight arming the mark, previously passing) —
+confirmed via live instrumentation (a temporary `selectionchange`
+logger) that `_isShiftKeyDown` was already `false` by the time that
+test's own 'selectionchange' event fired, even though the Shift key
+was still logically "held" through the whole `browser.keys(['Shift',
+'ArrowRight'])` action. Root cause: the exact same async-ordering gap
+already fixed once for `_isPointerDown`/mouseup — the native extend
+lands on the Selection object synchronously as part of handling the
+Arrow key's own keydown, but 'selectionchange' is dispatched
+asynchronously and can arrive after Shift's own `keyup` already
+cleared the flag. Test (1) (two presses) happened to pass anyway,
+apparently via a timing coincidence the fix below removes the
+dependency on — confirmed deterministic across 3 isolated reruns both
+before and after. Fixed the same way as the mouseup case: call
+`maybeAutoArmNativeMark` from inside the `keyup` handler for Shift,
+BEFORE clearing `_isShiftKeyDown`, so it observes the already-updated
+Selection state while the flag is still true.
+
+New test: `nativeWidgetShiftArrowAutoArm.e2e.ts` test (5) (a plain
+ArrowRight after Shift+ArrowRight arming clears the mark), red-
+confirmed, then green alongside the existing 4 tests (including the
+re-fixed test (2), 3x isolated reruns confirming it's no longer
+flaky).
+
+Full E2E suite: 298 passing, 6 failing. 5 are the same pre-existing
+flaky specs tracked above. The 6th, `basesPropertyEditing.e2e.ts` test
+(7) ("Alt-W (Copy region) copies a text cell's selection... hello"),
+reproduced 0/3 times across 3 isolated reruns of that file alone —
+confirmed pre-existing cross-spec flakiness, not a regression from
+this change (this change never touches Bases cell editing's own Copy
+region logic, only the shared `markActive` auto-arm/clear mechanism).

@@ -22,8 +22,20 @@ import { describe, it, after } from 'mocha'
 //    non-empty" (arms on a drag, clears on a plain click).
 //  - Rule B (keyboard): comparing the current selectionchange's own
 //    anchor against the PREVIOUS one (same node+offset, non-empty,
-//    not already armed) stands in for CM6's own anchor-preserved
-//    extend check -- arms, never clears.
+//    not already armed), ANDed with a trusted-Shift-keydown/keyup-
+//    tracked _isShiftKeyDown flag, stands in for CM6's own anchor-
+//    preserved extend check -- arms only, never clears.
+//  - Rule C (native collapse): found as a SECOND real gap, live, while
+//    writing Set-mark's own doc section -- a plain physical arrow key
+//    with no Key Upgrade bound collapses the selection via pure native
+//    handling, with none of this plugin's own movement functions ever
+//    running at all, so nothing else clears the mark afterward. Since
+//    every one of this plugin's own movement functions already checks
+//    markActive and extends (never natively collapses) whenever it's
+//    true, a collapsed result while not pointer-down is always either
+//    this native case or a real Shift-extend shrinking back to its own
+//    anchor -- both correctly clear, matching the body's own identical
+//    "extending one way then back to the exact anchor" convention.
 //
 // A real WebDriver pointer-drag's own mousemove sequence never actually
 // produced a native text selection on a plain contenteditable in this
@@ -152,5 +164,28 @@ describe('Title/Properties: native Shift+Arrow and mouse-click selection auto-ar
 		await browser.keys(['Shift', 'ArrowRight'])
 		await browser.pause(150)
 		await expect(await markActive()).toBe(true)
+	})
+
+	it('(5) title: a plain (no-Shift, no-mouse) ArrowRight collapsing the selection clears an already-armed mark (Rule C)', async function () {
+		await openNote('NativeAutoArmClear5.md', '---\n---\nbody\n')
+		await browser.executeObsidian(({ app, obsidian }) => {
+			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+			const titleEl = view.containerEl.querySelector('.inline-title') as HTMLElement
+			titleEl.focus()
+			const sel = titleEl.ownerDocument.getSelection()!
+			sel.collapse(titleEl.firstChild, 0)
+		})
+		await browser.pause(150)
+
+		await browser.keys(['Shift', 'ArrowRight'])
+		await browser.keys(['Shift', 'ArrowRight'])
+		await browser.pause(150)
+		await expect(await markActive()).toBe(true)
+
+		await browser.keys(['ArrowRight'])
+		await browser.pause(150)
+		const sel = await browser.executeObsidian(() => document.getSelection()!.isCollapsed)
+		await expect(sel).toBe(true) // confirm the plain arrow actually collapsed it
+		await expect(await markActive()).toBe(false)
 	})
 })
