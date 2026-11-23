@@ -68,6 +68,17 @@ const PROPERTY_CURSOR_LR_SELECTOR = `${PROPERTY_CURSOR_PNBF_SELECTOR}, ${PROPERT
 // below. Still deliberately NOT extended to checkbox/date/row/heading/
 // Add-button — none of those have a meaningful text concept either.
 const PROPERTY_TEXT_LIKE_EDIT_SELECTOR = `${PROPERTY_VALUE_EDIT_SELECTOR}, ${PROPERTY_MULTISELECT_INPUT_SELECTOR}, ${PROPERTY_KEY_EDIT_SELECTOR}`;
+// feat/native-widget-shift-arrow-auto-arm: the Selection-API-based
+// subset of PROPERTY_TEXT_LIKE_EDIT_SELECTOR (everything except
+// PROPERTY_KEY_EDIT_SELECTOR, which is a plain <input> with no
+// Selection API of its own — handled separately via selectionStart/
+// selectionEnd/selectionDirection instead), plus TITLE_SELECTOR, which
+// shares the exact same contenteditable + Selection API mechanism.
+// Bases cell text reuses PROPERTY_VALUE_EDIT_SELECTOR/
+// PROPERTY_MULTISELECT_INPUT_SELECTOR's own DOM classes already (see
+// BASES_TABLE_CONTAINER_SELECTOR's own comment), so it's covered here
+// for free.
+const NATIVE_SELECTION_EXTEND_TARGET_SELECTOR = `${TITLE_SELECTOR}, ${PROPERTY_VALUE_EDIT_SELECTOR}, ${PROPERTY_MULTISELECT_INPUT_SELECTOR}`;
 // checkbox/date/datetime/number — Ctrl-G is the ONE command that
 // reaches these too (unlike Ctrl-PNBF above): there's no mark/Selection
 // concept to clear there, just the native-Escape-dispatch exit.
@@ -308,6 +319,52 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// anchor is already sitting at the point Set mark was pressed; motion
 	// commands extend the selection from there while this is true.
 	private markActive: boolean = false;
+
+	// feat/native-widget-shift-arrow-auto-arm: mirrors the body's own
+	// CM6 updateListener auto-arm logic (mouse drag / Shift+Arrow arms
+	// Set-mark automatically) for the title/property-value/composing-
+	// input/Bases-cell contenteditable widgets and the property NAME
+	// plain <input>, none of which carry CM6's own transaction tags to
+	// detect "something else just extended a selection with the anchor
+	// preserved." Tracked via the document-level 'selectionchange'
+	// listener in registerWindowDomListeners instead: _isPointerDown
+	// (set by a TRUSTED mousedown/mouseup only, standing in for CM6's
+	// 'select.pointer' tag) drives an unconditional sync while a drag is
+	// in progress (arms on a non-empty result, clears on a collapsed
+	// one, exactly like the body's own pointer rule); otherwise, a
+	// same-anchor comparison against the PREVIOUS selectionchange's own
+	// anchor, ANDed with _isShiftKeyDown (set by a TRUSTED keydown/keyup
+	// on the Shift key itself, standing in for CM6's own anchor-
+	// preserved extend tag), arms the mark the same way a real
+	// Shift+Arrow keypress does, never clears it.
+	//
+	// Confirmed live BEFORE settling on this shape that `isTrusted` on
+	// the 'selectionchange' EVENT itself is useless for distinguishing
+	// a real user action from a script-driven one: a plain diagnostic
+	// comparing a programmatic Selection.setBaseAndExtent() call against
+	// a real Shift+ArrowRight keypress logged `true` for BOTH — the
+	// browser always dispatches 'selectionchange' as a trusted event
+	// once ANY Selection mutation happens, regardless of what caused the
+	// mutation. Confirmed via a real regression instead (titleRegion.
+	// e2e.ts test (3), which sets up a selection via setBaseAndExtent at
+	// the exact same anchor openNote's own initial collapsed cursor
+	// placement left behind): without the _isShiftKeyDown gate, that
+	// anchor coincidence alone false-armed the mark. Requiring a
+	// genuinely-held Shift key closes this, since no test or real
+	// script-driven Selection mutation holds a real physical Shift key
+	// down while it runs.
+	//
+	// _nativeSelAnchorNode/_nativeSelAnchorOffset serve the Selection-
+	// API widgets (title, property text value/composing input, Bases
+	// cell text — all contenteditable); _nativeInputAnchor serves the
+	// property NAME field's own plain <input>, which has no Selection
+	// API but exposes the same anchor/focus split via
+	// selectionStart/selectionEnd/selectionDirection.
+	private _isPointerDown = false;
+	private _isShiftKeyDown = false;
+	private _nativeSelAnchorNode: Node | null = null;
+	private _nativeSelAnchorOffset = 0;
+	private _nativeInputAnchor: number | null = null;
 
 	// Guards propertyNativeArrowFallback's own synthetic dispatch against
 	// re-entering this SAME checkCallback: a Key Upgrade can bind the exact
@@ -1541,9 +1598,33 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// See onload's own call site for why this exists per-window rather than
 	// being called once for activeDocument alone.
 	private registerWindowDomListeners(doc: Document) {
-		this.registerDomEvent(doc, 'mousedown', () => {
+		this.registerDomEvent(doc, 'mousedown', (e: MouseEvent) => {
 			this.isKillChaining = false;
 			this._recenterStep = 0;
+			// feat/native-widget-shift-arrow-auto-arm: stands in for CM6's
+			// own 'select.pointer' transaction tag, consulted below by
+			// maybeAutoArmNativeMark. isTrusted-gated — see
+			// _isShiftKeyDown's own comment for why (a synthetic
+			// dispatchEvent must never count as a real drag). Left true
+			// if the eventual mouseup happens outside this document
+			// entirely (dragged out the window) — self-corrects on the
+			// next mousedown either way, not worth tracking further.
+			if (e.isTrusted) this._isPointerDown = true;
+		});
+		this.registerDomEvent(doc, 'mouseup', () => {
+			// Confirmed live: a plain (non-drag) click's own native
+			// collapse-selection action already lands on the Selection
+			// object synchronously by the time 'mouseup' fires, but the
+			// matching 'selectionchange' EVENT is dispatched asynchronously
+			// (batched) — arriving well after this handler already flips
+			// _isPointerDown back to false, so Rule A's own check inside
+			// maybeAutoArmNativeMark would see isPointerDown=false by then
+			// and never observe the click actually collapsed anything.
+			// Re-checking here, BEFORE flipping the flag, catches that
+			// synchronously-already-updated Selection state while Rule A
+			// can still see it as a pointer action.
+			this.maybeAutoArmNativeMark(doc);
+			this._isPointerDown = false;
 		});
 
 		// Title/Properties widgets aren't CM6 at all, so the updateListener
@@ -1586,6 +1667,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// self-resetting on its own press.
 		this.registerDomEvent(doc, 'selectionchange', () => {
 			this._recenterStep = 0;
+			this.maybeAutoArmNativeMark(doc);
 		});
 
 		// A bare-ESC Key Upgrade (app.hotkeyManager.setHotkeys claiming the
@@ -1620,6 +1702,13 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// dropped in favor of this simpler unconditional clear.)
 		this.registerDomEvent(doc, 'keydown', (e: KeyboardEvent) => {
 			if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'Delete') this.markActive = false;
+			// feat/native-widget-shift-arrow-auto-arm: see
+			// _isShiftKeyDown's own field comment. isTrusted-gated for the
+			// same reason as _isPointerDown above.
+			if (e.key === 'Shift' && e.isTrusted) this._isShiftKeyDown = true;
+		});
+		this.registerDomEvent(doc, 'keyup', (e: KeyboardEvent) => {
+			if (e.key === 'Shift') this._isShiftKeyDown = false;
 		});
 
 		// copy/cut/paste: same rationale as Backspace/Delete above — these
@@ -1644,6 +1733,67 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		this.registerDomEvent(doc, 'paste', () => {
 			this.markActive = false;
 		});
+	}
+
+	// See the _isPointerDown/_nativeSelAnchorNode/_nativeInputAnchor
+	// fields' own comment for the full rationale. Dispatches to the
+	// plain-<input> variant for the NAME field (no Selection API there),
+	// otherwise handles every Selection-API-based widget this applies to
+	// (title, property text value/composing input, Bases cell text).
+	private maybeAutoArmNativeMark(doc: Document) {
+		const el = doc.activeElement as HTMLElement | null;
+		if (el?.matches?.(PROPERTY_KEY_EDIT_SELECTOR)) {
+			this.maybeAutoArmNativeMarkForInput(el as HTMLInputElement);
+			return;
+		}
+		if (!el?.matches?.(NATIVE_SELECTION_EXTEND_TARGET_SELECTOR)) {
+			// Not one of ours right now — drop any stale anchor so a LATER
+			// focus into one of these widgets never compares against a
+			// leftover position from a completely unrelated element.
+			this._nativeSelAnchorNode = null;
+			return;
+		}
+		const sel = doc.getSelection();
+		if (!sel) return;
+		if (this._isPointerDown) {
+			// Unconditional sync, exactly like the body's own
+			// 'select.pointer' rule: a drag arms the mark on its very
+			// first extending step, a plain click (ending collapsed)
+			// clears it even if a mark was already active.
+			this.markActive = !sel.isCollapsed;
+		} else if (this._isShiftKeyDown && !this.markActive && !sel.isCollapsed &&
+			sel.anchorNode === this._nativeSelAnchorNode && sel.anchorOffset === this._nativeSelAnchorOffset
+		) {
+			// Anchor unchanged from the previous selectionchange, result
+			// non-empty, a real Shift key genuinely held down: a real
+			// Shift+Arrow (or Shift+Home/End/Ctrl+Arrow, anything sharing
+			// the same held-Shift shape) just extended the selection —
+			// arm the mark the same way Set-mark would, never clear it
+			// here. The _isShiftKeyDown requirement is load-bearing, not
+			// redundant with the anchor check alone — see its own field
+			// comment for the real regression (titleRegion.e2e.ts test
+			// (3)) this closes.
+			this.markActive = true;
+		}
+		this._nativeSelAnchorNode = sel.anchorNode;
+		this._nativeSelAnchorOffset = sel.anchorOffset;
+	}
+
+	// NAME field counterpart: selectionStart/selectionEnd/
+	// selectionDirection stand in for Selection's own anchorOffset/
+	// focusOffset — selectionDirection names which end is the anchor
+	// ('forward': start; 'backward': end; 'none': collapsed, either end).
+	private maybeAutoArmNativeMarkForInput(el: HTMLInputElement) {
+		const start = el.selectionStart, end = el.selectionEnd;
+		if (start === null || end === null) { this._nativeInputAnchor = null; return; }
+		const collapsed = start === end;
+		const anchor = el.selectionDirection === 'backward' ? end : start;
+		if (this._isPointerDown) {
+			this.markActive = !collapsed;
+		} else if (this._isShiftKeyDown && !this.markActive && !collapsed && anchor === this._nativeInputAnchor) {
+			this.markActive = true;
+		}
+		this._nativeInputAnchor = anchor;
 	}
 
 	onunload() {

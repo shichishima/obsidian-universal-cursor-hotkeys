@@ -4417,3 +4417,81 @@ flaky specs already tracked above (propertyCtrlG (7), propertyNameEdit
 rerun of just those 4 spec files on the pre-fix baseline (before this
 branch touched any code), reproducing identically with zero code
 changes present, so they can't be caused by this fix.
+
+## Native widget Shift+Arrow/mouse-drag auto-arm (feat/native-widget-shift-arrow-auto-arm)
+
+User's own ask, after being shown that a real Shift+Arrow keypress in
+the title left `markActive` false (confirmed via a throwaway
+diagnostic): "本文と合わせることはできる？あえて挙動を変える理由は
+ない" — bring the title/property-value/composing-input/Bases-cell
+contenteditable widgets and the property NAME plain `<input>` in line
+with the body's own behavior, where a native Shift+Arrow or mouse drag
+auto-arms Set-mark (and a plain click collapsing a selection auto-
+clears it).
+
+The body does this via CM6's own transaction tags (`'select.pointer'`
+for mouse, the anchor-preserved `'select'` tag for Shift+Arrow/
+Ctrl+Shift+Arrow/etc.) — none of which exist for a plain DOM
+Selection/selectionStart-selectionEnd widget. Implemented as a
+document-level `'selectionchange'` listener
+(`maybeAutoArmNativeMark`/`maybeAutoArmNativeMarkForInput`) with two
+rules standing in for CM6's two tags:
+- **Rule A (pointer):** `_isPointerDown`, set by a TRUSTED
+  `mousedown`/cleared by `mouseup`, drives an unconditional sync while
+  true — arms on a non-empty result, clears on a collapsed one.
+- **Rule B (keyboard):** comparing the current selectionchange's own
+  anchor against the previous one (same node+offset, non-empty, not
+  already armed) stands in for the anchor-preserved check — but ALSO
+  requires `_isShiftKeyDown` (a TRUSTED Shift keydown/keyup) to be
+  true. Never clears.
+
+**A real regression found and fixed mid-implementation**, before this
+ever reached develop: the first version of Rule B had no
+`_isShiftKeyDown` guard, just the anchor comparison. Full-suite run
+showed `titleRegion.e2e.ts` test (3) ("Kill region works on a native
+Selection not created via Set-mark, e.g. a mouse drag") newly failing —
+that test's own `openNote` helper leaves the title's initial cursor
+collapsed at `(textNode, 0)`, and the test itself then calls
+`sel.setBaseAndExtent(textNode, 0, textNode, 5)` to simulate a
+drag-equivalent selection WITHOUT ever touching Set-mark — the new
+anchor coincidentally matched the stale one left over from that
+initial collapse, false-arming the mark. Tried gating on
+`selectionchange`'s own `event.isTrusted` first (would have been a
+cleaner fix) — confirmed live via a diagnostic that this doesn't work
+at all: a real Shift+ArrowRight AND a programmatic
+`setBaseAndExtent()` call both log `isTrusted: true` on the resulting
+`selectionchange` event, since the browser always dispatches that
+event as trusted once any Selection mutation happens, regardless of
+what caused the mutation. Requiring a genuinely-held physical Shift
+key instead closes the gap cleanly, since no script-driven Selection
+mutation (test or otherwise) holds a real Shift key down while it
+runs. Also retroactively gated `_isPointerDown`'s own mousedown/mouseup
+listeners on `isTrusted` for the same reason, closing the identical
+theoretical risk there before it could ever surface.
+
+A real WebDriver pointer-drag's own mousemove sequence never produced
+an actual native text selection on a plain contenteditable in this
+harness (several attempts, including the exact `dragSelect` pattern
+already proven elsewhere in this suite for Live Preview table cells —
+which goes through a completely different CM6 `mouseSelectionStyle`
+extension, not plain browser text-selection-via-drag) — Rule A's own
+drag half is therefore confirmed correct by code-path sharing with the
+plain-click-clears test (same `_isPointerDown` + `maybeAutoArmNativeMark`
+path), not by a dedicated drag-specific permanent test. Documented as a
+harness coverage gap in the new spec's own file comment, not an
+unverified behavior.
+
+✅ `nativeWidgetShiftArrowAutoArm.e2e.ts`: (1) title Shift+ArrowRight
+x2 arms the mark, a following plain Ctrl-F extends instead of
+collapsing; (2) a real mouse click collapsing the selection clears an
+already-armed mark; (3) property NAME field Shift+ArrowRight arms the
+mark via the plain-`<input>` variant; (4) property text value
+Shift+ArrowRight arms the mark via the same Selection-API mechanism as
+the title. All red-confirmed via bisection, then green.
+
+Full E2E suite: 298 passing, 5 failing — the same 5 pre-existing flaky
+specs tracked above (propertyCtrlG (7), propertyNameEdit (2)/(12),
+basesSetMarkSelectColumn (1)/(2)), confirmed unrelated. The regression
+described above was caught and fixed BEFORE this count — a first
+full-suite run (before the `_isShiftKeyDown` fix) showed 297 passing,
+6 failing, with `titleRegion.e2e.ts` test (3) as the one new failure.
