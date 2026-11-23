@@ -1708,7 +1708,22 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			if (e.key === 'Shift' && e.isTrusted) this._isShiftKeyDown = true;
 		});
 		this.registerDomEvent(doc, 'keyup', (e: KeyboardEvent) => {
-			if (e.key === 'Shift') this._isShiftKeyDown = false;
+			if (e.key !== 'Shift') return;
+			// Same async-ordering fix as mouseup's own comment: the
+			// native extend already landed on the Selection object
+			// synchronously by the time THIS keyup fires (it happened
+			// while the Arrow key's own keydown was handled, before
+			// this), but 'selectionchange' is dispatched asynchronously
+			// and can arrive after Shift's own keyup already cleared
+			// _isShiftKeyDown — confirmed live as a real regression
+			// (nativeWidgetShiftArrowAutoArm.e2e.ts test (2), a single
+			// Shift+ArrowRight, consistently failed to arm until this
+			// was added; test (1)'s two presses happened to pass anyway,
+			// apparently via a timing coincidence this fix removes the
+			// dependency on). Re-checking here, before clearing the
+			// flag, catches it.
+			this.maybeAutoArmNativeMark(doc);
+			this._isShiftKeyDown = false;
 		});
 
 		// copy/cut/paste: same rationale as Backspace/Delete above — these
@@ -1761,18 +1776,37 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			// first extending step, a plain click (ending collapsed)
 			// clears it even if a mark was already active.
 			this.markActive = !sel.isCollapsed;
-		} else if (this._isShiftKeyDown && !this.markActive && !sel.isCollapsed &&
+		} else if (sel.isCollapsed) {
+			// Rule C: confirmed live as a real gap (found while writing
+			// Set-mark's own doc section) — a plain physical arrow key
+			// with no Key Upgrade bound reaches native Selection handling
+			// directly, with none of this plugin's own movement
+			// functions ever running at all, so nothing else clears the
+			// mark when it collapses the selection this way. Safe to
+			// clear unconditionally here: every one of this plugin's OWN
+			// movement functions already checks markActive itself and
+			// calls Selection.modify('extend', ...)/setSelectionRange
+			// with the existing anchor preserved whenever it's true,
+			// never 'move' — the only way collapsed can be freshly true
+			// while markActive was already true is either this native
+			// case, or a real extend shrinking exactly back to its own
+			// anchor (e.g. Shift+Arrow reversing to zero width), which
+			// the body's own equivalent clearing logic already treats as
+			// a legitimate clear too (see its own "extending one way
+			// then back to the exact anchor" comment).
+			if (this.markActive) this.markActive = false;
+		} else if (this._isShiftKeyDown && !this.markActive &&
 			sel.anchorNode === this._nativeSelAnchorNode && sel.anchorOffset === this._nativeSelAnchorOffset
 		) {
 			// Anchor unchanged from the previous selectionchange, result
 			// non-empty, a real Shift key genuinely held down: a real
 			// Shift+Arrow (or Shift+Home/End/Ctrl+Arrow, anything sharing
 			// the same held-Shift shape) just extended the selection —
-			// arm the mark the same way Set-mark would, never clear it
-			// here. The _isShiftKeyDown requirement is load-bearing, not
-			// redundant with the anchor check alone — see its own field
-			// comment for the real regression (titleRegion.e2e.ts test
-			// (3)) this closes.
+			// arm the mark the same way Set-mark would. The
+			// _isShiftKeyDown requirement is load-bearing, not redundant
+			// with the anchor check alone — see its own field comment
+			// for the real regression (titleRegion.e2e.ts test (3)) this
+			// closes.
 			this.markActive = true;
 		}
 		this._nativeSelAnchorNode = sel.anchorNode;
@@ -1790,7 +1824,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const anchor = el.selectionDirection === 'backward' ? end : start;
 		if (this._isPointerDown) {
 			this.markActive = !collapsed;
-		} else if (this._isShiftKeyDown && !this.markActive && !collapsed && anchor === this._nativeInputAnchor) {
+		} else if (collapsed) {
+			// Rule C — see the Selection-API variant's own comment.
+			if (this.markActive) this.markActive = false;
+		} else if (this._isShiftKeyDown && !this.markActive && anchor === this._nativeInputAnchor) {
 			this.markActive = true;
 		}
 		this._nativeInputAnchor = anchor;
