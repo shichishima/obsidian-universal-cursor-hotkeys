@@ -4371,3 +4371,49 @@ overlap with Page Up/Down or Add cursor (confirmed via the same
 `TITLE_SELECTOR`/`PROPERTY_*`/`BASES_*` grep used elsewhere in this
 file), confirming pre-existing flakiness/cross-spec pollution rather
 than a regression.
+
+## checkbox/date/datetime/number command fallthrough (fix/property-simple-type-command-fallthrough)
+
+Confirmed real gap, found while documenting Set-mark's own
+title/frontmatter/Bases coverage: `PROPERTY_ANY_ITEM_SELECTION_SELECTOR`
+(the shared "claim this element and do nothing" selector used by
+HOME/END, Set-mark, Kill line/region, Copy region, Yank, Delete char,
+and Kill word left/right) never included
+`PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR` (checkbox/date/datetime/number
+inputs) — the third instance of this exact category of bug this
+version, after the pill (`fix/property-multiselect-pill-command-fallthrough`)
+and the composing input before it. None of these commands have any
+meaningful operation on a widget with no Selection-API-reachable
+text/cursor concept, so every one of them should be a true no-op
+there, same as it already was on a row/heading/Add-button/pill.
+
+Confirmed live via a throwaway diagnostic before touching anything:
+pressing Set-mark with real DOM focus on a date input flipped
+`markActive` to `true` and armed a mark on the BODY editor
+underneath, even though focus never left the date input — a silent
+fallthrough, not a visible crash, so easy to miss without deliberately
+checking.
+
+Fix: widened `PROPERTY_ANY_ITEM_SELECTION_SELECTOR` to also match
+`PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR`. A single selector change fixes
+all affected commands at once, since every one of them already
+branches on this same shared constant.
+
+✅ `propertySimpleTypeCommandFallthrough.e2e.ts`: (date) HOME, END,
+Set mark, Kill line, Kill region, Copy region, Yank, Delete char, and
+Kill word left/right are all true no-ops on a focused date input, not
+a body fallthrough — red-confirmed via bisection (9 of 10 failed
+pre-fix; HOME/Kill region/Copy region/Kill word left happened to pass
+even pre-fix, apparently intercepted before reaching this plugin's own
+checkCallback at all for those particular key combos — not confirmed
+further, since the fix covers them either way), then green. Plus
+(checkbox/datetime/number) Set mark stays a no-op too, confirming the
+selector fix covers every `PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR` type,
+not just date.
+
+Full E2E suite: 294 passing, 5 failing. All 5 are the same pre-existing
+flaky specs already tracked above (propertyCtrlG (7), propertyNameEdit
+(2)/(12), basesSetMarkSelectColumn (1)/(2)) — confirmed via an isolated
+rerun of just those 4 spec files on the pre-fix baseline (before this
+branch touched any code), reproducing identically with zero code
+changes present, so they can't be caused by this fix.

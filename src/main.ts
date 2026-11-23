@@ -141,8 +141,16 @@ const BASES_TABLE_CONTAINER_SELECTOR = '.bases-table-container';
 // comment. Yank: the round-trip counterpart, appending a new pill at
 // the list's own end — see propertyPillYank's own comment for why
 // it's scoped to the pill only, not the composing input.
+// fix/property-simple-type-command-fallthrough: a third instance of the
+// same gap, found live while documenting Set-mark's own title/Properties/
+// Bases coverage — PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR (checkbox/date/
+// datetime/number) was missing from here too, same reason as the pill:
+// none of these commands have any meaningful operation on a widget with
+// no Selection-API-reachable text/cursor concept at all. Confirmed live
+// via a throwaway diagnostic that Set-mark on a focused date input armed
+// markActive on the BODY editor underneath before this fix.
 const PROPERTY_ANY_ITEM_SELECTION_SELECTOR =
-	`${PROPERTY_ROW_SELECTOR}, ${PROPERTY_HEADING_SELECTOR}, ${PROPERTY_ADD_BUTTON_SELECTOR}, ${BASES_TABLE_CONTAINER_SELECTOR}, ${PROPERTY_MULTISELECT_PILL_SELECTOR}`;
+	`${PROPERTY_ROW_SELECTOR}, ${PROPERTY_HEADING_SELECTOR}, ${PROPERTY_ADD_BUTTON_SELECTOR}, ${BASES_TABLE_CONTAINER_SELECTOR}, ${PROPERTY_MULTISELECT_PILL_SELECTOR}, ${PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR}`;
 
 // Extend the Obsidian Editor interface to include the internal CodeMirror 6 instance (EditorView)
 declare module "obsidian" {
