@@ -4559,3 +4559,43 @@ reproduced 0/3 times across 3 isolated reruns of that file alone —
 confirmed pre-existing cross-spec flakiness, not a regression from
 this change (this change never touches Bases cell editing's own Copy
 region logic, only the shared `markActive` auto-arm/clear mechanism).
+
+## Page up/down title/Properties/Bases-cell fallthrough (fix/page-updown-property-title-fallthrough)
+
+Confirmed real gap, found while documenting Page up/down's own
+title/Properties/Bases coverage for the command-details.md writeup
+project: unlike every other command in this plugin, Page up/down's
+own `checkCallback` only ever guarded `BASES_TABLE_CONTAINER_SELECTOR`
+(Bases' own cell-SELECTION mode, from the already-shipped
+`basesPageUpDownCollision.e2e.ts` fix) — it never checked
+`TITLE_SELECTOR`, `PROPERTY_TEXT_LIKE_EDIT_SELECTOR`, or
+`PROPERTY_ANY_ITEM_SELECTION_SELECTOR` at all. Confirmed live via a
+throwaway diagnostic before fixing: focusing a frontmatter text value,
+then pressing an ordinary Hotkeys-UI combo bound to Page Down (no Key
+Upgrade needed to reach this, unlike the already-known Bases
+cell-selection gap), silently moved the BODY's cursor from line 3 to
+line 33 while `document.activeElement` never changed.
+
+Fix mirrors the exact same shape every other command in this category
+already uses (see `cursor-home`'s own `checkCallback`): title and
+`PROPERTY_TEXT_LIKE_EDIT_SELECTOR` claim-and-no-op (no "page" concept
+on any single-line widget), `BASES_TABLE_CONTAINER_SELECTOR` keeps its
+existing `return false` (the already-documented, confirmed-unfixable
+Bases-native-paging architectural wall — unchanged by this fix), and
+`PROPERTY_ANY_ITEM_SELECTION_SELECTOR` (row/heading/Add-button/pill/
+checkbox/date/datetime/number) claims-and-no-ops too.
+
+✅ `pageUpDownTitlePropertyFallthrough.e2e.ts`: (1) title no longer
+moves the body cursor; (2) a frontmatter text value no longer moves
+it; (3) a composing tag input no longer moves it; (4) regression —
+Bases cell-selection mode still returns `false`, unaffected by this
+fix. All red-confirmed via bisection (1-3 failed pre-fix, matching the
+diagnostic exactly; (4) passed even pre-fix, confirming it was
+untouched), then green.
+
+Full E2E suite: 302 passing, 6 failing — the same 5 pre-existing
+flaky specs tracked above, plus one new-looking failure
+(`undoInCellVLStale.e2e.ts`) that reproduced 0/3 times across 3
+isolated reruns of that file alone, confirming pre-existing
+cross-spec flakiness rather than a regression (this fix never touches
+table/cell undo logic at all).

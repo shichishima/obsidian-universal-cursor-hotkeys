@@ -1199,7 +1199,23 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			// never sees it either way.
 			checkCallback: (checking: boolean) => {
 				const el = activeDocument.activeElement as HTMLElement | null;
+				// fix/page-updown-property-title-fallthrough: a second,
+				// previously-missed fallthrough gap found live while
+				// documenting Page up/down's own title/Properties/Bases
+				// coverage — this checkCallback only ever guarded
+				// BASES_TABLE_CONTAINER_SELECTOR (Bases' own cell-SELECTION
+				// mode), never the title or any Properties/Bases text-
+				// editing widget, so pressing Page up/down while actually
+				// typing in one of those silently moved the BODY's cursor
+				// by a page instead, with no visible sign anything
+				// happened. No "page" concept exists on any of these
+				// single-line widgets, so both claim-and-no-op, same
+				// convention as every other command in this category
+				// (see cursor-home's own checkCallback for the identical
+				// shape).
+				if (el?.closest?.(TITLE_SELECTOR) || el?.matches?.(PROPERTY_TEXT_LIKE_EDIT_SELECTOR)) return true;
 				if (el?.matches?.(BASES_TABLE_CONTAINER_SELECTOR)) return false;
+				if (el?.matches?.(PROPERTY_ANY_ITEM_SELECTION_SELECTOR)) return true;
 				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
 				if (!editor) return false;
 				if (checking) return true;
@@ -1217,7 +1233,9 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			// unfixed.
 			checkCallback: (checking: boolean) => {
 				const el = activeDocument.activeElement as HTMLElement | null;
+				if (el?.closest?.(TITLE_SELECTOR) || el?.matches?.(PROPERTY_TEXT_LIKE_EDIT_SELECTOR)) return true;
 				if (el?.matches?.(BASES_TABLE_CONTAINER_SELECTOR)) return false;
+				if (el?.matches?.(PROPERTY_ANY_ITEM_SELECTION_SELECTOR)) return true;
 				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
 				if (!editor) return false;
 				if (checking) return true;
