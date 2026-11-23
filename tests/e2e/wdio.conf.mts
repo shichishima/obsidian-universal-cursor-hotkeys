@@ -100,6 +100,7 @@ export const config: WebdriverIO.Config = {
 		'./specs/basesPageUpDownCollision.e2e.ts',
 		'./specs/frontmatterRecenter.e2e.ts',
 		'./specs/titleCrossingFrontmatter.e2e.ts',
+		'./specs/propertySimpleTypeCommandFallthrough.e2e.ts',
 	]],
 
 	// Serial by default — confirmed live that running multiple Obsidian/
