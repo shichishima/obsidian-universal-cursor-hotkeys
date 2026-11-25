@@ -11,7 +11,7 @@ mode: vim-mode
 
 此外，还包含一些对笔记编辑整体有帮助的改进，例如中文的单词移动，以及考虑 Markdown 语法的行头移动与合并行等功能。
 
-**接下来：** [命令参考](/vim-mode/command-reference) | [设置](/vim-mode/settings) | [限制事项](/vim-mode/limitations)
+**接下来：**[命令参考](/vim-mode/command-reference) | [设置](/vim-mode/settings) | [限制事项](/vim-mode/limitations)
 
 <img width="610" height="610" alt="在实时预览表格内正确移动光标的 Vim 模式" src="https://github.com/user-attachments/assets/0533a2f4-e497-4d3d-af73-7b68f5edfa86" />
 

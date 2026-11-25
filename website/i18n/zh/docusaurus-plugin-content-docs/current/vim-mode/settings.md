@@ -33,7 +33,7 @@ mode: vim-mode
 | ------------------------------------ | :----------------: | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `Space` `t` Table structure（16 个命令） |         OFF         | 启用用于表格结构操作的命令。<br/>详见 [命令参考](/vim-mode/command-reference#table-structure)。                                                                                          |
 | `Space` `t` Table navigation（6 个命令） |         OFF         | 启用用于在单元格之间移动光标的命令。<br/>详见 [命令参考](/vim-mode/command-reference#table-navigation)。                                                                                      |
-| Leader 键                            | OFF<br/>（`Space`） | 选择 Table structure 和 Table navigation 所使用的 Leader 键。只有其中一项为 ON 时才有意义。<br/><br/>**OFF：** `Space`（默认）。原本空格键的动作（向右移动）将无法使用。<br/>**ON：** 反斜杠（`\`）。空格键的动作仍可照常使用。 |
+| Leader 键                            | OFF<br/>（`Space`） | 选择 Table structure 和 Table navigation 所使用的 Leader 键。只有其中一项为 ON 时才有意义。<br/><br/>**OFF：**`Space`（默认）。原本空格键的动作（向右移动）将无法使用。<br/>**ON：**反斜杠（`\`）。空格键的动作仍可照常使用。 |
 
 ## Behavior options（行为选项） \{#behavior-options}
 将上方部分开关扩展为更加兼顾 Markdown 语法的行为。
@@ -42,7 +42,7 @@ mode: vim-mode
 
 | 设置                         | 默认值 | 说明                                                                                                                                                                                                                                      |
 | -------------------------- | :---: | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Smart&nbsp;home (standard) |  ON   | **ON：** 按下 `^` 会跳过行首的 Markdown 语法（列表、编号列表、复选框、缩进、引用），移动到正文文本的开头。`I` 会在该位置进入插入模式。<br/><br/>**OFF：** `^` 不考虑 Markdown 语法，移动到行首的第一个非空白字符。`I` 会在该位置进入插入模式。                                                                                      |
-| Smart&nbsp;home (advanced) |  ON   | **ON：** `^`/`I` 的光标移动位置，除 Smart home (standard) 所考虑的 Markdown 语法外，还会额外考虑标题（`#`）、脚注（`[^1]:`）、标注类型标记（`[!type]`）。仅当 Smart home (standard) 为 ON 时才能开启。<br/><br/>**OFF：** 不考虑标题行、脚注、标注。                                                                       |
-| Smart join                 |  OFF  | **ON：** 使用 `J` 连接两行时，会删除下一行开头的 Markdown 语法。<br/>需要 Smart home (standard) 为 ON。<br/>除删除引用标记、列表标记、缩进外，若 Smart home (advanced) 为 ON，还会删除标题和脚注。<br/><br/>**OFF：** 连接时只删除下一行开头的空白。<br/><br/>无论 ON/OFF，连接时都会插入 1 个空格。 |
-| Table-aware Source Mode editing | ON | **ON：** 在源代码模式的表格内，`<leader>tx` / `<leader>tX`（脱出表格）以及 HOME / END、Kill line、Kill region / Copy region、Yank、Delete char、Transpose chars、Uppercase / Lowercase / Capitalize word、Kill word left / right、Select all 等命令都会考虑表格结构（`\|` / `<br>`）。<br/><br/>**OFF：** 将表格行作为纯文本处理，这些命令完全不考虑表格结构。 |
+| Smart&nbsp;home (standard) |  ON   | **ON：**按下 `^` 会跳过行首的 Markdown 语法（列表、编号列表、复选框、缩进、引用），移动到正文文本的开头。`I` 会在该位置进入插入模式。<br/><br/>**OFF：**`^` 不考虑 Markdown 语法，移动到行首的第一个非空白字符。`I` 会在该位置进入插入模式。                                                                                      |
+| Smart&nbsp;home (advanced) |  ON   | **ON：**`^`/`I` 的光标移动位置，除 Smart home (standard) 所考虑的 Markdown 语法外，还会额外考虑标题（`#`）、脚注（`[^1]:`）、标注类型标记（`[!type]`）。仅当 Smart home (standard) 为 ON 时才能开启。<br/><br/>**OFF：**不考虑标题行、脚注、标注。                                                                       |
+| Smart join                 |  OFF  | **ON：**使用 `J` 连接两行时，会删除下一行开头的 Markdown 语法。<br/>需要 Smart home (standard) 为 ON。<br/>除删除引用标记、列表标记、缩进外，若 Smart home (advanced) 为 ON，还会删除标题和脚注。<br/><br/>**OFF：**连接时只删除下一行开头的空白。<br/><br/>无论 ON/OFF，连接时都会插入 1 个空格。 |
+| Table-aware Source Mode editing | ON | **ON：**在源代码模式的表格内，`<leader>tx` / `<leader>tX`（脱出表格）以及 HOME / END、Kill line、Kill region / Copy region、Yank、Delete char、Transpose chars、Uppercase / Lowercase / Capitalize word、Kill word left / right、Select all 等命令都会考虑表格结构（`\|` / `<br>`）。<br/><br/>**OFF：**将表格行作为纯文本处理，这些命令完全不考虑表格结构。 |
