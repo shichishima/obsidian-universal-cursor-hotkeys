@@ -834,7 +834,20 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: 'undo',
 			name: 'Undo',
 			repeatable: true,
-			editorCallback: (editor: Editor) => {
+			checkCallback: (checking: boolean) => {
+				const el = activeDocument.activeElement as HTMLElement | null;
+				const titleEl = el?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
+				if (titleEl) {
+					if (!checking) this.titleUndo(titleEl, false);
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_TEXT_LIKE_EDIT_SELECTOR)) {
+					if (!checking) this.titleUndo(el, false);
+					return true;
+				}
+				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
+				if (!editor) return false;
+				if (checking) return true;
 				if (this.isComposing(editor)) return;
 				this.markActive = false;
 				editor.undo();
@@ -845,7 +858,20 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: 'redo',
 			name: 'Redo',
 			repeatable: true,
-			editorCallback: (editor: Editor) => {
+			checkCallback: (checking: boolean) => {
+				const el = activeDocument.activeElement as HTMLElement | null;
+				const titleEl = el?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
+				if (titleEl) {
+					if (!checking) this.titleUndo(titleEl, true);
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_TEXT_LIKE_EDIT_SELECTOR)) {
+					if (!checking) this.titleUndo(el, true);
+					return true;
+				}
+				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
+				if (!editor) return false;
+				if (checking) return true;
 				if (this.isComposing(editor)) return;
 				this.markActive = false;
 				editor.redo();
@@ -2341,6 +2367,23 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			if (sel.isCollapsed) return; // already at the title's own end
 		}
 		doc.execCommand('delete', false);
+	}
+
+	// Ctrl-/ / Redo's own binding, when focus is in the title, a
+	// frontmatter text/tag widget (contenteditable or the name/key
+	// <input>), or a Bases cell (reuses the same DOM classes, see
+	// BASES_TABLE_CONTAINER_SELECTOR's own comment) — none of these are
+	// backed by the body's CM6 Editor, so editor.undo()/redo() can never
+	// reach them no matter where focus is. execCommand('undo'/'redo')
+	// targets whichever element currently has focus directly, the same
+	// mechanism titleDeleteChar/propertyKeyDeleteChar already rely on
+	// for 'delete'/'insertText' to stay integrated with that element's
+	// own native undo stack — so this round-trips through that same
+	// stack instead.
+	private titleUndo(el: HTMLElement, redo: boolean) {
+		this._recenterStep = 0; // see onload's own focusin/selectionchange listeners' comment for why keyboard-driven widget entry/caret-move needs an explicit reset too
+		this.markActive = false;
+		el.ownerDocument.execCommand(redo ? 'redo' : 'undo', false);
 	}
 
 	private titleCopyRegion(titleEl: HTMLElement) {

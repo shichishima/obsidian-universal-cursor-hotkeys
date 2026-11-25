@@ -4598,3 +4598,45 @@ flaky specs tracked above, plus one new-looking failure
 isolated reruns of that file alone, confirming pre-existing
 cross-spec flakiness rather than a regression (this fix never touches
 table/cell undo logic at all).
+
+## Undo/Redo title/frontmatter/Bases fallthrough (fix/undo-redo-title-frontmatter-bases)
+
+In the title field, `Cmd`-`Z` (native undo) restores
+text but this plugin's own `Undo` command (recommended hotkey `Ctrl`+
+`/`) does nothing. Root cause: `undo`/`redo` were the only two editing
+commands still using `editorCallback`, which always calls
+`editor.undo()`/`editor.redo()` on the body's own CM6 `Editor`
+instance regardless of where focus actually is — every other editing
+command (Kill line, Delete char, etc.) was already ported to
+`checkCallback` with a title/property branch for 0.13.0, but Undo/Redo
+were missed. Title, the frontmatter text/tag widgets, and Bases cells
+(which reuse the same DOM classes) are none of them backed by the
+body's `Editor`, so `editor.undo()`/`redo()` can never reach them no
+matter where focus is.
+
+Fixed by giving `undo`/`redo` the same `checkCallback` shape as
+`Delete char` (`TITLE_SELECTOR` / `PROPERTY_TEXT_LIKE_EDIT_SELECTOR`,
+falling through to the body editor otherwise), dispatching to a new
+`titleUndo(el, redo)` helper that calls
+`el.ownerDocument.execCommand('undo'/'redo', false)` — the same
+`execCommand`-based technique `titleDeleteChar`/`propertyKeyDeleteChar`
+already use to stay integrated with each widget's own native
+(non-CM6) undo stack, now confirmed to extend to `'undo'`/`'redo'`
+themselves, including for the property-name field's plain `<input>`
+(a meaningfully different browser undo-manager path than the
+contenteditable widgets `titleDeleteChar.e2e.ts` had already proved
+`execCommand('undo')` works on).
+
+✅ `titleFrontmatterBasesUndoRedo.e2e.ts`: (1) title — `Ctrl`+`/`
+undoes a `Ctrl`-`D` delete, `Ctrl`+`Shift`+`/` redoes it; (2)
+frontmatter property value (text); (3) frontmatter property name (key
+input); (4) Bases table cell (text, via real `browser.keys()` — the
+active leaf is a `bases` view, not a `MarkdownView`, so the
+synthetic-`KeyboardEvent`-on-`activeElement` technique used for (1)-(3)
+doesn't apply here); (5) regression — a plain note body still falls
+through to `editor.undo()`/`redo()` unchanged (no existing spec
+exercised this plugin's own `undo`/`redo` COMMAND in the body before
+this fix — `vimTableUndoRedo.e2e.ts`/`undoInCellVLStale.e2e.ts` both
+cover native/Vim undo, not this command). All 5 confirmed via the
+actual `undo`/`redo` commands (their own hotkey or `executeCommandById`,
+real dispatch), not a raw `execCommand` call standing in for them.
