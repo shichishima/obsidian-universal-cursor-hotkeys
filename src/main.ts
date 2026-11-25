@@ -5375,7 +5375,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// (findTableOwnEdge, same convention as extendMarkBufferEdge) so the
 	// whole table you started in is swept into the selection as one
 	// block, not just the exact cell Set-mark happened to be pressed in
-	// — confirmed by the user this is required, not optional.
+	// — this is required behavior, not optional.
 	//
 	// Head: if the plain landing settles outside any table, used as-is.
 	// If it settles inside one, snapped to that table's own edge AHEAD
@@ -5387,8 +5387,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	//
 	// Multi-cursor is deliberately out of scope here, same simplification
 	// extendMarkBufferEdge's own in-cell branch already makes: only
-	// cm.state.selection.main is read/written throughout. The user's own
-	// ruling (2026-10-17): multi-cursor + Set-mark + table-crossing
+	// cm.state.selection.main is read/written throughout. A deliberate
+	// scope decision (2026-10-17): multi-cursor + Set-mark + table-crossing
 	// Page Up/Down is a separate, accepted limitation, not blocking this.
 	private extendMarkPage(editor: Editor, forward: boolean) {
 		const cm = editor.cm;
@@ -7525,12 +7525,12 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	// Pure: splits `raw` by '\n' into exactly `cursorCount` pieces if the
 	// line count matches: one piece per cursor, in document order — the
-	// VS Code/Sublime-style distribution the user asked to add on top of
-	// native Obsidian's own observed Cmd-V behavior. Otherwise returns
-	// `cursorCount` copies of the whole `raw` string (today's single-
-	// cursor-equivalent behavior, replicated at every cursor), matching
-	// that native fallback. Per the user's own confirmed spec: which
-	// cursor count originally produced a kill is never tracked anywhere —
+	// VS Code/Sublime-style distribution added on top of native Obsidian's
+	// own observed Cmd-V behavior. Otherwise returns `cursorCount` copies
+	// of the whole `raw` string (today's single-cursor-equivalent
+	// behavior, replicated at every cursor), matching that native
+	// fallback. By design: which cursor count originally produced a kill
+	// is never tracked anywhere —
 	// only whether the clipboard's CURRENT line count matches the CURRENT
 	// cursor count at paste time ("3-cursor kill -> 3-cursor yank" and
 	// "1-cursor 3-line kill -> 3-cursor yank" are indistinguishable, and

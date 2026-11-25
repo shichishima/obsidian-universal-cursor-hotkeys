@@ -478,9 +478,8 @@ multi-cursor-safe helper `setMark`/`keyboardQuit` already use.
   expected with the fix line commented out (selection stayed at its
   pre-copy anchor/head), then passed once restored.
 
-**Follow-up, same day**: the user explicitly asked for the same
-collapse-after-copy behavior everywhere Alt-W exists, not just the
-outer/table-cell contexts above — title, property NAME, property VALUE,
+**Follow-up, same day**: scope extended to the same collapse-after-copy
+behavior everywhere Alt-W exists, not just the outer/table-cell contexts above — title, property NAME, property VALUE,
 and Bases (which reuses the property VALUE widget's own code path).
 Fixed with the equivalent one-line collapse in each of the two remaining
 functions: `titleCopyRegion` (native Selection — `sel.collapse(sel.focusNode,
@@ -2280,7 +2279,7 @@ for the full story; this spec's own test (3)/(4) (Ctrl-G, scope-
 shadowing) only pass today because they explicitly map `keyboard-quit`
 to Ctrl-G rather than relying on a bare Escape.
 
-**Test (8), real user-reported bug (2026-11-13), found well after this
+**Test (8), a real bug found live (2026-11-13), well after this
 spec's own first draft shipped**: `titleMoveToLineBoundary` (Ctrl-A/E,
 shared with the title and property-value cases) walks character-by-
 character to stay visual-line-aware, checking whether each step's own
@@ -3657,7 +3656,7 @@ writeup this section used to carry): that branch pushed a second
 `app.keymap.Scope` on top of Obsidian's own suggester Scope to win back
 Ctrl-N/P priority, re-implementing suggester navigation (clamped, not
 wrapping) and Enter-commit (a synthetic click) from scratch. Re-investigated
-live after a user report that the plugin's own version clamped at either
+live after noticing the plugin's own version clamped at either
 end while the UCH-OFF (native) version visibly wrapped: the override's
 entire premise was wrong. Obsidian's generic suggester component (the
 same `Dd` chooser class backing the command palette/quick switcher, Ctrl-N/
