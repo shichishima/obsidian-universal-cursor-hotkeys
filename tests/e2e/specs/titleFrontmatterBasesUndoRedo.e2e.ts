@@ -41,6 +41,7 @@ describe('Undo / Redo commands on non-CM6 text surfaces (title / frontmatter / B
 			const hm = (app as any).hotkeyManager
 			hm.setHotkeys('universal-cursor-hotkeys:delete-char', [{ modifiers: ['Ctrl'], key: 'D' }])
 			hm.setHotkeys('universal-cursor-hotkeys:kill-line', [{ modifiers: ['Ctrl'], key: 'K' }])
+			hm.setHotkeys('universal-cursor-hotkeys:kill-region', [{ modifiers: ['Ctrl'], key: 'W' }])
 			hm.setHotkeys('universal-cursor-hotkeys:undo', [{ modifiers: ['Ctrl'], key: '/' }])
 			hm.setHotkeys('universal-cursor-hotkeys:redo', [{ modifiers: ['Ctrl', 'Shift'], key: '/' }])
 			hm.bake()
@@ -380,5 +381,52 @@ first body line
 				return { isCollapsed: el.selectionStart === el.selectionEnd, selText: el.value.slice(el.selectionStart ?? 0, el.selectionEnd ?? 0) }
 			}),
 		)
+	})
+
+	// Found while investigating (6) above: CM6's own undo restores the
+	// EXACT pre-change selection, which for a selection-based command
+	// (Kill region, Yank-over-a-selection, Uppercase/Lowercase/Capitalize
+	// word on a selection, ...) means Undo leaves an active selection in
+	// the body -- unlike Kill line, which starts from a collapsed cursor
+	// and so already undoes back to one. Normalized to match (6)'s title/
+	// property fix and real Emacs (undo does not reactivate the region)
+	// by collapsing to the selection's head right after editor.undo()/
+	// redo() in the body fallback branch, reusing the same
+	// collapseActiveSelectionToHead() helper Set-mark and Copy region
+	// already use.
+	it('(7) regression: Kill region then Ctrl-/ leaves a collapsed cursor in the body too, not the pre-kill selection', async function () {
+		const path = 'UndoRedo KillRegionBody.md'
+		createdPaths.push(path)
+		await browser.executeObsidian(async ({ app, obsidian }, path2) => {
+			app.workspace.getLeavesOfType('markdown').forEach(leaf => leaf.detach())
+			const existing = app.vault.getFileByPath(path2)
+			if (existing) await app.vault.delete(existing)
+			const file = await app.vault.create(path2, 'hello world')
+			await app.workspace.getLeaf(true).openFile(file)
+			const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+			view.editor.setSelection({ line: 0, ch: 0 }, { line: 0, ch: 5 }) // select "hello"
+		}, path)
+		await setHotkeys()
+		await browser.pause(300)
+
+		async function snapBody() {
+			return browser.executeObsidian(({ app, obsidian }) => {
+				const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+				const sel = view.editor.listSelections()[0]
+				return {
+					text: view.editor.getValue(),
+					isCollapsed: sel.anchor.line === sel.head.line && sel.anchor.ch === sel.head.ch,
+				}
+			})
+		}
+
+		await browser.executeObsidianCommand('universal-cursor-hotkeys:kill-region')
+		await browser.pause(150)
+		await expect((await snapBody()).text).toBe(' world')
+		await browser.executeObsidianCommand('universal-cursor-hotkeys:undo')
+		await browser.pause(150)
+		const state = await snapBody()
+		await expect(state.text).toBe('hello world')
+		await expect(state.isCollapsed).toBe(true)
 	})
 })

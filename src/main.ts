@@ -851,6 +851,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				if (this.isComposing(editor)) return;
 				this.markActive = false;
 				editor.undo();
+				this.collapseActiveSelectionToHead(editor);
 			}
 		});
 
@@ -875,6 +876,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				if (this.isComposing(editor)) return;
 				this.markActive = false;
 				editor.redo();
+				this.collapseActiveSelectionToHead(editor);
 			}
 		});
 

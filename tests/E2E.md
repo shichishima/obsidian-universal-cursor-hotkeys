@@ -4661,10 +4661,8 @@ the property-name `<input>`, mirroring the dual-path split
 
 (Kill region then Undo, in the body, DOES restore the pre-kill
 selection, by the same CM6 "restore exact prior selection" logic —
-that's expected, not a bug, and the title's own Kill region doesn't
-get this same collapse-after-undo treatment for the same reason: this
-fix only normalizes the Kill-line-equivalent "undo should return to a
-plain cursor" case, not every possible pre-change selection state.)
+that's expected CM6 behavior, not a bug. See the follow-up below for
+why this was still normalized away.)
 
 ✅ `titleFrontmatterBasesUndoRedo.e2e.ts`, test (6): Kill line then
 `Ctrl`+`/` leaves a collapsed cursor with no selected text, confirmed
@@ -4674,3 +4672,32 @@ instead of `Selection`/`Range`). Red-confirmed via the same diagnostic
 before fixing, then green; the existing 5 tests above all still pass
 unaffected (their own post-undo states were already collapsed, so the
 added collapse call is a no-op for them).
+
+**Second follow-up: the body's own Undo/Redo normalized the same way**.
+A live diagnostic matrix across 8 body-side scenarios (Kill line, Kill
+region, Kill word right, Delete char, Yank at a collapsed cursor, Yank
+replacing a selection, Uppercase word on a selection, Kill region →
+Undo → Redo) confirmed the "Undo leaves an active selection" pattern
+from the paragraph above isn't specific to Kill region — it occurs for
+ANY command whose pre-mutation state had an active selection (Kill
+region, Yank-over-a-selection, Uppercase/Lowercase/Capitalize-word-on-
+a-selection all showed it; commands starting from a collapsed cursor,
+and the post-Redo state, didn't). This is CM6's own correct "restore
+exact prior state" semantics, not a UCH bug, but it leaves the title
+and the body inconsistent with each other — the title's own fix above
+unconditionally collapses after Undo/Redo regardless of what the
+pre-change state actually was (it was never conditioned on "only when
+the prior state was itself a collapsed cursor"), and real Emacs's own
+`undo` doesn't reactivate the region either (`transient-mark-mode`
+deactivates the mark on most commands, `undo` isn't special-cased to
+keep it active). Normalized the body to match both: `undo`/`redo`'s
+`checkCallback` fallback branch now calls the existing
+`collapseActiveSelectionToHead(editor)` helper (already used by
+Set-mark and Copy region) right after `editor.undo()`/`editor.redo()`.
+
+✅ `titleFrontmatterBasesUndoRedo.e2e.ts`, test (7): Kill region then
+`Ctrl`+`/` in the body leaves a collapsed cursor at the restored
+range's head, not the pre-kill selection. The existing 6 tests above
+all still pass unaffected (none of their post-undo states had an
+active selection to begin with, so the added collapse call is a no-op
+for them).
