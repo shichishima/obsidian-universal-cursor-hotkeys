@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.13.0] - 2026-11-26
+
+### Added
+
+_Key combos below (Ctrl-B/F, Ctrl-A/E, and so on) are this plugin's own recommended macOS-style mapping — each command follows whatever's actually assigned in Settings → Hotkeys._
+
+- **Emacs/macOS-style keybindings now work in the title field, the frontmatter Properties panel, and Bases table views, not just the note body.** Also works inside popout windows.
+  - **Title field:** cursor movement (character, word, line, Home/End — including seamlessly crossing between the title and the body's first line with the cursor's own column preserved), Set-mark/Deselect with a real selection, Kill line/region, Copy region, Yank, Kill word left/right, Delete char, and Undo/Redo — the kill/yank commands share the same kill-ring/clipboard as the note body, while Undo/Redo use the field's own native undo history. A Shift+Arrow keypress or a mouse drag arms Set-mark automatically here too, just like the note body.
+  - **Frontmatter Properties panel:** Ctrl-N/P move between property rows; the same commands above work on property names and values. List/tags/aliases properties also support moving between tags and killing/yanking a whole tag. Checkbox/date/datetime/number properties support Deselect to exit. Recenter / Recenter top-bottom scroll the panel too.
+  - **Bases table views:** the same Properties-panel commands work directly on table cells, plus Ctrl-P/N/B/F for cell-to-cell navigation — whether the table is its own tab or embedded in a note (`![[some.base]]`). Set-mark correctly steps aside for Bases' own native column-select shortcut instead of colliding with it.
+- **Uppercase/Lowercase/Capitalize word now transform a real multi-cell mouse-drag selection in a Live Preview table**, not just the single cell the cursor happens to be in.
+
+### Fixed
+
+- **Page Up/Down no longer move the underlying note's own cursor while focus is actually on the title, a frontmatter property, or a Bases cell.** Present since Page Up/Down was first added (0.5.0) — neither command had any awareness of this at all, so they always ran directly against whichever note was open underneath, silently moving its real cursor with no visible sign anything happened.
+- **Vim: `$` then `j`/`k` entering a table from plain text no longer flashes into the rightmost cell and immediately bounces back out.** Present since 0.12.0 — Obsidian's own vim.js re-applies a stale pre-entry position right after landing correctly, specifically when the carried-over goal column is `$`'s own "always this line's end" sentinel; an ordinary (non-`$`) entry was never affected.
+- **Ctrl-P/N/B/F no longer leave a stale multi-cell selection on screen in a Live Preview table.** Previously, while a real multi-cell drag selection was active, these commands moved only the anchor cell's own cursor and left the rest of the selection visually in place — showing a selection and a moved cursor at once, unlike the physical arrow keys, which already collapsed it correctly. Known gap: when the selection's own anchor is a multi-line cell (a real `<br>`) and sits on a non-boundary line of it, the selection doesn't reliably clear — confirmed to need a genuinely trusted keypress in this one case, which this plugin's own commands can't produce.
+- **Kill line no longer breaks its own chain when the active file is also open in a second pane.** Present since 0.4.0 (2026-05-02), when Kill line's own chaining was first introduced — Obsidian propagates an edit made in one pane to any other pane showing the same file, and that propagated change was wrongly treated as an unrelated edit breaking the chain, discarding everything killed so far the next time Kill line ran. Affects any second pane with the same file open, a split or a popout window alike.
+- **Undo/Redo now always leave a plain cursor instead of restoring a selection, in the note body too.** Previously, undoing a selection-based command (Kill region, Yank over a selection, Uppercase/Lowercase/Capitalize word on a selection) restored the exact selection that existed beforehand — CodeMirror's own default behavior, but inconsistent with every other Undo/Redo case in this plugin, where the result is always a collapsed cursor.
+
 ## [0.12.1] - 2026-11-15
 
 ### Fixed

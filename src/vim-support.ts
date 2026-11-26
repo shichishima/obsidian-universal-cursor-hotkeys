@@ -1763,16 +1763,43 @@ export class VimSupport {
 					const goalHSPosNow = incomingIsStickyEolPixel
 						? VimSupport.STICKY_EOL_PIXEL_SENTINEL
 						: editorNow ? VimSupport.charCoordsLeft(vcm, { line: head.line, ch: clampedGoalCh }, editorNow.cm) : goalHPos;
-					this.scheduleTableEntry(enteredAt, motionArgs.forward, goalHPos, goalHSPosNow, goalCellIndex, remaining);
+					const landedOuter = this.scheduleTableEntry(enteredAt, motionArgs.forward, goalHPos, goalHSPosNow, goalCellIndex, remaining);
+					if (landedOuter) {
+						// Return the real landing directly instead of falling
+						// through to this branch's own stale "stay put"
+						// placeholder below. Confirmed live (a cm.dispatch hook)
+						// that returning the placeholder here is NOT harmless for
+						// a sticky `$` goal: scheduleTableEntry (now synchronous,
+						// see its own doc comment) already moved the real cursor
+						// correctly before this point, but vim.js's own
+						// post-motion handling then calls cm.setCursor using
+						// whatever THIS function returns, combined with the
+						// OUTER view's vim.lastHPos — which is still the sticky
+						// Infinity sentinel left over from `$` — silently
+						// reverting the correct in-table landing back to this
+						// stale pre-entry line. The non-sticky case never showed
+						// this because its own goal is already a finite ch, not
+						// the sentinel vim.js treats specially. Explicitly
+						// resetting the OUTER vim's own lastHPos to the real
+						// landing's ch keeps any further such re-resolution
+						// harmless either way, and skipping this function's own
+						// generic tail below avoids it clobbering the correct
+						// continuity bookkeeping resyncAfterDeferredMove (called
+						// inside scheduleTableEntry) already performed for the
+						// newly-entered inner view.
+						if (vim) vim.lastHPos = landedOuter.ch;
+						return landedOuter;
+					}
 				}
 				// Stay put rather than jumping straight to enteredAt: unlike
 				// row-crossing (naturally clamped within the current cell's own
 				// safe range above), plain text has no such bound, so this would
 				// otherwise land exactly on the raw target line — including,
 				// sometimes, a table delimiter row, which likely has no focusable
-				// rendered position in Live Preview at all. The real, corrected
-				// landing happens in the deferred callback regardless of where
-				// this temporary value sits.
+				// rendered position in Live Preview at all. Reached when entry
+				// failed/was skipped (isOperatorPending, or scheduleTableEntry's
+				// own isLinePartOfTable check came back false) — the success
+				// case returns early above instead of falling through to this.
 				line = head.line;
 			} else {
 				line = currentLine;
@@ -2003,9 +2030,13 @@ export class VimSupport {
 	// the exact scenario — entering a table from plain text via j/k — that
 	// originally motivated deferring it), and eliminates the race outright
 	// since there's no async gap left for the next keystroke to land inside.
-	private scheduleTableEntry(targetLine: number, forward: boolean, goalHPos: number, goalHSPos: number, goalCellIndex: number | null, remaining: number): void {
+	// Returns the real landed position (outer document coordinates) on a
+	// successful entry, or null if there was no active editor or targetLine
+	// turned out not to genuinely be a table row — callers (moveByLines) use
+	// a non-null return to short-circuit their own stale placeholder landing.
+	private scheduleTableEntry(targetLine: number, forward: boolean, goalHPos: number, goalHSPos: number, goalCellIndex: number | null, remaining: number): { line: number; ch: number } | null {
 		const editor = getActiveEditor();
-		if (!editor) return;
+		if (!editor) return null;
 		// Note: by the time this runs, editor.inTableCell is likely already
 		// true — the motion function's own synchronous return already landed
 		// (incorrectly, at a raw-line ch) inside the table row, and Obsidian
@@ -2013,7 +2044,7 @@ export class VimSupport {
 		// not a sign this isn't really an entry; isLinePartOfTable (not
 		// inTableCell) is what confirms targetLine is genuinely a table row
 		// before overriding that temporary landing with the correct one.
-		if (!this.host.isLinePartOfTable(editor, targetLine, 1)) return;
+		if (!this.host.isLinePartOfTable(editor, targetLine, 1)) return null;
 
 		// goalCellIndex is null for a genuinely fresh entry (no continuing
 		// chain to remember a cell from) — falls back to the leftmost cell,
@@ -2028,6 +2059,7 @@ export class VimSupport {
 		const cellIndex = goalCellIndex ?? (goalHPos === Infinity ? getRightmostCellIndex(editor.getLine(targetLine)) : 0);
 		const landedOuter = this.host.enterTableAtLine(editor, targetLine, cellIndex, forward, goalHPos, remaining);
 		this.resyncAfterDeferredMove(editor, landedOuter, goalHPos, goalHSPos, cellIndex);
+		return landedOuter;
 	}
 
 	// Shared by scheduleRowCrossing and scheduleTableEntry: the motion function's
