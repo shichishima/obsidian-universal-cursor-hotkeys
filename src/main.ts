@@ -5,6 +5,7 @@ import { InCellLineInfo, getCellBounds, getStartOfCellContent, getEndOfCellConte
 	getEndOfCellContentByCellIndex, getRightmostCellIndex, getCellIndex, getChByCellIndex,
 	getInCellLineInfo, getPipePositions } from './table-cell-utils';
 import { setTimeoutOnActiveWindow, requestAnimationFrameOnActiveWindow } from './dom-timers';
+import { execCommandCompat } from './dom-exec-command';
 import { syntaxTree } from '@codemirror/language';
 import { EditorView } from "@codemirror/view";
 import { EditorSelection, SelectionRange, Transaction, findClusterBreak } from '@codemirror/state';
@@ -173,6 +174,14 @@ declare module "obsidian" {
 	}
 }
 
+
+// Minimal shape for Obsidian's private app.hotkeyManager, just the one
+// method isBareArrowKeyUpgradeSelfBound reads — avoids an `any` cast
+// (and the no-unsafe-* lint family it triggers) while still reaching
+// this undocumented API.
+interface HotkeyManagerLike {
+	getHotkeys(commandId: string): { modifiers: string[]; key: string }[] | undefined;
+}
 
 interface UniversalCursorHotkeysSettings {
 	visualLineMovement: boolean;
@@ -1412,9 +1421,9 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 						// open. Same fix shape as the Bases case above,
 						// now applied uniformly instead of split by
 						// container type.
-						const basesContainer = el.closest(BASES_TABLE_CONTAINER_SELECTOR) as HTMLElement | null;
+						const basesContainer = el.closest<HTMLElement>(BASES_TABLE_CONTAINER_SELECTOR);
 						if (basesContainer) basesContainer.focus();
-						else (el.closest(PROPERTY_ROW_SELECTOR) as HTMLElement | null)?.focus();
+						else el.closest<HTMLElement>(PROPERTY_ROW_SELECTOR)?.focus();
 					}
 					return true;
 				}
@@ -1945,9 +1954,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// separate anchor-tracking is needed here the way the body's CM6
 	// Set-mark needs.
 	private titleSelectionModify(titleEl: HTMLElement, direction: string, granularity: string) {
-		const sel = titleEl.ownerDocument.getSelection() as (Selection & {
-			modify(alter: string, direction: string, granularity: string): void;
-		}) | null;
+		const sel = titleEl.ownerDocument.getSelection();
 		sel?.modify(this.markActive ? 'extend' : 'move', direction, granularity);
 	}
 
@@ -1968,9 +1975,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// already there; OFF always goes straight to the absolute start/end.
 	private titleMoveToLineBoundary(titleEl: HTMLElement, forward: boolean) {
 		this._recenterStep = 0; // see onload's own focusin/selectionchange listeners' comment for why keyboard-driven widget entry/caret-move needs an explicit reset too
-		const sel = titleEl.ownerDocument.getSelection() as (Selection & {
-			modify(alter: string, direction: string, granularity: string): void;
-		}) | null;
+		const sel = titleEl.ownerDocument.getSelection();
 		if (!sel || sel.rangeCount === 0) return;
 		this.titleGoalX = null; // horizontal-intent move, not a vertical-goal continuation
 		this.isKillChaining = false;
@@ -2151,7 +2156,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// Checking mere DOM presence isn't enough — heading/Add-button
 		// exist (hidden) even for a note with no frontmatter at all.
 		const heading = (this.getFirstBodyLine() > 0)
-			? view.containerEl.querySelector(PROPERTY_HEADING_SELECTOR) as HTMLElement | null
+			? view.containerEl.querySelector<HTMLElement>(PROPERTY_HEADING_SELECTOR)
 			: null;
 		if (heading && heading.offsetParent !== null) {
 			this.titleGoalX = null; // leaving the title; title-local goal has no meaning inside Properties
@@ -2273,7 +2278,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		sel.addRange(range);
 		const killedText = range.toString();
 
-		doc.execCommand('delete', false);
+		execCommandCompat(doc, 'delete');
 
 		this.updateKillCache(killedText);
 		navigator.clipboard.writeText(this.killCache).catch(() => {});
@@ -2293,9 +2298,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		this.titleGoalX = null;
 		this.markActive = false;
 		const doc = titleEl.ownerDocument;
-		const sel = doc.getSelection() as (Selection & {
-			modify(alter: string, direction: string, granularity: string): void;
-		}) | null;
+		const sel = doc.getSelection();
 		if (!sel || sel.rangeCount === 0 || !sel.focusNode) return;
 		sel.collapse(sel.focusNode, sel.focusOffset);
 
@@ -2304,7 +2307,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (range.collapsed) return; // already at the title's own start/end
 		const killedText = range.toString();
 
-		doc.execCommand('delete', false);
+		execCommandCompat(doc, 'delete');
 
 		this.updateKillCache(killedText, !forward);
 		navigator.clipboard.writeText(this.killCache).catch(() => {});
@@ -2360,15 +2363,13 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		this._recenterStep = 0; // see onload's own focusin/selectionchange listeners' comment for why keyboard-driven widget entry/caret-move needs an explicit reset too
 		this.markActive = false;
 		const doc = titleEl.ownerDocument;
-		const sel = doc.getSelection() as (Selection & {
-			modify(alter: string, direction: string, granularity: string): void;
-		}) | null;
+		const sel = doc.getSelection();
 		if (!sel || sel.rangeCount === 0) return;
 		if (sel.isCollapsed) {
 			sel.modify('extend', 'forward', 'character');
 			if (sel.isCollapsed) return; // already at the title's own end
 		}
-		doc.execCommand('delete', false);
+		execCommandCompat(doc, 'delete');
 	}
 
 	// Ctrl-/ / Redo's own binding, when focus is in the title, a
@@ -2396,8 +2397,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private titleUndo(el: HTMLElement, redo: boolean) {
 		this._recenterStep = 0; // see onload's own focusin/selectionchange listeners' comment for why keyboard-driven widget entry/caret-move needs an explicit reset too
 		this.markActive = false;
-		el.ownerDocument.execCommand(redo ? 'redo' : 'undo', false);
-		if (el instanceof HTMLInputElement) {
+		execCommandCompat(el.ownerDocument, redo ? 'redo' : 'undo');
+		if (el.instanceOf(HTMLInputElement)) {
 			if (el.selectionStart !== el.selectionEnd) {
 				const caret = el.selectionStart ?? 0;
 				el.setSelectionRange(caret, caret);
@@ -2430,7 +2431,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const sel = doc.getSelection();
 		if (!sel || sel.isCollapsed) return; // nothing selected
 		const text = sel.toString();
-		doc.execCommand('delete', false); // same undo-stack-integrated technique as titleKillLine/titleKillWord
+		execCommandCompat(doc, 'delete'); // same undo-stack-integrated technique as titleKillLine/titleKillWord
 		this.markActive = false;
 		this.isKillChaining = false;
 		this.updateKillCache(text);
@@ -2464,7 +2465,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (!text) return;
 
 		this.titleGoalX = null;
-		titleEl.ownerDocument.execCommand('insertText', false, text);
+		execCommandCompat(titleEl.ownerDocument, 'insertText', text);
 	}
 
 	// feat/pill-kill-word-yank-roundtrip: Kill word left/right on an
@@ -2523,11 +2524,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const text = raw.replace(/\n/g, '');
 		if (!text) return;
 
-		const row = pillEl.closest(PROPERTY_ROW_SELECTOR) as HTMLElement | null;
-		const input = row?.querySelector(PROPERTY_MULTISELECT_INPUT_SELECTOR) as HTMLElement | null;
+		const row = pillEl.closest<HTMLElement>(PROPERTY_ROW_SELECTOR);
+		const input = row?.querySelector<HTMLElement>(PROPERTY_MULTISELECT_INPUT_SELECTOR);
 		if (!input) return;
 		input.focus();
-		input.ownerDocument.execCommand('insertText', false, text);
+		execCommandCompat(input.ownerDocument, 'insertText', text);
 		input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
 	}
 
@@ -2542,10 +2543,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 		const hasFrontmatter = this.getFirstBodyLine() > 0;
 		const addButton = hasFrontmatter
-			? view?.containerEl.querySelector(PROPERTY_ADD_BUTTON_SELECTOR) as HTMLElement | null
+			? view?.containerEl.querySelector<HTMLElement>(PROPERTY_ADD_BUTTON_SELECTOR)
 			: null;
 		const heading = hasFrontmatter
-			? view?.containerEl.querySelector(PROPERTY_HEADING_SELECTOR) as HTMLElement | null
+			? view?.containerEl.querySelector<HTMLElement>(PROPERTY_HEADING_SELECTOR)
 			: null;
 		if (addButton && addButton.offsetParent !== null) {
 			this.propertyGoalX = targetX;
@@ -2573,7 +2574,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// lookup to the active view's own container.
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 		const titleScopeEl = view?.containerEl ?? doc;
-		const title = titleScopeEl.querySelector(TITLE_SELECTOR) as HTMLElement | null;
+		const title = titleScopeEl.querySelector<HTMLElement>(TITLE_SELECTOR);
 		if (!title) return;
 
 		const bodyLineStartX = cm.coordsAtPos(0)?.left;
@@ -2590,9 +2591,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const range = (doc as unknown as { caretRangeFromPoint(x: number, y: number): Range | null })
 			.caretRangeFromPoint(clampedX, targetY);
 		if (range && title.contains(range.startContainer)) {
-			const sel = doc.getSelection() as (Selection & {
-				modify(alter: string, direction: string, granularity: string): void;
-			}) | null;
+			const sel = doc.getSelection();
 			sel?.removeAllRanges();
 			sel?.addRange(range);
 
@@ -2776,7 +2775,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (caret >= el.value.length) { el.setSelectionRange(caret, caret); return; } // already at the end
 		el.setSelectionRange(caret, el.value.length);
 		const killedText = el.value.slice(caret, el.value.length);
-		doc.execCommand('delete', false);
+		execCommandCompat(doc, 'delete');
 		this.updateKillCache(killedText);
 		navigator.clipboard.writeText(this.killCache).catch(() => {});
 		this.isKillChaining = true;
@@ -2795,7 +2794,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (target === caret) return; // already at the value's own start/end
 		el.setSelectionRange(Math.min(caret, target), Math.max(caret, target));
 		const killedText = el.value.slice(Math.min(caret, target), Math.max(caret, target));
-		doc.execCommand('delete', false);
+		execCommandCompat(doc, 'delete');
 		this.updateKillCache(killedText, !forward);
 		navigator.clipboard.writeText(this.killCache).catch(() => {});
 		this.isKillChaining = true;
@@ -2814,7 +2813,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			if (caret >= el.value.length) return; // already at the value's own end
 			el.setSelectionRange(caret, caret + 1);
 		}
-		doc.execCommand('delete', false);
+		execCommandCompat(doc, 'delete');
 	}
 
 	// Alt-W (Copy region): copies the active selection without mutating
@@ -2839,7 +2838,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (el.selectionStart === el.selectionEnd) return; // nothing selected
 		const doc = el.ownerDocument;
 		const text = el.value.slice(el.selectionStart ?? 0, el.selectionEnd ?? 0);
-		doc.execCommand('delete', false);
+		execCommandCompat(doc, 'delete');
 		this.markActive = false;
 		this.isKillChaining = false;
 		this.updateKillCache(text);
@@ -2863,7 +2862,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (!raw) return;
 		const text = raw.replace(/\n/g, '');
 		if (!text) return;
-		el.ownerDocument.execCommand('insertText', false, text);
+		execCommandCompat(el.ownerDocument, 'insertText', text);
 	}
 
 	// Item-selection mode's own row/heading/Add-button targets only ever
@@ -2923,7 +2922,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Checked once per keypress, not cached -- Key Upgrades can be
 	// toggled live from Settings.
 	private isBareArrowKeyUpgradeSelfBound(commandId: 'cursor-up' | 'cursor-down'): boolean {
-		const hotkeys = (this.app as any).hotkeyManager?.getHotkeys(`${this.manifest.id}:${commandId}`) as { modifiers: string[]; key: string }[] | undefined;
+		const hotkeyManager = (this.app as unknown as { hotkeyManager?: HotkeyManagerLike }).hotkeyManager;
+		const hotkeys = hotkeyManager?.getHotkeys(`${this.manifest.id}:${commandId}`);
 		const key = commandId === 'cursor-up' ? 'ArrowUp' : 'ArrowDown';
 		return !!hotkeys?.some(hk => hk.modifiers.length === 0 && hk.key === key);
 	}
@@ -2947,7 +2947,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-		(view?.containerEl.querySelector(PROPERTY_HEADING_SELECTOR) as HTMLElement | null)?.focus();
+		view?.containerEl.querySelector<HTMLElement>(PROPERTY_HEADING_SELECTOR)?.focus();
 	}
 
 	private propertyRowMoveDown(el: HTMLElement) {
@@ -2957,7 +2957,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-		(view?.containerEl.querySelector(PROPERTY_ADD_BUTTON_SELECTOR) as HTMLElement | null)?.focus();
+		view?.containerEl.querySelector<HTMLElement>(PROPERTY_ADD_BUTTON_SELECTOR)?.focus();
 	}
 
 	// Ctrl-P/N's own dispatcher once we already know focus is somewhere
@@ -2989,13 +2989,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private propertyHeadingEscapeToTitle(heading: HTMLElement) {
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 		const scopeEl = view?.containerEl ?? heading.ownerDocument;
-		const title = scopeEl.querySelector(TITLE_SELECTOR) as HTMLElement | null;
+		const title = scopeEl.querySelector<HTMLElement>(TITLE_SELECTOR);
 		if (!title) return;
 		title.focus();
 		const doc = title.ownerDocument;
-		const sel = doc.getSelection() as (Selection & {
-			modify(alter: string, direction: string, granularity: string): void;
-		}) | null;
+		const sel = doc.getSelection();
 
 		if (this.propertyGoalX != null && view) {
 			const cm = view.editor.cm;
@@ -3037,9 +3035,9 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// propertyGoalX.
 	private propertyHeadingCtrlN(heading: HTMLElement) {
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-		const addButton = view?.containerEl.querySelector(PROPERTY_ADD_BUTTON_SELECTOR) as HTMLElement | null;
+		const addButton = view?.containerEl.querySelector<HTMLElement>(PROPERTY_ADD_BUTTON_SELECTOR);
 		if (addButton && addButton.offsetParent !== null) {
-			const firstRow = view?.containerEl.querySelector(PROPERTY_ROW_SELECTOR) as HTMLElement | null;
+			const firstRow = view?.containerEl.querySelector<HTMLElement>(PROPERTY_ROW_SELECTOR);
 			if (firstRow) {
 				firstRow.focus();
 				return;
@@ -5319,8 +5317,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// "center" and added as a floor for "top"; "bottom" needs no such
 	// adjustment since the sticky header never affects the bottom edge.
 	private recenterBasesScrollTo(container: HTMLElement, targetY: number) {
-		const scrollEl = container.closest('.bases-view') as HTMLElement | null;
-		const cellEl = container.querySelector('.bases-table-active-cell') as HTMLElement | null;
+		const scrollEl = container.closest<HTMLElement>('.bases-view');
+		const cellEl = container.querySelector<HTMLElement>('.bases-table-active-cell');
 		if (!scrollEl || !cellEl) return;
 		const rect = cellEl.getBoundingClientRect();
 		const scrollRect = scrollEl.getBoundingClientRect();
@@ -5328,12 +5326,12 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 	private getBasesHeaderHeight(scrollEl: HTMLElement): number {
-		const headerEl = scrollEl.querySelector('.bases-thead') as HTMLElement | null;
+		const headerEl = scrollEl.querySelector<HTMLElement>('.bases-thead');
 		return headerEl?.getBoundingClientRect().height ?? 0;
 	}
 
 	private recenterBases(container: HTMLElement) {
-		const scrollEl = container.closest('.bases-view') as HTMLElement | null;
+		const scrollEl = container.closest<HTMLElement>('.bases-view');
 		if (!scrollEl) return;
 		const headerHeight = this.getBasesHeaderHeight(scrollEl);
 		this.recenterBasesScrollTo(container, headerHeight + (scrollEl.clientHeight - headerHeight) / 2);
@@ -5347,8 +5345,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// DOM (`.bases-tr` is used for click-targeting in E2E specs only,
 	// never a parent of the cells).
 	private recenterTopBottomBases(container: HTMLElement) {
-		const scrollEl = container.closest('.bases-view') as HTMLElement | null;
-		const cellEl = container.querySelector('.bases-table-active-cell') as HTMLElement | null;
+		const scrollEl = container.closest<HTMLElement>('.bases-view');
+		const cellEl = container.querySelector<HTMLElement>('.bases-table-active-cell');
 		if (!scrollEl || !cellEl) return;
 		const headerHeight = this.getBasesHeaderHeight(scrollEl);
 		const h = scrollEl.clientHeight;
@@ -5388,7 +5386,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// only need an element they can reach .bases-view and
 		// .bases-table-active-cell from, which this ancestor lookup finds
 		// just as well as the container itself would.
-		const basesContainer = el.closest(BASES_TABLE_CONTAINER_SELECTOR) as HTMLElement | null;
+		const basesContainer = el.closest<HTMLElement>(BASES_TABLE_CONTAINER_SELECTOR);
 		if (basesContainer) { this.recenterBases(basesContainer); return; }
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 		const cm = view?.editor.cm;
@@ -5397,7 +5395,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 	private recenterTopBottomPropertyPanel(el: HTMLElement) {
-		const basesContainer = el.closest(BASES_TABLE_CONTAINER_SELECTOR) as HTMLElement | null;
+		const basesContainer = el.closest<HTMLElement>(BASES_TABLE_CONTAINER_SELECTOR);
 		if (basesContainer) { this.recenterTopBottomBases(basesContainer); return; }
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 		const cm = view?.editor.cm;
@@ -6950,7 +6948,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private transformMulticellSelection(editor: Editor, transform: (s: string) => string): boolean {
 		const inner = editor.activeCM;
 		if (!inner || inner === editor.cm) return false;
-		const table = (inner.dom as HTMLElement).closest('table');
+		const table = inner.dom.closest('table');
 		if (!table) return false;
 		const selectedCells = Array.from(table.querySelectorAll<HTMLElement>('td.is-selected, th.is-selected'));
 		// A plain click (even one that lands inside a cell with no drag at
@@ -6960,7 +6958,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (selectedCells.length < 2) return false;
 
 		const allRows = Array.from(table.querySelectorAll('tr'));
-		const anchorCell = (inner.dom as HTMLElement).closest('td,th');
+		const anchorCell = inner.dom.closest('td,th');
 		const anchorRow = anchorCell?.closest('tr');
 		if (!anchorCell || !anchorRow) return false;
 		// Unconditional once a genuine multi-cell selection is confirmed —
