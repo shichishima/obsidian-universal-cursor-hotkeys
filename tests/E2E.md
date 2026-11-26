@@ -478,9 +478,8 @@ multi-cursor-safe helper `setMark`/`keyboardQuit` already use.
   expected with the fix line commented out (selection stayed at its
   pre-copy anchor/head), then passed once restored.
 
-**Follow-up, same day**: the user explicitly asked for the same
-collapse-after-copy behavior everywhere Alt-W exists, not just the
-outer/table-cell contexts above — title, property NAME, property VALUE,
+**Follow-up, same day**: scope extended to the same collapse-after-copy
+behavior everywhere Alt-W exists, not just the outer/table-cell contexts above — title, property NAME, property VALUE,
 and Bases (which reuses the property VALUE widget's own code path).
 Fixed with the equivalent one-line collapse in each of the two remaining
 functions: `titleCopyRegion` (native Selection — `sel.collapse(sel.focusNode,
@@ -2280,7 +2279,7 @@ for the full story; this spec's own test (3)/(4) (Ctrl-G, scope-
 shadowing) only pass today because they explicitly map `keyboard-quit`
 to Ctrl-G rather than relying on a bare Escape.
 
-**Test (8), real user-reported bug (2026-11-13), found well after this
+**Test (8), a real bug found live (2026-11-13), well after this
 spec's own first draft shipped**: `titleMoveToLineBoundary` (Ctrl-A/E,
 shared with the title and property-value cases) walks character-by-
 character to stay visual-line-aware, checking whether each step's own
@@ -3657,7 +3656,7 @@ writeup this section used to carry): that branch pushed a second
 `app.keymap.Scope` on top of Obsidian's own suggester Scope to win back
 Ctrl-N/P priority, re-implementing suggester navigation (clamped, not
 wrapping) and Enter-commit (a synthetic click) from scratch. Re-investigated
-live after a user report that the plugin's own version clamped at either
+live after noticing the plugin's own version clamped at either
 end while the UCH-OFF (native) version visibly wrapped: the override's
 entire premise was wrong. Obsidian's generic suggester component (the
 same `Dd` chooser class backing the command palette/quick switcher, Ctrl-N/
@@ -4599,3 +4598,106 @@ flaky specs tracked above, plus one new-looking failure
 isolated reruns of that file alone, confirming pre-existing
 cross-spec flakiness rather than a regression (this fix never touches
 table/cell undo logic at all).
+
+## Undo/Redo title/frontmatter/Bases fallthrough (fix/undo-redo-title-frontmatter-bases)
+
+In the title field, `Cmd`-`Z` (native undo) restores
+text but this plugin's own `Undo` command (recommended hotkey `Ctrl`+
+`/`) does nothing. Root cause: `undo`/`redo` were the only two editing
+commands still using `editorCallback`, which always calls
+`editor.undo()`/`editor.redo()` on the body's own CM6 `Editor`
+instance regardless of where focus actually is — every other editing
+command (Kill line, Delete char, etc.) was already ported to
+`checkCallback` with a title/property branch for 0.13.0, but Undo/Redo
+were missed. Title, the frontmatter text/tag widgets, and Bases cells
+(which reuse the same DOM classes) are none of them backed by the
+body's `Editor`, so `editor.undo()`/`redo()` can never reach them no
+matter where focus is.
+
+Fixed by giving `undo`/`redo` the same `checkCallback` shape as
+`Delete char` (`TITLE_SELECTOR` / `PROPERTY_TEXT_LIKE_EDIT_SELECTOR`,
+falling through to the body editor otherwise), dispatching to a new
+`titleUndo(el, redo)` helper that calls
+`el.ownerDocument.execCommand('undo'/'redo', false)` — the same
+`execCommand`-based technique `titleDeleteChar`/`propertyKeyDeleteChar`
+already use to stay integrated with each widget's own native
+(non-CM6) undo stack, now confirmed to extend to `'undo'`/`'redo'`
+themselves, including for the property-name field's plain `<input>`
+(a meaningfully different browser undo-manager path than the
+contenteditable widgets `titleDeleteChar.e2e.ts` had already proved
+`execCommand('undo')` works on).
+
+✅ `titleFrontmatterBasesUndoRedo.e2e.ts`: (1) title — `Ctrl`+`/`
+undoes a `Ctrl`-`D` delete, `Ctrl`+`Shift`+`/` redoes it; (2)
+frontmatter property value (text); (3) frontmatter property name (key
+input); (4) Bases table cell (text, via real `browser.keys()` — the
+active leaf is a `bases` view, not a `MarkdownView`, so the
+synthetic-`KeyboardEvent`-on-`activeElement` technique used for (1)-(3)
+doesn't apply here); (5) regression — a plain note body still falls
+through to `editor.undo()`/`redo()` unchanged (no existing spec
+exercised this plugin's own `undo`/`redo` COMMAND in the body before
+this fix — `vimTableUndoRedo.e2e.ts`/`undoInCellVLStale.e2e.ts` both
+cover native/Vim undo, not this command). All 5 confirmed via the
+actual `undo`/`redo` commands (their own hotkey or `executeCommandById`,
+real dispatch), not a raw `execCommand` call standing in for them.
+
+**Follow-up, found live right after the fix above shipped**: Kill line
+then Undo in the title re-selected the just-restored text, while the
+same sequence in the body (`editor.undo()`, CM6) leaves a collapsed
+cursor at the kill point instead — confirmed via a throwaway
+diagnostic (since deleted) comparing both side by side. CM6's own undo
+restores the exact pre-change selection (a collapsed cursor here,
+since Kill line never needs a prior selection to run), but the
+browser's native contenteditable/`<input>` undo manager re-selects
+whatever text an undo just re-inserted, regardless of what was
+selected beforehand — a genuine difference between the two undo
+mechanisms, not something this plugin asks for either way. Fixed by
+collapsing to the restored range's own start right inside `titleUndo`,
+immediately after `execCommand('undo'/'redo')`, whenever that leaves a
+non-collapsed selection (`Selection.getRangeAt(0).collapse(true)` for
+the contenteditable widgets, `el.setSelectionRange(caret, caret)` for
+the property-name `<input>`, mirroring the dual-path split
+`titleDeleteChar`/`propertyKeyDeleteChar` already use).
+
+(Kill region then Undo, in the body, DOES restore the pre-kill
+selection, by the same CM6 "restore exact prior selection" logic —
+that's expected CM6 behavior, not a bug. See the follow-up below for
+why this was still normalized away.)
+
+✅ `titleFrontmatterBasesUndoRedo.e2e.ts`, test (6): Kill line then
+`Ctrl`+`/` leaves a collapsed cursor with no selected text, confirmed
+for both the title and the frontmatter property-name field (the one
+case going through the `<input>`-specific `setSelectionRange` branch
+instead of `Selection`/`Range`). Red-confirmed via the same diagnostic
+before fixing, then green; the existing 5 tests above all still pass
+unaffected (their own post-undo states were already collapsed, so the
+added collapse call is a no-op for them).
+
+**Second follow-up: the body's own Undo/Redo normalized the same way**.
+A live diagnostic matrix across 8 body-side scenarios (Kill line, Kill
+region, Kill word right, Delete char, Yank at a collapsed cursor, Yank
+replacing a selection, Uppercase word on a selection, Kill region →
+Undo → Redo) confirmed the "Undo leaves an active selection" pattern
+from the paragraph above isn't specific to Kill region — it occurs for
+ANY command whose pre-mutation state had an active selection (Kill
+region, Yank-over-a-selection, Uppercase/Lowercase/Capitalize-word-on-
+a-selection all showed it; commands starting from a collapsed cursor,
+and the post-Redo state, didn't). This is CM6's own correct "restore
+exact prior state" semantics, not a UCH bug, but it leaves the title
+and the body inconsistent with each other — the title's own fix above
+unconditionally collapses after Undo/Redo regardless of what the
+pre-change state actually was (it was never conditioned on "only when
+the prior state was itself a collapsed cursor"), and real Emacs's own
+`undo` doesn't reactivate the region either (`transient-mark-mode`
+deactivates the mark on most commands, `undo` isn't special-cased to
+keep it active). Normalized the body to match both: `undo`/`redo`'s
+`checkCallback` fallback branch now calls the existing
+`collapseActiveSelectionToHead(editor)` helper (already used by
+Set-mark and Copy region) right after `editor.undo()`/`editor.redo()`.
+
+✅ `titleFrontmatterBasesUndoRedo.e2e.ts`, test (7): Kill region then
+`Ctrl`+`/` in the body leaves a collapsed cursor at the restored
+range's head, not the pre-kill selection. The existing 6 tests above
+all still pass unaffected (none of their post-undo states had an
+active selection to begin with, so the added collapse call is a no-op
+for them).

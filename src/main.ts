@@ -834,10 +834,24 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: 'undo',
 			name: 'Undo',
 			repeatable: true,
-			editorCallback: (editor: Editor) => {
+			checkCallback: (checking: boolean) => {
+				const el = activeDocument.activeElement as HTMLElement | null;
+				const titleEl = el?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
+				if (titleEl) {
+					if (!checking) this.titleUndo(titleEl, false);
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_TEXT_LIKE_EDIT_SELECTOR)) {
+					if (!checking) this.titleUndo(el, false);
+					return true;
+				}
+				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
+				if (!editor) return false;
+				if (checking) return true;
 				if (this.isComposing(editor)) return;
 				this.markActive = false;
 				editor.undo();
+				this.collapseActiveSelectionToHead(editor);
 			}
 		});
 
@@ -845,10 +859,24 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			id: 'redo',
 			name: 'Redo',
 			repeatable: true,
-			editorCallback: (editor: Editor) => {
+			checkCallback: (checking: boolean) => {
+				const el = activeDocument.activeElement as HTMLElement | null;
+				const titleEl = el?.closest?.(TITLE_SELECTOR) as HTMLElement | null;
+				if (titleEl) {
+					if (!checking) this.titleUndo(titleEl, true);
+					return true;
+				}
+				if (el?.matches?.(PROPERTY_TEXT_LIKE_EDIT_SELECTOR)) {
+					if (!checking) this.titleUndo(el, true);
+					return true;
+				}
+				const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
+				if (!editor) return false;
+				if (checking) return true;
 				if (this.isComposing(editor)) return;
 				this.markActive = false;
 				editor.redo();
+				this.collapseActiveSelectionToHead(editor);
 			}
 		});
 
@@ -2341,6 +2369,47 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			if (sel.isCollapsed) return; // already at the title's own end
 		}
 		doc.execCommand('delete', false);
+	}
+
+	// Ctrl-/ / Redo's own binding, when focus is in the title, a
+	// frontmatter text/tag widget (contenteditable or the name/key
+	// <input>), or a Bases cell (reuses the same DOM classes, see
+	// BASES_TABLE_CONTAINER_SELECTOR's own comment) — none of these are
+	// backed by the body's CM6 Editor, so editor.undo()/redo() can never
+	// reach them no matter where focus is. execCommand('undo'/'redo')
+	// targets whichever element currently has focus directly, the same
+	// mechanism titleDeleteChar/propertyKeyDeleteChar already rely on
+	// for 'delete'/'insertText' to stay integrated with that element's
+	// own native undo stack — so this round-trips through that same
+	// stack instead.
+	//
+	// Confirmed live: after undoing a Kill line, the body's own
+	// editor.undo() (CM6) leaves a collapsed cursor at the kill point,
+	// but the browser's native contenteditable/input undo manager
+	// re-SELECTS the just-restored text instead — a genuine behavioral
+	// difference between the two undo mechanisms, not something this
+	// plugin asks for either way. Collapsed here (to the restored
+	// range's own start, matching where the body's cursor lands) so
+	// Undo's visible result stays consistent across every surface this
+	// command now reaches, regardless of which underlying undo manager
+	// is doing the work.
+	private titleUndo(el: HTMLElement, redo: boolean) {
+		this._recenterStep = 0; // see onload's own focusin/selectionchange listeners' comment for why keyboard-driven widget entry/caret-move needs an explicit reset too
+		this.markActive = false;
+		el.ownerDocument.execCommand(redo ? 'redo' : 'undo', false);
+		if (el instanceof HTMLInputElement) {
+			if (el.selectionStart !== el.selectionEnd) {
+				const caret = el.selectionStart ?? 0;
+				el.setSelectionRange(caret, caret);
+			}
+			return;
+		}
+		const sel = el.ownerDocument.getSelection();
+		if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+		const range = sel.getRangeAt(0);
+		range.collapse(true);
+		sel.removeAllRanges();
+		sel.addRange(range);
 	}
 
 	private titleCopyRegion(titleEl: HTMLElement) {
@@ -5375,7 +5444,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// (findTableOwnEdge, same convention as extendMarkBufferEdge) so the
 	// whole table you started in is swept into the selection as one
 	// block, not just the exact cell Set-mark happened to be pressed in
-	// — confirmed by the user this is required, not optional.
+	// — this is required behavior, not optional.
 	//
 	// Head: if the plain landing settles outside any table, used as-is.
 	// If it settles inside one, snapped to that table's own edge AHEAD
@@ -5387,8 +5456,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	//
 	// Multi-cursor is deliberately out of scope here, same simplification
 	// extendMarkBufferEdge's own in-cell branch already makes: only
-	// cm.state.selection.main is read/written throughout. The user's own
-	// ruling (2026-10-17): multi-cursor + Set-mark + table-crossing
+	// cm.state.selection.main is read/written throughout. A deliberate
+	// scope decision (2026-10-17): multi-cursor + Set-mark + table-crossing
 	// Page Up/Down is a separate, accepted limitation, not blocking this.
 	private extendMarkPage(editor: Editor, forward: boolean) {
 		const cm = editor.cm;
@@ -7525,12 +7594,12 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 
 	// Pure: splits `raw` by '\n' into exactly `cursorCount` pieces if the
 	// line count matches: one piece per cursor, in document order — the
-	// VS Code/Sublime-style distribution the user asked to add on top of
-	// native Obsidian's own observed Cmd-V behavior. Otherwise returns
-	// `cursorCount` copies of the whole `raw` string (today's single-
-	// cursor-equivalent behavior, replicated at every cursor), matching
-	// that native fallback. Per the user's own confirmed spec: which
-	// cursor count originally produced a kill is never tracked anywhere —
+	// VS Code/Sublime-style distribution added on top of native Obsidian's
+	// own observed Cmd-V behavior. Otherwise returns `cursorCount` copies
+	// of the whole `raw` string (today's single-cursor-equivalent
+	// behavior, replicated at every cursor), matching that native
+	// fallback. By design: which cursor count originally produced a kill
+	// is never tracked anywhere —
 	// only whether the clipboard's CURRENT line count matches the CURRENT
 	// cursor count at paste time ("3-cursor kill -> 3-cursor yank" and
 	// "1-cursor 3-line kill -> 3-cursor yank" are indistinguishable, and
