@@ -1420,9 +1420,9 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 						// open. Same fix shape as the Bases case above,
 						// now applied uniformly instead of split by
 						// container type.
-						const basesContainer = el.closest(BASES_TABLE_CONTAINER_SELECTOR) as HTMLElement | null;
+						const basesContainer = el.closest<HTMLElement>(BASES_TABLE_CONTAINER_SELECTOR);
 						if (basesContainer) basesContainer.focus();
-						else (el.closest(PROPERTY_ROW_SELECTOR) as HTMLElement | null)?.focus();
+						else el.closest<HTMLElement>(PROPERTY_ROW_SELECTOR)?.focus();
 					}
 					return true;
 				}
@@ -1953,9 +1953,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// separate anchor-tracking is needed here the way the body's CM6
 	// Set-mark needs.
 	private titleSelectionModify(titleEl: HTMLElement, direction: string, granularity: string) {
-		const sel = titleEl.ownerDocument.getSelection() as (Selection & {
-			modify(alter: string, direction: string, granularity: string): void;
-		}) | null;
+		const sel = titleEl.ownerDocument.getSelection();
 		sel?.modify(this.markActive ? 'extend' : 'move', direction, granularity);
 	}
 
@@ -1976,9 +1974,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// already there; OFF always goes straight to the absolute start/end.
 	private titleMoveToLineBoundary(titleEl: HTMLElement, forward: boolean) {
 		this._recenterStep = 0; // see onload's own focusin/selectionchange listeners' comment for why keyboard-driven widget entry/caret-move needs an explicit reset too
-		const sel = titleEl.ownerDocument.getSelection() as (Selection & {
-			modify(alter: string, direction: string, granularity: string): void;
-		}) | null;
+		const sel = titleEl.ownerDocument.getSelection();
 		if (!sel || sel.rangeCount === 0) return;
 		this.titleGoalX = null; // horizontal-intent move, not a vertical-goal continuation
 		this.isKillChaining = false;
@@ -2159,7 +2155,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// Checking mere DOM presence isn't enough — heading/Add-button
 		// exist (hidden) even for a note with no frontmatter at all.
 		const heading = (this.getFirstBodyLine() > 0)
-			? view.containerEl.querySelector(PROPERTY_HEADING_SELECTOR) as HTMLElement | null
+			? view.containerEl.querySelector<HTMLElement>(PROPERTY_HEADING_SELECTOR)
 			: null;
 		if (heading && heading.offsetParent !== null) {
 			this.titleGoalX = null; // leaving the title; title-local goal has no meaning inside Properties
@@ -2301,9 +2297,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		this.titleGoalX = null;
 		this.markActive = false;
 		const doc = titleEl.ownerDocument;
-		const sel = doc.getSelection() as (Selection & {
-			modify(alter: string, direction: string, granularity: string): void;
-		}) | null;
+		const sel = doc.getSelection();
 		if (!sel || sel.rangeCount === 0 || !sel.focusNode) return;
 		sel.collapse(sel.focusNode, sel.focusOffset);
 
@@ -2368,9 +2362,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		this._recenterStep = 0; // see onload's own focusin/selectionchange listeners' comment for why keyboard-driven widget entry/caret-move needs an explicit reset too
 		this.markActive = false;
 		const doc = titleEl.ownerDocument;
-		const sel = doc.getSelection() as (Selection & {
-			modify(alter: string, direction: string, granularity: string): void;
-		}) | null;
+		const sel = doc.getSelection();
 		if (!sel || sel.rangeCount === 0) return;
 		if (sel.isCollapsed) {
 			sel.modify('extend', 'forward', 'character');
@@ -2531,8 +2523,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const text = raw.replace(/\n/g, '');
 		if (!text) return;
 
-		const row = pillEl.closest(PROPERTY_ROW_SELECTOR) as HTMLElement | null;
-		const input = row?.querySelector(PROPERTY_MULTISELECT_INPUT_SELECTOR) as HTMLElement | null;
+		const row = pillEl.closest<HTMLElement>(PROPERTY_ROW_SELECTOR);
+		const input = row?.querySelector<HTMLElement>(PROPERTY_MULTISELECT_INPUT_SELECTOR);
 		if (!input) return;
 		input.focus();
 		input.ownerDocument.execCommand('insertText', false, text);
@@ -2550,10 +2542,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 		const hasFrontmatter = this.getFirstBodyLine() > 0;
 		const addButton = hasFrontmatter
-			? view?.containerEl.querySelector(PROPERTY_ADD_BUTTON_SELECTOR) as HTMLElement | null
+			? view?.containerEl.querySelector<HTMLElement>(PROPERTY_ADD_BUTTON_SELECTOR)
 			: null;
 		const heading = hasFrontmatter
-			? view?.containerEl.querySelector(PROPERTY_HEADING_SELECTOR) as HTMLElement | null
+			? view?.containerEl.querySelector<HTMLElement>(PROPERTY_HEADING_SELECTOR)
 			: null;
 		if (addButton && addButton.offsetParent !== null) {
 			this.propertyGoalX = targetX;
@@ -2581,7 +2573,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// lookup to the active view's own container.
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 		const titleScopeEl = view?.containerEl ?? doc;
-		const title = titleScopeEl.querySelector(TITLE_SELECTOR) as HTMLElement | null;
+		const title = titleScopeEl.querySelector<HTMLElement>(TITLE_SELECTOR);
 		if (!title) return;
 
 		const bodyLineStartX = cm.coordsAtPos(0)?.left;
@@ -2598,9 +2590,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		const range = (doc as unknown as { caretRangeFromPoint(x: number, y: number): Range | null })
 			.caretRangeFromPoint(clampedX, targetY);
 		if (range && title.contains(range.startContainer)) {
-			const sel = doc.getSelection() as (Selection & {
-				modify(alter: string, direction: string, granularity: string): void;
-			}) | null;
+			const sel = doc.getSelection();
 			sel?.removeAllRanges();
 			sel?.addRange(range);
 
@@ -2956,7 +2946,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-		(view?.containerEl.querySelector(PROPERTY_HEADING_SELECTOR) as HTMLElement | null)?.focus();
+		view?.containerEl.querySelector<HTMLElement>(PROPERTY_HEADING_SELECTOR)?.focus();
 	}
 
 	private propertyRowMoveDown(el: HTMLElement) {
@@ -2966,7 +2956,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			return;
 		}
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-		(view?.containerEl.querySelector(PROPERTY_ADD_BUTTON_SELECTOR) as HTMLElement | null)?.focus();
+		view?.containerEl.querySelector<HTMLElement>(PROPERTY_ADD_BUTTON_SELECTOR)?.focus();
 	}
 
 	// Ctrl-P/N's own dispatcher once we already know focus is somewhere
@@ -2998,13 +2988,11 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private propertyHeadingEscapeToTitle(heading: HTMLElement) {
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 		const scopeEl = view?.containerEl ?? heading.ownerDocument;
-		const title = scopeEl.querySelector(TITLE_SELECTOR) as HTMLElement | null;
+		const title = scopeEl.querySelector<HTMLElement>(TITLE_SELECTOR);
 		if (!title) return;
 		title.focus();
 		const doc = title.ownerDocument;
-		const sel = doc.getSelection() as (Selection & {
-			modify(alter: string, direction: string, granularity: string): void;
-		}) | null;
+		const sel = doc.getSelection();
 
 		if (this.propertyGoalX != null && view) {
 			const cm = view.editor.cm;
@@ -3046,9 +3034,9 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// propertyGoalX.
 	private propertyHeadingCtrlN(heading: HTMLElement) {
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-		const addButton = view?.containerEl.querySelector(PROPERTY_ADD_BUTTON_SELECTOR) as HTMLElement | null;
+		const addButton = view?.containerEl.querySelector<HTMLElement>(PROPERTY_ADD_BUTTON_SELECTOR);
 		if (addButton && addButton.offsetParent !== null) {
-			const firstRow = view?.containerEl.querySelector(PROPERTY_ROW_SELECTOR) as HTMLElement | null;
+			const firstRow = view?.containerEl.querySelector<HTMLElement>(PROPERTY_ROW_SELECTOR);
 			if (firstRow) {
 				firstRow.focus();
 				return;
@@ -5328,8 +5316,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// "center" and added as a floor for "top"; "bottom" needs no such
 	// adjustment since the sticky header never affects the bottom edge.
 	private recenterBasesScrollTo(container: HTMLElement, targetY: number) {
-		const scrollEl = container.closest('.bases-view') as HTMLElement | null;
-		const cellEl = container.querySelector('.bases-table-active-cell') as HTMLElement | null;
+		const scrollEl = container.closest<HTMLElement>('.bases-view');
+		const cellEl = container.querySelector<HTMLElement>('.bases-table-active-cell');
 		if (!scrollEl || !cellEl) return;
 		const rect = cellEl.getBoundingClientRect();
 		const scrollRect = scrollEl.getBoundingClientRect();
@@ -5337,12 +5325,12 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 	private getBasesHeaderHeight(scrollEl: HTMLElement): number {
-		const headerEl = scrollEl.querySelector('.bases-thead') as HTMLElement | null;
+		const headerEl = scrollEl.querySelector<HTMLElement>('.bases-thead');
 		return headerEl?.getBoundingClientRect().height ?? 0;
 	}
 
 	private recenterBases(container: HTMLElement) {
-		const scrollEl = container.closest('.bases-view') as HTMLElement | null;
+		const scrollEl = container.closest<HTMLElement>('.bases-view');
 		if (!scrollEl) return;
 		const headerHeight = this.getBasesHeaderHeight(scrollEl);
 		this.recenterBasesScrollTo(container, headerHeight + (scrollEl.clientHeight - headerHeight) / 2);
@@ -5356,8 +5344,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// DOM (`.bases-tr` is used for click-targeting in E2E specs only,
 	// never a parent of the cells).
 	private recenterTopBottomBases(container: HTMLElement) {
-		const scrollEl = container.closest('.bases-view') as HTMLElement | null;
-		const cellEl = container.querySelector('.bases-table-active-cell') as HTMLElement | null;
+		const scrollEl = container.closest<HTMLElement>('.bases-view');
+		const cellEl = container.querySelector<HTMLElement>('.bases-table-active-cell');
 		if (!scrollEl || !cellEl) return;
 		const headerHeight = this.getBasesHeaderHeight(scrollEl);
 		const h = scrollEl.clientHeight;
@@ -5397,7 +5385,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// only need an element they can reach .bases-view and
 		// .bases-table-active-cell from, which this ancestor lookup finds
 		// just as well as the container itself would.
-		const basesContainer = el.closest(BASES_TABLE_CONTAINER_SELECTOR) as HTMLElement | null;
+		const basesContainer = el.closest<HTMLElement>(BASES_TABLE_CONTAINER_SELECTOR);
 		if (basesContainer) { this.recenterBases(basesContainer); return; }
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 		const cm = view?.editor.cm;
@@ -5406,7 +5394,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	}
 
 	private recenterTopBottomPropertyPanel(el: HTMLElement) {
-		const basesContainer = el.closest(BASES_TABLE_CONTAINER_SELECTOR) as HTMLElement | null;
+		const basesContainer = el.closest<HTMLElement>(BASES_TABLE_CONTAINER_SELECTOR);
 		if (basesContainer) { this.recenterTopBottomBases(basesContainer); return; }
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 		const cm = view?.editor.cm;
