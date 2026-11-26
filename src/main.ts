@@ -174,6 +174,14 @@ declare module "obsidian" {
 }
 
 
+// Minimal shape for Obsidian's private app.hotkeyManager, just the one
+// method isBareArrowKeyUpgradeSelfBound reads — avoids an `any` cast
+// (and the no-unsafe-* lint family it triggers) while still reaching
+// this undocumented API.
+interface HotkeyManagerLike {
+	getHotkeys(commandId: string): { modifiers: string[]; key: string }[] | undefined;
+}
+
 interface UniversalCursorHotkeysSettings {
 	visualLineMovement: boolean;
 	smartHomeStandard: boolean;
@@ -2397,7 +2405,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		this._recenterStep = 0; // see onload's own focusin/selectionchange listeners' comment for why keyboard-driven widget entry/caret-move needs an explicit reset too
 		this.markActive = false;
 		el.ownerDocument.execCommand(redo ? 'redo' : 'undo', false);
-		if (el instanceof HTMLInputElement) {
+		if (el.instanceOf(HTMLInputElement)) {
 			if (el.selectionStart !== el.selectionEnd) {
 				const caret = el.selectionStart ?? 0;
 				el.setSelectionRange(caret, caret);
@@ -2923,7 +2931,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// Checked once per keypress, not cached -- Key Upgrades can be
 	// toggled live from Settings.
 	private isBareArrowKeyUpgradeSelfBound(commandId: 'cursor-up' | 'cursor-down'): boolean {
-		const hotkeys = (this.app as any).hotkeyManager?.getHotkeys(`${this.manifest.id}:${commandId}`) as { modifiers: string[]; key: string }[] | undefined;
+		const hotkeyManager = (this.app as unknown as { hotkeyManager?: HotkeyManagerLike }).hotkeyManager;
+		const hotkeys = hotkeyManager?.getHotkeys(`${this.manifest.id}:${commandId}`);
 		const key = commandId === 'cursor-up' ? 'ArrowUp' : 'ArrowDown';
 		return !!hotkeys?.some(hk => hk.modifiers.length === 0 && hk.key === key);
 	}
@@ -6950,7 +6959,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	private transformMulticellSelection(editor: Editor, transform: (s: string) => string): boolean {
 		const inner = editor.activeCM;
 		if (!inner || inner === editor.cm) return false;
-		const table = (inner.dom as HTMLElement).closest('table');
+		const table = inner.dom.closest('table');
 		if (!table) return false;
 		const selectedCells = Array.from(table.querySelectorAll<HTMLElement>('td.is-selected, th.is-selected'));
 		// A plain click (even one that lands inside a cell with no drag at
@@ -6960,7 +6969,7 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		if (selectedCells.length < 2) return false;
 
 		const allRows = Array.from(table.querySelectorAll('tr'));
-		const anchorCell = (inner.dom as HTMLElement).closest('td,th');
+		const anchorCell = inner.dom.closest('td,th');
 		const anchorRow = anchorCell?.closest('tr');
 		if (!anchorCell || !anchorRow) return false;
 		// Unconditional once a genuine multi-cell selection is confirmed —
