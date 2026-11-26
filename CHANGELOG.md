@@ -10,7 +10,7 @@ _Key combos below (Ctrl-B/F, Ctrl-A/E, and so on) are this plugin's own recommen
   - **Title field:** cursor movement (character, word, line, Home/End — including seamlessly crossing between the title and the body's first line with the cursor's own column preserved), Set-mark/Deselect with a real selection, Kill line/region, Copy region, Yank, Kill word left/right, Delete char, and Undo/Redo — the kill/yank commands share the same kill-ring/clipboard as the note body, while Undo/Redo use the field's own native undo history. A Shift+Arrow keypress or a mouse drag arms Set-mark automatically here too, just like the note body.
   - **Frontmatter Properties panel:** Ctrl-N/P move between property rows; the same commands above work on property names and values. List/tags/aliases properties also support moving between tags and killing/yanking a whole tag. Checkbox/date/datetime/number properties support Deselect to exit. Recenter / Recenter top-bottom scroll the panel too.
   - **Bases table views:** the same Properties-panel commands work directly on table cells, plus Ctrl-P/N/B/F for cell-to-cell navigation — whether the table is its own tab or embedded in a note (`![[some.base]]`). Set-mark correctly steps aside for Bases' own native column-select shortcut instead of colliding with it.
-- **Uppercase/Lowercase/Capitalize word now transform a real multi-cell mouse-drag selection in a Live Preview table**, not just the single cell the cursor happens to be in.
+- **Uppercase/Lowercase/Capitalize word now transform a real multi-cell selection in a Live Preview table**, not just the single cell the cursor happens to be in.
 
 ### Fixed
 
