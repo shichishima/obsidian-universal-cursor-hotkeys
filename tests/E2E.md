@@ -4640,3 +4640,37 @@ this fix — `vimTableUndoRedo.e2e.ts`/`undoInCellVLStale.e2e.ts` both
 cover native/Vim undo, not this command). All 5 confirmed via the
 actual `undo`/`redo` commands (their own hotkey or `executeCommandById`,
 real dispatch), not a raw `execCommand` call standing in for them.
+
+**Follow-up, found live right after the fix above shipped**: Kill line
+then Undo in the title re-selected the just-restored text, while the
+same sequence in the body (`editor.undo()`, CM6) leaves a collapsed
+cursor at the kill point instead — confirmed via a throwaway
+diagnostic (since deleted) comparing both side by side. CM6's own undo
+restores the exact pre-change selection (a collapsed cursor here,
+since Kill line never needs a prior selection to run), but the
+browser's native contenteditable/`<input>` undo manager re-selects
+whatever text an undo just re-inserted, regardless of what was
+selected beforehand — a genuine difference between the two undo
+mechanisms, not something this plugin asks for either way. Fixed by
+collapsing to the restored range's own start right inside `titleUndo`,
+immediately after `execCommand('undo'/'redo')`, whenever that leaves a
+non-collapsed selection (`Selection.getRangeAt(0).collapse(true)` for
+the contenteditable widgets, `el.setSelectionRange(caret, caret)` for
+the property-name `<input>`, mirroring the dual-path split
+`titleDeleteChar`/`propertyKeyDeleteChar` already use).
+
+(Kill region then Undo, in the body, DOES restore the pre-kill
+selection, by the same CM6 "restore exact prior selection" logic —
+that's expected, not a bug, and the title's own Kill region doesn't
+get this same collapse-after-undo treatment for the same reason: this
+fix only normalizes the Kill-line-equivalent "undo should return to a
+plain cursor" case, not every possible pre-change selection state.)
+
+✅ `titleFrontmatterBasesUndoRedo.e2e.ts`, test (6): Kill line then
+`Ctrl`+`/` leaves a collapsed cursor with no selected text, confirmed
+for both the title and the frontmatter property-name field (the one
+case going through the `<input>`-specific `setSelectionRange` branch
+instead of `Selection`/`Range`). Red-confirmed via the same diagnostic
+before fixing, then green; the existing 5 tests above all still pass
+unaffected (their own post-undo states were already collapsed, so the
+added collapse call is a no-op for them).

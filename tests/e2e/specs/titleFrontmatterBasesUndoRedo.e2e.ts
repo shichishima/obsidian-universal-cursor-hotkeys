@@ -40,6 +40,7 @@ describe('Undo / Redo commands on non-CM6 text surfaces (title / frontmatter / B
 		await browser.executeObsidian(({ app }) => {
 			const hm = (app as any).hotkeyManager
 			hm.setHotkeys('universal-cursor-hotkeys:delete-char', [{ modifiers: ['Ctrl'], key: 'D' }])
+			hm.setHotkeys('universal-cursor-hotkeys:kill-line', [{ modifiers: ['Ctrl'], key: 'K' }])
 			hm.setHotkeys('universal-cursor-hotkeys:undo', [{ modifiers: ['Ctrl'], key: '/' }])
 			hm.setHotkeys('universal-cursor-hotkeys:redo', [{ modifiers: ['Ctrl', 'Shift'], key: '/' }])
 			hm.bake()
@@ -287,5 +288,97 @@ first body line
 		await browser.executeObsidianCommand('universal-cursor-hotkeys:redo')
 		await browser.pause(150)
 		await expect(await getBody()).toBe('helloworld')
+	})
+
+	// Regression for a real gap found live right after the fix above
+	// shipped: Kill line then Undo in the title re-SELECTED the restored
+	// text, while the same sequence in the body (editor.undo(), CM6)
+	// leaves a collapsed cursor at the kill point instead -- a genuine
+	// difference between CM6's own undo (which restores the exact
+	// pre-change selection, a collapsed cursor here since Kill line never
+	// needs a prior selection) and the browser's native contenteditable/
+	// input undo manager (which re-selects whatever text an undo just
+	// re-inserted, regardless of what was selected beforehand). Fixed by
+	// collapsing to the restored range's own start right after
+	// execCommand('undo'/'redo') in titleUndo, whenever that leaves a
+	// non-collapsed selection.
+	it('(6) regression: Kill line then Ctrl-/ leaves a collapsed cursor, not a selection, matching the body', async function () {
+		async function killThenUndoAndCheckCollapsed(setup: () => Promise<void>, snap: () => Promise<{ isCollapsed: boolean, selText: string }>) {
+			await setup()
+			await browser.keys(['Control', 'k'])
+			await browser.pause(150)
+			await browser.keys(['Control', '/'])
+			await browser.pause(150)
+			const state = await snap()
+			await expect(state.isCollapsed).toBe(true)
+			await expect(state.selText).toBe('')
+		}
+
+		const titlePath = 'UndoRedo KillLineTitle.md'
+		createdPaths.push(titlePath)
+		await killThenUndoAndCheckCollapsed(
+			async () => {
+				await browser.executeObsidian(async ({ app, obsidian }, path2) => {
+					app.workspace.getLeavesOfType('markdown').forEach(leaf => leaf.detach())
+					const existing = app.vault.getFileByPath(path2)
+					if (existing) await app.vault.delete(existing)
+					const file = await app.vault.create(path2, 'body text')
+					await app.workspace.getLeaf(true).openFile(file)
+					const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+					const doc = view.containerEl.ownerDocument
+					const title = doc.querySelector(".inline-title[contenteditable='true']") as HTMLElement
+					title.focus()
+					const textNode = title.firstChild as Text
+					const range = doc.createRange()
+					range.setStart(textNode, 6) // "UndoRe" | "doKillLineTitle"
+					range.collapse(true)
+					const sel = doc.getSelection()!
+					sel.removeAllRanges()
+					sel.addRange(range)
+				}, titlePath)
+				await setHotkeys()
+				await browser.waitUntil(async () => {
+					return browser.executeObsidian(({ app }) => {
+						return (app as any).plugins.plugins['universal-cursor-hotkeys'].titleScope !== null
+					})
+				}, { timeout: 8000, interval: 50, timeoutMsg: 'title Scope never pushed' })
+			},
+			async () => browser.executeObsidian(({ app, obsidian }) => {
+				const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+				const title = view.containerEl.querySelector(".inline-title[contenteditable='true']") as HTMLElement
+				const sel = title.ownerDocument.getSelection()!
+				return { isCollapsed: sel.isCollapsed, selText: sel.toString() }
+			}),
+		)
+
+		const propPath = 'UndoRedo KillLinePropertyName.md'
+		createdPaths.push(propPath)
+		await killThenUndoAndCheckCollapsed(
+			async () => {
+				await browser.executeObsidian(async ({ app, obsidian }, path2) => {
+					app.workspace.getLeavesOfType('markdown').forEach(leaf => leaf.detach())
+					const existing = app.vault.getFileByPath(path2)
+					if (existing) await app.vault.delete(existing)
+					const file = await app.vault.create(path2, `---\nmyName: hello world\n---\nbody\n`)
+					await app.workspace.getLeaf(true).openFile(file)
+				}, propPath)
+				await setHotkeys()
+				await browser.pause(400)
+				await browser.executeObsidian(({ app, obsidian }) => {
+					const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+					const row = view.containerEl.querySelector('.metadata-property') as HTMLElement
+					const el = row.querySelector('.metadata-property-key-input') as HTMLInputElement
+					el.focus()
+					el.setSelectionRange(2, 2) // "my" | "Name"
+				})
+				await browser.pause(150)
+			},
+			async () => browser.executeObsidian(({ app, obsidian }) => {
+				const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+				const row = view.containerEl.querySelector('.metadata-property') as HTMLElement
+				const el = row.querySelector('.metadata-property-key-input') as HTMLInputElement
+				return { isCollapsed: el.selectionStart === el.selectionEnd, selText: el.value.slice(el.selectionStart ?? 0, el.selectionEnd ?? 0) }
+			}),
+		)
 	})
 })

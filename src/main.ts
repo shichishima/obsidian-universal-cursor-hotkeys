@@ -2380,10 +2380,34 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// for 'delete'/'insertText' to stay integrated with that element's
 	// own native undo stack — so this round-trips through that same
 	// stack instead.
+	//
+	// Confirmed live: after undoing a Kill line, the body's own
+	// editor.undo() (CM6) leaves a collapsed cursor at the kill point,
+	// but the browser's native contenteditable/input undo manager
+	// re-SELECTS the just-restored text instead — a genuine behavioral
+	// difference between the two undo mechanisms, not something this
+	// plugin asks for either way. Collapsed here (to the restored
+	// range's own start, matching where the body's cursor lands) so
+	// Undo's visible result stays consistent across every surface this
+	// command now reaches, regardless of which underlying undo manager
+	// is doing the work.
 	private titleUndo(el: HTMLElement, redo: boolean) {
 		this._recenterStep = 0; // see onload's own focusin/selectionchange listeners' comment for why keyboard-driven widget entry/caret-move needs an explicit reset too
 		this.markActive = false;
 		el.ownerDocument.execCommand(redo ? 'redo' : 'undo', false);
+		if (el instanceof HTMLInputElement) {
+			if (el.selectionStart !== el.selectionEnd) {
+				const caret = el.selectionStart ?? 0;
+				el.setSelectionRange(caret, caret);
+			}
+			return;
+		}
+		const sel = el.ownerDocument.getSelection();
+		if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+		const range = sel.getRangeAt(0);
+		range.collapse(true);
+		sel.removeAllRanges();
+		sel.addRange(range);
 	}
 
 	private titleCopyRegion(titleEl: HTMLElement) {
