@@ -49,10 +49,13 @@ mode: macos-emacs-style
 - **(Windows) Obsidian's keyboard shortcuts aren't detected as conflicts:** the recommended hotkey assignment (the **Apply recommended** or **Set** button) overrides Obsidian's keyboard shortcuts `Ctrl` + `A` (Select all) and `Ctrl` + `Y` (Redo).
   - Obsidian hotkeys can detect duplicates among themselves, but because these are Obsidian's keyboard shortcuts, not hotkey assignments, they can't be listed under Displaced commands, and the **Restore** button can't bring them back either.
   - Assign the bundled Select all and Redo commands to a different key and use those instead, or, if you use them infrequently, run them from the Command Palette.
-- **Hotkeys don't work outside the markdown editor:** a few examples below — this isn't an exhaustive list.
-  - `Ctrl` + `B`/`F`/`A`/`E` don't work in the note title field.
-  - `Ctrl` + `B`/`F`/`A`/`E`, `Ctrl` + `D`, and `Ctrl` + `K` don't work in the frontmatter property field.
-  - In Excalidraw, `Ctrl` + `P`/`N`/`B`/`F`/`A`/`E` don't work while typing inside a text object.
+- **Hotkeys don't work in some places outside the note editor:**
+  - In plugin-provided views such as Excalidraw, `Ctrl` + `P`/`N`/`B`/`F`/`A`/`E` don't work while typing inside a text object.
 - **Page down/Page up conflict with paste:** assigning `Ctrl` + `V` (Windows) or `command` + `V` (macOS) to Page down or Page up, as an Emacs-style hotkey, breaks `Ctrl` + `V`/`command` + `V` paste outside the markdown editor (e.g., in Excalidraw).
   - Within the markdown editor, the Yank command can substitute for paste in many cases, but Yank isn't available in those other views. Use the mouse's "right-click → Paste" instead.
   - Likewise, multi-cell cut/copy/paste can't be substituted for either, so it's recommended to keep the OS's standard cut/copy/paste shortcuts free.
+
+## Other
+
+- In a title field long enough to wrap across multiple visual lines, Home/End's line-start/line-end position can be off by one character from the actual position.
+- After running Uppercase word/Lowercase word/Capitalize word on a multi-cell selection, Undo doesn't restore the original state in a single run — the first run restores the cell your cursor is in, and the second restores the other selected cells.

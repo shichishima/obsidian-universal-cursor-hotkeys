@@ -25,4 +25,4 @@ mode: vim-mode
 
 ## 非本插件导致的问题
 
-- **开启 IME（中文输入法）时，Vim 的按键输入可能会被误识别**：在中文输入法启用的状态下，仅按一次 Vim 的移动键（主要是 `g`、`j`、`k`），也可能被误判为连续输入两次。例如，仅按一次 `g` 却被当作 `gg` 处理，`j`/`k` 会移动 2 行而不是 1 行。这是 Obsidian 内部使用的 Vim 引擎（`codemirror-vim`）的已知问题（[issue #178](https://github.com/replit/codemirror-vim/issues/178)），即使完全禁用本插件，在 Obsidian 标准的 Vim mode 下也会同样复现。**解决方法：** 在使用 Vim 的移动操作之前，先切换到英文输入模式。
+- **开启 IME（中文输入法）时，Vim 的按键输入可能会被误识别**：在中文输入法启用的状态下，仅按一次 Vim 的移动键（主要是 `g`、`j`、`k`），也可能被误判为连续输入两次。例如，仅按一次 `g` 却被当作 `gg` 处理，`j`/`k` 会移动 2 行而不是 1 行。这是 Obsidian 内部使用的 Vim 引擎（`codemirror-vim`）的已知问题（[issue #178](https://github.com/replit/codemirror-vim/issues/178)），即使完全禁用本插件，在 Obsidian 标准的 Vim mode 下也会同样复现。**解决方法：**在使用 Vim 的移动操作之前，先切换到英文输入模式。

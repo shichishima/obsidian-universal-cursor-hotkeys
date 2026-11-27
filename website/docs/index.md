@@ -36,7 +36,7 @@ This plugin fixes both, for smoother cursor movement overall. It patches the cur
 - Add table-structure editing commands
 
 ## 🅴 [I use macOS-style keyboard shortcuts (Emacs keybindings) →](/macos-emacs-style)
-- Make `Ctrl` + `P`/`N`/`B`/`F` work correctly inside Markdown tables
+- Make `Ctrl` + `P`/`N`/`B`/`F` work correctly in the note body, the title, and inside Markdown tables
 - Kill & Yank, with OS-clipboard integration and accumulation
 - Select text with Set-mark, unified with Obsidian's own `Shift` + cursor-key selection
 - Multi-cursor movement, Kill, and Yank

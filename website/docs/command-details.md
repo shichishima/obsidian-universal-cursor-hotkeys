@@ -35,6 +35,7 @@ Moving from the following locations behaves the same as the physical ↑ key.
   - If the table sits at the very start of the note, the physical ↑ key adds a blank line above the note and lands there, but this plugin's UP does not add a blank line — it moves to the start of the cell instead.
 - **The second or later in-cell line of table cell text:** Moves up one line within the same cell.
   - Preserves the cursor's horizontal position as closely as possible.
+- **Frontmatter / Bases table:** Moves to the property above / the cell above.
 
 **Behavior differing from the physical ↑ key**
 
@@ -47,6 +48,9 @@ UP differs from the physical ↑ key in the following ways — these are the poi
   - Preserves the cursor's original horizontal position as closely as possible.
   - If the horizontal position is further right than the width of the bottom-left cell, it lands at the end of that cell's last line instead.
   - The physical ↑ key also enters the bottom-left cell, but which line it lands on is unstable — it can be the last line or the first line, depending on the cursor's previous position.
+- **The note body's first line / the top of frontmatter (the "Properties" item):** Moves to the title field without creating a selection.
+  - The physical ↑ key clears the cursor and selects the entire title when it moves there, but UP doesn't automatically create a selection.
+  - Moving from the note body preserves the cursor's horizontal position, the same as within body text. Moving from the top of frontmatter (the "Properties" item) restores the horizontal position from before that.
 
 </details>
 
@@ -73,6 +77,7 @@ Moving from the following locations behaves the same as the physical ↓ key.
 - **A table's last row:** Exits the table and moves to the line below.
   - Preserves the cursor's horizontal position as closely as possible.
   - If the table sits at the very end of the note, a line is added below and the cursor lands there. (Same behavior as the physical ↓ key.)
+- **Frontmatter / Bases table:** Moves to the property below / the cell below.
 
 **Behavior differing from the physical ↓ key**
 
@@ -85,6 +90,9 @@ DOWN differs from the physical ↓ key in the following ways — these are the p
   - Preserves the cursor's original horizontal position as closely as possible.
   - The physical ↓ key also moves to the cell below, but it always lands at the start of the cell.
   - Obsidian's macOS shortcut `Ctrl` + `N` doesn't move to the cell below at all — it moves to the end of the same cell instead. What happens after that is unstable: it may stay there, or it may exit the table.
+- **The title field / the bottom of frontmatter (the "+ Add property" item):** Moves to the note body's first line while preserving the cursor's horizontal position.
+  - The physical ↓ key always moves to the start of the body's first line, but DOWN preserves the cursor's horizontal position when moving to the first line.
+  - Moving from the title field preserves its current horizontal position. Moving from the bottom of frontmatter (the "+ Add property" item) restores the horizontal position from a previous position in the body or title field.
 
 </details>
 
@@ -105,6 +113,9 @@ Moving from the following locations behaves the same as the physical ← key.
   - **The leftmost cell of any other row:** Moves to the end of the rightmost cell in the row above.
     - If the Cross-row navigation setting is OFF, stays at the start of the cell instead.
   - **The start of the second or later cell:** Moves to the end of the cell to the left.
+- **Title field:** Moves left by one character.
+- **Frontmatter:** Starts editing the property name from item-selection mode; moves left by one character while editing a name or value; moves the selection left while a tag is selected.
+- **Bases table:** Moves the selected cell left in cell-selection mode; moves left by one character while editing text; moves the selection left while a tag is selected.
 
 **Behavior differing from the physical ← key**
 
@@ -134,6 +145,9 @@ Moving from the following locations behaves the same as the physical → key.
     - If the Cross-row navigation setting is OFF, stays at the end of the cell instead.
     - If the table sits at the very end of the note, a line is added below and the cursor lands there. This is the same behavior as the DOWN command, unlike LEFT's constraint at the start of the note.
 - **At the end of the line directly above a table:** Enters the table and moves to the start of the leftmost cell in the header row.
+- **Title field:** Moves right by one character. Doesn't move past the end of the title.
+- **Frontmatter:** Starts editing the property value from item-selection mode; moves right by one character while editing a name or value; moves the selection right while a tag is selected.
+- **Bases table:** Moves the selected cell right in cell-selection mode; moves right by one character while editing text; moves the selection right while a tag is selected.
 
 **Behavior differing from the physical → key**
 
@@ -181,6 +195,10 @@ At the start of a table cell (the first in-cell line, when the cell has multiple
   - With Cross-row navigation OFF, stays at the start of the leftmost cell without moving to the row above, same as the physical `Home` key.
 - For reference, **the start of a non-first in-cell line:** Doesn't move any further. Same as the physical `Home` key.
 
+The title field and frontmatter also behave differently.
+- **A long, wrapped title field:** HOME's Step 1 moves to the visual line's left edge (only when Visual line movement is ON), and Step 2 moves to the start of the title field. The physical `Home` key also moves to the visual line's left edge in Step 1, but never moves past it in Step 2 onward.
+- **While editing a frontmatter property value's text:** Step 1 moves to the visual line's left edge (only when Visual line movement is ON), and Step 2 moves to the start of the text.
+
 **Behavior in Source Mode**
 
 In Source Mode, HOME behaves as follows within a table. Everything from the second point onward matches Live Preview.
@@ -223,6 +241,10 @@ At the end of a table cell (the last in-cell line, when the cell has multiple li
   - If the table sits at the very end of the note, a line is added below and the cursor lands there. (Same behavior as the DOWN command.)
 - For reference, **the end of a non-last in-cell line:** Doesn't move any further. Same as the physical `End` key.
 
+The title field and frontmatter also behave differently.
+- **A long, wrapped title field:** END's Step 1 moves to the visual line's right edge (only when Visual line movement is ON), and Step 2 moves to the end of the title field. The physical `End` key also moves to the visual line's right edge in Step 1, but never moves past it in Step 2 onward.
+- **While editing a frontmatter property value's text:** Step 1 moves to the visual line's right edge (only when Visual line movement is ON), and Step 2 moves to the end of the text.
+
 **Behavior in Source Mode**
 
 In Source Mode, END behaves as follows within a table.
@@ -262,16 +284,13 @@ This command is designed to behave the same as the physical `Page Down`/`Page Up
 These Page down / Page up commands can be assigned to these same keys from the "For everyone" screen, but "the physical keys" below always means these keys in their own unmodified state — i.e., without these commands assigned to them.
 
 **Behavior matching the physical keys**
-
-If the scrolled range contains only plain text (no tables, callouts, or embeds), scrolls the view down (Page down) or up (Page up) by one screen. The cursor stays at the same position on screen after scrolling.
+- If the scrolled range contains only plain text (no tables, callouts, or embeds), scrolls the view down (Page down) or up (Page up) by one screen. The cursor stays at the same position on screen after scrolling.
+- While editing a frontmatter property or a Bases table cell: does nothing for the property name / property value (text, tags, checkbox, date, date & time).
 
 **Behavior differing from the physical keys**
-
-If the scrolled range includes a table, callout, or embed (`![[...]]`), the cursor moves correctly even when the one-screen destination falls inside that table, callout, or similar block.
-
-This is achieved by repeating the UP / DOWN command enough times to cover one screen.
-
-The physical keys (`Page Down`/`Page Up`, `fn` + ↓/↑) always moved the cursor all the way outside the table, even in cases where it should properly land inside it.
+- If the scrolled range includes a table, callout, or embed (`![[...]]`), the cursor moves correctly even when the one-screen destination falls inside that table, callout, or similar block. This is achieved by repeating the UP / DOWN command enough times to cover one screen.
+- The physical keys (`Page Down`/`Page Up`, `fn` + ↓/↑) always moved the cursor all the way outside the table, even in cases where it should properly land inside it.
+- Pressing the physical `Page Down`/`Page Up` keys in the title field scrolls the note body, but the Page down / Page up command does nothing and the cursor stays where it is.
 
 </details>
 
@@ -293,14 +312,17 @@ This command can be assigned to these same keys from the "For everyone" screen, 
   - With the Cross-row navigation setting OFF, it stays at the start/end of the cell instead of exiting the table.
   - If the table sits at the very start of the note (Word left), it doesn't exit — nothing happens. (Same as UP / LEFT / HOME.)
   - If the table sits at the very end of the note (Word right), a blank line is added below the table and the cursor moves there.
+- **Title field:** Moves by word, same as in the note body. Doesn't move past the end of the title field. (Doesn't move into the body.)
+- **Frontmatter / Bases table:** Moves by word while editing text. Moves the selected tag item left/right while a tag is selected. Running Word left at the start of an unconfirmed tag input moves to the previous tag item.
 
 **Behavior differing from the physical keys**
 - **Landing position when entering a table:** Word left lands at the start of the last word in the bottom-right cell; Word right lands at the end of the first word in the header row's leftmost cell.
   - This follows the same convention as crossing a line boundary in plain text. The physical keys land at the start/end of a word in plain text, but when entering a table they simply stopped at the start/end of the cell instead.
 - **The start/end of a cell:** Moves to the word at the end/start of the cell to the left/right.
   - The physical keys never cross cell boundaries.
-- **CJK (Chinese/Japanese) word segmentation:** Moves by word using dictionary-based segmentation, so CJK (Chinese/Japanese) text is also split into real words.
+- **CJK (Chinese/Japanese) word segmentation within the note body:** Moves by word using dictionary-based segmentation, so CJK (Chinese/Japanese) text is also split into real words.
   - The physical keys only split on whitespace and punctuation, so a run of CJK (Chinese/Japanese) text was recognized as a single long word.
+  - The title field, frontmatter, and Bases table have no such difference — the physical keys themselves use the OS's own word-segmentation, which already handles Japanese.
 
 </details>
 
@@ -326,6 +348,7 @@ This command is designed to reproduce the behavior of Emacs's kill-line. Unlike 
   - **When the cursor isn't at the end of the line:** Kills from the cursor position to the end of the line or the end of the cell.
   - **At the end of an in-cell line (immediately before `<br>`):** Kills the `<br>` tag, joining with the next in-cell line. (Visually, the "`<br>`" disappears and the text closes up.)
   - **At the end of the cell (the cell boundary):** Does nothing.
+- **Title field / Frontmatter / Bases table:** Always kills from the cursor position to the end of the line, saving it to the clipboard. Since these are all single-line text, there's no "join with the next line" — at the end of the line, it does nothing.
 - **Consecutive kills:** Running Kill line repeatedly in a row appends each kill's content onto the OS clipboard.
   - Any editing operation other than a consecutive kill stops the accumulation. (Cursor movement, typing, mouse clicks.)
   - If the OS has a clipboard history feature, each consecutive kill is recorded there in sequence.
@@ -395,6 +418,8 @@ Starts range-selection mode. This command corresponds to Emacs's set-mark comman
   - Switching to a different note
 - **Multi-cursor support:**
   - Running Set mark in a multi-cursor state sets an anchor at every cursor position, and cursor movement gives each cursor its own selection.
+- **Title field / Frontmatter / Bases table:** Behaves the same as in the note body while editing text.
+  - In frontmatter, this works on the property name / property value (text). Does nothing for checkbox, date, date & time, or number properties.
 
 </details>
 
@@ -416,6 +441,8 @@ Kills (cuts) the selected text and saves it to the OS clipboard. This command co
 - **Stopping consecutive kills:** Kill region always resets the consecutive-kill accumulation. The killed text replaces the clipboard's previous contents instead of being appended to it.
 - **Multi-cursor behavior:** Kills each cursor's own selection independently.
   - The killed text from multiple cursors is joined with newlines in the clipboard.
+- **Title field / Frontmatter / Bases table:** Behaves the same as in the note body while editing text.
+  - In frontmatter, this works on the property name / property value (text). Does nothing for checkbox, date, date & time, or number properties.
 
 **Difference from the OS's standard cut**
 
@@ -442,6 +469,8 @@ Copies the selected text to the OS clipboard. Unlike Kill region, the text isn't
 - **Stopping consecutive kills:** Like Kill region, this always resets the consecutive-kill accumulation. What's saved also replaces the clipboard's existing contents instead of being appended to it.
 - **Multi-cursor behavior:** Copies each cursor's own selection independently.
   - The copied text from multiple cursors is joined with newlines in the clipboard.
+- **Title field / Frontmatter / Bases table:** Behaves the same as in the note body while editing text.
+  - In frontmatter, this works on the property name / property value (text). Does nothing for checkbox, date, date & time, or number properties.
 
 **Difference from the OS's standard copy**
 
@@ -466,6 +495,10 @@ Pastes the OS clipboard's contents at the cursor position. This command correspo
 - **Multi-cursor behavior:** Behavior differs depending on whether the cursor count matches the number of lines stored on the clipboard.
   - **When they match:** Pastes each clipboard line to its corresponding cursor.
   - **When they don't match:** Pastes the clipboard's entire contents at each cursor.
+- **Title field / Frontmatter / Bases table:** Behaves the same as in the note body while editing text.
+  - In frontmatter, this works on the property name / property value (text). Does nothing for checkbox, date, date & time, or number properties.
+  - Since these are all single-line text, any line breaks in the clipboard are stripped before pasting.
+  - For a tag item in frontmatter or the Bases table, the clipboard's contents (with line breaks stripped) are appended to the end of the tag list.
 
 **Difference from the OS's standard paste**
 
@@ -490,12 +523,15 @@ Moving from the following locations behaves the same as the physical `Delete` ke
   - Deletes the character at the cursor position. (Forward deletion.)
   - At the end of a line, deletes the line break, joining with the next line.
   - Within a Live Preview cell, a `Shift` + `Enter` break counts as the end of a line, but at the end of the cell, does nothing (it never continues into the next cell).
+- **Title field / Frontmatter / Bases table:** Behaves the same as in the note body while editing text.
+  - In frontmatter, this works on the property name / property value (text). Does nothing for checkbox or number properties.
 
 **Behavior differing from the physical `Delete` key**
 
 Delete char differs from the physical `Delete` key in the following way.
 
 - **Within a table cell in Source Mode:** The physical `Delete` key doesn't take the cell boundary (`|`) into account, so it deletes the `|` and surrounding whitespace one character at a time. This command, by contrast, recognizes that it's inside a table and doesn't delete the boundary characters.
+- **A date or date & time property in frontmatter or the Bases table:** The physical `Delete` key clears the item, but this command does nothing.
 
 </details>
 
@@ -503,13 +539,19 @@ Delete char differs from the physical `Delete` key in the following way.
 <details>
 <summary>Undo / Redo</summary>
 
-These two commands are simply Obsidian's own "Undo" and "Redo." They just step the entire note's edit history backward/forward, with no special table-aware or CJK-aware handling targeting specific cells or words.
+These two commands are based on Obsidian's own "Undo" and "Redo," with the handling of any resulting selection adjusted to match Emacs's own behavior.
 
-**Why these are provided as commands**
+Standard Undo is `Ctrl` + `Z` on Windows and `command` + `Z` on macOS; Redo is `Ctrl` + `Shift` + `Z` or `Ctrl` + `Y` on Windows and `command` + `Shift` + `Z` on macOS — but none of these appear in Obsidian's standard Hotkeys panel or command palette. As a result, they can't be reassigned to another key (an Emacs-equivalent key, for example).
+This plugin provides them as commands, so — like every other command here — they can be assigned to any key you like.
 
-Undo is `Ctrl` + `Z` on Windows and `command` + `Z` on macOS; Redo is `Ctrl` + `Shift` + `Z` or `Ctrl` + `Y` on Windows and `command` + `Shift` + `Z` on macOS — but none of these appear in Obsidian's standard Hotkeys panel or command palette. As a result, they can't be reassigned to another key (an Emacs-equivalent key, for example).
+**Behavior matching Obsidian's standard Undo/Redo**
 
-This plugin provides them as commands so they can be assigned to any key you like, the same as every other command.
+- In the note body, the Title field, Frontmatter, and the Bases table, each targets the independent edit history belonging to its own input field.
+- In the note body, it simply steps the edit history backward/forward, with no special table-aware or CJK-aware handling targeting specific cells or words.
+
+**Behavior differing from Obsidian's standard Undo/Redo**
+
+- Running either command always leaves a plain cursor afterward — the selection that existed before the Undo/Redo is never restored.
 
 </details>
 
@@ -527,6 +569,9 @@ These commands can be assigned to the physical keys (`Ctrl` + `Backspace`/`Delet
   - Kill word left kills from the start of the word on the left to the cursor; Kill word right kills from the cursor to the end of the word on the right.
   - From the start/end of a line, continues on into the next line.
   - Within a Live Preview cell, a `Shift` + `Enter` break counts as the start/end of a line, but it never continues past the start/end of the cell into the previous/next cell.
+- **Title field / Frontmatter / Bases table:** Behaves the same as in the note body while editing text.
+  - Does nothing at the start/end of the text.
+  - In frontmatter, this works on the property name / property value (text and tags). Does nothing for checkbox or number properties.
 
 **Behavior differing from the physical keys**
 
@@ -545,6 +590,9 @@ These commands can be assigned to the physical keys (`Ctrl` + `Backspace`/`Delet
 - **Multi-cursor behavior:** Kills independently at each cursor position.
   - The killed text from multiple cursors is joined with newlines in the clipboard.
   - The join order always follows the document order of the cursors, no matter whether Kill word left or Kill word right was run.
+- **Frontmatter / Bases table:**
+  - For a tag item, the physical `option` + ⌫ key deletes the tag, but `option` + ⌦ does nothing. Kill word right (like Kill word left) deletes the tag to the cursor's right and saves it to the clipboard.
+  - For a date or date & time property, the physical `option` + ⌫/⌦ key clears the item, but this command does nothing.
 
 </details>
 
@@ -563,7 +611,7 @@ Converts the text at the cursor position, or in the selection, to uppercase, low
   - This differs from both the classic and DWIM versions of Emacs's own behavior. Emacs only converts from the cursor position to the end of the word, but this command converts the entire word even when the cursor is partway through it.
 - **Table-aware:** Like Word right, it enters a table, crosses cell boundaries, and exits a table while searching for a word to convert.
   - With the Cross-row navigation setting OFF, it stops without crossing a row boundary, and never exits the table either.
-  - These commands do nothing when multiple cells are selected.
+  - Running these commands with multiple cells selected converts the entire text in each selected cell.
 - **Full-width character support:** Full-width alphabetic characters are converted the same way as half-width ones. Full-width and half-width characters may be mixed.
 - **Multi-cursor behavior:** Each cursor converts independently. An invalid selection on one cursor (e.g. crossing a Source Mode table's cell boundary) doesn't block the others from converting.
 
@@ -631,6 +679,10 @@ This command corresponds to Emacs's keyboard-quit (`C-g`). It clears the selecti
 - The current cursor position is preserved.
 - The Set-mark anchor is always cleared, without exception.
   - This differs from the `Esc` key's behavior.
+- **In the title field:** Clears the selection the same way as in the note body, but unlike the physical `Esc` key, stays in the title field instead of moving to the body.
+- **In frontmatter or the Bases table:**
+  - From edit mode, clears the range selection and exits edit mode back to item-selection mode. The number of presses needed to get there can differ from the physical `Esc` key.
+  - From frontmatter's item-selection mode, moves to the note body.
 
 </details>
 
@@ -648,6 +700,7 @@ Scrolls so the cursor's line is centered on screen. Pressing it again cycles thr
 - **Cycle reset:** Any editing operation — a keystroke, cursor movement, a mouse click, and so on — resets the cycle, so the next press starts again from center.
   - Running Kill line or Kill word left/right does not reset the cycle.
   - Kill region, Copy region, and Yank do reset the cycle.
+- Also works in frontmatter and the Bases table.
 
 </details>
 
@@ -660,6 +713,7 @@ Scrolls so the cursor's line is centered on screen. This corresponds to classic 
 - **Specific behavior:** Scrolls so the cursor's line sits at the vertical center of the screen.
   - The cursor's position itself doesn't change. Only the scroll position moves.
   - This works the same way whether the cursor is in plain text or inside a table.
+  - Also works in frontmatter and the Bases table.
 
 No Recommended Hotkey is set for this command, so if you'd prefer the style where the scroll position always stays centered, assign a hotkey manually from the **Open →** button on the plugin's settings screen.
 
