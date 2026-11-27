@@ -539,13 +539,19 @@ Delete char differs from the physical `Delete` key in the following way.
 <details>
 <summary>Undo / Redo</summary>
 
-These two commands are simply Obsidian's own "Undo" and "Redo." They just step the entire note's edit history backward/forward, with no special table-aware or CJK-aware handling targeting specific cells or words.
+These two commands are based on Obsidian's own "Undo" and "Redo," with the handling of any resulting selection adjusted to match Emacs's own behavior.
 
-**Why these are provided as commands**
+Standard Undo is `Ctrl` + `Z` on Windows and `command` + `Z` on macOS; Redo is `Ctrl` + `Shift` + `Z` or `Ctrl` + `Y` on Windows and `command` + `Shift` + `Z` on macOS — but none of these appear in Obsidian's standard Hotkeys panel or command palette. As a result, they can't be reassigned to another key (an Emacs-equivalent key, for example).
+This plugin provides them as commands, so — like every other command here — they can be assigned to any key you like.
 
-Undo is `Ctrl` + `Z` on Windows and `command` + `Z` on macOS; Redo is `Ctrl` + `Shift` + `Z` or `Ctrl` + `Y` on Windows and `command` + `Shift` + `Z` on macOS — but none of these appear in Obsidian's standard Hotkeys panel or command palette. As a result, they can't be reassigned to another key (an Emacs-equivalent key, for example).
+**Behavior matching Obsidian's standard Undo/Redo**
 
-This plugin provides them as commands so they can be assigned to any key you like, the same as every other command.
+- In the note body, the Title field, Frontmatter, and the Bases table, each targets the independent edit history belonging to its own input field.
+- In the note body, it simply steps the edit history backward/forward, with no special table-aware or CJK-aware handling targeting specific cells or words.
+
+**Behavior differing from Obsidian's standard Undo/Redo**
+
+- Running either command always leaves a plain cursor afterward — the selection that existed before the Undo/Redo is never restored.
 
 </details>
 
