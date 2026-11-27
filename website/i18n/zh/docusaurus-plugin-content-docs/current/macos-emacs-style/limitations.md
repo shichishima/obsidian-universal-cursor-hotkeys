@@ -49,10 +49,13 @@ mode: macos-emacs-style
 - **（Windows）Obsidian 自身的快捷键不会被检测到冲突、也无法避让：**分配推荐快捷键（点击 **Apply recommended** 按钮或 **Set** 按钮）会覆盖 Obsidian 自身的快捷键 `Ctrl` + `A`（全选）和 `Ctrl` + `Y`（重做）。
   - 如果是 Obsidian 的热键（Hotkey），可以检测到重复，但这些是 Obsidian 自身的快捷键，并非（作为热键的）分配，因此无法被列入 Displaced commands，也无法通过 **Restore** 按钮恢复。
   - 请将内置的 Select all 命令和 Redo 命令分配到其他按键使用，或者如果使用频率较低，也可以从命令面板中执行。
-- **快捷键在笔记正文编辑器以外不起作用：**下面列举几个示例，但并不仅限于此。
-  - 在笔记标题中，`Ctrl` + `B`/`F`/`A`/`E` 不起作用。
-  - 在属性的文本输入框中，`Ctrl` + `B`/`F`/`A`/`E`、`Ctrl` + `D`、`Ctrl` + `K` 不起作用。
-  - 在 Excalidraw 中，输入文本对象内容时，`Ctrl` + `P`/`N`/`B`/`F`/`A`/`E` 不起作用。
+- **快捷键在笔记编辑器以外的一些地方不起作用：**
+  - 在 Excalidraw 等插件提供的笔记视图中，输入文本对象内容时，`Ctrl` + `P`/`N`/`B`/`F`/`A`/`E` 不起作用。
 - **Page down / Page up 与粘贴的冲突：**如果将 Emacs 风格的快捷键 `Ctrl` + `V`（Windows）或 `command` + `V`（macOS）分配给 Page down 或 Page up，会导致在笔记正文编辑器以外的地方（例如 Excalidraw）无法使用 `Ctrl` + `V` / `command` + `V` 进行粘贴。
   - 在笔记正文编辑器中，很多情况下可以用 Yank 命令替代粘贴，但在那些视图中无法使用 Yank 命令，请改用鼠标"右键 → 粘贴"操作代替。
   - 同样，多单元格的剪切、复制、粘贴功能也无法被替代，因此建议让系统标准的剪切、复制、粘贴快捷键保持空闲，不要分配给其他功能。
+
+## 其他
+
+- 在换行后的长标题中，Home / End 的行首 / 行尾位置有时会比实际位置偏差 1 个字符。
+- 在多单元格选中状态下执行 Uppercase word / Lowercase word / Capitalize word 后的 Undo，一次操作无法恢复到原始状态 —— 第一次执行会恢复光标所在的单元格，第二次执行才会恢复其他被选中的单元格。
