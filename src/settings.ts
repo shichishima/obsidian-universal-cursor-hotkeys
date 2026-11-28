@@ -317,14 +317,18 @@ export interface KeyUpgradeDef {
 	commandId: string;
 	mac: KeyUpgradeHotkey;
 	win: KeyUpgradeHotkey;
-	// PROTOTYPE (feat/key-upgrades-scope-rearchitecture, 0.13.1 candidate):
-	// set ONLY on cursor-up/cursor-down for now. These two no longer claim
-	// their bare key via hm.setHotkeys on the root scope at all -- see
-	// keyUpgradesScope's own field comment in main.ts. Their on/off state
-	// lives in this dedicated plugin setting instead, so every place below
-	// that reads/writes "assigned" for a row needs to check this field and
-	// branch, rather than going through hm uniformly like every other def.
-	scopeSettingKey?: 'keyUpgradeArrowUpScope' | 'keyUpgradeArrowDownScope';
+	// Scope-based Key Upgrades rearchitecture (feat/key-upgrades-scope-
+	// rearchitecture, 0.13.1): set on every entry that's been migrated off
+	// the old mechanism so far (cursor-up/down, cursor-home/end). A
+	// migrated entry no longer claims its bare key via hm.setHotkeys on
+	// the root scope at all -- see keyUpgradesScope's own field comment in
+	// main.ts. Its on/off state lives in this dedicated plugin setting
+	// instead, so every place below that reads/writes "assigned" for a row
+	// needs to check this field and branch, rather than going through hm
+	// uniformly like every not-yet-migrated def (Document start/end, Page
+	// Up/Down, Word left/right, Kill word left/right).
+	scopeSettingKey?: 'keyUpgradeArrowUpScope' | 'keyUpgradeArrowDownScope'
+		| 'keyUpgradeHomeScope' | 'keyUpgradeEndScope';
 }
 
 export interface KeyUpgradeRow {
@@ -378,8 +382,10 @@ const KEY_UPGRADE_DEFS: readonly KeyUpgradeDef[] = [
 		scopeSettingKey: 'keyUpgradeArrowUpScope' },
 	{ group: 'navBasics', label: 'Column-aware',      commandId: 'cursor-down', ...bare('ArrowDown'),
 		scopeSettingKey: 'keyUpgradeArrowDownScope' },
-	{ group: 'navBasics', label: '3-step Smart home', commandId: 'cursor-home', ...bare('Home')      },
-	{ group: 'navBasics', label: 'Table-aware',       commandId: 'cursor-end',  ...bare('End')       },
+	{ group: 'navBasics', label: '3-step Smart home', commandId: 'cursor-home', ...bare('Home'),
+		scopeSettingKey: 'keyUpgradeHomeScope' },
+	{ group: 'navBasics', label: 'Table-aware',       commandId: 'cursor-end',  ...bare('End'),
+		scopeSettingKey: 'keyUpgradeEndScope' },
 	// Windows' own document-start/end convention uses Home/End (Ctrl+Home /
 	// Ctrl+End), not the arrow keys Mac's Cmd+Up/Down uses — the key itself
 	// changes, not just the modifier. Still no conflict with the bare

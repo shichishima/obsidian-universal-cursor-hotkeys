@@ -107,11 +107,19 @@ describe('Set-mark / Kill region / Yank / Kill line in the title field, inside a
 			sel.removeAllRanges()
 			sel.addRange(range)
 		})
+		// Was: waited for plugin.titleScope !== null -- that property never
+		// existed on the plugin class, so `undefined !== null` made this an
+		// unconditional no-op wait. Waits for the real precondition instead:
+		// the title is really focused AND the caret really landed at
+		// offset 0 (set just above), in the POPOUT's own document.
 		await browser.waitUntil(async () => {
-			return browser.executeObsidian(({ app }) => {
-				return (app as any).plugins.plugins['universal-cursor-hotkeys'].titleScope !== null
+			return browser.executeObsidian(({ app, obsidian }) => {
+				const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+				const title = view.containerEl.querySelector(".inline-title[contenteditable='true']") as HTMLElement
+				const sel = title.ownerDocument.getSelection()
+				return title.ownerDocument.activeElement === title && sel?.focusOffset === 0
 			})
-		}, { timeout: 8000, interval: 50, timeoutMsg: 'title Scope never pushed in the popout' })
+		}, { timeout: 8000, interval: 50, timeoutMsg: 'title focus/selection never settled in the popout' })
 
 		// Set-mark, then extend 4 characters right ("Titl" out of "TitleKillYankPopout").
 		await pressCtrl(' ')

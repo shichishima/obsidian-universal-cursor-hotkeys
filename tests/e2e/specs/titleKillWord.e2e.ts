@@ -54,17 +54,23 @@ describe('Kill word left/right (Alt-D / Alt-Backspace) in the title field', func
 			sel.removeAllRanges()
 			sel.addRange(range)
 		}, { path2: path, body2: body, offset: titleOffset })
-		// Deterministic instead of a fixed pause — confirmed live the
-		// fixed-pause version was genuinely flaky (title.focus()'s own
-		// focusin handler pushes the title Scope asynchronously enough
-		// relative to a freshly-opened leaf that a flat 300ms wasn't
-		// always enough margin; failed as "nothing happened at all" on
-		// the very first Alt-D/Alt-Backspace press of a test).
+		// Deterministic instead of a fixed pause -- a flat 300ms isn't
+		// always enough margin for title.focus() to settle on a freshly-
+		// opened leaf; failed as "nothing happened at all" on the very
+		// first Alt-D/Alt-Backspace press of a test otherwise. Was: waited
+		// for plugin.titleScope !== null -- that property never existed on
+		// the plugin class, so `undefined !== null` made this an
+		// unconditional no-op wait. Waits for the real precondition
+		// instead: the title is really focused AND the caret really
+		// landed at the intended offset.
 		await browser.waitUntil(async () => {
-			return browser.executeObsidian(({ app }) => {
-				return (app as any).plugins.plugins['universal-cursor-hotkeys'].titleScope !== null
-			})
-		}, { timeout: 8000, interval: 50, timeoutMsg: 'title Scope never pushed' })
+			return browser.executeObsidian(({ app, obsidian }, offset) => {
+				const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+				const title = view.containerEl.querySelector(".inline-title[contenteditable='true']") as HTMLElement
+				const sel = title.ownerDocument.getSelection()
+				return title.ownerDocument.activeElement === title && sel?.focusOffset === offset
+			}, titleOffset)
+		}, { timeout: 8000, interval: 50, timeoutMsg: 'title focus/selection never settled at the intended offset' })
 	}
 
 	async function pressAlt(key: string) {

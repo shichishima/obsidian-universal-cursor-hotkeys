@@ -260,19 +260,21 @@ interface UniversalCursorHotkeysSettings {
 	// most once ever, so it never fights a user's own subsequent manual tab
 	// choice.
 	vimAutoExpandDone: boolean;
-	// PROTOTYPE (feat/key-upgrades-scope-rearchitecture, 0.13.1 candidate):
-	// cursor-up/cursor-down's own Key Upgrades on/off state, read by
-	// keyUpgradesScope's registered callbacks below. Deliberately NOT
-	// backed by hotkeyManager.setHotkeys like every other Key Upgrade
-	// entry -- that's the whole point of this rearchitecture (no
-	// root-scope claim to steal the bare key from non-CM6 surfaces like
-	// Excalidraw regardless of this setting's value). See
-	// KeyUpgradeDef.scopeSettingKey in settings.ts for the Settings-UI
-	// side of this, and onload's migration block below for users who
-	// already had the OLD mechanism's bare-key claim baked from before
-	// this setting existed.
+	// Scope-based Key Upgrades rearchitecture (feat/key-upgrades-scope-
+	// rearchitecture, 0.13.1): each migrated entry's own Key Upgrades
+	// on/off state, read by keyUpgradesScope's registered callbacks below.
+	// Deliberately NOT backed by hotkeyManager.setHotkeys like every
+	// not-yet-migrated Key Upgrade entry -- that's the whole point of this
+	// rearchitecture (no root-scope claim to steal the bare key from
+	// non-CM6 surfaces like Excalidraw/Bases regardless of this setting's
+	// value). See KeyUpgradeDef.scopeSettingKey in settings.ts for the
+	// Settings-UI side of this, and onload's migration block below for
+	// users who already had the OLD mechanism's bare-key claim baked from
+	// before each of these settings existed.
 	keyUpgradeArrowUpScope: boolean;
 	keyUpgradeArrowDownScope: boolean;
+	keyUpgradeHomeScope: boolean;
+	keyUpgradeEndScope: boolean;
 }
 
 const DEFAULT_SETTINGS: UniversalCursorHotkeysSettings = {
@@ -283,12 +285,14 @@ const DEFAULT_SETTINGS: UniversalCursorHotkeysSettings = {
 	crossRowNavigation: true,
 	cjkDoubleClickWordSelect: true,
 	tableAwareSourceModeEditing: true,
-	// PROTOTYPE: default false, same as "off" was the pre-existing default
-	// for this Key Upgrade before the new setting existed. onload's
-	// migration block picks up anyone who had already turned it on via the
-	// OLD mechanism.
+	// Default false, same as "off" was the pre-existing default for each
+	// of these Key Upgrades before its own setting existed. onload's
+	// migration block picks up anyone who had already turned one on via
+	// the OLD mechanism.
 	keyUpgradeArrowUpScope: false,
 	keyUpgradeArrowDownScope: false,
+	keyUpgradeHomeScope: false,
+	keyUpgradeEndScope: false,
 	qsaDisplacedCommands: [],
 	qsaIndividualVisible: false,
 	qsaCursorMovementVisible: true,
@@ -410,10 +414,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// path to whatever native listener actually moves row focus.
 	private suppressNativeArrowFallback: boolean = false;
 
-	// PROTOTYPE (feat/key-upgrades-scope-rearchitecture, 0.13.1 candidate):
-	// validates the scope-based Key Upgrades approach for just cursor-up/
-	// down's own bare ArrowUp/Down before generalizing to every entry and
-	// reworking the Settings UI -- see
+	// Scope-based Key Upgrades rearchitecture (feat/key-upgrades-scope-
+	// rearchitecture, 0.13.1): holds every migrated bare-key entry's
+	// registration (cursor-up/down, cursor-home/end so far; Page Up/Down
+	// and word-left/right/kill-word-left/right still pending) -- see
 	// project_key_upgrades_scope_based_rearchitecture_0_13_1 memory for the
 	// Keymap/Scope source-read investigation this is based on. Confirmed
 	// live there: Obsidian's ENTIRE hotkey system is one `window`-level
@@ -421,8 +425,8 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 	// only `preventDefault`/`stopPropagation` on an exact `false` return --
 	// so pushing a scope ONLY while a real CM6 `.cm-content` has focus, and
 	// never claiming the bare key globally via `hotkeyManager.setHotkeys`
-	// at all, should let Excalidraw/Bases/Properties-native-widgets see
-	// the raw keydown normally whenever focus is elsewhere.
+	// at all, lets Excalidraw/Bases/Properties-native-widgets see the raw
+	// keydown normally whenever focus is elsewhere.
 	private keyUpgradesScope: Scope | null = null;
 	// Tracked explicitly rather than relying on push/pop's own internal
 	// no-op-if-already-active check: that check alone doesn't prevent a
@@ -465,16 +469,17 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		this.keyUpgradesScope = new Scope(rootScope);
 		const execCmd = (id: string) => (this.app as unknown as { commands: { executeCommandById(id: string): void } }).commands.executeCommandById(id);
 
-		// PROTOTYPE: one-time migration for anyone who already had the OLD
-		// mechanism's bare ArrowUp/Down baked onto cursor-up/cursor-down
-		// (Settings UI toggle, before keyUpgradeArrowUp/DownScope existed).
-		// Treat an existing bare-key bake as that setting's initial true
-		// value, then strip the bare entry from hm so the root scope stops
-		// claiming it -- this plugin's own scope-push mechanism below is
-		// now the ONLY thing that can act on this key, and only while a
-		// real CM6 `.cm-content` has focus. Idempotent: once stripped,
-		// bakedIds/bakedHotkeys no longer carry the bare entry, so this is
-		// a no-op on every subsequent load.
+		// One-time migration for anyone who already had the OLD mechanism's
+		// bare key baked onto one of the entries migrated to the Scope-based
+		// rearchitecture so far (cursor-up/down, cursor-home/end), from
+		// before that entry's own dedicated setting existed. Treat an
+		// existing bare-key bake as that setting's initial true value, then
+		// strip the bare entry from hm so the root scope stops claiming it
+		// -- this plugin's own scope-push mechanism below is now the ONLY
+		// thing that can act on this key, and only while a real CM6
+		// `.cm-content` has focus. Idempotent: once stripped, bakedIds/
+		// bakedHotkeys no longer carry the bare entry, so this is a no-op
+		// on every subsequent load.
 		{
 			type RawHotkey = { modifiers: string; key: string };
 			// setHotkeys (unlike bakedHotkeys, which stores modifiers as a
@@ -491,7 +496,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			} }).hotkeyManager;
 			hm.bake();
 			let migrated = false;
-			const migrateBareArrow = (settingKey: 'keyUpgradeArrowUpScope' | 'keyUpgradeArrowDownScope', commandId: string, key: string) => {
+			const migrateBareKey = (
+				settingKey: 'keyUpgradeArrowUpScope' | 'keyUpgradeArrowDownScope' | 'keyUpgradeHomeScope' | 'keyUpgradeEndScope',
+				commandId: string, key: string,
+			) => {
 				const fullId = `${this.manifest.id}:${commandId}`;
 				const hasBareKey = hm.bakedIds.some((id, i) =>
 					id === fullId && hm.bakedHotkeys[i].key === key && hm.bakedHotkeys[i].modifiers === '');
@@ -506,8 +514,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 				hm.setHotkeys(fullId, remaining);
 				migrated = true;
 			};
-			migrateBareArrow('keyUpgradeArrowUpScope', 'cursor-up', 'ArrowUp');
-			migrateBareArrow('keyUpgradeArrowDownScope', 'cursor-down', 'ArrowDown');
+			migrateBareKey('keyUpgradeArrowUpScope', 'cursor-up', 'ArrowUp');
+			migrateBareKey('keyUpgradeArrowDownScope', 'cursor-down', 'ArrowDown');
+			migrateBareKey('keyUpgradeHomeScope', 'cursor-home', 'Home');
+			migrateBareKey('keyUpgradeEndScope', 'cursor-end', 'End');
 			if (migrated) {
 				hm.save();
 				hm.bake();
@@ -528,6 +538,10 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 		// comes straight from keyUpgradeArrowUp/DownScope -- see that
 		// field's own doc comment -- rather than hotkeyManager's baked
 		// state, since the root scope never carries this key anymore.
+		// Home/End below need no equivalent guard: propertyNativeArrowFallback
+		// is arrow-only (property pill/suggester navigation only ever uses
+		// arrow keys, never Home/End), so there's no synthetic Home/End
+		// dispatch anywhere in this plugin for this scope to self-intercept.
 		this.keyUpgradesScope.register([], 'ArrowUp', () => {
 			if (this.suppressNativeArrowFallback) return;
 			if (!this.settings.keyUpgradeArrowUpScope) return;
@@ -538,6 +552,16 @@ export default class universalCursorHotkeysPlugin extends Plugin {
 			if (this.suppressNativeArrowFallback) return;
 			if (!this.settings.keyUpgradeArrowDownScope) return;
 			execCmd(`${this.manifest.id}:cursor-down`);
+			return false;
+		});
+		this.keyUpgradesScope.register([], 'Home', () => {
+			if (!this.settings.keyUpgradeHomeScope) return;
+			execCmd(`${this.manifest.id}:cursor-home`);
+			return false;
+		});
+		this.keyUpgradesScope.register([], 'End', () => {
+			if (!this.settings.keyUpgradeEndScope) return;
+			execCmd(`${this.manifest.id}:cursor-end`);
 			return false;
 		});
 

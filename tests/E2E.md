@@ -1612,13 +1612,26 @@ same kill-ring (`killCache`/`isKillChaining`) as the body's own Kill line.
   test's leftover file of that name, silently breaking everything
   downstream in that test. `openNote` deletes both the original and the
   expected post-kill filename up front, and `after` cleans up both too.
-- `openNote`'s own wait after opening the note polls for this plugin's
-  `titleScope` field to actually become non-null, instead of a fixed
-  pause — confirmed live a flat 300ms pause here was genuinely flaky
-  (title.focus()'s own focusin handler pushes the title Scope
-  asynchronously enough relative to a freshly-opened leaf that 300ms
-  wasn't always enough margin), failing as "nothing happened at all" on
-  a test's very first keypress. Found while building
+- `openNote`'s own wait after opening the note polls for the title to
+  actually be focused with the caret settled at the intended offset,
+  instead of a fixed pause — confirmed live a flat 300ms pause here was
+  genuinely flaky, failing as "nothing happened at all" on a test's very
+  first keypress. **Bug found and fixed 2026-11-28**: every one of these
+  waits (12 occurrences across 10 title spec files) had actually been
+  polling `plugin.titleScope !== null` ever since `feat/checkcallback-
+  rearchitecture` removed the `titleScope`/`propertyRowScope` mechanism
+  entirely (see `scopeReconciliation.e2e.ts`'s own now-removed entry
+  above) — `titleScope` no longer exists on the plugin class, so
+  `undefined !== null` made every one of these waits an unconditional
+  no-op that never actually synchronized on anything. Discovered while
+  root-causing a reproducible cluster of title-field test failures
+  traced to an unrelated cause (see "Excalidraw added to the automated
+  E2E vault" below) — fixed by polling the real, current precondition
+  instead (`document.activeElement === title && selection.focusOffset
+  === <intended offset>`). Confirmed live: the full suite stays at the
+  same 306 passing / 5 failing after the fix, so this dead check was
+  masking no additional issue of its own — just removing a false sense
+  of synchronization. Found while building
   `titleKillWord.e2e.ts` below, which hits the identical `openNote`
   shape; retrofitted here too.
 
@@ -4701,3 +4714,162 @@ range's head, not the pre-kill selection. The existing 6 tests above
 all still pass unaffected (none of their post-undo states had an
 active selection to begin with, so the added collapse call is a no-op
 for them).
+
+# 0.13.1
+
+Key Upgrades scope-based rearchitecture (`feat/key-upgrades-scope-
+rearchitecture`, see `project_key_upgrades_scope_based_rearchitecture_0_13_1`
+memory): replaces the global `hotkeyManager.setHotkeys` claim for each
+migrated bare-key entry with a focus-scoped `app.keymap.Scope`, pushed
+only while a real CM6 `.cm-content` has focus — removing the root-scope
+claim entirely means non-CM6 surfaces (Excalidraw, Bases, frontmatter)
+see the raw keydown untouched whenever focus is elsewhere. Prototyped
+and manually verified live against Excalidraw for cursor-up/down
+(2026-11-19, no automated E2E at that stage); this section covers the
+sub-branches generalizing it to the rest of `KEY_UPGRADE_DEFS`.
+
+## cursor-home/cursor-end (`feat/key-upgrades-scope-home-end`)
+
+Migrated `cursor-home`/`cursor-end` (bare Home/End) the same way,
+adding `keyUpgradeHomeScope`/`keyUpgradeEndScope` settings and renaming
+the onload migration helper from `migrateBareArrow` to `migrateBareKey`
+(no longer arrow-specific). No `suppressNativeArrowFallback`-style
+recursion guard needed here, unlike cursor-up/down's own Scope
+registration: `propertyNativeArrowFallback` (the thing that guard
+protects) is arrow-only — property pill/suggester navigation only ever
+uses arrow keys, never Home/End — so there's no synthetic Home/End
+dispatch anywhere in this plugin for the scope to self-intercept.
+
+This directly fixes `basesHomeEndColumnJump.e2e.ts`'s own documented
+gap (see that file's updated top comment): under the OLD mechanism, a
+bare Home/End reaching `cursor-home`/`cursor-end` at all meant it had
+been claimed globally, which necessarily stole the key from Bases
+regardless of focus — confirmed, at the time, architecturally
+unfixable. With the global claim removed, toggling the HOME/END rows
+on via the plugin's own settings no longer touches `hotkeyManager` at
+all, so a bare Home/End with focus on `.bases-table-container` now
+reaches Bases' own native "jump to first/last column" normally for the
+first time.
+
+✅ `basesHomeEndColumnJump.e2e.ts`'s new second describe block: bare
+Home/End move the active cell to the first/last column with
+`keyUpgradeHomeScope`/`EndScope` turned on (via the plugin's own
+settings, never `hm.setHotkeys`), and `hotkeyManager`'s own baked state
+for both commands stays empty throughout — confirming the architectural
+point directly, not just the absence of a crash. Caught and fixed a
+latent, unrelated test-hygiene gap along the way: the file's first
+describe block (`Ctrl-A/E ... is a safe no-op`) called
+`hm.setHotkeys` directly in its own setup and never reset it afterward,
+which bled into this new test's "nothing baked" assertion since every
+spec in this suite shares one continuous Obsidian session — fixed by
+resetting those hotkeys in that describe's own `after` hook.
+
+Updated `keyUpgradesToggle.e2e.ts`'s HOME-row test to match: it
+previously asserted the OLD behavior (toggling the row calls
+`hm.setHotkeys`/bakes a bare Home entry) for this exact row, which is
+no longer true after this migration — now asserts
+`plugin.settings.keyUpgradeHomeScope` flips instead, and that
+`hotkeyManager`'s baked state for `cursor-home` stays empty regardless
+of the toggle's state.
+
+No regression in `basesArrowKeyUpgradeSelfCollision.e2e.ts`,
+`propertyKeyUpgradeInterference.e2e.ts`, `basesCellNavigation.e2e.ts`,
+`basesRecenter.e2e.ts`, `basesSetMarkSelectColumn.e2e.ts` (all green).
+`propertyNameEdit.e2e.ts` tests (2)/(12) still fail, confirmed
+unrelated and pre-existing (that spec's own setup calls
+`hm.setHotkeys` directly on bare Home/End as part of simulating a
+different scenario against a plain `<input>`, bypassing this
+migration's new mechanism entirely — same already-documented gap as
+before, unaffected by this change either way).
+
+Remaining 0.13.1 scope, not yet started: Page Up/Down, Word left/right,
+Kill word left/right, and the Settings UI note communicating that a
+Scope-based entry no longer appears in Obsidian's native Hotkeys panel
+(user-accepted tradeoff, see that memory's 2026-11-28 update).
+
+## Excalidraw added to the automated E2E vault
+
+Excalidraw (community plugin `obsidian-excalidraw-plugin`, version pinned
+to `2.29.4`) added to `tests/e2e/wdio.conf.mts`'s `plugins` capability —
+installed via wdio-obsidian-service's own community-plugin support
+(`{ id, version }`), downloaded once and cached under `cacheDir` the same
+way Obsidian app versions are (confirmed live: a second run doesn't
+redownload). This vault had no real non-CM6 plugin surface to test Key
+Upgrades' scope-based rearchitecture against before — the cursor-up/down
+prototype (2026-11-19) was only ever verified manually, live, in the
+`obsidian-test` vault.
+
+An initial full-suite A/B comparison (with vs. without this plugin entry)
+looked clean — the same ~5-7 pre-existing failures either way. That
+comparison was misleading: Excalidraw shows its own "Welcome to
+Excalidraw" release-notes modal automatically on PLUGIN LOAD (not just
+when `excalidraw-autocreate` runs), gated on its own `previousRelease`
+setting never matching `PLUGIN_VERSION` — which is every run here, since
+every run gets a completely fresh vault copy with no persisted Excalidraw
+settings. Confirmed live: this modal is already open at the very start of
+the smoke spec, before any other spec runs at all.
+
+`excalidrawKeyUpgradeNonInterference.e2e.ts`'s own `openFreshDrawing()`
+helper dismisses this modal too, but that spec runs LAST in the specs
+array — every other spec in between was running for the suite's entire
+~9 minutes with this modal left open, covering the whole window. Several
+subsequent full-suite runs (on a confirmed-idle machine, ruling out
+system load) reproduced a large, consistent cluster of failures as a
+result: every title-field Ctrl-B/F/A/E-family command (`titleMovement.
+e2e.ts` through `titleYank.e2e.ts`) doing nothing at all, plus the real
+mouse-drag multi-cell-selection specs (`multicellCaseConversion.e2e.ts`,
+`multicellSelectionArrowClear.e2e.ts`) misbehaving — a modal overlay
+blocks real coordinate-based pointer clicks from reaching whatever's
+underneath, and Obsidian's own `Modal` class focus-traps, redirecting
+focus back into itself shortly after any other element (e.g. the title
+field) is programmatically focused elsewhere in the document — breaking
+the `checkCallback`-based `activeElement.closest(TITLE_SELECTOR)` check
+every title command relies on.
+
+Fixed with a global `before` hook in `wdio.conf.mts` (not inside any
+individual spec) that dismisses whatever modal is open once, right after
+Obsidian launches and before any spec's own tests run — the whole point
+is that nothing should have to deal with this modal being open at all.
+Confirmed live: a full-suite run after this fix is back to 306 passing /
+5 failing, the same 5 pre-existing, unrelated failures as every other
+confirmed-clean baseline this project has recorded
+(`propertyCtrlG.e2e.ts` (7), `propertyNameEdit.e2e.ts` (2)/(12),
+`basesSetMarkSelectColumn.e2e.ts` (1)/(2)).
+
+Driving real keyboard/pointer interaction into Excalidraw's own canvas
+took several iterations to get right:
+- `excalidraw-autocreate` shows a one-time "Welcome to Excalidraw" modal
+  covering the entire view on a freshly copied vault (no persisted
+  "already seen" state) — every interaction needs to dismiss it (Escape)
+  first, or every click silently lands on the modal instead (confirmed
+  live via `document.elementFromPoint` returning an element inside
+  `.modal-content`).
+- Excalidraw's toolbar buttons (`[data-testid="toolbar-text"]`,
+  `"toolbar-rectangle"`, etc.) need a real native `.click()` call —
+  WebDriver's own interactability check rejects them as occluded by
+  Obsidian's own frameless-window title bar in this environment (not a
+  real occlusion for an actual user), but `.click()` still produces a
+  genuine React state update (`aria-pressed` flips).
+- The actual drawing surface is TWO stacked canvases
+  (`canvas.excalidraw__canvas.static`, `pointer-events: none`, for grid
+  rendering; `canvas.excalidraw__canvas.interactive`, `pointer-events:
+  auto`, the real target) — pointer interaction needs WebDriver's own
+  trusted `performActions` pointer sequence on the interactive one; a
+  fully scripted `dispatchEvent` sequence produced no observable effect
+  at all.
+- Excalidraw exposes a scripting API, `window.ExcalidrawAutomate.
+  getAPI(view)`, with `getViewElements()`/`getViewSelectedElement()` —
+  used to read a shape's `x`/`y` directly instead of trying to infer
+  position from screen pixels.
+
+✅ `excalidrawKeyUpgradeNonInterference.e2e.ts`: (1) with
+`keyUpgradeHomeScope`/`EndScope` turned on, typing into a real Excalidraw
+text element and pressing Home then End still moves the caret inside
+Excalidraw's own `.excalidraw-wysiwyg` textarea correctly (`"hello"` ->
+Home -> `x` -> End -> `y` -> `"xhelloy"`, not swallowed into the wrong
+position), with `hotkeyManager`'s baked state for both commands staying
+empty throughout. (2) with `keyUpgradeArrowUpScope`/`DownScope` turned
+on, a selected rectangle still nudges up/down via native Excalidraw
+canvas handling (read via `ExcalidrawAutomate`'s own API, not screen
+pixels), same empty-baked-state check — the first automated coverage of
+the cursor-up/down prototype itself, previously manual-only.

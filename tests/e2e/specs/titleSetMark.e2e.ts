@@ -68,11 +68,19 @@ describe('Set-mark (Ctrl-Space) in the title field', function () {
 			sel.removeAllRanges()
 			sel.addRange(range)
 		}, { path2: path, body2: body, offset: titleOffset })
+		// Was: waited for plugin.titleScope !== null -- that property never
+		// existed on the plugin class, so `undefined !== null` made this an
+		// unconditional no-op wait. Waits for the real precondition instead:
+		// the title is really focused AND the caret really landed at the
+		// intended offset.
 		await browser.waitUntil(async () => {
-			return browser.executeObsidian(({ app }) => {
-				return (app as any).plugins.plugins['universal-cursor-hotkeys'].titleScope !== null
-			})
-		}, { timeout: 8000, interval: 50, timeoutMsg: 'title Scope never pushed' })
+			return browser.executeObsidian(({ app, obsidian }, offset) => {
+				const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView)!
+				const title = view.containerEl.querySelector(".inline-title[contenteditable='true']") as HTMLElement
+				const sel = title.ownerDocument.getSelection()
+				return title.ownerDocument.activeElement === title && sel?.focusOffset === offset
+			}, titleOffset)
+		}, { timeout: 8000, interval: 50, timeoutMsg: 'title focus/selection never settled at the intended offset' })
 	}
 
 	async function pressCtrl(key: string) {
