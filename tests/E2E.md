@@ -478,9 +478,8 @@ multi-cursor-safe helper `setMark`/`keyboardQuit` already use.
   expected with the fix line commented out (selection stayed at its
   pre-copy anchor/head), then passed once restored.
 
-**Follow-up, same day**: the user explicitly asked for the same
-collapse-after-copy behavior everywhere Alt-W exists, not just the
-outer/table-cell contexts above — title, property NAME, property VALUE,
+**Follow-up, same day**: scope extended to the same collapse-after-copy
+behavior everywhere Alt-W exists, not just the outer/table-cell contexts above — title, property NAME, property VALUE,
 and Bases (which reuses the property VALUE widget's own code path).
 Fixed with the equivalent one-line collapse in each of the two remaining
 functions: `titleCopyRegion` (native Selection — `sel.collapse(sel.focusNode,
@@ -2280,7 +2279,7 @@ for the full story; this spec's own test (3)/(4) (Ctrl-G, scope-
 shadowing) only pass today because they explicitly map `keyboard-quit`
 to Ctrl-G rather than relying on a bare Escape.
 
-**Test (8), real user-reported bug (2026-11-13), found well after this
+**Test (8), a real bug found live (2026-11-13), well after this
 spec's own first draft shipped**: `titleMoveToLineBoundary` (Ctrl-A/E,
 shared with the title and property-value cases) walks character-by-
 character to stay visual-line-aware, checking whether each step's own
@@ -3657,7 +3656,7 @@ writeup this section used to carry): that branch pushed a second
 `app.keymap.Scope` on top of Obsidian's own suggester Scope to win back
 Ctrl-N/P priority, re-implementing suggester navigation (clamped, not
 wrapping) and Enter-commit (a synthetic click) from scratch. Re-investigated
-live after a user report that the plugin's own version clamped at either
+live after noticing the plugin's own version clamped at either
 end while the UCH-OFF (native) version visibly wrapped: the override's
 entire premise was wrong. Obsidian's generic suggester component (the
 same `Dd` chooser class backing the command palette/quick switcher, Ctrl-N/
@@ -4121,3 +4120,584 @@ scope-based rearchitecture candidate (see
 reattempted here. `cursor-left`/`cursor-right`'s own analogous Bases
 self-collision (noted above, left unfixed) remains a separate,
 not-yet-scheduled future item.
+
+## Kill-chain split-pane echo (fix/kill-chain-split-pane-echo)
+
+Confirmed real bug: Kill Line, Kill Line, Yank dropped the first kill's
+own text (yanking back only an empty line) whenever the active file was
+ALSO open in a second split leaf — reported first against a popout
+window, then narrowed down to the real condition: any second leaf with
+the same file open, split or popout, main window or not.
+
+Root cause: `main.ts`'s own `EditorView.updateListener` resets
+`isKillChaining` on any genuine user-triggered transaction, so an
+unrelated edit breaks a Kill Line chain. With the same file open in two
+leaves, Obsidian propagates the first kill's edit to the OTHER leaf's
+own separate `EditorView` as a second, asynchronous transaction that
+still carries a `Transaction.userEvent` annotation — arriving after the
+kill command's own `isDispatchingKill` guard window has already closed,
+so it was indistinguishable from a real second user edit and reset
+`isKillChaining` right after the first kill, before the second Kill
+Line ever ran.
+
+Fix: only let that reset fire when no OTHER CodeMirror editor currently
+has real focus — checks whether the document's focused element sits
+inside a *different* view's `.cm-content` than the one the update
+belongs to. An initial, broader `!update.view.hasFocus` guard also
+fixed the split-pane bug but regressed `propertyNameEdit.e2e.ts`'s own
+Ctrl-Y test: Kill Line in the property NAME field (a plain `<input>`,
+not CM6) relies on some LATER unrelated CM6 transaction to eventually
+clear `isKillChaining`, even though that transaction's own view never
+has focus either (real focus is on the `<input>`, not any CM6 view) —
+the refined, focus-TARGET-aware check preserves that case since no CM6
+view has focus in it at all.
+
+✅ `killChainSplitPaneEcho.e2e.ts`: same file open in the active leaf
+plus one vertical split, Kill Line x2 then Yank at the same position
+restores the original two-line content exactly (red before this fix —
+confirmed via bisection to drop the first kill, leaving a stray empty
+line instead — green after). No regression in the full suite: the only
+failures left are the same pre-existing flaky specs already tracked
+elsewhere in this file (`propertyNameEdit.e2e.ts` (2)/(12),
+`propertyCtrlG.e2e.ts` (7), `basesSetMarkSelectColumn.e2e.ts` (1)/(2),
+`multicellCaseConversion.e2e.ts` (1) — the last confirmed flaky via 3
+isolated reruns, unrelated to this change).
+
+A popout window hits the identical code path (confirmed live during
+investigation) and needed no separate dedicated test — the shared root
+cause is "another leaf's own echoed transaction", not anything
+popout-specific, so this one split-pane spec covers both shapes.
+
+## Multiselect pill command fallthrough (fix/property-multiselect-pill-command-fallthrough)
+
+Confirmed real bug, found while writing up command-details.md's own
+title/frontmatter/Bases coverage: every command gated on
+`PROPERTY_TEXT_LIKE_EDIT_SELECTOR` + `PROPERTY_ANY_ITEM_SELECTION_SELECTOR`
+(Home/End, Word left/right, Set-mark, Kill-line/region/Copy-region/Yank,
+Kill word left/right, Delete char — 12 commands total) fell through to
+the BODY editor's own fallback whenever a tags/list/aliases widget had
+real focus, since neither selector matched a committed pill
+(`.multi-select-pill`) or the trailing composing input
+(`.multi-select-input`) at all. Same visible-focus-stays-put,
+invisible-body-corruption shape as the already-fixed row/heading/
+Add-button gap this selector's own comment documents, just never
+extended to this widget.
+
+Confirmed the correct target behavior live, against real physical keys
+with nothing bound to them (so only native Chromium/Obsidian handling
+could respond) on a focused pill:
+
+| Key | Native result on a focused pill |
+|---|---|
+| Home / End | no-op |
+| Delete (forward char) | no-op |
+| Option-Right / Option-Left | moves to the next/previous pill (same as plain Right/Left) |
+| Option-Backspace | **deletes the pill**, focus moves to the previous pill |
+| Option-Delete (forward) | no-op (asymmetric — only the backward direction deletes) |
+
+Fix: `PROPERTY_TEXT_LIKE_EDIT_SELECTOR` now includes
+`PROPERTY_MULTISELECT_INPUT_SELECTOR` — the composing input is a
+contenteditable DIV just like the text-value widget, so the existing
+`titleXxx` reuse already works on it mechanically; it was simply
+missing from this selector. `PROPERTY_ANY_ITEM_SELECTION_SELECTOR` now
+includes `PROPERTY_MULTISELECT_PILL_SELECTOR` for a safe no-op on all
+10 of the other 12 commands, matching the confirmed native result for
+Home/End/Delete-char and the fact that the other 7 (Set-mark,
+Kill-line/region/Copy-region/Yank, Kill word left/right) have no native
+physical-key equivalent on a pill at all. Word left/right are the one
+exception: each checks `PROPERTY_MULTISELECT_PILL_SELECTOR` separately,
+before that selector, and dispatches via the same
+`propertyNativeArrowFallback` cursor-left/right already use for a pill
+— matching native Option-Left/Right's own pill-to-pill result instead
+of a no-op.
+
+Kill word left/right deliberately still no-op on a pill in this fix —
+native Option-Backspace/Delete's own pill-deleting behavior is
+asymmetric and destructive, not simply replicated here. A richer,
+pill-specific kill/yank round-trip (kill-word deletes the pill AND
+pushes its text to the kill-cache/clipboard, both directions
+symmetric; Yank inserts a new pill immediately after the focused one)
+is a deliberate follow-up, not part of this fallthrough fix.
+
+✅ `propertyMultiselectPillFallthrough.e2e.ts`: Word right/left move
+between pills without touching the body cursor (1)/(2); Home and
+Kill-line are true no-ops, confirmed via both cursor-position AND body
+line CONTENT checks — the first version of test (4) only checked
+cursor position and missed that Kill-line had silently deleted the
+whole body line without moving the cursor's own coordinates at all,
+since killing to a line's own end from ch0 leaves ch0 the same either
+way (3)/(4); the composing input gets real Home/Word-right text
+editing instead of falling through (5). Word left/right use a
+Ctrl+Shift test hotkey rather than this plugin's own recommended
+Alt-B/Alt-F — confirmed live that a real Alt-combo keypress sent
+through WebDriver on macOS, while this plugin's own checkCallback is
+synchronously re-dispatching a separate synthetic keydown from inside
+that same real event's own handler, doesn't reach Obsidian's native
+pill-navigation listener, even though the identical dispatch succeeds
+immediately when triggered any other way (a standalone dispatchEvent
+call, `executeObsidianCommand`, or a real non-Alt combo) — a
+macOS/WebDriver Option-key automation quirk specific to this
+nested-dispatch shape, not a real bug, so this spec just avoids
+sending Alt-combos through a real keypress at all.
+
+Full E2E suite: 272 passing, 8 failing. All 8 are pre-existing flaky
+specs confirmed unrelated to this change: propertyCtrlG (7),
+propertyNameEdit (2)/(12), basesSetMarkSelectColumn (1)/(2),
+multicellCaseConversion (1), undoInCellVLStale (confirmed 1/3 reruns
+in isolation, same rate seen in earlier sessions), and
+uppercaseWordMultiCursor (3) — the last one looked new but reproduced
+0/3 times in isolation and has zero code overlap with this fix (the
+Uppercase/Lowercase/Capitalize word commands have no
+`TITLE_SELECTOR`/`PROPERTY_*`/`BASES_*` branches at all), confirming
+cross-spec pollution in the full run, not a regression.
+
+## Pill Kill word / Yank round-trip (feat/pill-kill-word-yank-roundtrip)
+
+Phase 2 follow-up to the fallthrough fix above: Kill word left/right
+and Yank on an already-COMMITTED pill in a tags/list/aliases field,
+richer than that fix's own plain no-op.
+
+Kill word left/right (`propertyPillKillWord`): deliberately symmetric
+in both directions, unlike native Option-Backspace/Delete (backward
+deletes the pill outright, forward is a no-op, confirmed live earlier)
+— every other Kill word implementation in this plugin always kills
+something and pushes it to the kill-cache/clipboard, so this one does
+too. Deletion dispatches a synthetic Backspace (confirmed live
+elsewhere that this is the one pill-removal path a synthetic dispatch
+actually reaches).
+
+**Real bug found while building this, not assumed:** the first
+implementation set `isKillChaining = true` *before* calling
+`updateKillCache`, instead of after (the order `titleKillWord` already
+uses). Consecutive Kill word left presses on two different pills only
+ever kept the SECOND pill's own text — the first implementation's own
+early flag flip made `updateKillCache` treat ITS OWN kill as "a chain
+continuing from whatever `isKillChaining` already was" before it had
+a chance to properly decide fresh-vs-chaining. Caught via the same
+regression test now permanent below, not a separate diagnostic — a
+genuinely useful red/green signal. (An `isDispatchingKill` guard was
+tried first, suspecting the pill-deletion's own frontmatter-YAML
+rewrite might tag a CM6 transaction as a real user action and trigger
+this plugin's own `EditorView.updateListener` reset — confirmed live
+via bisection that the guard made no difference either way; the
+ordering fix alone was sufficient, so the guard was removed again for
+simplicity.)
+
+Yank (`propertyPillYank`): the round-trip counterpart, appending a new
+pill at the list's own end — the same place a newly-typed tag always
+commits to; pill-to-pill reordering has no native equivalent at all,
+not even for a human physically typing one (confirmed via
+`AskUserQuestion` that the simpler "always append" design is
+preferred over implementing true at-position insertion via direct
+frontmatter-array manipulation). Deliberately scoped to the pill case
+only, not the trailing composing input, which already yanks correctly
+as plain text-at-caret via the Phase-1 fix's own
+`PROPERTY_TEXT_LIKE_EDIT_SELECTOR` widening — overriding that to
+always auto-commit a new pill would break the ordinary "paste into
+what I'm still typing" case.
+
+✅ `propertyPillKillWordYankRoundtrip.e2e.ts`: (1)/(2) Kill word
+left/right each delete the focused pill and push its text to the
+kill-cache/clipboard, body untouched (checked via the body's own TEXT
+content, not a line index — deleting/adding a pill changes the raw
+frontmatter YAML's own line count, which shifts every body line's
+index without the body itself changing at all). (3) regression
+coverage for the ordering bug above: two consecutive Kill word left
+presses on different pills chain into one entry. (4) Yank on a pill
+appends the killed text as a new pill at the list's end. All
+red-confirmed first via bisection (Kill word's own pill branch removed
+entirely; the ordering bug reproduced separately), then green.
+
+Full E2E suite: 275 passing, 9 failing. All 9 are pre-existing flaky
+specs confirmed unrelated to this change: the same 6 already tracked
+above (propertyCtrlG (7), propertyNameEdit (2)/(12),
+basesSetMarkSelectColumn (1)/(2), Uppercase word multi-cursor (3)),
+plus 3 new-looking title-field failures (`titleWordMotion.e2e.ts`
+(4)/(5), `titleSetMark.e2e.ts` (2)) that reproduced 0/3 times across 3
+isolated reruns of both spec files together — this change never
+touches any `TITLE_SELECTOR` code path at all (`propertyPillKillWord`/
+`propertyPillYank` are Properties-panel-only), confirming cross-spec
+pollution in the full run rather than a regression.
+
+## Word left pill-escape (fix/word-left-pill-escape)
+
+Confirmed real gap, found while documenting Word left/right's own
+title/frontmatter/Bases coverage: a real physical Option-Left at the
+multi-select trailing input's own EMPTY start already escapes to the
+preceding pill (confirmed live, matching plain ArrowLeft's own
+already-handled escape in `propertyMoveCharOrNoop`) — this plugin's
+own Word left (`titleMoveWord`'s `Selection.modify('word')`) stayed
+put instead, the same "can't cross a sibling DOM boundary" limitation
+plain `Selection.modify('character')` had before
+`propertyMoveCharOrNoop`'s own `isSelectionAtStartOf` fix. Word right
+has no equivalent case — the trailing input is always the list's last
+element, nothing follows it to escape into either way.
+
+Fix: `propertyMoveWordOrEscapeToPill`, the word-level sibling of
+`propertyMoveCharOrNoop`, reusing the exact same
+`isSelectionAtStartOf` check and `previousElementSibling` escape,
+scoped to backward only (same as the char-level version).
+
+**Side investigation, confirmed out of scope — not fixed here:**
+tried a second regression case (typed-but-uncommitted text, caret
+manually moved back to its own position 0, then Word left) and hit a
+real focus-loss bug: `activeElement` ends up on `<body>` entirely.
+Confirmed live this is **not new** — the identical steps against the
+already-shipped char-level Ctrl-B reproduce the exact same loss.
+Likely cause (not confirmed further): leaving a composing input with
+uncommitted text still in it discards that draft and re-renders the
+whole multi-select widget, orphaning whatever element was just
+`.focus()`ed before the render replaced it. Out of scope for this fix
+(pre-existing, not Word-left-specific) — the permanent spec below
+instead covers the actually-relevant parity case (typed text, caret
+left at its own end, the ordinary "still typing" state the existing
+char-level test already covers).
+
+✅ `propertyMultiselectWordLeftPillEscape.e2e.ts`: (1) Word left at
+the composing input's own empty start moves to the preceding pill
+(red-confirmed via bisection, then green). (2) regression coverage for
+the correct no-op case — typed text with the caret left at its own
+end stays put, matching the already-shipped char-level Ctrl-B.
+
+Full E2E suite: 277 passing, 9 failing. All 9 are pre-existing flaky
+specs confirmed unrelated to this change: the same 6 already tracked
+above (propertyCtrlG (7), propertyNameEdit (2)/(12),
+basesSetMarkSelectColumn (1)/(2), undoInCellVLStale), plus 2
+new-looking failures (`setMarkPageUpDown.e2e.ts` (2),
+`addCursorAboveBelow.e2e.ts` (2)) that reproduced 1/3 and 0/3 times
+respectively across 3 isolated reruns — this change has zero code
+overlap with Page Up/Down or Add cursor (confirmed via the same
+`TITLE_SELECTOR`/`PROPERTY_*`/`BASES_*` grep used elsewhere in this
+file), confirming pre-existing flakiness/cross-spec pollution rather
+than a regression.
+
+## checkbox/date/datetime/number command fallthrough (fix/property-simple-type-command-fallthrough)
+
+Confirmed real gap, found while documenting Set-mark's own
+title/frontmatter/Bases coverage: `PROPERTY_ANY_ITEM_SELECTION_SELECTOR`
+(the shared "claim this element and do nothing" selector used by
+HOME/END, Set-mark, Kill line/region, Copy region, Yank, Delete char,
+and Kill word left/right) never included
+`PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR` (checkbox/date/datetime/number
+inputs) — the third instance of this exact category of bug this
+version, after the pill (`fix/property-multiselect-pill-command-fallthrough`)
+and the composing input before it. None of these commands have any
+meaningful operation on a widget with no Selection-API-reachable
+text/cursor concept, so every one of them should be a true no-op
+there, same as it already was on a row/heading/Add-button/pill.
+
+Confirmed live via a throwaway diagnostic before touching anything:
+pressing Set-mark with real DOM focus on a date input flipped
+`markActive` to `true` and armed a mark on the BODY editor
+underneath, even though focus never left the date input — a silent
+fallthrough, not a visible crash, so easy to miss without deliberately
+checking.
+
+Fix: widened `PROPERTY_ANY_ITEM_SELECTION_SELECTOR` to also match
+`PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR`. A single selector change fixes
+all affected commands at once, since every one of them already
+branches on this same shared constant.
+
+✅ `propertySimpleTypeCommandFallthrough.e2e.ts`: (date) HOME, END,
+Set mark, Kill line, Kill region, Copy region, Yank, Delete char, and
+Kill word left/right are all true no-ops on a focused date input, not
+a body fallthrough — red-confirmed via bisection (9 of 10 failed
+pre-fix; HOME/Kill region/Copy region/Kill word left happened to pass
+even pre-fix, apparently intercepted before reaching this plugin's own
+checkCallback at all for those particular key combos — not confirmed
+further, since the fix covers them either way), then green. Plus
+(checkbox/datetime/number) Set mark stays a no-op too, confirming the
+selector fix covers every `PROPERTY_SIMPLE_EXIT_ONLY_SELECTOR` type,
+not just date.
+
+Full E2E suite: 294 passing, 5 failing. All 5 are the same pre-existing
+flaky specs already tracked above (propertyCtrlG (7), propertyNameEdit
+(2)/(12), basesSetMarkSelectColumn (1)/(2)) — confirmed via an isolated
+rerun of just those 4 spec files on the pre-fix baseline (before this
+branch touched any code), reproducing identically with zero code
+changes present, so they can't be caused by this fix.
+
+## Native widget Shift+Arrow/mouse-drag auto-arm (feat/native-widget-shift-arrow-auto-arm)
+
+User's own ask, after being shown that a real Shift+Arrow keypress in
+the title left `markActive` false (confirmed via a throwaway
+diagnostic): "本文と合わせることはできる？あえて挙動を変える理由は
+ない" — bring the title/property-value/composing-input/Bases-cell
+contenteditable widgets and the property NAME plain `<input>` in line
+with the body's own behavior, where a native Shift+Arrow or mouse drag
+auto-arms Set-mark (and a plain click collapsing a selection auto-
+clears it).
+
+The body does this via CM6's own transaction tags (`'select.pointer'`
+for mouse, the anchor-preserved `'select'` tag for Shift+Arrow/
+Ctrl+Shift+Arrow/etc.) — none of which exist for a plain DOM
+Selection/selectionStart-selectionEnd widget. Implemented as a
+document-level `'selectionchange'` listener
+(`maybeAutoArmNativeMark`/`maybeAutoArmNativeMarkForInput`) with two
+rules standing in for CM6's two tags:
+- **Rule A (pointer):** `_isPointerDown`, set by a TRUSTED
+  `mousedown`/cleared by `mouseup`, drives an unconditional sync while
+  true — arms on a non-empty result, clears on a collapsed one.
+- **Rule B (keyboard):** comparing the current selectionchange's own
+  anchor against the previous one (same node+offset, non-empty, not
+  already armed) stands in for the anchor-preserved check — but ALSO
+  requires `_isShiftKeyDown` (a TRUSTED Shift keydown/keyup) to be
+  true. Never clears.
+
+**A real regression found and fixed mid-implementation**, before this
+ever reached develop: the first version of Rule B had no
+`_isShiftKeyDown` guard, just the anchor comparison. Full-suite run
+showed `titleRegion.e2e.ts` test (3) ("Kill region works on a native
+Selection not created via Set-mark, e.g. a mouse drag") newly failing —
+that test's own `openNote` helper leaves the title's initial cursor
+collapsed at `(textNode, 0)`, and the test itself then calls
+`sel.setBaseAndExtent(textNode, 0, textNode, 5)` to simulate a
+drag-equivalent selection WITHOUT ever touching Set-mark — the new
+anchor coincidentally matched the stale one left over from that
+initial collapse, false-arming the mark. Tried gating on
+`selectionchange`'s own `event.isTrusted` first (would have been a
+cleaner fix) — confirmed live via a diagnostic that this doesn't work
+at all: a real Shift+ArrowRight AND a programmatic
+`setBaseAndExtent()` call both log `isTrusted: true` on the resulting
+`selectionchange` event, since the browser always dispatches that
+event as trusted once any Selection mutation happens, regardless of
+what caused the mutation. Requiring a genuinely-held physical Shift
+key instead closes the gap cleanly, since no script-driven Selection
+mutation (test or otherwise) holds a real Shift key down while it
+runs. Also retroactively gated `_isPointerDown`'s own mousedown/mouseup
+listeners on `isTrusted` for the same reason, closing the identical
+theoretical risk there before it could ever surface.
+
+A real WebDriver pointer-drag's own mousemove sequence never produced
+an actual native text selection on a plain contenteditable in this
+harness (several attempts, including the exact `dragSelect` pattern
+already proven elsewhere in this suite for Live Preview table cells —
+which goes through a completely different CM6 `mouseSelectionStyle`
+extension, not plain browser text-selection-via-drag) — Rule A's own
+drag half is therefore confirmed correct by code-path sharing with the
+plain-click-clears test (same `_isPointerDown` + `maybeAutoArmNativeMark`
+path), not by a dedicated drag-specific permanent test. Documented as a
+harness coverage gap in the new spec's own file comment, not an
+unverified behavior.
+
+✅ `nativeWidgetShiftArrowAutoArm.e2e.ts`: (1) title Shift+ArrowRight
+x2 arms the mark, a following plain Ctrl-F extends instead of
+collapsing; (2) a real mouse click collapsing the selection clears an
+already-armed mark; (3) property NAME field Shift+ArrowRight arms the
+mark via the plain-`<input>` variant; (4) property text value
+Shift+ArrowRight arms the mark via the same Selection-API mechanism as
+the title. All red-confirmed via bisection, then green.
+
+Full E2E suite: 298 passing, 5 failing — the same 5 pre-existing flaky
+specs tracked above (propertyCtrlG (7), propertyNameEdit (2)/(12),
+basesSetMarkSelectColumn (1)/(2)), confirmed unrelated. The regression
+described above was caught and fixed BEFORE this count — a first
+full-suite run (before the `_isShiftKeyDown` fix) showed 297 passing,
+6 failing, with `titleRegion.e2e.ts` test (3) as the one new failure.
+
+## Follow-up, same day: a second real gap found while writing Set-mark's own doc section (Rule C — native collapse clears the mark)
+
+While drafting Set-mark's title/frontmatter/Bases writeup, confirmed
+live via a throwaway diagnostic that the existing doc's own claim (a
+bare physical cursor key clears the mark's own starting point) doesn't
+hold for these native widgets: arming the mark via Shift+ArrowRight,
+then pressing a plain (no-Shift, no-mouse) ArrowRight, collapsed the
+selection but left
+`markActive` stuck `true` — the body's own equivalent CM6 check
+(`tr.isUserEvent('select') && !tr.isUserEvent('select.pointer') &&
+!tr.isUserEvent('select.uch')`, catching a non-empty→empty transition
+not caused by this plugin's own tagged dispatch) has no native-widget
+counterpart at all.
+
+Fixed by adding a third rule (Rule C) to `maybeAutoArmNativeMark`/
+`maybeAutoArmNativeMarkForInput`: whenever NOT pointer-down and the
+resulting selection is collapsed, clear `markActive` unconditionally.
+Confirmed safe without needing to detect "was this our own command"
+the way Rule B does — every one of this plugin's own movement
+functions already checks `markActive` itself and calls
+`Selection.modify('extend', ...)`/`setSelectionRange` with the
+existing anchor preserved whenever it's true, never a native 'move'
+that could collapse unintentionally. The only two ways a fresh
+collapse can happen while `markActive` was already true are this
+native, unintercepted-key case, or a real Shift-extend shrinking back
+to exactly its own anchor — the body already treats the latter as a
+legitimate clear too (its own "extending one way then back to the
+exact anchor" case), so treating both identically here matches it
+correctly.
+
+**A second regression found and fixed in the same pass**: adding Rule
+C alone broke `nativeWidgetShiftArrowAutoArm.e2e.ts` test (2) (a
+SINGLE Shift+ArrowRight arming the mark, previously passing) —
+confirmed via live instrumentation (a temporary `selectionchange`
+logger) that `_isShiftKeyDown` was already `false` by the time that
+test's own 'selectionchange' event fired, even though the Shift key
+was still logically "held" through the whole `browser.keys(['Shift',
+'ArrowRight'])` action. Root cause: the exact same async-ordering gap
+already fixed once for `_isPointerDown`/mouseup — the native extend
+lands on the Selection object synchronously as part of handling the
+Arrow key's own keydown, but 'selectionchange' is dispatched
+asynchronously and can arrive after Shift's own `keyup` already
+cleared the flag. Test (1) (two presses) happened to pass anyway,
+apparently via a timing coincidence the fix below removes the
+dependency on — confirmed deterministic across 3 isolated reruns both
+before and after. Fixed the same way as the mouseup case: call
+`maybeAutoArmNativeMark` from inside the `keyup` handler for Shift,
+BEFORE clearing `_isShiftKeyDown`, so it observes the already-updated
+Selection state while the flag is still true.
+
+New test: `nativeWidgetShiftArrowAutoArm.e2e.ts` test (5) (a plain
+ArrowRight after Shift+ArrowRight arming clears the mark), red-
+confirmed, then green alongside the existing 4 tests (including the
+re-fixed test (2), 3x isolated reruns confirming it's no longer
+flaky).
+
+Full E2E suite: 298 passing, 6 failing. 5 are the same pre-existing
+flaky specs tracked above. The 6th, `basesPropertyEditing.e2e.ts` test
+(7) ("Alt-W (Copy region) copies a text cell's selection... hello"),
+reproduced 0/3 times across 3 isolated reruns of that file alone —
+confirmed pre-existing cross-spec flakiness, not a regression from
+this change (this change never touches Bases cell editing's own Copy
+region logic, only the shared `markActive` auto-arm/clear mechanism).
+
+## Page up/down title/Properties/Bases-cell fallthrough (fix/page-updown-property-title-fallthrough)
+
+Confirmed real gap, found while documenting Page up/down's own
+title/Properties/Bases coverage for the command-details.md writeup
+project: unlike every other command in this plugin, Page up/down's
+own `checkCallback` only ever guarded `BASES_TABLE_CONTAINER_SELECTOR`
+(Bases' own cell-SELECTION mode, from the already-shipped
+`basesPageUpDownCollision.e2e.ts` fix) — it never checked
+`TITLE_SELECTOR`, `PROPERTY_TEXT_LIKE_EDIT_SELECTOR`, or
+`PROPERTY_ANY_ITEM_SELECTION_SELECTOR` at all. Confirmed live via a
+throwaway diagnostic before fixing: focusing a frontmatter text value,
+then pressing an ordinary Hotkeys-UI combo bound to Page Down (no Key
+Upgrade needed to reach this, unlike the already-known Bases
+cell-selection gap), silently moved the BODY's cursor from line 3 to
+line 33 while `document.activeElement` never changed.
+
+Fix mirrors the exact same shape every other command in this category
+already uses (see `cursor-home`'s own `checkCallback`): title and
+`PROPERTY_TEXT_LIKE_EDIT_SELECTOR` claim-and-no-op (no "page" concept
+on any single-line widget), `BASES_TABLE_CONTAINER_SELECTOR` keeps its
+existing `return false` (the already-documented, confirmed-unfixable
+Bases-native-paging architectural wall — unchanged by this fix), and
+`PROPERTY_ANY_ITEM_SELECTION_SELECTOR` (row/heading/Add-button/pill/
+checkbox/date/datetime/number) claims-and-no-ops too.
+
+✅ `pageUpDownTitlePropertyFallthrough.e2e.ts`: (1) title no longer
+moves the body cursor; (2) a frontmatter text value no longer moves
+it; (3) a composing tag input no longer moves it; (4) regression —
+Bases cell-selection mode still returns `false`, unaffected by this
+fix. All red-confirmed via bisection (1-3 failed pre-fix, matching the
+diagnostic exactly; (4) passed even pre-fix, confirming it was
+untouched), then green.
+
+Full E2E suite: 302 passing, 6 failing — the same 5 pre-existing
+flaky specs tracked above, plus one new-looking failure
+(`undoInCellVLStale.e2e.ts`) that reproduced 0/3 times across 3
+isolated reruns of that file alone, confirming pre-existing
+cross-spec flakiness rather than a regression (this fix never touches
+table/cell undo logic at all).
+
+## Undo/Redo title/frontmatter/Bases fallthrough (fix/undo-redo-title-frontmatter-bases)
+
+In the title field, `Cmd`-`Z` (native undo) restores
+text but this plugin's own `Undo` command (recommended hotkey `Ctrl`+
+`/`) does nothing. Root cause: `undo`/`redo` were the only two editing
+commands still using `editorCallback`, which always calls
+`editor.undo()`/`editor.redo()` on the body's own CM6 `Editor`
+instance regardless of where focus actually is — every other editing
+command (Kill line, Delete char, etc.) was already ported to
+`checkCallback` with a title/property branch for 0.13.0, but Undo/Redo
+were missed. Title, the frontmatter text/tag widgets, and Bases cells
+(which reuse the same DOM classes) are none of them backed by the
+body's `Editor`, so `editor.undo()`/`redo()` can never reach them no
+matter where focus is.
+
+Fixed by giving `undo`/`redo` the same `checkCallback` shape as
+`Delete char` (`TITLE_SELECTOR` / `PROPERTY_TEXT_LIKE_EDIT_SELECTOR`,
+falling through to the body editor otherwise), dispatching to a new
+`titleUndo(el, redo)` helper that calls
+`el.ownerDocument.execCommand('undo'/'redo', false)` — the same
+`execCommand`-based technique `titleDeleteChar`/`propertyKeyDeleteChar`
+already use to stay integrated with each widget's own native
+(non-CM6) undo stack, now confirmed to extend to `'undo'`/`'redo'`
+themselves, including for the property-name field's plain `<input>`
+(a meaningfully different browser undo-manager path than the
+contenteditable widgets `titleDeleteChar.e2e.ts` had already proved
+`execCommand('undo')` works on).
+
+✅ `titleFrontmatterBasesUndoRedo.e2e.ts`: (1) title — `Ctrl`+`/`
+undoes a `Ctrl`-`D` delete, `Ctrl`+`Shift`+`/` redoes it; (2)
+frontmatter property value (text); (3) frontmatter property name (key
+input); (4) Bases table cell (text, via real `browser.keys()` — the
+active leaf is a `bases` view, not a `MarkdownView`, so the
+synthetic-`KeyboardEvent`-on-`activeElement` technique used for (1)-(3)
+doesn't apply here); (5) regression — a plain note body still falls
+through to `editor.undo()`/`redo()` unchanged (no existing spec
+exercised this plugin's own `undo`/`redo` COMMAND in the body before
+this fix — `vimTableUndoRedo.e2e.ts`/`undoInCellVLStale.e2e.ts` both
+cover native/Vim undo, not this command). All 5 confirmed via the
+actual `undo`/`redo` commands (their own hotkey or `executeCommandById`,
+real dispatch), not a raw `execCommand` call standing in for them.
+
+**Follow-up, found live right after the fix above shipped**: Kill line
+then Undo in the title re-selected the just-restored text, while the
+same sequence in the body (`editor.undo()`, CM6) leaves a collapsed
+cursor at the kill point instead — confirmed via a throwaway
+diagnostic (since deleted) comparing both side by side. CM6's own undo
+restores the exact pre-change selection (a collapsed cursor here,
+since Kill line never needs a prior selection to run), but the
+browser's native contenteditable/`<input>` undo manager re-selects
+whatever text an undo just re-inserted, regardless of what was
+selected beforehand — a genuine difference between the two undo
+mechanisms, not something this plugin asks for either way. Fixed by
+collapsing to the restored range's own start right inside `titleUndo`,
+immediately after `execCommand('undo'/'redo')`, whenever that leaves a
+non-collapsed selection (`Selection.getRangeAt(0).collapse(true)` for
+the contenteditable widgets, `el.setSelectionRange(caret, caret)` for
+the property-name `<input>`, mirroring the dual-path split
+`titleDeleteChar`/`propertyKeyDeleteChar` already use).
+
+(Kill region then Undo, in the body, DOES restore the pre-kill
+selection, by the same CM6 "restore exact prior selection" logic —
+that's expected CM6 behavior, not a bug. See the follow-up below for
+why this was still normalized away.)
+
+✅ `titleFrontmatterBasesUndoRedo.e2e.ts`, test (6): Kill line then
+`Ctrl`+`/` leaves a collapsed cursor with no selected text, confirmed
+for both the title and the frontmatter property-name field (the one
+case going through the `<input>`-specific `setSelectionRange` branch
+instead of `Selection`/`Range`). Red-confirmed via the same diagnostic
+before fixing, then green; the existing 5 tests above all still pass
+unaffected (their own post-undo states were already collapsed, so the
+added collapse call is a no-op for them).
+
+**Second follow-up: the body's own Undo/Redo normalized the same way**.
+A live diagnostic matrix across 8 body-side scenarios (Kill line, Kill
+region, Kill word right, Delete char, Yank at a collapsed cursor, Yank
+replacing a selection, Uppercase word on a selection, Kill region →
+Undo → Redo) confirmed the "Undo leaves an active selection" pattern
+from the paragraph above isn't specific to Kill region — it occurs for
+ANY command whose pre-mutation state had an active selection (Kill
+region, Yank-over-a-selection, Uppercase/Lowercase/Capitalize-word-on-
+a-selection all showed it; commands starting from a collapsed cursor,
+and the post-Redo state, didn't). This is CM6's own correct "restore
+exact prior state" semantics, not a UCH bug, but it leaves the title
+and the body inconsistent with each other — the title's own fix above
+unconditionally collapses after Undo/Redo regardless of what the
+pre-change state actually was (it was never conditioned on "only when
+the prior state was itself a collapsed cursor"), and real Emacs's own
+`undo` doesn't reactivate the region either (`transient-mark-mode`
+deactivates the mark on most commands, `undo` isn't special-cased to
+keep it active). Normalized the body to match both: `undo`/`redo`'s
+`checkCallback` fallback branch now calls the existing
+`collapseActiveSelectionToHead(editor)` helper (already used by
+Set-mark and Copy region) right after `editor.undo()`/`editor.redo()`.
+
+✅ `titleFrontmatterBasesUndoRedo.e2e.ts`, test (7): Kill region then
+`Ctrl`+`/` in the body leaves a collapsed cursor at the restored
+range's head, not the pre-kill selection. The existing 6 tests above
+all still pass unaffected (none of their post-undo states had an
+active selection to begin with, so the added collapse call is a no-op
+for them).

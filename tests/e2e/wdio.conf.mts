@@ -37,6 +37,7 @@ export const config: WebdriverIO.Config = {
 		'./specs/multicellCaseConversion.e2e.ts',
 		'./specs/multicellSelectionArrowClear.e2e.ts',
 		'./specs/killYankMultiCursor.e2e.ts',
+		'./specs/killChainSplitPaneEcho.e2e.ts',
 		'./specs/copyRegionSelectionCollapse.e2e.ts',
 		'./specs/exitTableSmartHome.e2e.ts',
 		'./specs/setMarkTableSkip.e2e.ts',
@@ -86,6 +87,9 @@ export const config: WebdriverIO.Config = {
 		'./specs/propertyValueEditDeleteChar.e2e.ts',
 		'./specs/propertyValueEditWordMotion.e2e.ts',
 		'./specs/propertyOtherTypesCtrlGPnbf.e2e.ts',
+		'./specs/propertyMultiselectPillFallthrough.e2e.ts',
+		'./specs/propertyMultiselectWordLeftPillEscape.e2e.ts',
+		'./specs/propertyPillKillWordYankRoundtrip.e2e.ts',
 		'./specs/propertyNameEdit.e2e.ts',
 		'./specs/basesPropertyEditing.e2e.ts',
 		'./specs/basesCellNavigation.e2e.ts',
@@ -96,6 +100,9 @@ export const config: WebdriverIO.Config = {
 		'./specs/basesPageUpDownCollision.e2e.ts',
 		'./specs/frontmatterRecenter.e2e.ts',
 		'./specs/titleCrossingFrontmatter.e2e.ts',
+		'./specs/propertySimpleTypeCommandFallthrough.e2e.ts',
+		'./specs/nativeWidgetShiftArrowAutoArm.e2e.ts',
+		'./specs/pageUpDownTitlePropertyFallthrough.e2e.ts',
 	]],
 
 	// Serial by default — confirmed live that running multiple Obsidian/
